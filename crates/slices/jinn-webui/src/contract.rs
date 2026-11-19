@@ -160,6 +160,13 @@ pub const DRAWER_OPEN_CLASS: &str = "drawer-open";
 /// The menu's action name — the one item's action attribute value.
 pub const ACTION_MENU_SESSIONS: &str = "menu-sessions";
 
+/// The drawer scrim — the full-viewport overlay behind the off-canvas
+/// sidebar when the drawer is open. Static shell markup (inert at
+/// boot, never swaps — the Static chrome rule), present in every
+/// fresh render, so unlike [`DRAWER_OPEN_CLASS`] it **is** a
+/// [`DOM_CONSTANTS`] member and the referential gate holds it.
+pub const DRAWER_SCRIM_ID: &str = "drawer-scrim";
+
 // ── Endpoints ───────────────────────────────────────────────────────
 
 /// The landing/session page path (the client's entry URL).
@@ -280,6 +287,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     MENU_PANEL_ID,
     MENU_ITEM_SESSIONS_ID,
     ACTION_MENU_SESSIONS,
+    DRAWER_SCRIM_ID,
 ];
 
 /// The contract's endpoint constants a client can build a URL from.

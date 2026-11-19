@@ -73,6 +73,7 @@ function pageShell(): Window {
           <div id="${wire.COMPOSER_ID}"><textarea id="${wire.INPUT_ID}"></textarea></div>
         </div>
       </main>
+      <div id="${wire.DRAWER_SCRIM_ID}" hidden></div>
     </div>`;
   // The region modules (and the browser runtime) resolve `document`
   // globally.
@@ -534,6 +535,45 @@ test("the Sessions item toggles the drawer-open class on the page root", () => {
   );
 });
 
+test("activating the Sessions item shows the scrim with the drawer", () => {
+  // Given the page shell with the menu open and the scrim hidden (the
+  // server ships it hidden).
+  const window = pageShell();
+  const region = regions().find((candidate) => candidate.id === "menu")!;
+  region.onClick!(el(window.document.getElementById(wire.MENU_BUTTON_ID)!));
+  assert.equal(hiddenOf(window, wire.DRAWER_SCRIM_ID), true, "the scrim boots hidden");
+
+  // When activating the item.
+  region.onClick!(el(window.document.getElementById(wire.MENU_ITEM_SESSIONS_ID)!));
+
+  // Then the scrim is shown exactly while the drawer is open.
+  assert.equal(
+    hiddenOf(window, wire.DRAWER_SCRIM_ID),
+    false,
+    "the scrim shows with the drawer",
+  );
+});
+
+test("clicking the scrim closes the drawer and hides the scrim", () => {
+  // Given the page shell with the drawer open (scrim showing).
+  const window = pageShell();
+  const region = regions().find((candidate) => candidate.id === "menu")!;
+  const root = window.document.getElementById(wire.PAGE_ROOT_ID)!;
+  region.onClick!(el(window.document.getElementById(wire.MENU_BUTTON_ID)!));
+  region.onClick!(el(window.document.getElementById(wire.MENU_ITEM_SESSIONS_ID)!));
+
+  // When the click delegation claims the scrim itself.
+  const scrim = window.document.getElementById(wire.DRAWER_SCRIM_ID)!;
+  assert.equal(region.onClick!(el(scrim)), true, "the menu region claims the scrim");
+
+  // Then the drawer-open class is gone and the scrim hides again.
+  assert.ok(
+    !root.classList.contains(wire.DRAWER_OPEN_CLASS),
+    "the drawer closed on the scrim click",
+  );
+  assert.equal(hiddenOf(window, wire.DRAWER_SCRIM_ID), true, "the scrim hid");
+});
+
 test("a second Sessions activation removes the drawer-open class", () => {
   // Given the page shell with the drawer already open.
   const window = pageShell();
@@ -583,6 +623,58 @@ test("Escape with focus on body closes an open menu", () => {
   );
 });
 
+test("Escape closes an open drawer and hides the scrim", () => {
+  // Given the page shell with the drawer open (menu closed).
+  const window = pageShell();
+  const region = regions().find((candidate) => candidate.id === "menu")!;
+  const root = window.document.getElementById(wire.PAGE_ROOT_ID)!;
+  region.onClick!(el(window.document.getElementById(wire.MENU_BUTTON_ID)!));
+  region.onClick!(el(window.document.getElementById(wire.MENU_ITEM_SESSIONS_ID)!));
+
+  // When the document-level keydown hook receives Escape.
+  const handled = region.onDocumentKeyDown!(
+    { key: "Escape" } as unknown as KeyboardEvent,
+  );
+
+  // Then the hook consumed it and the drawer closed, scrim hidden.
+  assert.equal(handled, true, "the open drawer consumes Escape");
+  assert.ok(
+    !root.classList.contains(wire.DRAWER_OPEN_CLASS),
+    "the drawer closed",
+  );
+  assert.equal(hiddenOf(window, wire.DRAWER_SCRIM_ID), true, "the scrim hid");
+});
+
+test("Escape with menu and drawer both open closes both in one press", () => {
+  // Given the page shell with the menu open AND the drawer open (the
+  // item leaves the drawer open; a second hamburger press can reopen
+  // the menu on top of it).
+  const window = pageShell();
+  const region = regions().find((candidate) => candidate.id === "menu")!;
+  const root = window.document.getElementById(wire.PAGE_ROOT_ID)!;
+  region.onClick!(el(window.document.getElementById(wire.MENU_BUTTON_ID)!));
+  region.onClick!(el(window.document.getElementById(wire.MENU_ITEM_SESSIONS_ID)!));
+  region.onClick!(el(window.document.getElementById(wire.MENU_BUTTON_ID)!));
+
+  // When the document-level keydown hook receives Escape.
+  const handled = region.onDocumentKeyDown!(
+    { key: "Escape" } as unknown as KeyboardEvent,
+  );
+
+  // Then both close — the dismissal order is menu-then-drawer in one
+  // pass, not one press per overlay.
+  assert.equal(handled, true, "the press was consumed");
+  assert.equal(
+    hiddenOf(window, wire.MENU_PANEL_ID),
+    true,
+    "the menu closed",
+  );
+  assert.ok(
+    !root.classList.contains(wire.DRAWER_OPEN_CLASS),
+    "the drawer closed",
+  );
+});
+
 test("Escape when the menu is closed is declined", () => {
   // Given the page shell with the menu closed.
   pageShell();
@@ -606,19 +698,25 @@ test("a page swap resets the drawer-open class structurally", () => {
   region.onClick!(el(window.document.getElementById(wire.MENU_ITEM_SESSIONS_ID)!));
 
   // When a page swap replaces #page-root's outerHTML with a fresh
-  // server render (which never carries the class).
+  // server render (which never carries the class, and whose scrim
+  // ships hidden).
   const fresh = window.document.createElement("div");
   fresh.id = wire.PAGE_ROOT_ID;
   fresh.setAttribute(wire.PAGE_SESSION_DATA_ATTR, "22222222-2222-2222-2222-222222222222");
-  fresh.innerHTML = "<main id=\"main\"></main>";
+  fresh.innerHTML = `<main id="main"></main><div id="${wire.DRAWER_SCRIM_ID}" hidden></div>`;
   window.document.getElementById(wire.PAGE_ROOT_ID)!.outerHTML = fresh.outerHTML;
 
-  // Then the new page root carries no drawer-open class — view-local
-  // DOM state; the swap is the reset.
+  // Then the new page root carries no drawer-open class and the scrim
+  // is hidden — view-local DOM state; the swap is the reset.
   const after = window.document.getElementById(wire.PAGE_ROOT_ID)!;
   assert.ok(
     !after.classList.contains(wire.DRAWER_OPEN_CLASS),
     "the drawer state did not survive the swap",
+  );
+  assert.equal(
+    hiddenOf(window, wire.DRAWER_SCRIM_ID),
+    true,
+    "the scrim did not survive the swap",
   );
 });
 

@@ -139,6 +139,14 @@ export const DRAWER_OPEN_CLASS = "drawer-open";
 /** The menu item's action name (`data-webui-action` value). */
 export const ACTION_MENU_SESSIONS = "menu-sessions";
 
+/**
+ * The drawer scrim id — the static full-viewport overlay behind the
+ * off-canvas sidebar when the drawer is open. Present in every fresh
+ * server render (unlike the drawer-open class), so it rides the
+ * generated fixture.
+ */
+export const DRAWER_SCRIM_ID = "drawer-scrim";
+
 /** The streaming spinner — present above the composer while busy. */
 export const BUSY_SPINNER_ID = "busy-spinner";
 

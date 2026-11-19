@@ -33,11 +33,15 @@ pub const BASE_CSS: &str = r#"
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg);
        font: 15px/1.55 system-ui, sans-serif; }
-#page-root { display: flex; height: 100vh; }
+#page-root { display: flex; height: 100vh; height: 100dvh; }
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-#titlebar { padding: 10px 18px; border-bottom: 1px solid var(--border);
+#titlebar { padding: 10px 18px; padding-left: calc(18px + env(safe-area-inset-left));
+            padding-right: calc(18px + env(safe-area-inset-right));
+            padding-top: calc(10px + env(safe-area-inset-top));
+            border-bottom: 1px solid var(--border);
             display: flex; align-items: baseline; gap: 12px; }
-#titlebar .t { font-weight: 600; }
+#titlebar .t { font-weight: 600; min-width: 0; overflow: hidden;
+               text-overflow: ellipsis; white-space: nowrap; }
 #titlebar .m { color: var(--muted); font-size: 12px; }
 #menu { position: relative; display: inline-flex; }
 #menu-button { background: var(--panel); color: var(--fg);
@@ -148,6 +152,9 @@ pub struct PageTemplate {
     /// The menu region's host container id — the hamburger + panel
     /// render inside it in the titlebar.
     pub menu_id: &'static str,
+    /// The drawer scrim's id — the static shell overlay behind the
+    /// off-canvas sidebar when the drawer is open.
+    pub drawer_scrim_id: &'static str,
 }
 
 impl PageTemplate {
@@ -178,6 +185,7 @@ impl PageTemplate {
             controls_id: contract::CONTROLS_ID,
             session_title_id: "",
             menu_id: contract::MENU_ID,
+            drawer_scrim_id: contract::DRAWER_SCRIM_ID,
         }
     }
 
@@ -217,6 +225,7 @@ impl PageTemplate {
             controls_id: contract::CONTROLS_ID,
             session_title_id: contract::SESSION_TITLE_ID,
             menu_id: contract::MENU_ID,
+            drawer_scrim_id: contract::DRAWER_SCRIM_ID,
         }
     }
 }

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{ title }} — jinn</title>
   <script type="module" src="{{ vendor_prefix }}{{ app_js_versioned }}"></script>
   <style>{{ style|safe }}</style>
@@ -27,6 +27,7 @@
     </div>
     <div id="{{ controls_id }}">{{ controls_html|safe }}</div>
   </main>
+  <div id="{{ drawer_scrim_id }}" hidden></div>
   </div>
 </body>
 </html>
