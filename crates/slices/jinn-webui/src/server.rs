@@ -406,6 +406,15 @@ pub(crate) async fn transcript_pull(
 /// `POST /web/send` — deliver text into a live session. Responds with
 /// the re-rendered composer controls; the SSE `controls` event
 /// corrects any race within one batch window.
+///
+/// The controls render **optimistically busy**: the turn dispatch is
+/// async (the enqueue rides the bus), so a phase read here races it
+/// and usually still sees `Idle` — a `Send` fragment that lands after
+/// the phase-change push and clobbers the cancel button for the
+/// whole stream. An accepted send always turns (or queues behind one
+/// in flight), so busy is the honest answer; a refused send never
+/// renders (the error paths return early), and the settle push
+/// corrects the fragment at the turn's end.
 async fn send(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<Form<jinn_webui_msg::SendForm>, axum::extract::rejection::FormRejection>,
@@ -414,17 +423,9 @@ async fn send(
     crate::delivery::handle_send(shared.state(), shared.bus(), &form.session_id, &form.text)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    let busy = {
-        let guard = shared.read_state();
-        let id = parse_session_id(&form.session_id)?;
-        guard
-            .session
-            .get(&id)
-            .is_some_and(|session| session.phase().is_working())
-    };
     let html = crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
         form.session_id,
-        busy,
+        true,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(Fragment::new(html))

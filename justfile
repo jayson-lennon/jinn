@@ -615,6 +615,7 @@ gh-pr-close N COMMENT="":
 #   webui-test    — jsdom-tier client tests (node:test + happy-dom)
 #   webui-verify  — check + build + test: the full pre-ship loop
 #   webui-smoke   — the headless-chromium test (JINN_WEBUI_SMOKE=1 just webui-smoke)
+#   webui-e2e     — full-stack Playwright e2e (real jinn + sample backend)
 
 # Regenerate the client's contract fixture from the Rust source.
 # Runs before every TypeScript compile: the fixture is generated
@@ -705,6 +706,24 @@ webui-smoke:
     export JINN_WEBUI_SMOKE=1
     cargo test -p jinn-webui --lib smoke_tests
     echo '==> webui-smoke green'
+
+# Full-stack webui e2e: build the real binary, boot it against a
+# scratch paths root with the sample (keyless, network-free) backend,
+# and drive the page with headless Playwright. Standalone by design —
+# NOT part of `just test` or `webui-verify`; it is minutes-slow by
+# nature (binary build + boot + browser) and must not tax the fast
+# inner loop.
+webui-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo '==> cargo build --bin jinn'
+    cargo build --bin jinn
+    echo '==> npm ci (webui/client/e2e)'
+    npm ci --prefix webui/client/e2e
+    echo '==> playwright e2e'
+    npx --prefix webui/client/e2e playwright test \
+        --config webui/client/e2e/playwright.config.mjs
+    echo '==> webui-e2e green'
 
 # Bump version (major/minor/patch), commit, and tag in git
 bump LEVEL:

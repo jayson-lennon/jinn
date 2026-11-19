@@ -44,10 +44,11 @@ export const composerRegion: RegionModule = {
       void submit(sessionId).catch(reportFailure);
       return true;
     }
-    api.cancelTurn(sessionId)
-      .then(replaceControls)
-      .then(() => bindComposerInput(sessionId))
-      .catch(reportFailure);
+    // Same single-writer rule as submit(): the response fragment
+    // (still-busy state) is redundant while streaming and stale if
+    // the turn settled within the round-trip. The settle push is
+    // the one writer that knows the turn's true end.
+    api.cancelTurn(sessionId).catch(reportFailure);
     return true;
   },
 
@@ -128,12 +129,14 @@ async function submit(sessionId: string): Promise<void> {
   if (text.trim().length === 0) {
     return;
   }
-  // Optimistic nothing: the response replaces the controls (busy),
-  // and the SSE `controls` event settles the race. Clear only when
-  // the send was accepted, so a refusal keeps the user's text.
-  const replacement = await api.sendMessage(sessionId, text);
-  replaceControls(replacement);
-  bindComposerInput(sessionId);
+  // Clear only when the send was accepted, so a refusal keeps the
+  // user's text. The response fragment is deliberately not swapped
+  // in: the SSE `controls` push is the composer's single writer.
+  // A POST response is computed from a phase read that races the
+  // drain — for a turn that settled within the round-trip it would
+  // land AFTER the settle push and pin stale state with nothing
+  // left to correct it. The push never races itself.
+  await api.sendMessage(sessionId, text);
   const fresh = composerText();
   if (fresh !== null) {
     (fresh.element as unknown as { value: string }).value = "";
@@ -149,23 +152,14 @@ async function submit(sessionId: string): Promise<void> {
 /**
  * Replaces the composer-controls fragment — the send↔cancel swap.
  *
+ * The SSE `controls` handler is this module's only caller: the push
+ * is the controls' single writer, so a POST response never swaps.
+ *
  * @param html - The server-rendered controls markup.
  * @throws Error when the controls container is missing.
  */
 export function replaceControls(html: string): void {
   byControlsId().innerHTML = html;
-}
-
-/**
- * The Enter binding rides the document-level keydown delegation and
- * survives every swap by construction; this function exists so the
- * old rebind call sites (send success, cancel) keep a named step and
- * any future per-element binding lands in exactly one place.
- *
- * @param _sessionId - The session the composer currently targets.
- */
-export function bindComposerInput(_sessionId: string): void {
-  // Delegation handles it; nothing to do. See onKeyDown.
 }
 
 /** Resolves the controls container or throws naming the target. */

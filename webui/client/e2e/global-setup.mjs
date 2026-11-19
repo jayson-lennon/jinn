@@ -1,0 +1,58 @@
+//! Playwright global setup — boots the scratch jinn once per run.
+//!
+//! After the bind accepts, the boot session is switched to the sample
+//! model: a fresh db has no `last_model`, so the session would
+//! otherwise sit on `__no_provider__` and the picker flows would have
+//! nothing to be "current". The switch goes through the same POST the
+//! page's own delegation issues, so it doubles as a boot-of-record
+//! that the switch endpoint works.
+//!
+//! Writes the run coordinates (baseUrl especially) where both the
+//! Playwright config and the teardown hook can read them.
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { startJinn } from "./harness.mjs";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+export const BASE_URL_FILE = path.join(here, ".run", "base-url.txt");
+
+const BOOT_MODEL = "sample/sample";
+
+/**
+ * Activates the boot session's sample model over the web surface.
+ *
+ * # Errors
+ *
+ * Throws when the sessions list or the switch endpoint misbehaves —
+ * a boot that cannot switch models cannot run the suite.
+ */
+async function switchBootModel(baseUrl) {
+  const sessionsHtml = await fetch(`${baseUrl}/web/sessions`).then((r) => r.text());
+  const sessionId = /data-session-id="([^"]+)"/.exec(sessionsHtml)?.[1];
+  if (!sessionId) throw new Error("no session row in the freshly booted sessions list");
+
+  const body = new URLSearchParams({
+    session_id: sessionId,
+    provider_id: BOOT_MODEL,
+  });
+  const res = await fetch(`${baseUrl}/web/model`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) {
+    throw new Error(`model switch failed: ${res.status} ${await res.text()}`);
+  }
+  return sessionId;
+}
+
+/** @returns {Promise<void>} Playwright's global-setup contract. */
+export default async function globalSetup() {
+  const run = await startJinn();
+  const sessionId = await switchBootModel(run.baseUrl);
+  fs.mkdirSync(path.dirname(BASE_URL_FILE), { recursive: true });
+  fs.writeFileSync(BASE_URL_FILE, run.baseUrl);
+  process.stdout.write(`==> jinn up at ${run.baseUrl} (session ${sessionId})\n`);
+}
