@@ -116,6 +116,7 @@ async fn harness_seeded_with_fanout(
             provider_cell,
             jinn_provider_config::ProviderRegistryService::new(registry),
             jinn_provider_config::ApiKeysService::new(api_keys),
+            jinn_config::empty_config_layer().clone(),
             fanout.clone(),
             0,
             "serve-test".to_owned(),

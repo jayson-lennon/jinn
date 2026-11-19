@@ -178,6 +178,7 @@ pub async fn activate(
             provider_cell,
             provider_registry: services.provider_registry.clone(),
             api_keys: services.api_keys.clone(),
+            config: config.clone(),
             fanout,
             version: env!("CARGO_PKG_VERSION").to_owned(),
         },
@@ -196,6 +197,9 @@ mod listener_tests;
 
 #[cfg(test)]
 mod server_tests;
+
+#[cfg(test)]
+mod session_new_tests;
 
 #[cfg(test)]
 mod sessions_list_tests;

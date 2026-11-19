@@ -42,6 +42,44 @@ pub struct ModelForm {
     pub provider_id: String,
 }
 
+/// `POST /web/session-new` — create a session through the shared
+/// creation path.
+///
+/// `project` names a `[[project.entry]]` entry by its configured
+/// (raw, `~`-allowed) path string — the form's select renders one
+/// option per entry with exactly this value, and the server matches
+/// it against the configured list before expanding. `lifecycle` is a
+/// `[[session_lifecycle.script]]` name, or the empty string for the
+/// blank lifecycle (the form's first row). `args` is the quote-
+/// preserving space-delimited text the TUI arg popup parses; the
+/// server splits it with the same parser.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+pub struct CreateSessionForm {
+    /// The chosen project entry's configured path string.
+    #[serde(default)]
+    pub project: String,
+    /// The lifecycle name, or empty for the blank lifecycle.
+    #[serde(default)]
+    pub lifecycle: String,
+    /// The raw args text; absent reads as no args at all.
+    #[serde(default)]
+    pub args: Option<String>,
+}
+
+/// `GET /web/session-new` — the new-session form fragment pull.
+///
+/// `lifecycle` names the lifecycle the form should render selected
+/// and, when its setup declares parameters, render the args input
+/// for; absent or empty selects the blank row. The value is echoed
+/// back into the fragment, so a re-pull after a lifecycle change
+/// shows that lifecycle's form.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+pub struct SessionNewQuery {
+    /// The lifecycle the form renders for; absent or empty → blank.
+    #[serde(default)]
+    pub lifecycle: Option<String>,
+}
+
 /// `POST /web/models/refresh` — the modal's refresh-models action.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModelsRefreshForm {

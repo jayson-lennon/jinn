@@ -183,6 +183,51 @@ export function refreshModels(sessionId: string): Promise<string> {
 }
 
 /**
+ * Pulls the new-session form fragment for a lifecycle. Absent or
+ * empty selects the blank lifecycle (the form's first row); a
+ * lifecycle change re-pulls with that name, and the server renders
+ * the args input only when the lifecycle's setup declares
+ * parameters. A configured-but-unknown lifecycle refuses with 400.
+ *
+ * @param lifecycle - The lifecycle name, or empty for the blank row.
+ * @returns The modal fragment (or refusal wrapper) HTML.
+ * @throws Error on network failure or a non-2xx status.
+ */
+export function pullSessionNew(lifecycle: string): Promise<string> {
+  const query =
+    lifecycle.length > 0
+      ? `?${wire.SESSION_NEW_LIFECYCLE_QUERY_PARAM}=${encodeURIComponent(lifecycle)}`
+      : "";
+  return get(`${wire.SESSION_CREATE_PATH}${query}`);
+}
+
+/**
+ * Creates a session through the shared creation path. The POST
+ * answers with the NEW session's whole page — the activation
+ * response shape — so the caller navigates exactly as an activate
+ * does.
+ *
+ * @param project - The configured project path string (a
+ * `[[project.entry]]` entry's raw value).
+ * @param lifecycle - The lifecycle name, or empty for the blank row.
+ * @param args - The raw args text, or empty for none.
+ * @returns The full page HTML for the created session.
+ * @throws Error on network failure, a non-2xx status, or the
+ * server's refusal (unknown project/lifecycle, short args — 400s).
+ */
+export function createSession(
+  project: string,
+  lifecycle: string,
+  args: string,
+): Promise<string> {
+  const fields = [encodeField("project", project), encodeField("lifecycle", lifecycle)];
+  if (args.length > 0) {
+    fields.push(encodeField("args", args));
+  }
+  return postForm(wire.SESSION_CREATE_PATH, fields.join("&"));
+}
+
+/**
  * GETs a URL, asserting a 2xx response.
  *
  * @param url - The URL to fetch.

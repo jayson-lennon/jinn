@@ -195,6 +195,16 @@ impl WebUiFanoutActor {
             .handles::<SessionArchived>()
             .handles::<SessionLibraryMembershipChanged>()
             .handles::<ModelCacheStored>()
+            // A browser-created session must reach every connected
+            // page's sidebar without a reload (the creation POST's
+            // response reaches only the creating page), and the async
+            // setup's outcome must reach that creating page's
+            // transcript. Both are Events — broadcast is legal for any
+            // number of declarants — and neither carries creation
+            // logic here: the handlers below render existing region
+            // fragments only.
+            .handles::<jinn_session_lifecycle_msg::SessionCreated>()
+            .handles::<jinn_session_lifecycle_msg::SessionSetupCompleted>()
             .handles::<FlushTick>()
             // Arms the first flush ~1 tick after spawn; the chain
             // self-perpetuates from the handler.
@@ -503,6 +513,48 @@ impl WebUiFanoutActor {
             });
         }
     }
+
+    /// A browser-created session landed: refresh the sessions list.
+    /// Synchronous work only; `async` is the `MsgHandler::handle`
+    /// signature's shape, dropped here.
+    pub(crate) fn on_session_created(&mut self, msg: &jinn_session_lifecycle_msg::SessionCreated) {
+        // Every page's sidebar refreshes so it lists the new session —
+        // the same live-only refresh shape the other "the list
+        // changed" events push. The creating page also receives this
+        // (its POST response carries the new page, whose sidebar is
+        // already fresh; the double render is the same harmless
+        // overlap a rename POST causes).
+        self.push_sessions_refresh(&msg.session_id);
+    }
+
+    /// The setup script's async outcome: push the transcript-full
+    /// convergence for that session. Synchronous work only; `async`
+    /// is the `MsgHandler::handle` signature's shape, dropped here.
+    pub(crate) fn on_session_setup_completed(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionSetupCompleted,
+    ) {
+        // Success notes and error entries alike land in the session's
+        // history before this event fires (the lifecycle actor's own
+        // handling), so the transcript-full convergence push is the
+        // whole visibility path: cursor 0, full replace, exactly the
+        // shape a settle's convergence uses. This is NOT
+        // `settle_to_idle`: the session is not settling phases here,
+        // and flipping the composer controls would lie about the
+        // session's state.
+        let session_id = &msg.session_id;
+        let transcript_html = {
+            let guard = self.state.read();
+            crate::region::owner_of(SseKind::TranscriptFull)
+                .map_or_default(|region| region.render(session_id, &guard))
+        };
+        self.broadcast(SseEnvelope {
+            kind: SseKind::TranscriptFull,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html: transcript_html,
+        });
+    }
 }
 
 /// The settle push order: every region's `settle_kinds` flattened in
@@ -622,5 +674,25 @@ impl MsgHandler<ModelCacheStored> for WebUiFanoutActor {
         // event's timestamp rides the push so the frame dispatches
         // (a signal with an empty data line never fires).
         self.push_models_changed(msg.stored_at);
+    }
+}
+
+impl MsgHandler<jinn_session_lifecycle_msg::SessionCreated> for WebUiFanoutActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionCreated,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        self.on_session_created(msg);
+    }
+}
+
+impl MsgHandler<jinn_session_lifecycle_msg::SessionSetupCompleted> for WebUiFanoutActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionSetupCompleted,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        self.on_session_setup_completed(msg);
     }
 }

@@ -136,8 +136,8 @@ mod menu_region_tests {
         let html = fragment();
 
         // Then it renders the hamburger button, the hidden panel, and
-        // exactly one item naming "Sessions" — the region's whole
-        // page presence.
+        // both items — the new-session item (this task's addition) and
+        // the sessions item — the region's whole page presence.
         assert!(
             html.contains(&format!("id=\"{}\"", contract::MENU_BUTTON_ID)),
             "the hamburger button is missing: {html}"
@@ -150,8 +150,12 @@ mod menu_region_tests {
             html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_SESSIONS_ID)),
             "the Sessions item is missing: {html}"
         );
+        assert!(
+            html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_NEW_SESSION_ID)),
+            "the New session item is missing: {html}"
+        );
         let items = html.matches("menu-item").count();
-        assert_eq!(items, 1, "the panel lists exactly one item: {html}");
+        assert_eq!(items, 2, "the panel lists both items: {html}");
         assert!(
             html.contains("Sessions"),
             "the item labels Sessions: {html}"

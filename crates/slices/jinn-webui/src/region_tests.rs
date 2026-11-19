@@ -71,6 +71,7 @@ fn harness() -> (State, ServerShared) {
             .expect("an empty providers config expands"),
         ),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
         fanout,
         0,
         "region-test".to_owned(),
@@ -116,7 +117,14 @@ fn the_registry_ids_are_unique_and_mirror_the_client_modules() {
     // on when a reader jumps from one half of a region to the other.
     let mut sorted = ids.clone();
     sorted.sort_unstable();
-    let expected = ["composer", "menu", "model-picker", "sessions", "transcript"];
+    let expected = [
+        "composer",
+        "menu",
+        "model-picker",
+        "session-new",
+        "sessions",
+        "transcript",
+    ];
     assert_eq!(sorted, expected, "the registry ids are fixed vocabulary");
 }
 

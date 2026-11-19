@@ -36,6 +36,7 @@ import { transcriptRegion } from "./transcript.js";
 import { composerRegion } from "./composer.js";
 import { modelPickerRegion } from "./model_picker.js";
 import { menuRegion } from "./menu.js";
+import { sessionNewRegion } from "./session_new.js";
 
 /** One SSE event, as EventSource delivers it. */
 export interface SseEventLike {
@@ -115,6 +116,7 @@ const REGIONS: readonly RegionModule[] = [
   composerRegion,
   modelPickerRegion,
   menuRegion,
+  sessionNewRegion,
 ];
 
 /** The registered regions, in registration order. */

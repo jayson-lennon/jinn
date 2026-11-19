@@ -306,6 +306,58 @@ async fn thinking_tokens_render_in_the_thinking_span() {
     );
 }
 
+#[rstest::rstest]
+#[tokio::test]
+async fn session_created_pushes_a_sessions_list_refresh() {
+    // Given a fan-out actor and a subscriber.
+    let (mut actor, mut rx, _state, _marks) = fixture();
+    let id = jinn_core_types::SessionId::new();
+
+    // When a browser-created session event lands.
+    actor.on_session_created(&jinn_session_lifecycle_msg::SessionCreated {
+        session_id: id.clone(),
+        cwd: jinn_chat_input_msg::home_dir(),
+    });
+
+    // Then the pushed envelope is a sessions-list refresh for that
+    // session — every connected page's sidebar updates.
+    let envelope = rx.try_recv().expect("the sessions push");
+    assert_eq!(envelope.kind, SseKind::Sessions);
+    assert_eq!(envelope.session_id, id);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn session_setup_completed_pushes_a_transcript_convergence_for_that_session() {
+    // Given a fan-out actor, a subscriber, and a seeded session with
+    // one entry (the entry the setup failure/success note wrote).
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    if let Some(session) = state.write().session.get_mut(&id) {
+        session.push_entry(jinn_core_types::ChatEntry::user("setup ran"));
+    }
+
+    // When the setup-completed event lands.
+    actor.on_session_setup_completed(&jinn_session_lifecycle_msg::SessionSetupCompleted {
+        session_id: id.clone(),
+        cwd: jinn_chat_input_msg::home_dir(),
+        error: None,
+    });
+
+    // Then the pushed envelope is a transcript-full convergence for
+    // that session, carrying the entry — cursor 0, full replace; and
+    // the composer controls are untouched (one push only).
+    let envelope = rx.try_recv().expect("the transcript push");
+    assert_eq!(envelope.kind, SseKind::TranscriptFull);
+    assert_eq!(envelope.session_id, id);
+    assert_eq!(envelope.cursor, 0);
+    assert!(envelope.html.contains("setup ran"), "{}", envelope.html);
+    assert!(
+        rx.try_recv().is_err(),
+        "no controls push rides the setup completion"
+    );
+}
+
 // ── The unread mark: set on an unseen settle ────────────────────────
 
 /// A phase-change event naming the transition.

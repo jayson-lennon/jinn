@@ -81,6 +81,7 @@ async fn serve_with_session(title: &str, entry_text: &str) -> (String, jinn_core
             .expect("an empty providers config expands"),
         ),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
         fanout,
         0,
         "smoke-test".to_owned(),

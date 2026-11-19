@@ -282,13 +282,14 @@ test("the registered region ids mirror the server registry one for one", () => {
   // Given the registered client regions.
   const clientIds = regions().map((region) => region.id).sort();
 
-  // Then they are exactly the five server regions — the client and
+  // Then they are exactly the six server regions — the client and
   // server registries must not drift apart silently. (A server region
   // shipping without its client half fails here.)
   assert.deepEqual(clientIds, [
     "composer",
     "menu",
     "model-picker",
+    "session-new",
     "sessions",
     "transcript",
   ]);

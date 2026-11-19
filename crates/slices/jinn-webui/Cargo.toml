@@ -11,6 +11,7 @@ description = "The webui slice: an unauthenticated HTTP web UI (server-rendered 
 # publishes/subscribes. No other slice's implementation crate; the only
 # workspace consumer is the jinn binary (composition).
 jinn-preferences-config = { workspace = true }
+marked-path = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-webui-msg = { workspace = true }
 jinn-config = { workspace = true }
@@ -29,6 +30,11 @@ jinn-selection-widget = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-theme = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
+# The new-session form reuses the lifecycle contract's arg vocabulary —
+# `parse_quoted_args` (the TUI arg popup's parser) and `CommandTemplate`
+# parameter counts. Contract crate only: never the lifecycle
+# implementation slice.
+jinn-session-lifecycle-msg = { workspace = true }
 jinn-inference-msg = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-provider-selection-msg = { workspace = true }
@@ -59,6 +65,9 @@ async-trait = { workspace = true }
 # scan its specifiers.
 flate2 = "1"
 jinn-testutil = { workspace = true }
+# The creation tests seed the full cell registry the way composition
+# does before the shared creation path resolves its cells.
+jinn-cell-catalog = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 # The serve-and-request tier: tests bind a real listener on port 0 and
