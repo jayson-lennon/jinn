@@ -25,6 +25,7 @@ use jinn_kernel::State;
 use jinn_slices::Slices;
 use jinn_slices::bus::BusService;
 
+use crate::fanout::FanoutHandle;
 use crate::server::ServerShared;
 use crate::server::router;
 
@@ -33,7 +34,12 @@ use crate::server::router;
 /// id returned with the base URL). The serve task runs for the test's
 /// life.
 async fn harness(titled: Option<&str>) -> (String, Option<SessionId>) {
-    harness_with(titled, |_registry, _keys| {}).await
+    let (base, seeded, _fanout) = harness_with_fanout(titled).await;
+    (base, seeded)
+}
+
+async fn harness_with_fanout(titled: Option<&str>) -> (String, Option<SessionId>, FanoutHandle) {
+    harness_seeded_with_fanout(titled, |_registry, _keys| {}).await
 }
 
 /// [`harness`] with a hook over the provider registry and key store
@@ -42,6 +48,16 @@ async fn harness_with(
     titled: Option<&str>,
     seed: impl FnOnce(&mut jinn_provider_config::ProviderRegistry, &mut jinn_provider_config::ApiKeys),
 ) -> (String, Option<SessionId>) {
+    let (base, seeded, _fanout) = harness_seeded_with_fanout(titled, seed).await;
+    (base, seeded)
+}
+
+/// The one harness body: a live server, its seeded session, and the
+/// fan-out broadcast handle — every caller shape composes from this.
+async fn harness_seeded_with_fanout(
+    titled: Option<&str>,
+    seed: impl FnOnce(&mut jinn_provider_config::ProviderRegistry, &mut jinn_provider_config::ApiKeys),
+) -> (String, Option<SessionId>, FanoutHandle) {
     let slices = Slices::new();
     let provider_cell = slices
         .register(
@@ -94,7 +110,7 @@ async fn harness_with(
             provider_cell,
             jinn_provider_config::ProviderRegistryService::new(registry),
             jinn_provider_config::ApiKeysService::new(api_keys),
-            fanout,
+            fanout.clone(),
             0,
             "serve-test".to_owned(),
         )
@@ -107,7 +123,7 @@ async fn harness_with(
     tokio::spawn(async move {
         let _ = axum::serve(listener, router(shared)).await;
     });
-    (format!("http://{addr}"), seeded)
+    (format!("http://{addr}"), seeded, fanout)
 }
 
 /// Installs the ring crypto provider for the reqwest client. The
@@ -828,4 +844,61 @@ async fn the_session_page_carries_the_session_data_attribute_over_the_wire() {
         "{body}"
     );
     assert!(body.contains("Wired session"), "{body}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_models_push_reaches_a_live_stream_as_a_dispatchable_frame_with_data() {
+    // Given a live server holding a session and an open SSE stream
+    // (the browser-shaped reader: frames arrive as bytes).
+    let (base, seeded, harness_fanout) = harness_with_fanout(Some("Models push wire")).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    let mut stream = http
+        .get(format!("{base}{}{id}", crate::contract::STREAM_PREFIX))
+        .header("accept", "text/event-stream")
+        .send()
+        .await
+        .expect("the stream opens");
+    assert_eq!(stream.status(), 200);
+
+    // When the fan-out's broadcast channel carries a models envelope
+    // whose data line holds the cache-write timestamp — the shape the
+    // post-cache-write publish produces (the wire e2e for the
+    // never-stops-spinner fix: what a browser receives, byte-level).
+    let stored_at = jiff::Timestamp::now();
+    harness_fanout.push_models_changed_from(&id, stored_at);
+
+    // Then the stream yields a `models` frame whose data line is
+    // non-empty: a browser dispatches an SSE event only when its data
+    // buffer holds bytes, so an empty line here is the
+    // never-stops-spinner bug re-enabled at the byte level.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut saw_models_with_data = false;
+    while std::time::Instant::now() < deadline {
+        let Some(chunk) = stream.chunk().await.expect("stream chunk reads") else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&chunk);
+        for frame in text.split("\n\n") {
+            if frame.contains("event: models") {
+                assert!(
+                    frame.lines().any(|line| line
+                        .strip_prefix("data:")
+                        .is_some_and(|data| !data.trim().is_empty())),
+                    "the models frame must carry a data line with bytes (an empty \
+                     data buffer is never dispatched by a browser): {frame:?}"
+                );
+                saw_models_with_data = true;
+            }
+        }
+        if saw_models_with_data {
+            break;
+        }
+    }
+    assert!(
+        saw_models_with_data,
+        "a models frame with a non-empty data line arrived within the deadline"
+    );
 }

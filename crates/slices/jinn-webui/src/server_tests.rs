@@ -699,6 +699,45 @@ mod actions {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn model_switch_response_names_the_picked_model_not_the_previous_one() {
+        // Given a live session and a configured provider (the harness
+        // registry's keyless `openai` offering `openai/gpt-4o`).
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting a model pick.
+        let (status, body) = post_form(
+            &router,
+            "/web/model",
+            &format!("session_id={id}&provider_id=openai%2Fgpt-4o"),
+        )
+        .await;
+
+        // Then the response's titlebar label AND button text name the
+        // picked model — the fragment is rendered from state that
+        // already holds the pick, never one switch behind (the
+        // stale-label bug: the bus is async, so a fragment rendered off
+        // a not-yet-applied command named the PREVIOUS model, and the
+        // button only caught up on the next interaction).
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("openai/gpt-4o"),
+            "the switch response must name the picked model: {body}"
+        );
+        // And the label span and the button agree with each other.
+        let label = body
+            .split("<span class=\"m\">")
+            .nth(1)
+            .and_then(|rest| rest.split("</span>").next())
+            .unwrap_or_default();
+        assert_eq!(
+            label, "openai/gpt-4o",
+            "the .m label must name the picked model: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn model_switch_accepts_a_cache_discovered_model_from_an_unknown_provider() {
         // Given a live session and a cache entry for a provider the
         // config does NOT list (an unknown provider is unavailable by

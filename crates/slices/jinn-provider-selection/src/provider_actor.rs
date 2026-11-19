@@ -341,9 +341,15 @@ impl ProviderActor {
     /// the system broadcast directly (the same path every other event
     /// this actor emits uses), so no outbox `.emits` declaration
     /// applies; ordering is guaranteed by call placement, strictly
-    /// after `store_model_cache` in every caller.
+    /// after `store_model_cache` in every caller. The event stamps the
+    /// write's timestamp as provenance: the webui's SSE envelope needs
+    /// a non-empty data line to dispatch (the browser drops empty-data
+    /// frames per the stream spec), and the bytes it carries are this.
     async fn publish_after_cache_write(&self) {
-        self.publish(ModelCacheStored).await;
+        self.publish(ModelCacheStored {
+            stored_at: jiff::Timestamp::now(),
+        })
+        .await;
     }
 
     /// Writes the merged cache into the provider cell.

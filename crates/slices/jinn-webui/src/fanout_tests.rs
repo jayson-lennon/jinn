@@ -149,11 +149,14 @@ async fn a_cache_stored_event_pushes_one_models_signal_and_one_transcript_per_li
 
     // When a cache-stored event lands (the provider cell already
     // holds the cache — the emit is post-write by contract).
-    actor.push_models_changed();
+    let stored_at = jiff::Timestamp::now();
+    actor.push_models_changed(stored_at);
 
     // Then each live session receives exactly two envelopes in order:
-    // the `models` SIGNAL (empty html, cursor 0 — rows arrive by the
-    // client's re-pull, never in the push) followed by the
+    // the `models` SIGNAL (cursor 0; its data line carries the write
+    // timestamp — a NON-EMPTY data line is the dispatch contract: the
+    // browser discards an SSE event with an empty data buffer, which
+    // is the never-stops-spinner bug) followed by the
     // transcript-full convergence render (cursor 0, full replace —
     // the carrier that puts the refresh summary transient on the page;
     // blank for a session that has not rendered any entry yet, which
@@ -164,10 +167,13 @@ async fn a_cache_stored_event_pushes_one_models_signal_and_one_transcript_per_li
     while let Ok(envelope) = rx.try_recv() {
         match envelope.kind {
             SseKind::Models => {
-                assert!(
-                    envelope.html.is_empty(),
-                    "the models push is a signal: {envelope:?}"
+                assert_eq!(
+                    envelope.html,
+                    stored_at.to_string(),
+                    "the models push carries the write timestamp as its data line \
+                     (empty data never dispatches in a browser): {envelope:?}"
                 );
+                assert!(!envelope.html.is_empty(), "dispatchable, not empty");
                 assert_eq!(envelope.cursor, 0);
                 seen_models.insert(envelope.session_id.clone());
             }

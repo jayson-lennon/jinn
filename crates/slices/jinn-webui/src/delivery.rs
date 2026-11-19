@@ -217,6 +217,26 @@ pub async fn handle_model(
             return Err(ActionError::UnknownSession(session_id));
         }
     }
+
+    // Apply the switch to the session state synchronously, BEFORE the
+    // publish: the POST's response fragment re-renders the titlebar from
+    // session state, and the bus is async — a response rendered between
+    // the publish and the actor's application of the command would name
+    // the PREVIOUS model (the stale-label bug: the button caught up only
+    // when a later interaction re-read state). The write is the same one
+    // the command's declarant applies (`ProviderActor`'s handler is this
+    // exact `set_model`), so the command's arrival re-applies it
+    // idempotently and no other reader can tell the difference — the
+    // command remains the writer of record for every OTHER subscriber,
+    // and this handler's own response is rendered from state that
+    // already holds the pick.
+    state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_model(ModelSelection::Single(model.to_owned()));
+    });
+
     bus.publish(ProviderSwitch {
         session_id,
         provider_id: ModelSelection::Single(model.to_owned()),
