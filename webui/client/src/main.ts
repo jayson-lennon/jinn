@@ -14,6 +14,7 @@ import * as dom from "./dom.js";
 import * as sse from "./sse.js";
 import * as wire from "./wire.js";
 import { bindPageSwap } from "./regions/sessions.js";
+import { bindNewSessionPageSwap } from "./regions/session_new.js";
 import { regions, type RegionModule } from "./regions/mod.js";
 
 /**
@@ -164,6 +165,7 @@ function delegateDocumentKeyDown(event: KeyboardEvent): void {
  */
 export function initialize(): void {
   bindPageSwap(swapPage);
+  bindNewSessionPageSwap(swapPage);
 
   document.addEventListener("click", (event) => {
     delegateClickOrChange(event.target, "click");

@@ -124,6 +124,10 @@ pub struct ServerShared {
     provider_registry: jinn_provider_config::ProviderRegistryService,
     /// The resolved API keys, for the picker rows' availability flags.
     api_keys: jinn_provider_config::ApiKeysService,
+    /// The user's config layer — the new-session form reads the
+    /// `[[project.entry]]` and `[[session_lifecycle.script]]` lists
+    /// from it (read-only: the web never writes jinn.toml).
+    config: jinn_slices::ConfigLayer,
     /// The fan-out's broadcast handle, for the SSE endpoint.
     fanout: crate::fanout::FanoutHandle,
     /// The bound port (reported by `/healthz`).
@@ -142,6 +146,7 @@ impl ServerShared {
         provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
         provider_registry: jinn_provider_config::ProviderRegistryService,
         api_keys: jinn_provider_config::ApiKeysService,
+        config: jinn_slices::ConfigLayer,
         fanout: crate::fanout::FanoutHandle,
         port: u16,
         version: String,
@@ -153,6 +158,7 @@ impl ServerShared {
             provider_cell,
             provider_registry,
             api_keys,
+            config,
             fanout,
             port,
             version,
@@ -213,6 +219,13 @@ impl ServerShared {
         &self.api_keys
     }
 
+    /// The user's config layer, for the new-session form's project
+    /// and lifecycle lists (read-only).
+    #[must_use]
+    pub(crate) fn config(&self) -> &jinn_slices::ConfigLayer {
+        &self.config
+    }
+
     /// The message fabric, for action publications.
     #[must_use]
     pub(crate) fn bus(&self) -> &BusService {
@@ -239,6 +252,7 @@ pub fn router(shared: ServerShared) -> Router {
         .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
         .route("/web/session/{id}/activate", post(activate))
         .route(crate::contract::RENAME_ROUTE, post(rename))
+        .route(crate::contract::SESSION_CREATE_PATH, post(create_session))
         .route("/vendor/{*path}", get(serve_vendor))
         .route("/healthz", get(health));
     crate::region::regions()
@@ -254,7 +268,7 @@ pub fn router(shared: ServerShared) -> Router {
 pub type HandlerError = (StatusCode, String);
 
 /// Maps a domain refusal or render failure to the response error.
-fn fail(status: u16, sentence: impl Into<String>) -> HandlerError {
+pub(crate) fn fail(status: u16, sentence: impl Into<String>) -> HandlerError {
     (
         StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
         sentence.into(),
@@ -523,6 +537,30 @@ async fn activate(
     // in live state yet; `page_session` falls through to the store and
     // the SSE `transcript-full` convergence push corrects any lag.
     page_session(AxumState(shared), AxPath(session_id)).await
+}
+
+/// `POST /web/session-new` — create a session through the shared
+/// creation path.
+///
+/// Runs [`crate::delivery::handle_create`] (the validations, the
+/// stash, and the shared creation function) and responds with the
+/// **new session's whole page** — the activation response shape,
+/// because creation activates the session instance-wide and one
+/// navigation mechanism serves both. The client swaps `#page-root`,
+/// updates the URL, and rebinds its stream exactly as it does after
+/// an activate POST.
+async fn create_session(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<Form<jinn_webui_msg::CreateSessionForm>, axum::extract::rejection::FormRejection>,
+) -> Result<Page, HandlerError> {
+    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    let created =
+        crate::delivery::handle_create(shared.state(), shared.bus(), shared.config(), &form)
+            .map_err(|error| fail(error.status(), error.sentence()))?;
+    // The new session's page — `page_session` renders whichever id it
+    // is handed; the created id is live in state (the shared path set
+    // it active), so no store fall-through is needed.
+    page_session(AxumState(shared), AxPath(created.to_string())).await
 }
 
 /// `POST /web/session/{id}/rename` — rename a live session.

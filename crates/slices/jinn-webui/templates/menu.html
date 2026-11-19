@@ -1,6 +1,7 @@
 <span id="{{ menu_id }}">
   <button id="{{ menu_button_id }}" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="{{ menu_panel_id }}">&#x2630;</button>
   <span id="{{ menu_panel_id }}" hidden>
+    <button id="{{ menu_item_new_session_id }}" {{ action_attr }}="{{ menu_new_session_action }}">New session</button>
     <button id="{{ menu_item_sessions_id }}" {{ action_attr }}="{{ menu_action }}">Sessions</button>
   </span>
 </span>

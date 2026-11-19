@@ -259,6 +259,7 @@ fn harness_with<T>(
             .expect("an empty providers config expands"),
         ),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
         fanout,
         0,
         "sessions-list-test".to_owned(),

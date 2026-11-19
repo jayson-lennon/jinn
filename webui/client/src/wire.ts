@@ -176,6 +176,31 @@ export const SEND_PATH = "/web/send";
 export const CANCEL_PATH = "/web/cancel";
 export const MODEL_PATH = "/web/model";
 export const MODELS_REFRESH_PATH = "/web/models/refresh";
+export const SESSION_CREATE_PATH = "/web/session-new";
+
+/** The new-session menu item's action name. */
+export const ACTION_MENU_NEW_SESSION = "menu-new-session";
+
+/** The new-session form submit's action name. */
+export const ACTION_SESSION_CREATE = "session-create";
+
+/** The new-session form pull's lifecycle query parameter. */
+export const SESSION_NEW_LIFECYCLE_QUERY_PARAM = "lifecycle";
+
+/** The new-session modal's ids — the modal and every form control. */
+export const SESSION_NEW_MODAL_HOST_ID = "session-new-modal-host";
+export const SESSION_NEW_MODAL_ID = "session-new-modal";
+export const SESSION_NEW_PROJECT_SELECT_ID = "session-new-project";
+export const SESSION_NEW_LIFECYCLE_SELECT_ID = "session-new-lifecycle";
+export const SESSION_NEW_ARGS_INPUT_ID = "session-new-args";
+export const SESSION_NEW_SUBMIT_ID = "session-new-submit";
+export const SESSION_NEW_EMPTY_ID = "session-new-empty";
+
+/** The lifecycle option attribute carrying the setup's param count. */
+export const SESSION_NEW_PARAM_COUNT_ATTR = "data-param-count";
+
+/** The new-session menu item's id. */
+export const MENU_ITEM_NEW_SESSION_ID = "menu-item-new-session";
 
 /**
  * The model-picker pull's prefix — the client builds picker URLs from

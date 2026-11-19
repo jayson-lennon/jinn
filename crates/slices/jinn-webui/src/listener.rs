@@ -68,6 +68,9 @@ pub struct WebUiListenerActorDeps {
     pub provider_registry: jinn_provider_config::ProviderRegistryService,
     /// The resolved API keys, for the picker rows' availability flags.
     pub api_keys: jinn_provider_config::ApiKeysService,
+    /// The user's config layer, for the new-session form's project
+    /// and lifecycle lists (read-only).
+    pub config: jinn_slices::ConfigLayer,
     /// The fan-out's broadcast handle, shared with the SSE endpoint.
     pub fanout: FanoutHandle,
     /// The serving binary's version.
@@ -123,6 +126,7 @@ impl WebUiListenerActor {
             deps.provider_cell.clone(),
             deps.provider_registry.clone(),
             deps.api_keys.clone(),
+            deps.config.clone(),
             deps.fanout.clone(),
             resolved,
             deps.version.clone(),

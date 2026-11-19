@@ -1,0 +1,94 @@
+//! New-session flow — the menu item, the creation modal, and the
+//! create POST's whole-page navigation.
+//!
+//! The `z` prefix is load-bearing: the tier's specs run in
+//! alphabetical file order against ONE scratch jinn (serial workers,
+//! shared db), and this spec CREATES a second session — every other
+//! spec's single-boot-session pin (`sessions`, `smoke`) must have
+//! run before it. Nothing may sort after this file.
+
+import { expect, test } from "@playwright/test";
+import * as sel from "./selectors.mjs";
+import { openSession } from "./nav.mjs";
+
+test("menu opens the new-session modal with project and lifecycle selects", async ({
+  page,
+}) => {
+  // Given a session page with the menu closed.
+  await openSession(page);
+
+  // When opening the menu and tapping the new-session item.
+  await page.locator(sel.MENU_BUTTON).click();
+  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
+
+  // Then the menu closed and the modal rendered with both selects —
+  // the project select carries the scratch config's entry, and the
+  // lifecycle select's first row is the blank one.
+  await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
+  const modal = page.locator(sel.SESSION_NEW_MODAL);
+  await expect(modal).toBeVisible();
+  const project = page.locator(sel.SESSION_NEW_PROJECT);
+  await expect(project).toBeVisible();
+  await expect(project).toHaveValue("~/e2e-scratch");
+  const lifecycle = page.locator(sel.SESSION_NEW_LIFECYCLE);
+  await expect(lifecycle).toBeVisible();
+  const firstOption = lifecycle.locator("option").first();
+  await expect(firstOption).toHaveAttribute("value", "");
+  // And the args input is absent for the blank lifecycle.
+  await expect(page.locator(sel.SESSION_NEW_ARGS)).toHaveCount(0);
+});
+
+test("selecting the parameterized lifecycle re-pulls with the args input", async ({
+  page,
+}) => {
+  // Given the modal open on the blank lifecycle.
+  await openSession(page);
+  await page.locator(sel.MENU_BUTTON).click();
+  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
+  const modal = page.locator(sel.SESSION_NEW_MODAL);
+  await expect(modal).toBeVisible();
+
+  // When selecting the scratch config's parameterized lifecycle.
+  await page
+    .locator(sel.SESSION_NEW_LIFECYCLE)
+    .selectOption("echo-setup");
+
+  // Then the re-pulled fragment renders the args input (one
+  // parameter), and the lifecycle row is selected.
+  const lifecycle = page.locator(sel.SESSION_NEW_LIFECYCLE);
+  await expect(lifecycle).toHaveValue("echo-setup");
+  const args = page.locator(sel.SESSION_NEW_ARGS);
+  await expect(args).toBeVisible();
+});
+
+test("creating a session lands on the new session's page", async ({ page }) => {
+  // Given the modal open on the blank lifecycle with the scratch
+  // project selected.
+  await openSession(page);
+  const beforeId = await page.locator(sel.PAGE_ROOT).getAttribute(
+    sel.PAGE_SESSION_ATTR,
+  );
+  await page.locator(sel.MENU_BUTTON).click();
+  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
+  const modal = page.locator(sel.SESSION_NEW_MODAL);
+  await expect(modal).toBeVisible();
+
+  // When submitting the form.
+  await page.locator(sel.SESSION_NEW_SUBMIT).click();
+
+  // Then the page swapped wholesale to the created session's page:
+  // the root's session id changed, the URL tracks it, the modal is
+  // gone, and the sidebar lists two sessions.
+  await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
+  await expect(modal).toHaveCount(0);
+  const root = page.locator(sel.PAGE_ROOT);
+  const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
+  if (!createdId || createdId === beforeId) {
+    throw new Error(`create did not navigate; page root id: ${createdId}`);
+  }
+  await expect(page).toHaveURL(
+    new RegExp(`${sel.SESSION_PAGE_PATH.replace("/", "/")}${createdId}`),
+  );
+  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(2);
+});

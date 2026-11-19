@@ -15,7 +15,7 @@
 
 [[assets]]
 served = "api.js"
-sha256 = "da653ac2d1829dfc23a8cf84508bed0ca9e95b6d62be089965dca48ce695bdd1"
+sha256 = "e779cc728e245ae3755bb1faaa0d1849fe395a851f6d349434c9dc4df78515c8"
 encoding = "gzip"
 
 [[assets]]
@@ -25,51 +25,56 @@ encoding = "gzip"
 
 [[assets]]
 served = "main.js"
-sha256 = "e11a0f4939f4b659f185e92bc865bc5b36ca2a3b5717b3fcafdcf477648445fa"
+sha256 = "d01c933df4522614d0064538aa67943de61ab7b4bc021235710745c748891f0d"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/composer.js"
-sha256 = "792a5f5a10665ba8284103b64de2a06231cfb52bc73d445c3f48f3b536c13194"
+sha256 = "668ebb17948c26b80fe3060efb5f8771e13f6455725b60d62011b295023bed27"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/menu.js"
-sha256 = "bd58bf0cab84eeaee88a9235e3994d8efbf421f9c0f064eb82daeac207593b0d"
+sha256 = "7ec4768bd15f7dd528bdc713e09e4142c7701be74ea2da8b23458375bc6ea15c"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/mod.js"
-sha256 = "8ace52173827603a4610bfe8ad08239a947dedae8a219471eb7c7804074c8331"
+sha256 = "22a6f5d1a2df2e69c36e1ef35d92cb95a95b355c52e8989698521a7229baf01a"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/model_picker.js"
-sha256 = "5932829073b901fae306ec3fff1052d9ec656e9e59a04f7de69be46bcf1c06f6"
+sha256 = "b39f6b9060443c00f8f813f529fd3a7a3c5242ad35a48477f339c3f38946d239"
+encoding = "gzip"
+
+[[assets]]
+served = "regions/session_new.js"
+sha256 = "6d10f2b008dafff0f8959263fc23597badd9dc99f7ad679c3e01e627bd61505d"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/sessions.js"
-sha256 = "7c893d7e4ea3cf531d13aa8ef20f69589e51b7e54f77bf3fb6e1ea604f765c6f"
+sha256 = "558885acecc1fb7d2297704cdc227bbd4b72711e0f831828b670a9e2113a52dd"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/transcript.js"
-sha256 = "19eeeb99f98f028cae426cb627aebe68a5f70b6a1db5b494cd8e9d8c444aef04"
+sha256 = "1a9e357dccfd25a792cec20d1336e411b140998d4e6463bf802efd21b8a25cd0"
 encoding = "gzip"
 
 [[assets]]
 served = "sse.js"
-sha256 = "c67f4389f79f9331d7915d8a522d4fa9e77b983728d09fa7549b8535f53e4749"
+sha256 = "29354a43fc7ea2207827646aaada3a5300cb49848027de13e2af54dc14af9129"
 encoding = "gzip"
 
 [[assets]]
 served = "wire-fixture.js"
-sha256 = "49265ba0dc074c46df74c3d3ab266e5cf9dc2d520b981613a4716757c47d7219"
+sha256 = "01873cdcbd9f058feea83f36590cc00290a6f2b97f5fa1aebc28e35ce906fcb3"
 encoding = "gzip"
 
 [[assets]]
 served = "wire.js"
-sha256 = "48f8f299ae3173603e11abd58d04bb3f56c3b4a65b04dc2d27570d27657341ec"
+sha256 = "385b944be0a5a88751334e4715657f7b0e5b77ff86a7dc3d22e947b9dd585311"
 encoding = "gzip"
 # END client rows

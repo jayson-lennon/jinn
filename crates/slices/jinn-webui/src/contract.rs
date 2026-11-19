@@ -150,6 +150,17 @@ pub const MENU_PANEL_ID: &str = "menu-panel";
 /// the session drawer (the class on the page root decides that).
 pub const MENU_ITEM_SESSIONS_ID: &str = "menu-item-sessions";
 
+/// The menu's new-session item — closes the menu and pulls the
+/// server-rendered creation form into the modal host (the same
+/// dismiss-then-open behavior the sessions item shows).
+pub const MENU_ITEM_NEW_SESSION_ID: &str = "menu-item-new-session";
+
+/// The new-session menu item's action name.
+pub const ACTION_MENU_NEW_SESSION: &str = "menu-new-session";
+
+/// The new-session form submit's action name.
+pub const ACTION_SESSION_CREATE: &str = "session-create";
+
 /// The class the client toggles on the page root when the session
 /// drawer is open — the drawer-open state hook. Deliberately **not**
 /// in [`DOM_CONSTANTS`]: membership there asserts presence in a fresh
@@ -175,6 +186,46 @@ pub const DRAWER_SCRIM_ID: &str = "drawer-scrim";
 /// referential gate. Stacks above the drawer scrim (A6): the menu is
 /// the entry surface.
 pub const MENU_SCRIM_ID: &str = "menu-scrim";
+
+// ── New-session modal ───────────────────────────────────────────────
+
+/// The new-session **modal's** host — an empty span sibling to the
+/// model-picker modal host in the page shell (the same
+/// host-not-container rule: opening this modal can never destroy the
+/// menu that opened it). The form fragment swaps into this host on
+/// open and on every lifecycle re-pull.
+pub const SESSION_NEW_MODAL_HOST_ID: &str = "session-new-modal-host";
+
+/// The new-session modal overlay — the server-rendered form the
+/// menu item opens; present in the page only after the pull renders
+/// it in.
+pub const SESSION_NEW_MODAL_ID: &str = "session-new-modal";
+
+/// The modal's project `<select>` — one option per `[[project.entry]]`
+/// entry (the raw configured path string is the option's value), or
+/// the explanatory refusal row when none are configured.
+pub const SESSION_NEW_PROJECT_SELECT_ID: &str = "session-new-project";
+
+/// The modal's lifecycle `<select>` — the blank row first (empty
+/// value), then one option per `[[session_lifecycle.script]]` entry.
+pub const SESSION_NEW_LIFECYCLE_SELECT_ID: &str = "session-new-lifecycle";
+
+/// The modal's args input — rendered only when the selected
+/// lifecycle's setup declares parameters; its value is split with
+/// the TUI arg popup's quote-preserving parser.
+pub const SESSION_NEW_ARGS_INPUT_ID: &str = "session-new-args";
+
+/// The modal's submit button — posts the create action.
+pub const SESSION_NEW_SUBMIT_ID: &str = "session-new-submit";
+
+/// The modal's explanatory-refusal wrapper — rendered instead of the
+/// usable form when no `[[project.entry]]` entries are configured.
+pub const SESSION_NEW_EMPTY_ID: &str = "session-new-empty";
+
+/// The attribute a lifecycle option carries its parameter count in —
+/// the client shows the args input when the selected option's count
+/// is above zero.
+pub const SESSION_NEW_PARAM_COUNT_ATTR: &str = "data-param-count";
 
 // ── Endpoints ───────────────────────────────────────────────────────
 
@@ -223,6 +274,19 @@ pub const MODELS_REFRESH_PATH: &str = "/web/models/refresh";
 /// filter, the TUI's match core over model id and provider name;
 /// absent or empty renders every row.
 pub const MODEL_FILTER_QUERY_PARAM: &str = "filter";
+
+/// Route pattern — the new-session form fragment pull
+/// (`GET /web/session-new?lifecycle=…`) — the menu item's opening
+/// modal and every lifecycle re-pull render through it.
+pub const SESSION_NEW_ROUTE: &str = "/web/session-new";
+
+/// The new-session form pull's lifecycle query parameter — absent or
+/// empty selects the blank lifecycle (the form's first row).
+pub const SESSION_NEW_LIFECYCLE_QUERY_PARAM: &str = "lifecycle";
+
+/// `POST` — create a session (the shared creation path). Responds
+/// with the new session's whole page, exactly as activation does.
+pub const SESSION_CREATE_PATH: &str = "/web/session-new";
 
 /// Route pattern — the embedded vendor assets.
 pub const VENDOR_ROUTE: &str = "/vendor/{*path}";
@@ -295,7 +359,17 @@ pub const DOM_CONSTANTS: &[&str] = &[
     MENU_BUTTON_ID,
     MENU_PANEL_ID,
     MENU_ITEM_SESSIONS_ID,
+    MENU_ITEM_NEW_SESSION_ID,
+    SESSION_NEW_MODAL_HOST_ID,
+    SESSION_NEW_MODAL_ID,
+    SESSION_NEW_PROJECT_SELECT_ID,
+    SESSION_NEW_LIFECYCLE_SELECT_ID,
+    SESSION_NEW_ARGS_INPUT_ID,
+    SESSION_NEW_SUBMIT_ID,
+    SESSION_NEW_EMPTY_ID,
+    SESSION_NEW_PARAM_COUNT_ATTR,
     ACTION_MENU_SESSIONS,
+    ACTION_MENU_NEW_SESSION,
     DRAWER_SCRIM_ID,
     MENU_SCRIM_ID,
 ];
@@ -315,6 +389,7 @@ pub const CLIENT_PATHS: &[&str] = &[
     MODEL_PICKER_PREFIX,
     MODEL_FILTER_QUERY_PARAM,
     MODELS_REFRESH_PATH,
+    SESSION_NEW_LIFECYCLE_QUERY_PARAM,
     VENDOR_PREFIX,
 ];
 
@@ -334,5 +409,6 @@ pub const CLIENT_URLS: &[&str] = &[
     SESSION_PAGE_PREFIX,
     MODEL_PICKER_PREFIX,
     MODELS_REFRESH_PATH,
+    SESSION_CREATE_PATH,
     VENDOR_PREFIX,
 ];

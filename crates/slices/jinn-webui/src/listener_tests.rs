@@ -47,6 +47,7 @@ fn deps_on(bind: std::net::SocketAddr) -> WebUiListenerActorDeps {
             .expect("an empty providers config expands"),
         ),
         api_keys: jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        config: jinn_config::empty_config_layer().clone(),
         fanout,
         version: "test".to_owned(),
     }

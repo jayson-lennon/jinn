@@ -48,6 +48,7 @@
 
 import * as wire from "../wire.js";
 import { targetElement } from "../dom.js";
+import { openNewSessionModal } from "./session_new.js";
 import type { RegionModule } from "./mod.js";
 
 /** The menu region's client surface. */
@@ -68,6 +69,14 @@ export const menuRegion: RegionModule = {
     if (item !== null) {
       closeMenu();
       toggleDrawer();
+      return true;
+    }
+    // The new-session item: close the menu, then hand the open to
+    // the new-session region — the modal is that region's fragment
+    // and host span, and this region's selectors own `#menu` only.
+    if (origin.closest(`#${wire.MENU_ITEM_NEW_SESSION_ID}`) !== null) {
+      closeMenu();
+      openNewSessionModal();
       return true;
     }
     // Each scrim sits outside every other region's DOM and inside the

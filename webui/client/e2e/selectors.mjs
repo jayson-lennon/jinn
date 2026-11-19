@@ -59,8 +59,24 @@ export const MENU_BUTTON = "#menu-button";
 export const MENU_PANEL = "#menu-panel";
 /** The menu scrim id (`wire.MENU_SCRIM_ID`). */
 export const MENU_SCRIM = "#menu-scrim";
-/** The menu's one item id (`wire.MENU_ITEM_SESSIONS_ID`). */
+/** The menu's sessions item id (`wire.MENU_ITEM_SESSIONS_ID`). */
 export const MENU_ITEM_SESSIONS = "#menu-item-sessions";
+/** The menu's new-session item id (`wire.MENU_ITEM_NEW_SESSION_ID`). */
+export const MENU_ITEM_NEW_SESSION = "#menu-item-new-session";
+/** The new-session modal overlay id (`wire.SESSION_NEW_MODAL_ID`). */
+export const SESSION_NEW_MODAL = "#session-new-modal";
+/** The new-session modal's host span id (`wire.SESSION_NEW_MODAL_HOST_ID`). */
+export const SESSION_NEW_MODAL_HOST = "#session-new-modal-host";
+/** The new-session project select id (`wire.SESSION_NEW_PROJECT_SELECT_ID`). */
+export const SESSION_NEW_PROJECT = "#session-new-project";
+/** The new-session lifecycle select id (`wire.SESSION_NEW_LIFECYCLE_SELECT_ID`). */
+export const SESSION_NEW_LIFECYCLE = "#session-new-lifecycle";
+/** The new-session args input id (`wire.SESSION_NEW_ARGS_INPUT_ID`). */
+export const SESSION_NEW_ARGS = "#session-new-args";
+/** The new-session submit button id (`wire.SESSION_NEW_SUBMIT_ID`). */
+export const SESSION_NEW_SUBMIT = "#session-new-submit";
+/** The new-session refusal wrapper id (`wire.SESSION_NEW_EMPTY_ID`). */
+export const SESSION_NEW_EMPTY = "#session-new-empty";
 /** The drawer scrim id (`wire.DRAWER_SCRIM_ID`). */
 export const DRAWER_SCRIM = "#drawer-scrim";
 /** The drawer-open class the client toggles on the page root. */
