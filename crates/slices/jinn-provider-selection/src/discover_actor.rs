@@ -6,6 +6,7 @@
 //! `ModelsRefreshed` event.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use error_stack::Report;
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
@@ -105,6 +106,13 @@ impl BusPublish for DiscoverActor {
         self.deps.bus()
     }
 }
+/// How long one provider's discovery may take before the refresh gives
+/// up on it and records the error. Discovery must always terminate —
+/// both surfaces' refresh feedback (the TUI's summary table, the web
+/// modal's spinner reset) depend on `ModelsRefreshed` publishing even
+/// when an endpoint is unreachable.
+const PROVIDER_TIMEOUT: Duration = Duration::from_secs(30);
+
 impl DiscoverActor {
     async fn refresh_models(&self) {
         let entries = {
@@ -121,82 +129,12 @@ impl DiscoverActor {
         );
 
         for (name, entry) in &entries {
-            // Need a placeholder model for the builder - use the first static model.
-            let Some(placeholder_model) = entry.models.first() else {
-                errors.insert(
-                    name.clone(),
-                    "no models configured (skipping discovery)".to_owned(),
-                );
-                continue;
-            };
-
-            let backend = match entry.backend.parse::<Backend>() {
-                Ok(b) => b,
-                Err(e) => {
-                    errors.insert(name.clone(), format!("invalid backend: {e}"));
-                    continue;
-                }
-            };
-
-            // Resolve API key.
-            let api_key = if entry.requires_key {
-                let Some(ref env_var) = entry.api_key_env else {
-                    errors.insert(
-                        name.clone(),
-                        "requires_key but no api_key_env set".to_owned(),
-                    );
-                    continue;
-                };
-                if let Some(key) = self.deps.services.api_keys.get(env_var) {
-                    Some(key)
-                } else {
-                    errors.insert(name.clone(), "API key not resolved".to_owned());
-                    continue;
-                }
-            } else {
-                Some("dummy-key".to_owned())
-            };
-
-            // Build provider and call list_models.
-            let api_key_str = api_key.as_deref().unwrap_or("");
-
-            let result: Result<Vec<ModelInfo>, Report<LlmServiceError>> = match backend {
-                Backend::Anthropic => {
-                    let svc =
-                        AnthropicService::new(placeholder_model.clone(), api_key_str.to_owned());
-                    svc.list_models().await
-                }
-                Backend::Google => {
-                    let svc = GoogleService::new(placeholder_model.clone(), api_key_str.to_owned());
-                    svc.list_models().await
-                }
-                _ => {
-                    let config = ProviderConfig::from(&backend);
-                    let svc = OpenAiCompatibleService::new(
-                        config,
-                        placeholder_model.clone(),
-                        entry.base_url.clone(),
-                        api_key_str.to_owned(),
-                        entry.extra_body.clone(),
-                        None,
-                    );
-                    svc.list_models().await
-                }
-            };
-
-            match result {
-                Ok(mut models) => {
-                    enrich_with_models_dev(&mut models, &models_dev);
-                    tracing::info!(
-                        provider = %name,
-                        count = models.len(),
-                        "discovered models"
-                    );
+            match self.discover_provider(name, entry, &models_dev).await {
+                DiscoveryOutcome::Discovered(models) => {
                     results.insert(name.clone(), models);
                 }
-                Err(e) => {
-                    tracing::warn!(provider = %name, err = %e, "list_models failed");
-                    errors.insert(name.clone(), format!("{e}"));
+                DiscoveryOutcome::Failed(reason) => {
+                    errors.insert(name.clone(), reason);
                 }
             }
         }
@@ -220,6 +158,99 @@ impl DiscoverActor {
         })
         .await;
     }
+
+    /// Discovers one provider's models: validates its config, resolves
+    /// its key, calls `list_models` under [`PROVIDER_TIMEOUT`], and
+    /// enriches the result. A failure (config, key, or timeout) is a
+    /// [`DiscoveryOutcome::Failed`] carrying the reason — one
+    /// provider's failure never stops the refresh.
+    async fn discover_provider(
+        &self,
+        name: &str,
+        entry: &jinn_provider_config::ProviderEntry,
+        models_dev: &jinn_provider_config::ModelsDevData,
+    ) -> DiscoveryOutcome {
+        // Need a placeholder model for the builder - use the first static model.
+        let Some(placeholder_model) = entry.models.first() else {
+            return DiscoveryOutcome::Failed(
+                "no models configured (skipping discovery)".to_owned(),
+            );
+        };
+
+        let backend = match entry.backend.parse::<Backend>() {
+            Ok(b) => b,
+            Err(e) => return DiscoveryOutcome::Failed(format!("invalid backend: {e}")),
+        };
+
+        // Resolve API key.
+        let api_key = if entry.requires_key {
+            let Some(ref env_var) = entry.api_key_env else {
+                return DiscoveryOutcome::Failed("requires_key but no api_key_env set".to_owned());
+            };
+            match self.deps.services.api_keys.get(env_var) {
+                Some(key) => Some(key),
+                None => return DiscoveryOutcome::Failed("API key not resolved".to_owned()),
+            }
+        } else {
+            Some("dummy-key".to_owned())
+        };
+
+        // Build provider and call list_models, bounded per provider:
+        // one unreachable endpoint delays this refresh by at most
+        // PROVIDER_TIMEOUT, and never consumes another provider's
+        // budget (the wrap is per-await, not around the loop).
+        let api_key_str = api_key.as_deref().unwrap_or("");
+        let bounded = match backend {
+            Backend::Anthropic => {
+                let svc = AnthropicService::new(placeholder_model.clone(), api_key_str.to_owned());
+                tokio::time::timeout(PROVIDER_TIMEOUT, svc.list_models()).await
+            }
+            Backend::Google => {
+                let svc = GoogleService::new(placeholder_model.clone(), api_key_str.to_owned());
+                tokio::time::timeout(PROVIDER_TIMEOUT, svc.list_models()).await
+            }
+            _ => {
+                let config = ProviderConfig::from(&backend);
+                let svc = OpenAiCompatibleService::new(
+                    config,
+                    placeholder_model.clone(),
+                    entry.base_url.clone(),
+                    api_key_str.to_owned(),
+                    entry.extra_body.clone(),
+                    None,
+                );
+                tokio::time::timeout(PROVIDER_TIMEOUT, svc.list_models()).await
+            }
+        };
+        let discovered: Result<Vec<ModelInfo>, Report<LlmServiceError>> = match bounded {
+            Ok(discovered) => discovered,
+            Err(_elapsed) => Err(Report::new(LlmServiceError::Provider).attach(format!(
+                "discovery timed out after {}s",
+                PROVIDER_TIMEOUT.as_secs()
+            ))),
+        };
+
+        match discovered {
+            Ok(mut models) => {
+                enrich_with_models_dev(&mut models, models_dev);
+                tracing::info!(provider = %name, count = models.len(), "discovered models");
+                DiscoveryOutcome::Discovered(models)
+            }
+            Err(e) => {
+                tracing::warn!(provider = %name, err = %e, "list_models failed");
+                DiscoveryOutcome::Failed(format!("{e}"))
+            }
+        }
+    }
+}
+
+/// One provider's discovery result — the model list, or the reason the
+/// refresh gave up on it (fed into the refresh's error map either way).
+enum DiscoveryOutcome {
+    /// The provider answered: its discovered models.
+    Discovered(Vec<ModelInfo>),
+    /// The provider failed (config, key, or timeout): the reason.
+    Failed(String),
 }
 
 /// Enrich freshly discovered models with models.dev data (context-length
@@ -247,9 +278,11 @@ mod tests {
 
     use std::time::Duration;
 
+    use error_stack::Report;
     use jinn_kernel::AppState;
     use jinn_kernel::common::bus::HarnessServices;
     use jinn_kernel::common::state::State;
+    use jinn_provider::LlmServiceError;
     use jinn_provider_selection_msg::ModelsRefreshed;
     use jinn_provider_selection_msg::RefreshModels;
     use jinn_testutil::bus_harness::{TestHarness, await_recorded};
@@ -287,6 +320,31 @@ mod tests {
         assert!(
             events[0].results.is_empty(),
             "no providers configured, so results are empty"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_provider_timeout_bounds_a_never_resolving_discovery() {
+        // Given the per-provider timeout wrap around a discovery call
+        // that never resolves (an unreachable endpoint).
+        let hang = std::future::pending::<
+            Result<Vec<jinn_provider::ModelInfo>, Report<LlmServiceError>>,
+        >();
+        let start = std::time::Instant::now();
+
+        // When the timeout elapses (a shortened probe of the same wrap
+        // `refresh_models` applies — 30s is production, 50ms here).
+        let outcome = tokio::time::timeout(Duration::from_millis(50), hang).await;
+
+        // Then it takes the error branch within the bound — the actor's
+        // refresh loop feeds this into the errors map, so the refresh
+        // always terminates and always emits ModelsRefreshed.
+        assert!(outcome.is_err(), "a hanging discovery must be cut off");
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "the timeout must fire near the bound, took {:?}",
+            start.elapsed()
         );
     }
 

@@ -21,6 +21,12 @@ pub const PAGE_ROOT_ID: &str = "page-root";
 /// The sessions-list container inside the sidebar.
 pub const SESSIONS_ID: &str = "sessions";
 
+/// The sessions filter input — lives in the page shell OUTSIDE the
+/// `#sessions` swap target, so a sessions SSE push cannot wipe the
+/// typed filter; a push arriving while a filter is active triggers a
+/// re-pull carrying the same text.
+pub const SESSIONS_FILTER_INPUT_ID: &str = "sessions-filter";
+
 /// The scrollable transcript region (the wrap owns scrolling).
 pub const TRANSCRIPT_WRAP_ID: &str = "transcript-wrap";
 
@@ -30,8 +36,52 @@ pub const TRANSCRIPT_ID: &str = "transcript";
 /// The composer-controls container — send↔cancel swaps here.
 pub const CONTROLS_ID: &str = "composer-controls";
 
-/// The model-picker container in the titlebar.
+/// The model-picker container in the titlebar — the **button's** host.
+/// The button fragment swaps here; the modal renders into its own
+/// sibling host ([`MODEL_PICKER_MODAL_HOST_ID`]) so opening the modal
+/// can never destroy the button that opened it.
 pub const MODEL_PICKER_ID: &str = "model-picker";
+
+/// The model-picker **modal's** host — an empty span sibling to
+/// [`MODEL_PICKER_ID`] in the page shell. The modal fragment swaps into
+/// this host on open and on every filter re-pull, leaving the button
+/// and the titlebar untouched.
+pub const MODEL_PICKER_MODAL_HOST_ID: &str = "model-picker-modal-host";
+
+/// The titlebar's model-status wrapper — the static `.m` label span
+/// and the picker container rendered together as one fragment, so a
+/// model switch re-renders both in one swap and the two can never
+/// disagree after a switch.
+pub const MODEL_STATUS_ID: &str = "model-status";
+
+/// The model-picker's button — the titlebar control that opens the
+/// modal; its label is the viewed session's current model.
+pub const MODEL_PICKER_BUTTON_ID: &str = "model-picker-button";
+
+/// The model-picker's modal overlay — the server-rendered row list the
+/// button opens; present in the page only after the pull renders it in.
+pub const MODEL_PICKER_MODAL_ID: &str = "model-picker-modal";
+
+/// The modal's filter input — each keystroke re-queries the server.
+pub const MODEL_PICKER_FILTER_ID: &str = "model-picker-filter";
+
+/// The modal's row container — the list the filter re-renders into.
+pub const MODEL_PICKER_ROWS_ID: &str = "model-picker-rows";
+
+/// The modal's refresh button — publishes `RefreshModels`; the rows
+/// update when the cache lands via the `models` SSE event.
+pub const MODEL_PICKER_REFRESH_ID: &str = "model-picker-refresh";
+
+/// The attribute a modal row carries its model id in.
+pub const MODEL_ID_DATA_ATTR: &str = "data-webui-model";
+
+/// The attribute a modal row carries its marker in (`✗` unavailable /
+/// `→` alias / `*` remote) — present only when a marker applies.
+pub const MODEL_MARKER_ATTR: &str = "data-webui-marker";
+
+/// The attribute an unavailable row carries — the client must treat it
+/// as non-interactive (the server also refuses the switch).
+pub const MODEL_UNAVAILABLE_ATTR: &str = "data-webui-unavailable";
 
 /// The streaming spinner — rendered above the composer while the
 /// session's turn is live; its absence is the idle signal.
@@ -68,13 +118,11 @@ pub const ACTION_CANCEL: &str = "cancel";
 /// The model form's action name.
 pub const ACTION_MODEL: &str = "model";
 
+/// The refresh-models action's name (the modal's refresh button).
+pub const ACTION_REFRESH_MODELS: &str = "refresh-models";
+
 /// The class hook every session row carries.
 pub const SESSION_ROW_CLASS: &str = "srow";
-
-/// The sidebar filter input's id — the text the sessions pull narrows
-/// by. Lives in the page shell, outside the [`SESSIONS_ID`] swap
-/// target, so region swaps never wipe what the user typed.
-pub const SESSIONS_FILTER_INPUT_ID: &str = "sessions-filter";
 
 /// The titlebar's title span — the inline rename editor's host. The
 /// session page renders it with the viewed title; clicking it opens
@@ -117,6 +165,19 @@ pub const TRANSCRIPT_ROUTE: &str = "/web/transcript/{id}";
 /// Route pattern — the model-picker fragment.
 pub const MODEL_PICKER_ROUTE: &str = "/web/model-picker/{id}";
 
+/// Route pattern — the refresh-models action (`POST`): publishes
+/// `RefreshModels` and returns the current button fragment.
+pub const MODELS_REFRESH_ROUTE: &str = "/web/models/refresh";
+
+/// The refresh-models action's path, for the client mirror set.
+pub const MODELS_REFRESH_PATH: &str = "/web/models/refresh";
+
+/// The model-picker pull's filter query parameter
+/// (`GET /web/model-picker/{id}?filter=…`) — the server-side fuzzy
+/// filter, the TUI's match core over model id and provider name;
+/// absent or empty renders every row.
+pub const MODEL_FILTER_QUERY_PARAM: &str = "filter";
+
 /// Route pattern — the embedded vendor assets.
 pub const VENDOR_ROUTE: &str = "/vendor/{*path}";
 
@@ -156,10 +217,13 @@ pub const VENDOR_APP_JS_PATH: &str = "main.js";
 pub const DOM_CONSTANTS: &[&str] = &[
     PAGE_ROOT_ID,
     SESSIONS_ID,
+    SESSIONS_FILTER_INPUT_ID,
     TRANSCRIPT_WRAP_ID,
     TRANSCRIPT_ID,
     CONTROLS_ID,
     MODEL_PICKER_ID,
+    MODEL_PICKER_MODAL_HOST_ID,
+    MODEL_STATUS_ID,
     BUSY_SPINNER_ID,
     COMPOSER_ID,
     INPUT_ID,
@@ -170,9 +234,17 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_SEND,
     ACTION_CANCEL,
     ACTION_MODEL,
+    ACTION_REFRESH_MODELS,
     SESSION_ROW_CLASS,
-    SESSIONS_FILTER_INPUT_ID,
     SESSION_TITLE_ID,
+    MODEL_PICKER_BUTTON_ID,
+    MODEL_PICKER_MODAL_ID,
+    MODEL_PICKER_FILTER_ID,
+    MODEL_PICKER_ROWS_ID,
+    MODEL_PICKER_REFRESH_ID,
+    MODEL_ID_DATA_ATTR,
+    MODEL_MARKER_ATTR,
+    MODEL_UNAVAILABLE_ATTR,
 ];
 
 /// The contract's endpoint constants a client can build a URL from.
@@ -188,21 +260,26 @@ pub const CLIENT_PATHS: &[&str] = &[
     STREAM_PREFIX,
     TRANSCRIPT_PREFIX,
     MODEL_PICKER_PREFIX,
+    MODEL_FILTER_QUERY_PARAM,
+    MODELS_REFRESH_PATH,
     VENDOR_PREFIX,
 ];
 
 /// The subset of [`CLIENT_PATHS`] the **browser client** builds
 /// request URLs from — the mirror set `wire.ts` must carry and the
 /// generated fixture checks. The other paths are server-rendered
-/// (page navigation, the transcript/model-picker pulls the client
-/// reaches by URL, not by string-building): they are contract, but
-/// not client-contract.
+/// (page navigation, the transcript pull the client reaches by URL,
+/// not by string-building): they are contract, but not
+/// client-contract. `MODEL_PICKER_PREFIX` joined when the picker's
+/// filtering moved server-side — the client now builds picker pull
+/// URLs (with the filter query) itself.
 pub const CLIENT_URLS: &[&str] = &[
     SEND_PATH,
     CANCEL_PATH,
     MODEL_PATH,
     STREAM_PREFIX,
     SESSION_PAGE_PREFIX,
-    SESSIONS_ROUTE,
+    MODEL_PICKER_PREFIX,
+    MODELS_REFRESH_PATH,
     VENDOR_PREFIX,
 ];

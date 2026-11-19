@@ -569,12 +569,14 @@ async fn activate_auxiliary_slices(
         let bus_snapshot = ctx.services().bus.clone();
         let state_snapshot = ctx.state().clone();
         let store_snapshot = ctx.services().session_store.clone();
+        let services_snapshot = ctx.services().clone();
         jinn_webui::activate(
             &mut ctx.host(),
             &config_snapshot,
             bus_snapshot,
             state_snapshot,
             store_snapshot,
+            &services_snapshot,
         )
         .await
         .map_err(|report| ActivateError::WebUi(format!("{report:?}")))?;

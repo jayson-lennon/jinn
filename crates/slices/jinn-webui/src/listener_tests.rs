@@ -35,6 +35,18 @@ fn deps_on(bind: std::net::SocketAddr) -> WebUiListenerActorDeps {
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        provider_registry: jinn_provider_config::ProviderRegistryService::new(
+            jinn_provider_config::ProviderRegistry::from_config(
+                jinn_provider_config::ProvidersConfig {
+                    providers: std::collections::BTreeMap::default(),
+                    aliases: vec![],
+                    default_provider: None,
+                    endpoint_defaults: vec![],
+                },
+            )
+            .expect("an empty providers config expands"),
+        ),
+        api_keys: jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         fanout,
         version: "test".to_owned(),
     }

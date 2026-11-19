@@ -247,6 +247,18 @@ fn harness_with<T>(
         bus,
         jinn_session_state::SessionStoreService::new(Arc::new(SeededSummaryStore::with(summaries))),
         provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(
+            jinn_provider_config::ProviderRegistry::from_config(
+                jinn_provider_config::ProvidersConfig {
+                    providers: std::collections::BTreeMap::default(),
+                    aliases: vec![],
+                    default_provider: None,
+                    endpoint_defaults: vec![],
+                },
+            )
+            .expect("an empty providers config expands"),
+        ),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         fanout,
         0,
         "sessions-list-test".to_owned(),

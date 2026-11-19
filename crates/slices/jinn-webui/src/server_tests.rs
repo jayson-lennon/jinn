@@ -26,8 +26,10 @@ use crate::server::ServerShared;
 use crate::server::router;
 
 /// Builds the router over an empty app state, a fresh provider cell on
-/// a private registry, and a recording bus. Returns the parts a test
-/// manipulates and asserts against.
+/// a private registry (seeded with one keyless `openai` provider
+/// offering `openai/gpt-4o`, so the picker renders an available row the
+/// switch endpoint accepts), and a recording bus. Returns the parts a
+/// test manipulates and asserts against.
 fn harness() -> (State, BusAudit, Slices, axum::Router) {
     let slices = Slices::new();
     let provider_cell = slices
@@ -54,11 +56,40 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(harness_registry()),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         fanout,
         8387,
         "test".to_owned(),
     );
     (state, audit, slices, router(shared))
+}
+
+/// The harness registry: one keyless `openai` provider offering the
+/// model `gpt-4o` — a static row the picker renders available without
+/// discovery (requires_key false), which is also the fresh-boot case
+/// the rows-based switch validation keeps working. The expanded id is
+/// `{name}/{model}` = `openai/gpt-4o`, the full shape the rows carry.
+fn harness_registry() -> jinn_provider_config::ProviderRegistry {
+    jinn_provider_config::ProviderRegistry::from_config(jinn_provider_config::ProvidersConfig {
+        providers: std::collections::BTreeMap::from([(
+            "openai".to_owned(),
+            jinn_provider_config::ProviderEntry {
+                backend: "openai".to_owned(),
+                models: vec!["gpt-4o".to_owned()],
+                base_url: None,
+                api_key_env: None,
+                requires_key: false,
+                extra_body: None,
+                context_length: None,
+                model_info: Vec::new(),
+            },
+        )]),
+        aliases: vec![],
+        default_provider: None,
+        endpoint_defaults: vec![],
+    })
+    .expect("the harness providers config expands")
 }
 
 /// Inserts a fresh live session whose id is returned, so callers use
@@ -128,8 +159,6 @@ fn title_of(state: &State, id: &SessionId) -> Option<String> {
         .map_or_default(|session| session.title().map(str::to_owned))
 }
 
-/// A session store whose `load_summaries` names one archived row: the
-/// store-only shape the live map never carries.
 /// A session store serving one fixed archived summary from
 /// `load_summaries`; every other operation behaves like the fake.
 #[derive(Debug)]
@@ -321,6 +350,8 @@ fn harness_with_archived_row_and_receiver() -> (
             "Archived from last run".to_owned(),
         ))),
         provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(harness_registry()),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         fanout,
         8387,
         "test".to_owned(),
@@ -641,7 +672,77 @@ mod actions {
     #[rstest::rstest]
     #[tokio::test]
     async fn model_switch_publishes_a_single_provider_switch() {
-        // Given a live session and a discovered model in the cache.
+        // Given a live session and a configured provider (the harness
+        // registry's keyless `openai` offering `openai/gpt-4o`) — no
+        // discovery needed: a fresh boot renders the row already.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting a model pick for the full provider id the row
+        // carries.
+        let (status, body) = post_form(
+            &router,
+            "/web/model",
+            &format!("session_id={id}&provider_id=openai%2Fgpt-4o"),
+        )
+        .await;
+
+        // Then the bus names ProviderSwitch and the response is the
+        // status wrapper (label + button together).
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(audit_count(&audit, "ProviderSwitch"), 1);
+        assert!(
+            body.contains(&format!("id=\"{}\"", crate::contract::MODEL_STATUS_ID)),
+            "{body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn model_switch_response_names_the_picked_model_not_the_previous_one() {
+        // Given a live session and a configured provider (the harness
+        // registry's keyless `openai` offering `openai/gpt-4o`).
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting a model pick.
+        let (status, body) = post_form(
+            &router,
+            "/web/model",
+            &format!("session_id={id}&provider_id=openai%2Fgpt-4o"),
+        )
+        .await;
+
+        // Then the response's titlebar label AND button text name the
+        // picked model — the fragment is rendered from state that
+        // already holds the pick, never one switch behind (the
+        // stale-label bug: the bus is async, so a fragment rendered off
+        // a not-yet-applied command named the PREVIOUS model, and the
+        // button only caught up on the next interaction).
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("openai/gpt-4o"),
+            "the switch response must name the picked model: {body}"
+        );
+        // And the label span and the button agree with each other.
+        let label = body
+            .split("<span class=\"m\">")
+            .nth(1)
+            .and_then(|rest| rest.split("</span>").next())
+            .unwrap_or_default();
+        assert_eq!(
+            label, "openai/gpt-4o",
+            "the .m label must name the picked model: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn model_switch_accepts_a_cache_discovered_model_from_an_unknown_provider() {
+        // Given a live session and a cache entry for a provider the
+        // config does NOT list (an unknown provider is unavailable by
+        // the shared builder's rule) — plus a cache entry whose
+        // provider IS configured.
         let (state, audit, slices, router) = harness();
         let id = seed_session(&state);
         slices
@@ -652,9 +753,9 @@ mod actions {
             .update(|cell| {
                 cell.model_cache = Some(jinn_provider_config::ModelCache {
                     entries: std::collections::HashMap::from([(
-                        "openai".to_owned(),
+                        "ghost-provider".to_owned(),
                         vec![jinn_provider::ModelInfo {
-                            id: "openai/gpt-4o".to_owned(),
+                            id: "ghost/phantom".to_owned(),
                             context_length: None,
                             input_modalities: jinn_provider::InputModalities::default(),
                         }],
@@ -663,17 +764,20 @@ mod actions {
                 });
             });
 
-        // When posting a model pick.
+        // When posting a pick for that cache-only id.
         let (status, _body) = post_form(
             &router,
             "/web/model",
-            &format!("session_id={id}&provider_id=openai%2Fgpt-4o"),
+            &format!("session_id={id}&provider_id=ghost%2Fphantom"),
         )
         .await;
 
-        // Then the bus names ProviderSwitch.
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(audit_count(&audit, "ProviderSwitch"), 1);
+        // Then the server refuses: the cache holds it, but its
+        // provider has no config entry, so the row renders unavailable
+        // — and unavailable rows are not selectable (the terminal
+        // shows them with the `✗` marker for the same reason).
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit_count(&audit, "ProviderSwitch"), 0);
     }
 
     #[rstest::rstest]
@@ -691,6 +795,78 @@ mod actions {
         // TUI switch uses.
         assert_eq!(status, StatusCode::OK);
         assert_eq!(audit_count(&audit, "SessionLoadRequested"), 1);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn refresh_models_publishes_one_refresh_command_and_answers_the_button() {
+        // Given a live session.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting the refresh-models action.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::MODELS_REFRESH_ROUTE,
+            &format!("session_id={id}"),
+        )
+        .await;
+
+        // Then exactly one `RefreshModels` published and the response
+        // is the re-rendered BUTTON fragment — the POST never blocks
+        // on discovery.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(audit_count(&audit, "RefreshModels"), 1);
+        assert!(
+            body.contains(&format!(
+                "id=\"{}\"",
+                crate::contract::MODEL_PICKER_BUTTON_ID
+            )),
+            "{body}"
+        );
+        assert!(
+            !body.contains(crate::contract::MODEL_PICKER_MODAL_ID),
+            "the refresh POST must not answer with the modal: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn refresh_models_refuses_a_malformed_session_id() {
+        // Given no session (and a malformed id).
+        let (_state, _audit, _slices, router) = harness();
+
+        // When posting the refresh-models action.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::MODELS_REFRESH_ROUTE,
+            "session_id=not-a-uuid",
+        )
+        .await;
+
+        // Then the request is a 400.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn model_switch_refuses_an_id_outside_the_available_rows() {
+        // Given a live session (the harness registry offers only
+        // `openai/gpt-4o`, no cache seeded).
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting a pick for a model no rendered row carries.
+        let (status, _body) = post_form(
+            &router,
+            "/web/model",
+            &format!("session_id={id}&provider_id=ollama%2Fnot-discovered"),
+        )
+        .await;
+
+        // Then the server refuses with 400 and publishes nothing.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit_count(&audit, "ProviderSwitch"), 0);
     }
 
     #[rstest::rstest]
@@ -1259,14 +1435,15 @@ mod root {
     }
 }
 
-/// Transient entries: filtered from every cursor-addressed surface,
-/// never a crash.
+/// Transient entries: rendered with TUI parity (muted notices), never
+/// a crash. Persistence still excludes them (the store filters before
+/// SQLite); this module pins the **web render** behavior.
 mod transients {
     use super::*;
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn a_live_transient_entry_neither_panics_nor_renders() {
+    async fn a_live_transient_entry_renders_its_body_muted() {
         // Given a live session whose history carries a transient
         // (boot, model refresh, and skills refresh all push these).
         let (state, _audit, _slices, router) = harness();
@@ -1284,16 +1461,19 @@ mod transients {
         // When pulling the full transcript.
         let (status, body) = get(&router, &format!("/web/transcript/{id}")).await;
 
-        // Then the pull answers with the two real entries only.
+        // Then the transient renders with its body (TUI parity — the
+        // web shows what the terminal shows), escaped, and carries the
+        // transient class the CSS mutes.
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("before"), "{body}");
         assert!(body.contains("after"), "{body}");
-        assert!(!body.contains("Refreshing models"), "{body}");
+        assert!(body.contains("Refreshing models..."), "{body}");
+        assert!(body.contains("entry transient"), "{body}");
     }
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn transients_do_not_shift_the_cursor_space() {
+    async fn a_transient_entry_participates_in_the_cursor_space() {
         // Given a session with one transient between two entries.
         let (state, _audit, _slices, _router) = harness();
         let id = seed_session(&state);
@@ -1324,18 +1504,23 @@ mod transients {
             .filter(|e| crate::transcript::is_renderable(e))
             .count();
 
-        // Then the cursor space is the rendered count, and a client at
-        // that cursor re-pulls nothing.
-        assert_eq!(transcript.len(), 2);
+        // Then the cursor space counts every entry including the
+        // transient — pull and push share the one projection, so the
+        // space cannot drift — and a client at that cursor re-pulls
+        // nothing.
+        assert_eq!(transcript.len(), 3);
         assert_eq!(stamped, transcript.len());
         assert!(transcript.since(Some(stamped)).is_empty());
     }
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn an_archived_transient_is_filtered_the_same_way() {
+    async fn an_archived_transient_renders_the_same_way() {
         // Given a snapshot carrying a transient — metadata taken from a
-        // real capture, since the metadata struct is wide.
+        // real capture, since the metadata struct is wide. (Live
+        // persistence filters transients before SQLite, so a store
+        // round-trip would not carry one; the projection handles one
+        // arriving through the snapshot shape anyway.)
         let mut snapshot = jinn_session_state::ChatSessionState::new().capture_snapshot();
         snapshot.entries = vec![
             jinn_core_types::ChatEntry::user("kept"),
@@ -1347,12 +1532,15 @@ mod transients {
             &snapshot, None, "model", "idle", false,
         );
 
-        // Then only the renderable entry lands in the cursor space.
-        assert_eq!(transcript.len(), 1);
-        let [kept] = transcript.entries.as_slice() else {
-            panic!("one rendered entry, got {}", transcript.len())
+        // Then both entries land in the cursor space, the transient
+        // rendered like the live path renders it.
+        assert_eq!(transcript.len(), 2);
+        let [kept, notice] = transcript.entries.as_slice() else {
+            panic!("two rendered entries, got {}", transcript.len())
         };
         assert!(kept.body_html.contains("kept"));
+        assert_eq!(notice.class, "transient");
+        assert!(notice.body_html.contains("UI-only"));
     }
 }
 

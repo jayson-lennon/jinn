@@ -29,6 +29,7 @@ use std::time::Duration;
 use jinn_core_types::SessionId;
 use jinn_inference_msg::StreamToken;
 use jinn_kernel::State;
+use jinn_provider_selection_msg::ModelCacheStored;
 use jinn_session_msg::{SessionArchived, SessionPhaseChanged};
 use jinn_session_store_msg::{SessionLibraryMembershipChanged, SessionLoadCompleted};
 use jinn_slices::PhaseView;
@@ -97,6 +98,26 @@ impl FanoutHandle {
             html,
         });
     }
+
+    /// Broadcasts the post-cache-write models signal from **outside**
+    /// the actor — the serve-tier wire test's seam, addressed like the
+    /// actor's own push (per live session). The data line carries the
+    /// write timestamp: an SSE frame whose data buffer is empty is
+    /// discarded by the browser (never dispatched), so the signal must
+    /// hold bytes to land.
+    #[cfg(test)]
+    pub(crate) fn push_models_changed_from(
+        &self,
+        session_id: &SessionId,
+        stored_at: jiff::Timestamp,
+    ) {
+        let _ = self.tx.send(SseEnvelope {
+            kind: SseKind::Models,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html: stored_at.to_string(),
+        });
+    }
 }
 
 /// The fan-out actor: events to fragments.
@@ -155,6 +176,7 @@ impl WebUiFanoutActor {
             .handles::<SessionLoadCompleted>()
             .handles::<SessionArchived>()
             .handles::<SessionLibraryMembershipChanged>()
+            .handles::<ModelCacheStored>()
             .handles::<FlushTick>()
             // Arms the first flush ~1 tick after spawn; the chain
             // self-perpetuates from the handler.
@@ -340,6 +362,66 @@ impl WebUiFanoutActor {
             html,
         });
     }
+
+    /// Signals every open model modal that the discovered-model cache
+    /// changed — one `models` push per live session, addressed so each
+    /// session-filtered stream receives it — and pushes the
+    /// transcript's full fragment so the refresh summary transient
+    /// (written by the provider actor's shared `ModelsRefreshed`
+    /// handler before this event fires) reaches the web transcript
+    /// without a reload.
+    ///
+    /// The `models` envelope is a **signal, not rows**: the fan-out
+    /// holds only `State` (no provider registry or api keys), so it
+    /// cannot render TUI-parity rows; the client answers the push by
+    /// re-pulling the picker's GET route with its current filter. Rows
+    /// always arrive by pull — the pull endpoint remains the
+    /// correctness dependency. The transcript envelope is the region's
+    /// guard render (cursor 0, full replace — the convergence shape).
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: the conformance gate guarantees the transcript kind \
+                  exactly one owning region; a None here is a registry bug that must abort"
+    )]
+    pub(crate) fn push_models_changed(&mut self, stored_at: jiff::Timestamp) {
+        let ids: Vec<SessionId> = self
+            .state
+            .read()
+            .session
+            .sessions()
+            .keys()
+            .cloned()
+            .collect();
+        for session_id in ids {
+            let transcript_html = {
+                let guard = self.state.read();
+                crate::region::owner_of(SseKind::TranscriptFull)
+                    .expect(
+                        "a transcript-full kind has exactly one owning region (conformance gate)",
+                    )
+                    .render(&session_id, &guard)
+            };
+            // The `models` event is a signal, but the data line must
+            // carry bytes: the browser discards an SSE event whose data
+            // buffer is empty at dispatch (WHATWG stream spec — the
+            // frame never fires its listener), which is exactly the
+            // never-stops-spinner bug. The cache-write timestamp is
+            // the signal's provenance; the payload's meaning stays
+            // "re-pull your rows" and no rows ride the push.
+            self.broadcast(SseEnvelope {
+                kind: SseKind::Models,
+                session_id: session_id.clone(),
+                cursor: 0,
+                html: stored_at.to_string(),
+            });
+            self.broadcast(SseEnvelope {
+                kind: SseKind::TranscriptFull,
+                session_id,
+                cursor: 0,
+                html: transcript_html,
+            });
+        }
+    }
 }
 
 /// The settle push order: every region's `settle_kinds` flattened in
@@ -395,5 +477,16 @@ impl MsgHandler<SessionArchived> for WebUiFanoutActor {
 impl MsgHandler<SessionLibraryMembershipChanged> for WebUiFanoutActor {
     async fn handle(&mut self, msg: &SessionLibraryMembershipChanged, _ctx: &mut MsgCtx<'_>) {
         self.push_sessions_refresh(&msg.session_id);
+    }
+}
+
+impl MsgHandler<ModelCacheStored> for WebUiFanoutActor {
+    async fn handle(&mut self, msg: &ModelCacheStored, _ctx: &mut MsgCtx<'_>) {
+        // The provider cell now holds the merged cache (the event is
+        // emitted strictly after the write). Signal every page; open
+        // modals re-pull their rows with their current filter. The
+        // event's timestamp rides the push so the frame dispatches
+        // (a signal with an empty data line never fires).
+        self.push_models_changed(msg.stored_at);
     }
 }

@@ -18,9 +18,9 @@
   <main id="main">
     <div id="titlebar">
       <span class="t" {% if !session_title_id.is_empty() %}id="{{ session_title_id }}"{% endif %}>{{ title }}</span>
-      <span class="m">{{ model }}</span>
-      <span id="{{ model_picker_id }}" class="model-picker">{{ model_html|safe }}</span>
+      {{ status_html|safe }}
     </div>
+    <span id="{{ modal_host_id }}"></span>
     <div id="{{ transcript_wrap_id }}">
       <div id="{{ transcript_id }}" {{ cursor_attr }}="{{ cursor }}">{{ transcript_html|safe }}</div>
     </div>

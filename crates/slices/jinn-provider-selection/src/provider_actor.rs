@@ -30,8 +30,8 @@ use jinn_provider_config::ProviderRegistry;
 use jinn_provider_config::{InputModalities, Modality, ModelInfo, ProvidersConfig};
 use jinn_provider_selection_msg::endpoint::EndpointEntry;
 use jinn_provider_selection_msg::{
-    LoadEndpointPickerEntries, LoadProviderPickerEntries, ModelCacheLoaded, ModelsRefreshed,
-    ProviderCell, ProviderSwitch, ProviderSwitched, RefreshEndpointPickerEntries,
+    LoadEndpointPickerEntries, LoadProviderPickerEntries, ModelCacheLoaded, ModelCacheStored,
+    ModelsRefreshed, ProviderCell, ProviderSwitch, ProviderSwitched, RefreshEndpointPickerEntries,
     SetEndpointDefault,
 };
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
@@ -214,13 +214,13 @@ impl MsgHandler<RefreshEndpointPickerEntries> for ProviderActor {
 
 impl MsgHandler<ModelsRefreshed> for ProviderActor {
     async fn handle(&mut self, msg: &ModelsRefreshed, _ctx: &mut MsgCtx<'_>) {
-        self.handle_models_refreshed(msg);
+        self.handle_models_refreshed(msg).await;
     }
 }
 
 impl MsgHandler<ModelCacheLoaded> for ProviderActor {
     async fn handle(&mut self, msg: &ModelCacheLoaded, _ctx: &mut MsgCtx<'_>) {
-        self.handle_model_cache_loaded(&msg.cache);
+        self.handle_model_cache_loaded(&msg.cache).await;
     }
 }
 
@@ -273,7 +273,7 @@ impl ProviderActor {
     }
 
     /// ModelsRefreshed: update model cache and reload provider picker entries.
-    fn handle_models_refreshed(&self, event: &ModelsRefreshed) {
+    async fn handle_models_refreshed(&mut self, event: &ModelsRefreshed) {
         let now = jiff::Timestamp::now();
         let mut cache = ModelCache {
             entries: event.results.clone(),
@@ -303,10 +303,15 @@ impl ProviderActor {
                 models_refresh_transcript(event),
             ));
         });
+        // The cache is now in the cell — the push-trigger event rides
+        // strictly after the write, so a subscriber's re-read of the
+        // cell sees the merged cache (the webui fan-out's ordering
+        // dependency).
+        self.publish_after_cache_write().await;
     }
 
     /// ModelCacheLoaded: restore model cache from disk and reload picker entries.
-    fn handle_model_cache_loaded(&self, cache: &ModelCache) {
+    async fn handle_model_cache_loaded(&mut self, cache: &ModelCache) {
         let mut cache = cache.clone();
         {
             let registry = self.deps.services.provider_registry.read();
@@ -326,6 +331,25 @@ impl ProviderActor {
         self.deps.services.provider_registry.merge_cache(&cache);
         self.store_model_cache(cache);
         self.handle_load_provider_picker_entries();
+        // Same post-write ordering as the refresh path: the webui
+        // fan-out's push must not precede the cell write it answers.
+        self.publish_after_cache_write().await;
+    }
+
+    /// Emits [`ModelCacheStored`] — the push trigger the webui fan-out
+    /// subscribes — through the shared bus. The bus publish path rides
+    /// the system broadcast directly (the same path every other event
+    /// this actor emits uses), so no outbox `.emits` declaration
+    /// applies; ordering is guaranteed by call placement, strictly
+    /// after `store_model_cache` in every caller. The event stamps the
+    /// write's timestamp as provenance: the webui's SSE envelope needs
+    /// a non-empty data line to dispatch (the browser drops empty-data
+    /// frames per the stream spec), and the bytes it carries are this.
+    async fn publish_after_cache_write(&self) {
+        self.publish(ModelCacheStored {
+            stored_at: jiff::Timestamp::now(),
+        })
+        .await;
     }
 
     /// Writes the merged cache into the provider cell.
@@ -668,7 +692,7 @@ mod tests {
         ProvidersConfig,
     };
     use jinn_provider_selection_msg::{ProviderCell, provider_state_slot};
-    use jinn_testutil::bus_harness::{TestHarness, await_recorded};
+    use jinn_testutil::bus_harness::{Recorder, TestHarness, await_recorded};
 
     use super::{
         ModelCacheLoaded, ModelsRefreshed, PROVIDER_ACTOR_PATH, ProviderActor, ProviderActorDeps,
@@ -839,6 +863,74 @@ mod tests {
         let loaded = ctx.await_model_cache().await;
         assert_eq!(loaded.entries["ollama"].len(), 1);
         assert_eq!(loaded.entries["ollama"][0].id, "llama3");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn cache_stored_event_fires_after_the_cell_write_on_refresh() {
+        // Given a provider actor with a tap on ModelCacheStored and a
+        // registry with one provider.
+        let ctx = create_ctx().await;
+        let registry = ProviderRegistry::from_config(sample_config()).expect("registry");
+        ctx.deps.services.provider_registry.replace(registry);
+        let stored: Recorder<jinn_provider_selection_msg::ModelCacheStored> =
+            ctx.harness.spawn_recorder().await;
+        ctx.spawn_provider_actor();
+
+        let mut results = std::collections::HashMap::new();
+        results.insert(
+            "ollama".to_owned(),
+            vec![ModelInfo {
+                id: "llama3".to_owned(),
+                context_length: None,
+                input_modalities: InputModalities::text(),
+            }],
+        );
+        let event = ModelsRefreshed {
+            session_id: ctx.state.read().session.active_session_id().clone(),
+            results,
+            errors: std::collections::HashMap::new(),
+        };
+
+        // When the refresh lands.
+        ctx.harness.publish(event).await;
+
+        // Then exactly one ModelCacheStored was delivered, and the
+        // provider cell ALREADY holds the merged cache at delivery
+        // time — the ordering the webui fan-out's push depends on (a
+        // push rendered from a predating cache would show stale rows).
+        let stored_events = await_recorded(&stored, 1, std::time::Duration::from_secs(2)).await;
+        assert_eq!(stored_events.len(), 1);
+        let cell = ctx.cell();
+        assert!(
+            cell.read().model_cache.is_some(),
+            "the cell must hold the merged cache by the time the stored event is delivered"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn cache_stored_event_fires_on_the_boot_path() {
+        // Given a provider actor with a tap on ModelCacheStored.
+        let ctx = create_ctx().await;
+        let registry = ProviderRegistry::from_config(sample_config()).expect("registry");
+        ctx.deps.services.provider_registry.replace(registry);
+        let stored: Recorder<jinn_provider_selection_msg::ModelCacheStored> =
+            ctx.harness.spawn_recorder().await;
+        ctx.spawn_provider_actor();
+
+        // When the boot cache load lands.
+        ctx.harness
+            .publish(ModelCacheLoaded {
+                cache: cache_with_ollama_llama3(None),
+            })
+            .await;
+
+        // Then one ModelCacheStored was delivered and the cell holds
+        // the cache — the boot path pushes too, not just refresh.
+        let stored_events = await_recorded(&stored, 1, std::time::Duration::from_secs(2)).await;
+        assert_eq!(stored_events.len(), 1);
+        let _ = ctx.await_model_cache().await;
     }
 
     #[rstest::rstest]

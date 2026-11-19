@@ -4,7 +4,11 @@
 //! to these, and `MsgCtx` is trouper-internal so tests cannot fabricate
 //! one).
 
-#![allow(clippy::expect_used, reason = "test assertions use expect")]
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test assertions use expect/panic to state what went wrong"
+)]
 
 use jinn_inference_msg::StreamToken;
 use jinn_kernel::State;
@@ -132,6 +136,68 @@ async fn a_session_activation_pushes_a_sessions_list_refresh() {
     let envelope = rx.try_recv().expect("sessions refresh");
     assert_eq!(envelope.kind, SseKind::Sessions);
     assert!(rx.try_recv().is_err());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_cache_stored_event_pushes_one_models_signal_and_one_transcript_per_live_session() {
+    // Given a default session plus two seeded ones, and a subscriber.
+    let (mut actor, mut rx, state) = fixture();
+    let first = seed_session(&state);
+    let second = seed_session(&state);
+    let live = state.read().session.sessions().len();
+
+    // When a cache-stored event lands (the provider cell already
+    // holds the cache — the emit is post-write by contract).
+    let stored_at = jiff::Timestamp::now();
+    actor.push_models_changed(stored_at);
+
+    // Then each live session receives exactly two envelopes in order:
+    // the `models` SIGNAL (cursor 0; its data line carries the write
+    // timestamp — a NON-EMPTY data line is the dispatch contract: the
+    // browser discards an SSE event with an empty data buffer, which
+    // is the never-stops-spinner bug) followed by the
+    // transcript-full convergence render (cursor 0, full replace —
+    // the carrier that puts the refresh summary transient on the page;
+    // blank for a session that has not rendered any entry yet, which
+    // the client's full replace treats as "clear", the same shape the
+    // settle path pushes).
+    let mut seen_models = std::collections::HashSet::new();
+    let mut seen_transcripts = std::collections::HashSet::new();
+    while let Ok(envelope) = rx.try_recv() {
+        match envelope.kind {
+            SseKind::Models => {
+                assert_eq!(
+                    envelope.html,
+                    stored_at.to_string(),
+                    "the models push carries the write timestamp as its data line \
+                     (empty data never dispatches in a browser): {envelope:?}"
+                );
+                assert!(!envelope.html.is_empty(), "dispatchable, not empty");
+                assert_eq!(envelope.cursor, 0);
+                seen_models.insert(envelope.session_id.clone());
+            }
+            SseKind::TranscriptFull => {
+                assert_eq!(envelope.cursor, 0);
+                seen_transcripts.insert(envelope.session_id.clone());
+            }
+            other => panic!("only models and transcript-full pushes land: {other:?}"),
+        }
+    }
+    assert_eq!(
+        seen_models.len(),
+        live,
+        "one models push per session: {seen_models:?}"
+    );
+    assert_eq!(
+        seen_transcripts.len(),
+        live,
+        "one transcript push per session: {seen_transcripts:?}"
+    );
+    assert!(
+        seen_models.contains(&first) && seen_models.contains(&second),
+        "{seen_models:?}"
+    );
 }
 
 #[rstest::rstest]

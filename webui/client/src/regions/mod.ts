@@ -63,6 +63,19 @@ export interface RegionModule {
    */
   onClick?: (target: Element) => boolean;
   /**
+   * Input delegation — every text-entry interaction (keystroke,
+   * paste, cut) on a target inside the region's selectors (the
+   * model modal's filter field, the sessions filter's live
+   * re-pull). Same first-match rule.
+   */
+  onInput?: (target: Element) => boolean;
+  /**
+   * Document-level click, consulted AFTER the selector dispatch —
+   * for overlays whose dismissal target (the backdrop) sits outside
+   * every selector. Return true when handled.
+   */
+  onDocumentClick?: (target: Element) => boolean;
+  /**
    * Change delegation (the model select). Same first-match rule.
    */
   onChange?: (target: Element) => boolean;
@@ -72,12 +85,6 @@ export interface RegionModule {
    * handled.
    */
   onKeyDown?: (target: Element, event: KeyboardEvent) => boolean;
-  /**
-   * Input delegation — every text-entry interaction (keystroke,
-   * paste, cut) on a target inside the region's selectors (the
-   * sessions filter's live re-pull). Same first-match rule.
-   */
-  onInput?: (target: Element) => boolean;
   /**
    * The SSE events this region consumes, keyed by the wire event
    * name. Every key MUST be a `wire.SSE_EVENTS` value (the

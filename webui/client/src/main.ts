@@ -117,7 +117,7 @@ function delegateClickOrChange(
  * paste, cut) to the region claiming the target.
  */
 function delegateInput(target: EventTarget | null): void {
-  const element = dom.targetWithAttribute(target);
+  const element = dom.targetElement(target);
   if (element === null) {
     return;
   }
@@ -126,6 +126,19 @@ function delegateInput(target: EventTarget | null): void {
     return;
   }
   region.onInput?.(element);
+}
+
+/** Dispatches the document-level click for overlay dismissal. */
+function delegateDocumentClick(target: EventTarget | null): void {
+  const element = dom.targetElement(target);
+  if (element === null) {
+    return;
+  }
+  for (const region of regions()) {
+    if (region.onDocumentClick?.(element)) {
+      return;
+    }
+  }
 }
 
 /**
@@ -139,6 +152,10 @@ export function initialize(): void {
 
   document.addEventListener("click", (event) => {
     delegateClickOrChange(event.target, "click");
+    // Overlay dismissal rides the same event, after the selector
+    // dispatch: a click a region consumed must not also close its
+    // overlay (the modal's rows are inside its own selectors).
+    delegateDocumentClick(event.target);
   });
   document.addEventListener("change", (event) => {
     delegateClickOrChange(event.target, "change");

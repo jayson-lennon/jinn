@@ -118,6 +118,12 @@ pub struct ServerShared {
     session_store: jinn_session_state::SessionStoreService,
     /// The provider cell, for the model picker.
     provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
+    /// The provider registry, for the picker's TUI-parity rows (the
+    /// shared builder reads it for static providers, aliases, and
+    /// availability).
+    provider_registry: jinn_provider_config::ProviderRegistryService,
+    /// The resolved API keys, for the picker rows' availability flags.
+    api_keys: jinn_provider_config::ApiKeysService,
     /// The fan-out's broadcast handle, for the SSE endpoint.
     fanout: crate::fanout::FanoutHandle,
     /// The bound port (reported by `/healthz`).
@@ -134,6 +140,8 @@ impl ServerShared {
         bus: BusService,
         session_store: jinn_session_state::SessionStoreService,
         provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
+        provider_registry: jinn_provider_config::ProviderRegistryService,
+        api_keys: jinn_provider_config::ApiKeysService,
         fanout: crate::fanout::FanoutHandle,
         port: u16,
         version: String,
@@ -143,6 +151,8 @@ impl ServerShared {
             bus,
             session_store,
             provider_cell,
+            provider_registry,
+            api_keys,
             fanout,
             port,
             version,
@@ -191,6 +201,18 @@ impl ServerShared {
         &self.provider_cell
     }
 
+    /// The provider registry, for the picker rows' shared builder.
+    #[must_use]
+    pub(crate) fn provider_registry(&self) -> &jinn_provider_config::ProviderRegistryService {
+        &self.provider_registry
+    }
+
+    /// The resolved API keys, for the picker rows' availability flags.
+    #[must_use]
+    pub(crate) fn api_keys(&self) -> &jinn_provider_config::ApiKeysService {
+        &self.api_keys
+    }
+
     /// The message fabric, for action publications.
     #[must_use]
     pub(crate) fn bus(&self) -> &BusService {
@@ -214,6 +236,7 @@ pub fn router(shared: ServerShared) -> Router {
         .route("/web/send", post(send))
         .route("/web/cancel", post(cancel))
         .route("/web/model", post(model))
+        .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
         .route("/web/session/{id}/activate", post(activate))
         .route(crate::contract::RENAME_ROUTE, post(rename))
         .route("/vendor/{*path}", get(serve_vendor))
@@ -285,15 +308,10 @@ async fn page_session(
             view.phase != PhaseView::Idle.as_str(),
         ))
         .map_err(|e| fail(500, e.to_string()))?;
-    let model_html = crate::regions::model_picker::model_picker_html(
-        &shared,
-        &session_id,
-        &view.transcript.model,
-    )?;
+    let model_html = crate::regions::model_picker::status_fragment(&shared, &session_id)?;
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         session_id.clone(),
         view.transcript.title.clone(),
-        view.transcript.model.clone(),
         view.transcript.len(),
         sessions_html,
         transcript_html,
@@ -388,6 +406,15 @@ pub(crate) async fn transcript_pull(
 /// `POST /web/send` — deliver text into a live session. Responds with
 /// the re-rendered composer controls; the SSE `controls` event
 /// corrects any race within one batch window.
+///
+/// The controls render **optimistically busy**: the turn dispatch is
+/// async (the enqueue rides the bus), so a phase read here races it
+/// and usually still sees `Idle` — a `Send` fragment that lands after
+/// the phase-change push and clobbers the cancel button for the
+/// whole stream. An accepted send always turns (or queues behind one
+/// in flight), so busy is the honest answer; a refused send never
+/// renders (the error paths return early), and the settle push
+/// corrects the fragment at the turn's end.
 async fn send(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<Form<jinn_webui_msg::SendForm>, axum::extract::rejection::FormRejection>,
@@ -396,17 +423,9 @@ async fn send(
     crate::delivery::handle_send(shared.state(), shared.bus(), &form.session_id, &form.text)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    let busy = {
-        let guard = shared.read_state();
-        let id = parse_session_id(&form.session_id)?;
-        guard
-            .session
-            .get(&id)
-            .is_some_and(|session| session.phase().is_working())
-    };
     let html = crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
         form.session_id,
-        busy,
+        true,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(Fragment::new(html))
@@ -432,7 +451,10 @@ async fn cancel(
 }
 
 /// `POST /web/model` — switch a session's model. Responds with the
-/// re-rendered picker, selection on the new model.
+/// re-rendered titlebar **status wrapper** (the `.m` label and the
+/// button together, so both displays update in one swap); the modal
+/// closes on the client — a stale modal must not survive the switch it
+/// caused.
 async fn model(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<Form<jinn_webui_msg::ModelForm>, axum::extract::rejection::FormRejection>,
@@ -441,6 +463,8 @@ async fn model(
     crate::delivery::handle_model(
         shared.state(),
         shared.provider_cell(),
+        shared.provider_registry(),
+        shared.api_keys(),
         shared.bus(),
         &form.session_id,
         &form.provider_id,
@@ -448,11 +472,24 @@ async fn model(
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
     Ok(Fragment::new(
-        crate::regions::model_picker::model_picker_html(
-            &shared,
-            &form.session_id,
-            &form.provider_id,
-        )?,
+        crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
+    ))
+}
+
+/// `POST /web/models/refresh` — the modal's refresh button. Publishes
+/// `RefreshModels` and responds with the re-rendered status wrapper
+/// immediately; the rows update when discovery lands (the fan-out's
+/// `models` push). Never blocks on discovery.
+async fn refresh_models(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<Form<jinn_webui_msg::ModelsRefreshForm>, axum::extract::rejection::FormRejection>,
+) -> Result<Fragment, HandlerError> {
+    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    crate::delivery::handle_refresh_models(shared.bus(), &form.session_id)
+        .await
+        .map_err(|error| fail(error.status(), error.sentence()))?;
+    Ok(Fragment::new(
+        crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
     ))
 }
 

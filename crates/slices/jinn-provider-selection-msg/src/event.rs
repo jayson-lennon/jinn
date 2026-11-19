@@ -36,6 +36,39 @@ pub struct ModelsRefreshed {
 
 impl BusMessage for ModelsRefreshed {}
 
+/// The merged model cache was written into the provider cell.
+///
+/// Emitted by [`crate::ProviderActor`]'s handler **strictly after**
+/// `store_model_cache` lands the merged cache in the cell, on both the
+/// refresh path (`ModelsRefreshed`) and the boot path
+/// (`ModelCacheLoaded`). This is the push trigger the webui fan-out
+/// subscribes — deliberately a distinct schema, never a re-subscription
+/// of the raw discovery facts:
+///
+/// - `ModelsRefreshed` is an Event with two unordered declarants
+///   (`ProviderActor` and the fan-out), so a push riding it could
+///   render before the cell holds the new cache and the client's
+///   re-pull would read stale rows with no correction coming.
+/// - `ModelCacheLoaded` is *handled* by `ProviderActor`; emitting it
+///   would loop the actor onto itself.
+///
+/// The payload carries one thing: `stored_at`, the write's timestamp,
+/// stamped by the emitter strictly after the cell write. It is
+/// provenance, not content — every consumer still renders by reading
+/// the cell (or re-pulling the picker fragment built from it), never
+/// from the event. The webui fan-out stamps it into its `models` SSE
+/// envelope's data line: an SSE event with an empty data buffer is
+/// discarded by the browser per the WHATWG stream spec (the frame
+/// never dispatches), so the signal must carry bytes to arrive.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
+#[schema(description = "The merged model cache was stored in the provider cell.")]
+pub struct ModelCacheStored {
+    /// When the merged cache was written to the provider cell. Read
+    /// provenance for signal-only consumers; never a data source.
+    pub stored_at: jiff::Timestamp,
+}
+impl BusMessage for ModelCacheStored {}
+
 /// Model cache loaded from disk at startup.
 ///
 /// Emitted by boot's `ProviderInitActor` after loading the cache from disk.

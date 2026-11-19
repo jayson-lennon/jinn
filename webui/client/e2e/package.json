@@ -1,0 +1,12 @@
+{
+  "name": "jinn-webui-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Playwright e2e tier for the jinn webui (see .plans/webui-e2e/plan.md)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0"
+  }
+}

@@ -64,6 +64,10 @@ pub struct WebUiListenerActorDeps {
     pub session_store: jinn_session_state::SessionStoreService,
     /// The provider cell, for the model picker's cache read.
     pub provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
+    /// The provider registry, for the picker rows' shared builder.
+    pub provider_registry: jinn_provider_config::ProviderRegistryService,
+    /// The resolved API keys, for the picker rows' availability flags.
+    pub api_keys: jinn_provider_config::ApiKeysService,
     /// The fan-out's broadcast handle, shared with the SSE endpoint.
     pub fanout: FanoutHandle,
     /// The serving binary's version.
@@ -117,6 +121,8 @@ impl WebUiListenerActor {
             deps.bus.clone(),
             deps.session_store.clone(),
             deps.provider_cell.clone(),
+            deps.provider_registry.clone(),
+            deps.api_keys.clone(),
             deps.fanout.clone(),
             resolved,
             deps.version.clone(),

@@ -53,6 +53,18 @@ fn harness() -> (State, ServerShared) {
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(
+            jinn_provider_config::ProviderRegistry::from_config(
+                jinn_provider_config::ProvidersConfig {
+                    providers: std::collections::BTreeMap::default(),
+                    aliases: vec![],
+                    default_provider: None,
+                    endpoint_defaults: vec![],
+                },
+            )
+            .expect("an empty providers config expands"),
+        ),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         fanout,
         0,
         "region-test".to_owned(),
@@ -122,12 +134,11 @@ async fn every_declared_container_id_appears_in_the_rendered_page_shell() {
         false,
     ))
     .expect("controls render");
-    let model = crate::regions::model_picker::model_picker_html(&shared, &id.to_string(), "")
+    let model = crate::regions::model_picker::status_fragment(&shared, &id.to_string())
         .expect("picker renders");
     let page = crate::templates::render(&crate::templates::PageTemplate::session(
         id.to_string(),
         "Conformance".to_owned(),
-        String::new(),
         0,
         sessions,
         transcript_html,

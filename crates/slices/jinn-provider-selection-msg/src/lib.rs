@@ -17,7 +17,10 @@
 pub mod cell;
 pub mod endpoint;
 pub mod entries;
+#[cfg(test)]
+mod entries_tests;
 pub mod provider_picker_state;
+pub mod provider_rows;
 pub mod reasoning;
 
 pub use cell::ProviderCell;
@@ -30,6 +33,10 @@ pub use jinn_core_types::{Endpoint, ReasoningEffort};
 pub use provider_picker_state::ProviderPickerState;
 pub use provider_picker_state::provider_picker_scope;
 pub use provider_picker_state::provider_picker_slot;
+pub use provider_rows::FilteredEntry;
+pub use provider_rows::load_provider_entries;
+pub use provider_rows::promote_selected_to_top;
+pub use provider_rows::sorted_entries;
 pub use reasoning::ReasoningEffortEntry;
 pub use reasoning::reasoning_row;
 pub use reasoning::{

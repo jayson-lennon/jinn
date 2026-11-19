@@ -87,7 +87,7 @@ pub const TRANSCRIPT_CSS: &str = r#"
               color: var(--muted); margin-bottom: 2px; }
 .entry.error { color: var(--err); }
 .entry.system, .entry.compaction, .entry.annotation,
-.entry.rule_interrupt, .entry.intersession { color: var(--muted); font-size: 13px; }
+.entry.rule_interrupt, .entry.intersession, .entry.transient { color: var(--muted); font-size: 13px; }
 .entry pre { background: #101216; padding: 10px; border-radius: 6px;
              overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
 .entry code { background: #101216; padding: 1px 5px; border-radius: 4px; }

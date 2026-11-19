@@ -977,3 +977,109 @@ fn clear_filter_empties_filter_and_resets_state() {
     // And the filtered list reflects all items again.
     assert_eq!(state.filtered_count(), 5);
 }
+
+#[rstest::rstest]
+fn fuzzy_filter_empty_filter_passes_all_through_in_input_order() {
+    // Given labels in a non-alphabetical input order.
+    let labels = ["zulu", "alpha", "mike"];
+
+    // When filtering with an empty filter.
+    let matches = fuzzy_filter(&labels, "");
+
+    // Then every label passes through in input order with no match indices.
+    let indices: Vec<usize> = matches.iter().map(|m| m.index).collect();
+    assert_eq!(indices, [0, 1, 2]);
+    assert!(matches.iter().all(|m| m.match_indices.is_empty()));
+}
+
+#[rstest::rstest]
+fn fuzzy_filter_matches_substrings_and_reports_their_byte_positions() {
+    // Given labels where only two contain the filter.
+    let labels = ["gpt-4o", "claude-sonnet", "gpt-4o-mini"];
+
+    // When filtering with "gpt".
+    let matches = fuzzy_filter(&labels, "gpt");
+
+    // Then exactly the gpt models match, carrying their matched byte offsets.
+    let indices: Vec<usize> = matches.iter().map(|m| m.index).collect();
+    assert_eq!(indices, [0, 2]);
+    // The 'g' of "gpt" is always matched at byte 0 of each label.
+    assert!(matches.iter().all(|m| m.match_indices.contains(&0)));
+}
+
+#[rstest::rstest]
+fn fuzzy_filter_requires_every_term_to_match() {
+    // Given a label containing "claude" but not "gpt", and one containing neither.
+    let labels = ["claude-3.5-sonnet", "gpt-4o"];
+
+    // When filtering with terms only "claude-3.5-sonnet" satisfies... and then
+    // with a term no label satisfies.
+    let matched = fuzzy_filter(&labels, "claude sonnet");
+    let unmatched = fuzzy_filter(&labels, "claude gpt");
+
+    // Then the AND filter keeps only the label with both terms...
+    let indices: Vec<usize> = matched.iter().map(|m| m.index).collect();
+    assert_eq!(indices, [0]);
+    // ...and the impossible term drops everything.
+    assert!(unmatched.is_empty());
+}
+
+#[rstest::rstest]
+fn fuzzy_filter_orders_better_matches_first() {
+    // Given a cleaner word-boundary match placed after a weaker one in the input
+    // (the same pairing the pinned TUI sort test uses).
+    let labels = ["jsonnet-tools", "claude-sonnet"];
+
+    // When filtering with "sonnet".
+    let matches = fuzzy_filter(&labels, "sonnet");
+
+    // Then the word-boundary match leads the ordering.
+    assert_eq!(matches[0].index, 1);
+}
+
+#[rstest::rstest]
+fn fuzzy_filter_breaks_score_ties_by_input_order() {
+    // Given identical labels (guaranteed identical scores) in input order.
+    let labels = ["echo-beta", "echo-beta", "echo-beta"];
+
+    // When filtering with "beta".
+    let matches = fuzzy_filter(&labels, "beta");
+
+    // Then equal-scored matches keep their input order.
+    let indices: Vec<usize> = matches.iter().map(|m| m.index).collect();
+    assert_eq!(indices, [0, 1, 2]);
+}
+
+#[rstest::rstest]
+fn fuzzy_filter_unions_and_dedups_indices_across_terms() {
+    // Given one label and a two-term filter whose matches overlap.
+    let labels = ["hello world"];
+
+    // When filtering with "hlo wor" (both terms hit overlapping spans).
+    let matches = fuzzy_filter(&labels, "hlo wor");
+
+    // Then the single match carries sorted, deduplicated indices from both terms.
+    assert_eq!(matches.len(), 1);
+    let indices = &matches[0].match_indices;
+    assert!(
+        !indices.is_empty(),
+        "overlapping matches union to some indices"
+    );
+    assert!(indices.windows(2).all(|w| w[0] < w[1]), "sorted + deduped");
+    // Both terms matched: bytes 0 ('h') and 6 ('w') must both be present.
+    assert!(indices.contains(&0));
+    assert!(indices.contains(&6));
+}
+
+#[rstest::rstest]
+fn fuzzy_filter_matches_fuzzy_only_queries_that_no_substring_could() {
+    // Given the discriminating label.
+    let labels = ["openai/gpt-4o"];
+
+    // When filtering with a fuzzy abbreviation no substring of the label is.
+    let matches = fuzzy_filter(&labels, "gp4");
+
+    // Then the label still matches (fuzzy subsequence, not substring).
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].index, 0);
+}

@@ -85,8 +85,9 @@ pub struct PageTemplate {
     pub session_id: String,
     /// The session title.
     pub title: String,
-    /// The model label.
-    pub model: String,
+    /// The model-status wrapper fragment (label + picker), rendered
+    /// inline — the titlebar's whole model display.
+    pub status_html: String,
     /// The rendered-entry cursor the page's inline transcript already
     /// carries — the stream's starting `Last-Event-ID`, so catch-up
     /// never re-appends what the page render included.
@@ -97,8 +98,6 @@ pub struct PageTemplate {
     pub transcript_html: String,
     /// The composer-controls fragment, rendered inline.
     pub controls_html: String,
-    /// The model-picker fragment, rendered inline.
-    pub model_html: String,
     /// `/vendor/` — the script tag's URL prefix.
     pub vendor_prefix: &'static str,
     /// The client bundle's cache-busting URL inside `/vendor/`
@@ -111,11 +110,12 @@ pub struct PageTemplate {
     pub page_session_attr: &'static str,
     /// The sessions-list container id.
     pub sessions_id: &'static str,
-    /// The sidebar filter input's id (outside the sessions swap
-    /// target, so region swaps never wipe the typed text).
+    /// The sessions filter input's id — in the page shell, outside the
+    /// `#sessions` swap target.
     pub sessions_filter_input_id: &'static str,
-    /// The model-picker container id.
-    pub model_picker_id: &'static str,
+    /// The model-picker modal's host id — the empty span sibling the
+    /// modal fragment swaps into.
+    pub modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -139,19 +139,18 @@ impl PageTemplate {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
             title: "jinn".to_owned(),
-            model: String::new(),
             cursor: 0,
             sessions_html,
             transcript_html: String::new(),
             controls_html: String::new(),
-            model_html: String::new(),
+            status_html: String::new(),
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
             sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
-            model_picker_id: contract::MODEL_PICKER_ID,
+            modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -163,34 +162,31 @@ impl PageTemplate {
     /// A session page: every region filled for one viewed session at
     /// the cursor its inline transcript already carries.
     #[must_use]
-    #[expect(clippy::too_many_arguments, reason = "one field per rendered region")]
     pub fn session(
         session_id: String,
         title: String,
-        model: String,
         cursor: usize,
         sessions_html: String,
         transcript_html: String,
         controls_html: String,
-        model_html: String,
+        status_html: String,
     ) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id,
             title,
-            model,
             cursor,
             sessions_html,
             transcript_html,
             controls_html,
-            model_html,
+            status_html,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
             sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
-            model_picker_id: contract::MODEL_PICKER_ID,
+            modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -317,32 +313,167 @@ impl ControlsTemplate {
     }
 }
 
-/// The model-picker fragment.
+/// The model-picker's titlebar button fragment: the current model as a
+/// clickable control. The label carries the viewed selection; the
+/// client opens the modal on its click.
 #[derive(Template)]
-#[template(path = "model.html")]
-pub struct ModelTemplate {
+#[template(path = "model_button.html")]
+pub struct ModelButtonTemplate {
     /// The session the picker targets.
     pub session_id: String,
     /// The current selection's label.
     pub current: String,
-    /// The cache's model ids, sorted.
-    pub models: Vec<String>,
-    /// The attribute the select names its action with.
-    pub action_attr: &'static str,
-    /// The model action's contract name.
-    pub model_action: &'static str,
+    /// The button's id.
+    pub button_id: &'static str,
+    /// The picker container's id.
+    pub picker_id: &'static str,
 }
 
-impl ModelTemplate {
+impl ModelButtonTemplate {
     /// Builds the template with the contract's hooks filled.
     #[must_use]
-    pub fn with_contract(session_id: String, current: String, models: Vec<String>) -> Self {
+    pub fn with_contract(session_id: String, current: String) -> Self {
         Self {
             session_id,
             current,
-            models,
+            button_id: contract::MODEL_PICKER_BUTTON_ID,
+            picker_id: contract::MODEL_PICKER_ID,
+        }
+    }
+}
+
+/// The titlebar's model-status wrapper: the static `.m` label span and
+/// the picker container rendered **as one fragment**, so a switch
+/// re-renders both in one swap (the `.m` label used to be static page
+/// markup that stayed stale after a switch). The page shell renders it
+/// inline at boot; the switch and refresh POSTs answer with it.
+#[derive(Template)]
+#[template(path = "model_status.html")]
+pub struct ModelStatusTemplate {
+    /// The current selection's label (the `.m` span's text).
+    pub model: String,
+    /// The pre-rendered button fragment (inlined with `|safe`).
+    pub model_html: String,
+    /// The wrapper's id.
+    pub status_id: &'static str,
+    /// The picker container's id (inside the wrapper).
+    pub picker_id: &'static str,
+}
+
+impl ModelStatusTemplate {
+    /// Builds the template from the current label and button HTML.
+    #[must_use]
+    pub fn with_contract(model: String, model_html: String) -> Self {
+        Self {
+            model,
+            model_html,
+            status_id: contract::MODEL_STATUS_ID,
+            picker_id: contract::MODEL_PICKER_ID,
+        }
+    }
+}
+
+/// One row of the model-picker modal — the shared builder's
+/// [`ProviderPickerEntry`][entry] data stamped into markup. Rendered
+/// standalone; the modal embeds the pre-rendered rows.
+///
+/// [entry]: jinn_provider_selection_msg::ProviderPickerEntry
+#[derive(Template)]
+#[template(path = "model_row.html")]
+pub struct ModelRowTemplate {
+    /// The row's entry data (presentation-free).
+    pub entry: jinn_provider_selection_msg::ProviderPickerEntry,
+    /// The model field split into matched/plain runs from the fuzzy
+    /// filter — matched runs render in a highlight span. One plain run
+    /// of the full text when there is no filter.
+    pub model_segments: Vec<jinn_provider_selection_msg::provider_rows::TextSegment>,
+    /// The provider-name field, split like `model_segments`.
+    pub provider_segments: Vec<jinn_provider_selection_msg::provider_rows::TextSegment>,
+    /// The session the switch targets.
+    pub session_id: String,
+    /// Whether this row is the session's current model (bold + marked).
+    pub is_active: bool,
+    /// The attribute a row names its model with.
+    pub model_attr: &'static str,
+    /// The attribute a row names its marker with.
+    pub marker_attr: &'static str,
+    /// The attribute an unavailable row carries.
+    pub unavailable_attr: &'static str,
+    /// The attribute a row names its action with.
+    pub action_attr: &'static str,
+    /// The switch action's contract name.
+    pub model_action: &'static str,
+}
+
+impl ModelRowTemplate {
+    /// Builds the template from a filtered entry: the entry data plus
+    /// its filter-highlight segments.
+    #[must_use]
+    pub fn from_filtered(
+        filtered: jinn_provider_selection_msg::FilteredEntry,
+        session_id: String,
+        is_active: bool,
+    ) -> Self {
+        let segments = filtered.segments();
+        Self {
+            entry: filtered.entry,
+            model_segments: segments.model,
+            provider_segments: segments.provider,
+            session_id,
+            is_active,
+            model_attr: contract::MODEL_ID_DATA_ATTR,
+            marker_attr: contract::MODEL_MARKER_ATTR,
+            unavailable_attr: contract::MODEL_UNAVAILABLE_ATTR,
             action_attr: contract::ACTION_DATA_ATTR,
             model_action: contract::ACTION_MODEL,
+        }
+    }
+}
+
+/// The model-picker modal: the overlay, the filter input, the row
+/// container, and the refresh button. Rendered into the picker
+/// container by the GET pull (with the filter applied server-side);
+/// the client toggles its visibility. The rows arrive pre-rendered
+/// (each [`ModelRowTemplate`] renders first — the same shape the
+/// sessions list uses for its rows).
+#[derive(Template)]
+#[template(path = "model_modal.html")]
+pub struct ModelModalTemplate {
+    /// The session the picker targets.
+    pub session_id: String,
+    /// The pre-rendered row fragments, already sorted/filtered by the
+    /// shared builder.
+    pub rows: Vec<String>,
+    /// The current filter text (echoed back into the input).
+    pub filter: String,
+    /// The modal overlay's id.
+    pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The row container's id.
+    pub rows_id: &'static str,
+    /// The refresh button's id.
+    pub refresh_id: &'static str,
+    /// The attribute a button names its action with.
+    pub action_attr: &'static str,
+    /// The refresh action's contract name.
+    pub refresh_action: &'static str,
+}
+
+impl ModelModalTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(session_id: String, rows: Vec<String>, filter: String) -> Self {
+        Self {
+            session_id,
+            rows,
+            filter,
+            modal_id: contract::MODEL_PICKER_MODAL_ID,
+            filter_id: contract::MODEL_PICKER_FILTER_ID,
+            rows_id: contract::MODEL_PICKER_ROWS_ID,
+            refresh_id: contract::MODEL_PICKER_REFRESH_ID,
+            action_attr: contract::ACTION_DATA_ATTR,
+            refresh_action: contract::ACTION_REFRESH_MODELS,
         }
     }
 }

@@ -63,6 +63,18 @@ async fn serve_with_session(title: &str, entry_text: &str) -> (String, jinn_core
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(
+            jinn_provider_config::ProviderRegistry::from_config(
+                jinn_provider_config::ProvidersConfig {
+                    providers: std::collections::BTreeMap::default(),
+                    aliases: vec![],
+                    default_provider: None,
+                    endpoint_defaults: vec![],
+                },
+            )
+            .expect("an empty providers config expands"),
+        ),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         fanout,
         0,
         "smoke-test".to_owned(),

@@ -1,6 +1,0 @@
-<select {{ action_attr }}="{{ model_action }}" name="provider_id">
-  <option value="" disabled {% if current == "" %}selected{% endif %}>model…</option>
-  {%- for model in models -%}
-  <option value="{{ model }}" {% if model == current.as_str() %}selected{% endif %}>{{ model }}</option>
-  {%- endfor -%}
-</select>

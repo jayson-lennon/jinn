@@ -26,6 +26,7 @@ use jinn_core_types::SessionId;
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::State;
 use jinn_provider_selection_msg::ProviderSwitch;
+use jinn_provider_selection_msg::RefreshModels;
 use jinn_session_store_msg::PersistSession;
 use jinn_session_store_msg::SessionLoadRequested;
 use jinn_slices::bus::BusService;
@@ -46,7 +47,8 @@ pub enum ActionError {
     EmptyText,
     /// The request carried a title that is empty after trimming.
     EmptyTitle,
-    /// The requested model id is not in the discovered cache.
+    /// The requested model id names no available picker row (unknown,
+    /// unknown provider, or an unavailable provider).
     UnknownModel(String),
 }
 
@@ -78,7 +80,7 @@ impl ActionError {
                 format!("session {id} is a bot run; external delivery does not target bot sessions")
             }
             Self::UnknownSession(id) => format!("no live session with id {id}"),
-            Self::UnknownModel(id) => format!("model {id} is not in the discovered model cache"),
+            Self::UnknownModel(id) => format!("model {id} is not in the available model rows"),
         }
     }
 }
@@ -157,36 +159,54 @@ pub async fn handle_cancel(bus: &BusService, session_id: &str) -> Result<(), Act
 
 /// Handles one `POST /web/model`.
 ///
-/// The model id must exist in the discovered cache (`ProviderCell`
-/// read); the switch publishes `ProviderSwitch::Single` and the
-/// provider actor validates again on its side.
+/// The model id must name an **available row the picker renders** —
+/// the same shared builder (`load_provider_entries` over the registry,
+/// api keys, and the provider cell's cache) that produces the modal's
+/// row list. Validating against the raw cache instead would (a)
+/// compare bare cache ids against the rows' full provider ids —
+/// `gpt-4o` vs `openai/gpt-4o` — refusing every rendered row, and (b)
+/// lock the picker on a fresh boot where discovery has not listed
+/// anything yet. The rendered rows are the single source of truth: the
+/// switch publishes `ProviderSwitch::Single` and the provider actor
+/// validates its side again.
+///
+/// All reads happen under short-lived guards inside one block; every
+/// guard is dropped before the publish awaits, per the guard
+/// discipline.
 ///
 /// # Errors
 ///
 /// Returns [`ActionError`] for a malformed id, an unknown session, or
-/// a model id outside the cache.
+/// a model id outside the available rows.
 pub async fn handle_model(
     state: &State,
     provider_cell: &jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
+    provider_registry: &jinn_provider_config::ProviderRegistryService,
+    api_keys: &jinn_provider_config::ApiKeysService,
     bus: &BusService,
     session_id: &str,
     model: &str,
 ) -> Result<(), ActionError> {
     let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
 
-    // The cache check: a web client can only pick what discovery has
-    // listed, and the provider actor re-validates its side anyway.
-    let known = provider_cell
-        .read()
-        .model_cache
-        .as_ref()
-        .is_some_and(|cache| {
-            cache
-                .entries
-                .values()
-                .flatten()
-                .any(|info| info.id == model)
-        });
+    // The availability check: the picker's rendered rows are the
+    // offered set, so they are the accepted set too. Rows carry full
+    // provider ids (`openai/gpt-4o`), which is the shape the switch
+    // publishes.
+    let known = {
+        let theme = crate::regions::model_picker::picker_theme(state);
+        let registry = provider_registry.read();
+        let api_keys = api_keys.read();
+        let cache = provider_cell.read().model_cache.clone();
+        crate::regions::model_picker::available_model_ids(
+            &registry,
+            &api_keys,
+            cache.as_ref(),
+            &theme,
+        )
+        .iter()
+        .any(|id| id == model)
+    };
     if !known {
         return Err(ActionError::UnknownModel(model.to_owned()));
     }
@@ -197,11 +217,55 @@ pub async fn handle_model(
             return Err(ActionError::UnknownSession(session_id));
         }
     }
+
+    // Apply the switch to the session state synchronously, BEFORE the
+    // publish: the POST's response fragment re-renders the titlebar from
+    // session state, and the bus is async — a response rendered between
+    // the publish and the actor's application of the command would name
+    // the PREVIOUS model (the stale-label bug: the button caught up only
+    // when a later interaction re-read state). The write is the same one
+    // the command's declarant applies (`ProviderActor`'s handler is this
+    // exact `set_model`), so the command's arrival re-applies it
+    // idempotently and no other reader can tell the difference — the
+    // command remains the writer of record for every OTHER subscriber,
+    // and this handler's own response is rendered from state that
+    // already holds the pick.
+    state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_model(ModelSelection::Single(model.to_owned()));
+    });
+
     bus.publish(ProviderSwitch {
         session_id,
         provider_id: ModelSelection::Single(model.to_owned()),
     })
     .await;
+    Ok(())
+}
+
+/// Handles one `POST /web/models/refresh` — the modal's refresh button.
+///
+/// Publishes the existing [`RefreshModels`] command (one declarant:
+/// `DiscoverActor`, the TUI's own discovery pipeline; the web adds no
+/// second handling of the schema). It validates nothing
+/// session-specific, blocks on nothing: discovery is async, and the
+/// rows arrive when the provider cache lands and the fan-out pushes
+/// the `models` event. No transcript note is pushed from the web path
+/// — the summary entry the provider actor's own handler emits is
+/// shared-pipeline behavior and applies to this trigger too.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] when the session id is malformed.
+pub async fn handle_refresh_models(bus: &BusService, session_id: &str) -> Result<(), ActionError> {
+    // The id is validated (a malformed id is a 400) but not otherwise
+    // used: `RefreshModels` is a unit command — `DiscoverActor` stamps
+    // the active session when it emits the refresh event, and the
+    // `models` push is addressed per live session by the fan-out.
+    SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+    bus.publish(RefreshModels).await;
     Ok(())
 }
 

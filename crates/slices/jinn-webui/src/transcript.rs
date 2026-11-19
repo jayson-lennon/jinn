@@ -183,16 +183,11 @@ impl TranscriptModel {
 
 /// Projects one chat entry into its rendered form.
 ///
-/// The kind set mirrors the export slice's projection: transients are
-/// filtered by [`is_renderable`] before this is called (the arm keeps
-/// the match total and renders nothing), disclosures for tool
-/// calls/results and thinking, prose for everything else.
+/// Every kind renders (see [`is_renderable`]): disclosures for tool
+/// calls/results and thinking, prose for everything else, and
+/// transients as muted one-shot notices (the refresh summary table).
 #[must_use]
 pub fn render_entry(entry: &ChatEntry) -> RenderedEntry {
-    debug_assert!(
-        is_renderable(entry),
-        "transient entries must be filtered before rendering"
-    );
     let (class, body, summary, is_disclosure, tool_status) = match &entry.kind {
         ChatEntryKind::User { display, .. } => {
             ("user", render_markdown(display), None, false, None)
@@ -271,10 +266,10 @@ pub fn render_entry(entry: &ChatEntry) -> RenderedEntry {
             false,
             None,
         ),
-        ChatEntryKind::Transient(_) => {
-            // Filtered upstream by `is_renderable`; rendering one would
-            // split cursors and surface UI-only text in a shared view.
-            ("transient", String::new(), None, false, None)
+        ChatEntryKind::Transient(text) => {
+            // UI-only notice (the refresh summary table and friends) —
+            // rendered like the terminal renders it, muted via CSS.
+            ("transient", escape_html(text), None, false, None)
         }
     };
 
@@ -290,12 +285,20 @@ pub fn render_entry(entry: &ChatEntry) -> RenderedEntry {
 
 /// Whether an entry participates in the rendered sequence.
 ///
-/// The transient filter, stated once: every caller that iterates a
-/// history for rendering applies this, so a transient can never split
-/// a cursor.
+/// Every entry kind renders — the web transcript shows what the
+/// terminal shows, including transients (the refresh summary table).
+/// The predicate stays as the one place the participation rule is
+/// stated; callers keep filtering through it so the rule cannot drift
+/// apart between pull and push.
+///
+/// # Note
+///
+/// Transients are UI-only: the session store filters them out of
+/// SQLite persistence and export ignores them — this predicate governs
+/// **web rendering only**.
 #[must_use]
-pub fn is_renderable(entry: &ChatEntry) -> bool {
-    !matches!(entry.kind, ChatEntryKind::Transient(_))
+pub const fn is_renderable(_entry: &ChatEntry) -> bool {
+    true
 }
 
 /// The lowercase outcome word for a tool result.

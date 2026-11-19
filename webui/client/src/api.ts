@@ -144,3 +144,55 @@ export function switchModel(
     ),
   );
 }
+
+/**
+ * Pulls the model-picker modal fragment with a filter applied
+ * server-side. The filter matches case-insensitively over model id
+ * and provider name; an empty filter renders every row.
+ *
+ * @param sessionId - The session whose picker to render.
+ * @param filter - The filter text (may be empty).
+ * @returns The modal fragment HTML.
+ * @throws Error on network failure or a non-2xx status.
+ */
+export function pullModelPicker(
+  sessionId: string,
+  filter: string,
+): Promise<string> {
+  const query =
+    filter.length > 0
+      ? `?${wire.MODEL_FILTER_QUERY_PARAM}=${encodeURIComponent(filter)}`
+      : "";
+  return get(
+    `${wire.MODEL_PICKER_PREFIX}${encodeURIComponent(sessionId)}${query}`,
+  );
+}
+
+/**
+ * Publishes the refresh-models command. The POST answers immediately
+ * with the re-rendered button fragment; the modal's rows update when
+ * discovery lands (the `models` SSE event) — this call never blocks
+ * on discovery.
+ *
+ * @param sessionId - The session whose button to re-render.
+ * @returns The replacement button fragment.
+ * @throws Error on network failure or a non-2xx status.
+ */
+export function refreshModels(sessionId: string): Promise<string> {
+  return postForm(wire.MODELS_REFRESH_PATH, encodeField("session_id", sessionId));
+}
+
+/**
+ * GETs a URL, asserting a 2xx response.
+ *
+ * @param url - The URL to fetch.
+ * @returns The response body text.
+ * @throws Error on network failure or a non-2xx status.
+ */
+async function get(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${url} failed: HTTP ${response.status}`);
+  }
+  return response.text();
+}

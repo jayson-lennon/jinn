@@ -57,3 +57,9 @@ dump/
 dumps/
 __pycache__/
 *.pyc
+
+# webui e2e tier run artifacts (webui/client/e2e)
+webui/client/e2e/.run/
+webui/client/e2e/node_modules/
+webui/client/e2e/playwright-report/
+webui/client/e2e/test-results/
