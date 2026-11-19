@@ -10,6 +10,7 @@
 //! each region lives in `webui/client/src/regions/<id>.ts`.
 
 pub mod composer;
+pub mod menu;
 pub mod model_picker;
 pub mod sessions;
 pub mod transcript;
