@@ -103,6 +103,7 @@ impl World {
                 ui: ui.clone(),
                 base_url: base_url.to_owned(),
                 cache_dir: Some(cache_dir.clone()),
+                opener: std::sync::Arc::new(super::SilentPageOpener),
             },
         );
         Self {
@@ -996,4 +997,158 @@ fn fixture_rows() -> Vec<jinn_model_market_msg::MarketRow> {
         vals: None,
         is_free: false,
     }]
+}
+
+// ── `O`: the model-page open ─────────────────────────────────────────────
+
+use error_stack::Report;
+use jinn_model_market_msg::OpenModelPage;
+use jinn_session_history_msg::PushChatEntry;
+
+use super::PageOpenError;
+use super::PageOpener;
+use super::model_page_url;
+
+/// An opener scripted to fail — the `xdg-open`-missing shape.
+struct FailingPageOpener;
+
+impl PageOpener for FailingPageOpener {
+    fn open(&self, url: &str) -> Result<(), Report<PageOpenError>> {
+        Err(Report::new(PageOpenError)
+            .attach(format!("no browser opener on this platform for {url}")))
+    }
+
+    fn name(&self) -> &'static str {
+        "failing"
+    }
+}
+
+/// A world whose OpenRouter actor launches pages through a scripted
+/// opener. The fetch caches are unused here — a page open never hits
+/// the network — so the base URL can point at a dead port.
+async fn start_with_opener(
+    opener: std::sync::Arc<dyn PageOpener>,
+) -> (World, jinn_core_types::SessionId) {
+    let cache = jinn_testutil::tempdir();
+    let cache_dir = cache
+        .path
+        .join("market-cache")
+        .expect("tempdir root joins a bare name");
+    let harness = TestHarness::new().await;
+    let deps = harness.actor_deps().await;
+    let api_keys = deps.services.api_keys.clone();
+    let slices = Slices::new();
+    let data = seed_cell(&slices, &market_data_slot(), MarketDataState::default());
+    let ui = seed_cell(&slices, &market_ui_slot(), MarketUiState::default());
+    OpenRouterMarketActor::spawn(
+        harness.system(),
+        OpenRouterMarketActorDeps {
+            deps,
+            data: data.clone(),
+            ui: ui.clone(),
+            base_url: "http://127.0.0.1:9".to_owned(),
+            cache_dir: Some(cache_dir.clone()),
+            opener,
+        },
+    );
+    let world = World {
+        harness,
+        data,
+        ui,
+        base_url: String::new(),
+        api_keys,
+        score_dir: cache_dir.clone(),
+        cache_dir,
+    };
+    let session_id = jinn_core_types::SessionId::new_v5_tag("s-page-open");
+    (world, session_id)
+}
+
+/// `O` against a broken opener reports into the stamped session: one
+/// `PushChatEntry`, an `Error` entry, user-facing prose naming the URL.
+#[rstest::rstest]
+#[tokio::test]
+async fn a_failed_page_open_reports_a_chat_error_into_the_stamped_session() {
+    // Given an actor whose opener always fails, and a page-open command
+    // addressed to a session.
+    let (world, session_id) = start_with_opener(std::sync::Arc::new(FailingPageOpener)).await;
+    let chat = world.harness.spawn_recorder::<PushChatEntry>().await;
+
+    // When the open is published.
+    world
+        .harness
+        .publish(OpenModelPage {
+            model_id: "openrouter/a/small:free".to_owned(),
+            session_id: session_id.clone(),
+        })
+        .await;
+    let pushed = await_recorded(&chat, 1, SETTLE).await;
+
+    // Then exactly one chat entry lands, in the addressed session, an
+    // Error entry carrying the URL and the failure detail.
+    assert_eq!(pushed.len(), 1, "exactly one PushChatEntry, got {pushed:?}");
+    assert_eq!(pushed[0].session_id, session_id);
+    let jinn_core_types::ChatEntryKind::Error(text) = &pushed[0].entry.kind else {
+        panic!(
+            "a failed open reports an Error entry, got {:?}",
+            pushed[0].entry.kind
+        );
+    };
+    assert!(
+        text.contains("https://openrouter.ai/a/small:free"),
+        "the note names the URL, got: {text}"
+    );
+    assert!(
+        text.contains("could not open"),
+        "the note is user-facing prose, got: {text}"
+    );
+}
+
+/// `O` against a working opener reports nothing: the recorder drains
+/// empty — silence is the success contract.
+#[rstest::rstest]
+#[tokio::test]
+async fn a_successful_page_open_reports_nothing() {
+    // Given an actor whose opener succeeds.
+    let (world, session_id) = start_with_opener(std::sync::Arc::new(super::SilentPageOpener)).await;
+    let chat = world.harness.spawn_recorder::<PushChatEntry>().await;
+
+    // When the open is published and the stream settles.
+    world
+        .harness
+        .publish(OpenModelPage {
+            model_id: "openrouter/a/small".to_owned(),
+            session_id,
+        })
+        .await;
+    jinn_testutil::wait::await_settled(&chat, std::time::Duration::from_millis(200), SETTLE).await;
+
+    // Then nothing was pushed.
+    assert!(
+        chat.is_empty(),
+        "a successful open is silent, got: {:?}",
+        chat.drain()
+    );
+}
+
+/// The page URL derives from the listing id: prefix stripped, variant
+/// suffix riding along, prefix-miss falling back to the raw id.
+#[rstest::rstest]
+#[case(
+    "openrouter/deepseek/deepseek-chat:free",
+    "https://openrouter.ai/deepseek/deepseek-chat:free"
+)]
+#[case(
+    "openrouter/openai/gpt-oss-120b",
+    "https://openrouter.ai/openai/gpt-oss-120b"
+)]
+#[case(
+    "deepseek/deepseek-chat",
+    "https://openrouter.ai/deepseek/deepseek-chat"
+)]
+fn model_page_url_strips_the_prefix_and_keeps_the_variant(
+    #[case] model_id: &str,
+    #[case] expected: &str,
+) {
+    assert_eq!(model_page_url(model_id), expected);
 }

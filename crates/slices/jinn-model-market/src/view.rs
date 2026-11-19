@@ -56,8 +56,8 @@ const STATUS_ROWS: u16 = 3;
 /// top, above the table's header.
 const FILTER_ROWS: u16 = 2;
 /// How many of [`MARKET_BINDINGS`]' entries the footer's upper row
-/// carries; the rest render on the second row. Thirteen bindings split
-/// 7/6, which fits both halves at the narrowest popup width.
+/// carries; the rest render on the second row. Fourteen bindings split
+/// 7/7, which fits both halves at the narrowest popup width.
 const FOOTER_FIRST_ROW: usize = 7;
 
 #[cfg(test)]

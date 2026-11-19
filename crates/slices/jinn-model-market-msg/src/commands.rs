@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use jinn_core_types::SessionId;
 use jinn_slices::BusMessage;
 
 use crate::scores::EciSource;
@@ -37,6 +38,28 @@ pub struct FetchEndpoints {
 }
 
 impl BusMessage for FetchEndpoints {}
+
+/// Open the model's openrouter.ai page in the OS default browser.
+///
+/// Published by the popup's `O` key — in table mode for the highlighted
+/// row, in detail mode for the pinned model. The actor builds the URL
+/// from the listing id and spawns the platform opener; a failed launch
+/// is reported as a chat error entry into `session_id`, a successful
+/// one reports nothing.
+///
+/// One declarant by design: the OpenRouter market actor is the only
+/// handler, so the Command route resolves to exactly that actor.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command)]
+#[schema(description = "Open the model's openrouter.ai page in the OS default browser.")]
+pub struct OpenModelPage {
+    /// Full listing id (`openrouter/{author}/{slug}[:variant]`).
+    pub model_id: String,
+    /// The session stamped into the UI cell at popup open — where a
+    /// failed launch reports.
+    pub session_id: SessionId,
+}
+
+impl BusMessage for OpenModelPage {}
 
 /// Refresh the benchmark-score caches: the Epoch ECI zip and the Vals
 /// Index JSON.
