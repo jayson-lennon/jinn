@@ -90,3 +90,16 @@ remote-discovered models. **Refresh models** re-runs discovery (the
 same `<c-r>` pipeline as the TUI); the list updates in place when it
 lands, without losing the typed filter. Alloys and multi-select are
 TUI-only — the web picker switches single models.
+
+## The web UI's session list
+
+The browser UI's left sidebar lists every session — loaded and
+archived — in the TUI session picker's tree order; a filter box above
+the list narrows it with the picker's own fuzzy match. Row states:
+a blue left border marks the instance's active session, `· bot` tags
+bot sessions, and a **yellow left border** marks a session that
+settled to idle while it was not the active one (work the user has
+not viewed — a cancelled or errored settle marks too; subagent
+sessions never do). Clicking a row activates that session and clears
+its unread mark everywhere on the next refresh, without a reload.
+The mark is process-local: a fresh jinn boot starts with none.

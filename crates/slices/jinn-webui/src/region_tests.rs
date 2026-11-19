@@ -35,6 +35,12 @@ fn harness() -> (State, ServerShared) {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once per harness");
+    let unread_marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per harness");
     let state = {
         let app = AppState::default();
         app.session.attach_slices(slices.clone());
@@ -44,7 +50,7 @@ fn harness() -> (State, ServerShared) {
     let fanout = {
         use trouper::system::ActorSystem;
         let system = ActorSystem::new(trouper::system::SystemConfig::production());
-        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone())
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
     };
     let shared = ServerShared::new(
         state.clone(),

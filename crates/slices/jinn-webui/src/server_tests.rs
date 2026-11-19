@@ -38,6 +38,12 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once per harness");
+    let unread_marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per harness");
     let state = {
         let app = AppState::default();
         app.session.attach_slices(slices.clone());
@@ -47,7 +53,7 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
     let fanout = {
         use trouper::system::ActorSystem;
         let system = ActorSystem::new(trouper::system::SystemConfig::production());
-        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone())
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
     };
     let shared = ServerShared::new(
         state.clone(),
@@ -63,6 +69,20 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
         "test".to_owned(),
     );
     (state, audit, slices, router(shared))
+}
+
+/// Registers the unread-mark cell and returns its write handle — the
+/// same resolution production `activate` performs against the shared
+/// catalog, against a harness-local registry instead.
+fn unread_marks_for(
+    slices: &Slices,
+) -> jinn_slices::cell::TypedCell<jinn_webui_msg::UnreadSessionMarks> {
+    slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per harness")
 }
 
 /// The harness registry: one keyless `openai` provider offering the
@@ -341,7 +361,8 @@ fn harness_with_archived_row_and_receiver() -> (
     };
     let archived_id = SessionId::new();
     let (bus, audit) = BusService::new_recording();
-    let (fanout, rx) = crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone());
+    let (fanout, rx) =
+        crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone(), unread_marks_for(&slices));
     let shared = ServerShared::new(
         state.clone(),
         bus,

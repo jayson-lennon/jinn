@@ -3721,6 +3721,7 @@ dependencies = [
  "jinn-theme-msg",
  "jinn-token-count-msg",
  "jinn-tools-msg",
+ "jinn-webui-msg",
  "jinn-work-time-msg",
  "jinn-workflows-msg",
 ]
@@ -6062,6 +6063,7 @@ name = "jinn-webui-msg"
 version = "1.25.0"
 dependencies = [
  "jinn-core-types",
+ "jinn-slices",
  "rstest",
  "serde",
  "serde_json",
