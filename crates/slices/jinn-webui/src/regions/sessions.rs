@@ -115,15 +115,21 @@ pub const SIDEBAR_CSS: &str = r#"
 .srow { display: block; padding: 8px 14px; color: var(--fg); text-decoration: none;
         border-bottom: 1px solid var(--border); cursor: pointer; }
 .srow:hover { background: #23272f; }
-.srow.active { border-left: 3px solid var(--accent); background: #20242c; }
+.srow.active { background: var(--accent); }
+.srow.active .stitle { color: #14161a; font-weight: 600; }
+.srow.active .smeta { color: #14161a; }
 /* The unread mark: a settle landed while another session was viewed.
    Placed after `.active` so equal specificity resolves in unread's
    favor should the two classes ever co-occur (flag discipline keeps
    them apart; the CSS is the backstop). */
-.srow.unread { border-left: 3px solid #e3b341; }
+.srow.unread { background: #e3b341; }
+.srow.unread .stitle { color: #14161a; }
+.srow.unread .smeta { color: #3d3320; }
 .srow .stitle { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .srow .smeta { font-size: 11px; color: var(--muted); }
 .srow.bot .smeta::after { content: " · bot"; color: #d4a72c; }
+.srow.active .smeta::after { color: #14161a; }
+.srow.unread .smeta::after { color: #3d3320; }
 @media (max-width: 767px) {
   #sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: min(80vw, 320px);
              z-index: 40; transform: translateX(-100%); transition: transform .25s ease; }
