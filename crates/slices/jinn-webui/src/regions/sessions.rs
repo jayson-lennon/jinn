@@ -116,6 +116,11 @@ pub const SIDEBAR_CSS: &str = r#"
         border-bottom: 1px solid var(--border); cursor: pointer; }
 .srow:hover { background: #23272f; }
 .srow.active { border-left: 3px solid var(--accent); background: #20242c; }
+/* The unread mark: a settle landed while another session was viewed.
+   Placed after `.active` so equal specificity resolves in unread's
+   favor should the two classes ever co-occur (flag discipline keeps
+   them apart; the CSS is the backstop). */
+.srow.unread { border-left: 3px solid #e3b341; }
 .srow .stitle { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .srow .smeta { font-size: 11px; color: var(--muted); }
 .srow.bot .smeta::after { content: " · bot"; color: #d4a72c; }
@@ -144,6 +149,17 @@ async fn pull_handler(
     ))
 }
 
+/// The unread marks for the given session map: the shared cell's
+/// payload, read through the map's attached registry. `None` when no
+/// registry is attached — a state without the webui cell renders no
+/// marks rather than failing (the mark is signal, not correctness).
+fn unread_marks_of(guard: &StateReadGuard<'_>) -> Option<jinn_webui_msg::UnreadSessionMarks> {
+    let slices = guard.session.slices()?;
+    slices
+        .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+        .map(|cell| cell.read().clone())
+}
+
 /// The sessions-list fragment from a state guard — the fan-out's
 /// refresh shape.
 ///
@@ -158,7 +174,14 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
         .iter()
         .map(|(id, session)| (id.clone(), session.is_bot()))
         .collect();
-    let rows = picker_rows(live_entries(guard), &bots, None, &active_id);
+    let unread_marks = unread_marks_of(guard);
+    let rows = picker_rows(
+        live_entries(guard),
+        &bots,
+        None,
+        &active_id,
+        unread_marks.as_ref(),
+    );
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .unwrap_or_else(|error| {
             tracing::warn!(%error, what = "sessions", "webui template render failed; \
@@ -187,7 +210,7 @@ pub async fn sessions_fragment(
     shared: &ServerShared,
     filter: Option<&str>,
 ) -> Result<String, HandlerError> {
-    let (mut entries, mut bots, active_id) = {
+    let (mut entries, mut bots, active_id, unread_marks) = {
         let guard = shared.read_state();
         let active_id = guard.session.active_session_id().clone();
         let bots: std::collections::HashMap<jinn_core_types::SessionId, bool> = guard
@@ -195,7 +218,8 @@ pub async fn sessions_fragment(
             .iter()
             .map(|(id, session)| (id.clone(), session.is_bot()))
             .collect();
-        (live_entries(&guard), bots, active_id)
+        let unread_marks = unread_marks_of(&guard);
+        (live_entries(&guard), bots, active_id, unread_marks)
     };
 
     // Archived rows: skip ids already live; the merged tree is the one
@@ -205,7 +229,7 @@ pub async fn sessions_fragment(
     if let Ok(summaries) = shared.load_summaries().await {
         append_summaries(&mut entries, &mut bots, summaries);
     }
-    let rows = picker_rows(entries, &bots, filter, &active_id);
+    let rows = picker_rows(entries, &bots, filter, &active_id, unread_marks.as_ref());
 
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .map_err(|e| crate::server::map_render_error(&e))
@@ -289,6 +313,7 @@ fn picker_rows(
     bots: &std::collections::HashMap<jinn_core_types::SessionId, bool>,
     filter: Option<&str>,
     active_id: &jinn_core_types::SessionId,
+    unread_marks: Option<&jinn_webui_msg::UnreadSessionMarks>,
 ) -> Vec<jinn_webui_msg::SessionListItem> {
     let matches_filter = filter.is_some_and(|text| !text.is_empty());
     let visible: Vec<(SessionTreeEntry, usize)> = if matches_filter {
@@ -318,6 +343,9 @@ fn picker_rows(
             is_bot: bots.get(&entry.session_id).copied().unwrap_or(false),
             active: entry.session_id == *active_id,
             loaded: entry.session_state == SessionState::Loaded,
+            unread: unread_marks
+                .as_ref()
+                .is_some_and(|marks| marks.is_marked(&entry.session_id)),
             session_id: entry.session_id,
             title: entry.title,
             depth,
