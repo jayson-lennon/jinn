@@ -7,11 +7,14 @@
 //!
 //! Parse is tolerant by contract: unknown JSON fields are ignored (the
 //! payload carries token totals, sampling params, harness names — none
-//! are modeled), the task map is read as data (an added or renamed task
-//! bucket parses unchanged), and only the `overall` bucket's `accuracy`
-//! is consumed. Records are located by walking whatever map-shaped
-//! `tasks` object the payload carries and keeping only entries whose
-//! values are objects with a numeric `accuracy`.
+//! are modeled), and a record with a missing or non-numeric `accuracy`
+//! is skipped, not fatal. Exactly ONE bucket is consumed: the map named
+//! `overall` — the Vals Index aggregate itself. Its sibling buckets
+//! (`vibe_code_bench`, `finance_agent`, …) are the sector benchmarks
+//! that feed the index; scanning them would overwrite the index value
+//! with a sector score under the same slug key, so they are never read.
+//! An *added* bucket parses unchanged precisely because only `overall`
+//! is consulted.
 //!
 //! Vendor-etiquette bound: jinn consumes one number per model — the
 //! overall accuracy. Cost, latency, rank, and per-sector buckets are
@@ -28,6 +31,9 @@ const ASTRO_DIR: &str = "/_astro/";
 
 /// The data file's name stem: `benchmark_view_vals_index.<hash>.json`.
 const DATA_STEM: &str = "benchmark_view_vals_index.";
+
+/// The one task bucket the display consumes: the Vals Index aggregate.
+const OVERALL_BUCKET: &str = "overall";
 
 /// Why the Vals Index could not be fetched or parsed.
 ///
@@ -170,8 +176,9 @@ fn derive_data_url(
 ///
 /// # Errors
 ///
-/// Returns an error when the bytes are not JSON, or when no task map
-/// with any object-valued entries exists anywhere (nothing to display).
+/// Returns an error when the bytes are not JSON, or when no `overall`
+/// bucket carrying usable records exists anywhere in the payload
+/// (nothing to display).
 pub fn parse_vals_index(bytes: &[u8]) -> Result<ValsIndex, error_stack::Report<ValsError>> {
     let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|error| {
         error_stack::Report::new(ValsError::Parse {
@@ -181,14 +188,14 @@ pub fn parse_vals_index(bytes: &[u8]) -> Result<ValsIndex, error_stack::Report<V
     })?;
 
     let mut scores: HashMap<String, ValsScore> = HashMap::new();
-    for tasks in task_maps(&value) {
+    for tasks in overall_maps(&value) {
         collect_accuracies(tasks, &mut scores);
     }
     if scores.is_empty() {
         return Err(error_stack::Report::new(ValsError::Parse {
-            detail: "the payload carried no model accuracy records".to_owned(),
+            detail: "the payload carried no Vals Index (overall) records".to_owned(),
         })
-        .attach("no tasks map held any usable records"));
+        .attach("no overall bucket held any usable records"));
     }
 
     let metadata = value.get("metadata");
@@ -205,44 +212,43 @@ pub fn parse_vals_index(bytes: &[u8]) -> Result<ValsIndex, error_stack::Report<V
     })
 }
 
-/// Every map-shaped `tasks` object in the payload, top level first,
-/// `metadata.tasks` second. Extra hits are harmless: dedup happens by
-/// key in the collector, and per-bucket maps merge into one slug→score
-/// view where the `overall` bucket's value wins by insertion order.
-fn task_maps(value: &serde_json::Value) -> Vec<&serde_json::Map<String, serde_json::Value>> {
-    let mut maps = Vec::new();
-    if let Some(top) = value.get("tasks").and_then(serde_json::Value::as_object) {
-        maps.push(top);
-    }
-    if let Some(nested) = value
-        .get("metadata")
-        .and_then(|m| m.get("tasks"))
-        .and_then(serde_json::Value::as_object)
-    {
-        maps.push(nested);
-    }
-    maps
+/// The map-shaped objects that hold the index's model records: the
+/// top-level `tasks.overall` map first, `metadata.tasks.overall` second
+/// (the fallback for a payload that nests records there instead).
+///
+/// Only the bucket literally named `overall` qualifies — the Vals Index
+/// aggregate. The other buckets are sector benchmarks whose records
+/// share the same slug keys; reading them would put a sector score
+/// where the index value belongs.
+fn overall_maps(value: &serde_json::Value) -> Vec<&serde_json::Map<String, serde_json::Value>> {
+    ["tasks", "metadata.tasks"]
+        .iter()
+        .find_map(|path| {
+            let mut current = value;
+            for segment in path.split('.') {
+                current = current.get(segment)?;
+            }
+            current
+                .as_object()
+                .and_then(|tasks| tasks.get(OVERALL_BUCKET))
+                .and_then(serde_json::Value::as_object)
+        })
+        .into_iter()
+        .collect()
 }
 
-/// Walks one tasks map: a value that is itself a map of object-shaped
-/// records is a bucket — collect each record's `accuracy` under its
-/// slug. A string value (a bucket display label) is skipped. The
-/// `overall` bucket is collected like any other; it is simply the one
-/// the join reads, and scanning every bucket keeps the parse data-driven.
+/// Walks the `overall` bucket's records: each slug whose record is an
+/// object carrying a numeric `accuracy` enters the index. Missing or
+/// non-numeric accuracies are skipped, not fatal.
 fn collect_accuracies(
     tasks: &serde_json::Map<String, serde_json::Value>,
     scores: &mut HashMap<String, ValsScore>,
 ) {
-    for (_bucket, records) in tasks {
-        let Some(records) = records.as_object() else {
+    for (slug, record) in tasks {
+        let Some(accuracy) = record.get("accuracy").and_then(serde_json::Value::as_f64) else {
             continue;
         };
-        for (slug, record) in records {
-            let Some(accuracy) = record.get("accuracy").and_then(serde_json::Value::as_f64) else {
-                continue;
-            };
-            scores.insert(slug.clone(), ValsScore { accuracy });
-        }
+        scores.insert(slug.clone(), ValsScore { accuracy });
     }
 }
 
