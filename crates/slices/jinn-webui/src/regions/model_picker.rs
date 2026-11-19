@@ -313,4 +313,11 @@ pub const MODEL_PICKER_CSS: &str = r#"
 .model-row.model-row-active .model-row-model { font-weight: 600; }
 .model-row.model-row-unavailable { cursor: default; color: var(--muted); }
 .model-row.model-row-unavailable:hover { background: transparent; }
+@media (max-width: 767px) {
+  .model-status { margin-left: auto; min-width: 0; max-width: 44vw;
+                  overflow: hidden; }
+  .model-picker-button { max-width: 100%; overflow: hidden; white-space: nowrap;
+                         text-overflow: ellipsis; padding: 10px 12px;
+                         min-height: 40px; }
+}
 "#;

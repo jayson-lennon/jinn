@@ -35,6 +35,7 @@ import { sessionsRegion } from "./sessions.js";
 import { transcriptRegion } from "./transcript.js";
 import { composerRegion } from "./composer.js";
 import { modelPickerRegion } from "./model_picker.js";
+import { menuRegion } from "./menu.js";
 
 /** One SSE event, as EventSource delivers it. */
 export interface SseEventLike {
@@ -76,6 +77,14 @@ export interface RegionModule {
    */
   onDocumentClick?: (target: Element) => boolean;
   /**
+   * Document-level keydown, consulted AFTER the selector dispatch —
+   * for dismissal keys that must fire at ANY keyboard focus (Escape
+   * closing an overlay while focus sits on `body`, where no region's
+   * selector claims the target). Return true when handled; a declined
+   * key falls through to the next region and finally to nothing.
+   */
+  onDocumentKeyDown?: (event: KeyboardEvent) => boolean;
+  /**
    * Change delegation (the model select). Same first-match rule.
    */
   onChange?: (target: Element) => boolean;
@@ -105,6 +114,7 @@ const REGIONS: readonly RegionModule[] = [
   transcriptRegion,
   composerRegion,
   modelPickerRegion,
+  menuRegion,
 ];
 
 /** The registered regions, in registration order. */

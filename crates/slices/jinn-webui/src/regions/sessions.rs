@@ -94,7 +94,13 @@ impl WebRegion for SessionsRegion {
     }
 }
 
-/// The sidebar's stylesheet: the column itself and the session rows.
+/// The sessions region's stylesheet: the sidebar column and the
+/// session rows at desktop widths (unchanged), then — appended after,
+/// inside the phone media query — the sidebar's mobile presentation:
+/// the off-canvas drawer the menu's drawer-open class summons, its
+/// scrim, and the phone touch-target bumps. Everything the media
+/// query touches is phone-only; the ≥768px world reads exactly the
+/// desktop rules above it.
 pub const SIDEBAR_CSS: &str = r#"
 #sidebar { width: 280px; min-width: 220px; border-right: 1px solid var(--border);
            background: var(--panel); display: flex; flex-direction: column;
@@ -113,6 +119,18 @@ pub const SIDEBAR_CSS: &str = r#"
 .srow .stitle { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .srow .smeta { font-size: 11px; color: var(--muted); }
 .srow.bot .smeta::after { content: " · bot"; color: #d4a72c; }
+@media (max-width: 767px) {
+  #sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: min(80vw, 320px);
+             z-index: 40; transform: translateX(-100%); transition: transform .25s ease; }
+  #page-root.drawer-open #sidebar { transform: translateX(0); }
+  #drawer-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 30;
+                  display: block; }
+  #drawer-scrim[hidden] { display: none; }
+  .srow { padding: 12px 14px; }
+  .srow .stitle { min-height: 22px; }
+  #sessions-filter { margin: 8px 10px; padding: 9px 10px; font-size: 16px;
+                     width: calc(100% - 20px); }
+}
 "#;
 
 /// `GET /web/sessions` — the sessions fragment (live + archived),

@@ -283,8 +283,12 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
 /// `GET /web` — the landing page: sessions list, no transcript.
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
     let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
-    let html = crate::templates::render(&crate::templates::PageTemplate::landing(sessions_html))
-        .map_err(|e| fail(500, e.to_string()))?;
+    let menu_html = crate::regions::menu::menu_fragment();
+    let html = crate::templates::render(&crate::templates::PageTemplate::landing(
+        sessions_html,
+        menu_html,
+    ))
+    .map_err(|e| fail(500, e.to_string()))?;
     Ok(Page::new(html))
 }
 
@@ -309,6 +313,7 @@ async fn page_session(
         ))
         .map_err(|e| fail(500, e.to_string()))?;
     let model_html = crate::regions::model_picker::status_fragment(&shared, &session_id)?;
+    let menu_html = crate::regions::menu::menu_fragment();
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         session_id.clone(),
         view.transcript.title.clone(),
@@ -317,6 +322,7 @@ async fn page_session(
         transcript_html,
         controls_html,
         model_html,
+        menu_html,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(Page::new(html))

@@ -110,7 +110,7 @@ fn the_registry_ids_are_unique_and_mirror_the_client_modules() {
     // on when a reader jumps from one half of a region to the other.
     let mut sorted = ids.clone();
     sorted.sort_unstable();
-    let expected = ["composer", "model-picker", "sessions", "transcript"];
+    let expected = ["composer", "menu", "model-picker", "sessions", "transcript"];
     assert_eq!(sorted, expected, "the registry ids are fixed vocabulary");
 }
 
@@ -144,6 +144,7 @@ async fn every_declared_container_id_appears_in_the_rendered_page_shell() {
         transcript_html,
         controls,
         model,
+        crate::regions::menu::menu_fragment(),
     ))
     .expect("the page renders");
 

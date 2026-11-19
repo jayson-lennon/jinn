@@ -33,12 +33,26 @@ pub const BASE_CSS: &str = r#"
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg);
        font: 15px/1.55 system-ui, sans-serif; }
-#page-root { display: flex; height: 100vh; }
+#page-root { display: flex; height: 100vh; height: 100dvh; }
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-#titlebar { padding: 10px 18px; border-bottom: 1px solid var(--border);
+#titlebar { padding: 10px 18px; padding-left: calc(18px + env(safe-area-inset-left));
+            padding-right: calc(18px + env(safe-area-inset-right));
+            padding-top: calc(10px + env(safe-area-inset-top));
+            border-bottom: 1px solid var(--border);
             display: flex; align-items: baseline; gap: 12px; }
-#titlebar .t { font-weight: 600; }
+#titlebar .t { font-weight: 600; min-width: 0; overflow: hidden;
+               text-overflow: ellipsis; white-space: nowrap; }
 #titlebar .m { color: var(--muted); font-size: 12px; }
+#menu { position: relative; display: inline-flex; }
+#menu-button { background: var(--panel); color: var(--fg);
+               border: 1px solid var(--border); border-radius: 6px;
+               padding: 6px 10px; font: inherit; line-height: 1;
+               cursor: pointer; }
+#menu-button:hover { border-color: var(--accent); }
+#menu-panel button { background: transparent; color: var(--fg); text-align: left;
+                     border: 0; border-radius: 5px; padding: 8px 12px;
+                     font: inherit; cursor: pointer; white-space: nowrap; }
+#menu-panel button:hover { background: #23272f; }
 "#;
 
 /// The stylesheet the page shell inlines: the base chrome, then every
@@ -98,6 +112,8 @@ pub struct PageTemplate {
     pub transcript_html: String,
     /// The composer-controls fragment, rendered inline.
     pub controls_html: String,
+    /// The menu fragment (hamburger + panel), rendered inline.
+    pub menu_html: String,
     /// `/vendor/` — the script tag's URL prefix.
     pub vendor_prefix: &'static str,
     /// The client bundle's cache-busting URL inside `/vendor/`
@@ -128,13 +144,22 @@ pub struct PageTemplate {
     /// inline rename editor's host), empty on the landing page whose
     /// "jinn" title is inert.
     pub session_title_id: &'static str,
+    /// The menu region's host container id — the hamburger + panel
+    /// render inside it in the titlebar.
+    pub menu_id: &'static str,
+    /// The drawer scrim's id — the static shell overlay behind the
+    /// off-canvas sidebar when the drawer is open.
+    pub drawer_scrim_id: &'static str,
+    /// The menu scrim's id — the static shell overlay behind the
+    /// slide-in menu panel (stacked above the drawer scrim).
+    pub menu_scrim_id: &'static str,
 }
 
 impl PageTemplate {
     /// The no-session landing page: sessions list only, every other
     /// region empty, cursor zero.
     #[must_use]
-    pub fn landing(sessions_html: String) -> Self {
+    pub fn landing(sessions_html: String, menu_html: String) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
@@ -144,6 +169,7 @@ impl PageTemplate {
             transcript_html: String::new(),
             controls_html: String::new(),
             status_html: String::new(),
+            menu_html,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
@@ -156,6 +182,9 @@ impl PageTemplate {
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
             controls_id: contract::CONTROLS_ID,
             session_title_id: "",
+            menu_id: contract::MENU_ID,
+            drawer_scrim_id: contract::DRAWER_SCRIM_ID,
+            menu_scrim_id: contract::MENU_SCRIM_ID,
         }
     }
 
@@ -170,6 +199,7 @@ impl PageTemplate {
         transcript_html: String,
         controls_html: String,
         status_html: String,
+        menu_html: String,
     ) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
@@ -180,6 +210,7 @@ impl PageTemplate {
             transcript_html,
             controls_html,
             status_html,
+            menu_html,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
@@ -192,6 +223,9 @@ impl PageTemplate {
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
             controls_id: contract::CONTROLS_ID,
             session_title_id: contract::SESSION_TITLE_ID,
+            menu_id: contract::MENU_ID,
+            drawer_scrim_id: contract::DRAWER_SCRIM_ID,
+            menu_scrim_id: contract::MENU_SCRIM_ID,
         }
     }
 }
@@ -309,6 +343,44 @@ impl ControlsTemplate {
             cancel_action: contract::ACTION_CANCEL,
             send_label: "Send",
             cancel_label: "Cancel",
+        }
+    }
+}
+
+/// The menu fragment: the titlebar's hamburger button and its item
+/// panel, rendered as one static fragment (the model-picker button's
+/// precedent — a region renders its page-fill through a fragment even
+/// when the content is chrome). The panel ships `hidden`; the client
+/// toggles visibility and, on the item, the drawer-open class on the
+/// page root.
+#[derive(Template)]
+#[template(path = "menu.html")]
+pub struct MenuTemplate {
+    /// The menu region's host container id.
+    pub menu_id: &'static str,
+    /// The hamburger button's id.
+    pub menu_button_id: &'static str,
+    /// The item panel's id.
+    pub menu_panel_id: &'static str,
+    /// The one item's id ("Sessions").
+    pub menu_item_sessions_id: &'static str,
+    /// The attribute a button names its action with.
+    pub action_attr: &'static str,
+    /// The menu item's action name.
+    pub menu_action: &'static str,
+}
+
+impl MenuTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract() -> Self {
+        Self {
+            menu_id: contract::MENU_ID,
+            menu_button_id: contract::MENU_BUTTON_ID,
+            menu_panel_id: contract::MENU_PANEL_ID,
+            menu_item_sessions_id: contract::MENU_ITEM_SESSIONS_ID,
+            action_attr: contract::ACTION_DATA_ATTR,
+            menu_action: contract::ACTION_MENU_SESSIONS,
         }
     }
 }
