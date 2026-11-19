@@ -1,27 +1,27 @@
 //! The OpenRouter market actor — the models/endpoints half of the
 //! slice's data plane.
 //!
-//! Subscribes to `FetchModels`, `FetchEndpoints`, `RefreshAll`, and
-//! `EpochLoaded`; writes [`MarketDataState`] (the data cell — this
-//! actor is its only OR-side writer) and emits `ModelsLoaded`,
-//! `EndpointsLoaded`, `RefreshFailed`, and `MarketModelsRefreshed`.
-//! `RefreshEpoch` is the epoch actor's; `EpochLoaded` is *consumed*
-//! here: rows join against the ECI index at build time, so when the
-//! epoch data lands after the models (the common cold-open race), the
-//! handler rebuilds the rows from the retained raw listings without a
-//! refetch. `RefreshAll` drops the OR caches and refetches models plus
-//! the endpoints currently on display; the refresh's epoch half is
-//! driven by the `MarketModelsRefreshed` event this actor emits, which
-//! the epoch actor subscribes to.
+//! Subscribes to `FetchModels`, `FetchEndpoints`, `RefreshAll`,
+//! `EciLoaded`, and `ValsLoaded`; writes [`MarketDataState`] (the data
+//! cell — this actor is its only OR-side writer) and emits
+//! `ModelsLoaded`, `EndpointsLoaded`, `RefreshFailed`, and
+//! `MarketModelsRefreshed`. `RefreshScores` is the score actor's;
+//! `EciLoaded`/`ValsLoaded` are *consumed* here: rows join against both
+//! score indexes at build time, so when either lands after the models
+//! (the common cold-open race), the handler rebuilds the rows from the
+//! retained raw listings without a refetch. `RefreshAll` drops the OR
+//! caches and refetches models plus the endpoints currently on display;
+//! the refresh's score half is driven by the `MarketModelsRefreshed`
+//! event this actor emits, which the score actor subscribes to.
 //!
 //! # Delivery story
 //!
 //! `RefreshAll` has exactly one handler — this actor. A schema declared
 //! by two actors is routed to one of them round-robin, so a shared
-//! command would silently lose half of every press. The epoch half
+//! command would silently lose half of every press. The score half
 //! therefore rides the chain fact: this actor emits
 //! `MarketModelsRefreshed` once its models refresh is done, and the
-//! epoch actor acts on that fact.
+//! score actor acts on that fact.
 //!
 //! # Cache shape
 //!
@@ -31,7 +31,7 @@
 //! ([`crate::market_cache`]) is clock-injected; each handler reads
 //! `now` once and threads it through. The actor retains the *raw*
 //! parsed listings alongside the joined rows — the raw payload is what
-//! an `EpochLoaded` re-join needs, and joined rows cannot be un-joined.
+//! a score re-join needs, and joined rows cannot be un-joined.
 //!
 //! # Lock discipline
 //!
@@ -64,8 +64,8 @@ use error_stack::Report;
 
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_model_market_msg::EciIndex;
+use jinn_model_market_msg::EciLoaded;
 use jinn_model_market_msg::EndpointsLoaded;
-use jinn_model_market_msg::EpochLoaded;
 use jinn_model_market_msg::FetchEndpoints;
 use jinn_model_market_msg::FetchModels;
 use jinn_model_market_msg::MarketDataState;
@@ -76,6 +76,8 @@ use jinn_model_market_msg::MarketUiState;
 use jinn_model_market_msg::ModelsLoaded;
 use jinn_model_market_msg::RefreshAll;
 use jinn_model_market_msg::RefreshFailed;
+use jinn_model_market_msg::ValsIndex;
+use jinn_model_market_msg::ValsLoaded;
 use jinn_slices::TypedCell;
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
 use trouper::context::MsgCtx;
@@ -121,7 +123,7 @@ pub struct OpenRouterMarketActor {
     /// The shared HTTP client.
     client: reqwest::Client,
     /// In-memory *raw* parsed listings with their fetch stamp — the
-    /// re-join payload an `EpochLoaded` handler needs. `None` until the
+    /// re-join payload the score-loaded handlers need. `None` until the
     /// first successful models fetch.
     raw_models: Option<(Vec<RawModel>, jiff::Timestamp)>,
     /// In-memory joined models rows with their fetch stamp.
@@ -213,7 +215,8 @@ impl OpenRouterMarketActor {
             .handles::<FetchModels>()
             .handles::<FetchEndpoints>()
             .handles::<RefreshAll>()
-            .handles::<EpochLoaded>()
+            .handles::<EciLoaded>()
+            .handles::<ValsLoaded>()
             .emits::<ModelsLoaded>()
             .emits::<EndpointsLoaded>()
             .emits::<RefreshFailed>()
@@ -272,9 +275,15 @@ impl MsgHandler<RefreshAll> for OpenRouterMarketActor {
     }
 }
 
-impl MsgHandler<EpochLoaded> for OpenRouterMarketActor {
-    async fn handle(&mut self, _msg: &EpochLoaded, _ctx: &mut MsgCtx<'_>) {
-        self.handle_epoch_loaded();
+impl MsgHandler<EciLoaded> for OpenRouterMarketActor {
+    async fn handle(&mut self, _msg: &EciLoaded, _ctx: &mut MsgCtx<'_>) {
+        self.handle_scores_loaded();
+    }
+}
+
+impl MsgHandler<ValsLoaded> for OpenRouterMarketActor {
+    async fn handle(&mut self, _msg: &ValsLoaded, _ctx: &mut MsgCtx<'_>) {
+        self.handle_scores_loaded();
     }
 }
 
@@ -341,8 +350,8 @@ impl OpenRouterMarketActor {
         match crate::or_models::fetch_models(&self.client, &self.base_url, api_key.as_deref()).await
         {
             Ok(raw) => {
-                let eci = self.eci_snapshot();
-                let rows = rows::build_rows(&raw, eci.as_deref());
+                let (eci, vals) = self.score_snapshots();
+                let rows = rows::build_rows(&raw, eci.as_deref(), vals.as_deref());
                 let at = jiff::Timestamp::now();
                 self.raw_models = Some((raw, at));
                 self.models = Some((rows.clone(), at));
@@ -473,10 +482,10 @@ impl OpenRouterMarketActor {
     ///
     /// Refresh means refresh: the drops happen first and are not rolled
     /// back if a refetch fails; each failure emits `RefreshFailed` and
-    /// the next step still runs. The refresh's epoch half is not this
+    /// the next step still runs. The refresh's score half is not this
     /// handler's duty: once the models half is done, the chain fact
-    /// `MarketModelsRefreshed` goes out and the epoch actor refreshes the
-    /// ECI index in reaction.
+    /// `MarketModelsRefreshed` goes out and the score actor refreshes
+    /// both score indexes in reaction.
     async fn handle_refresh_all(&mut self) {
         self.raw_models = None;
         self.models = None;
@@ -497,26 +506,27 @@ impl OpenRouterMarketActor {
         }
 
         // The models half is done — the fact goes out even when the
-        // models fetch failed: the epoch half's refresh does not depend
-        // on it, and the popup's ECI column should still be fresh.
+        // models fetch failed: the score half's refresh does not depend
+        // on it, and the popup's score columns should still be fresh.
         self.publish(MarketModelsRefreshed).await;
     }
 
-    /// `EpochLoaded`: the ECI index changed under the rows — rebuild
-    /// them from the retained raw listings against the fresh index.
+    /// `EciLoaded`/`ValsLoaded`: a score index changed under the rows —
+    /// rebuild them from the retained raw listings against the fresh
+    /// indexes.
     ///
     /// This is the cold-open race fix: models frequently win the race
-    /// against the epoch download, and a row's ECI fields are decided
-    /// at build time. No refetch, no emission — the rows simply become
-    /// correct on the next read of the data cell. Without raw listings
-    /// (nothing fetched yet) this is a no-op; the eventual `FetchModels`
-    /// will join against the then-present index.
-    fn handle_epoch_loaded(&mut self) {
+    /// against the score downloads, and a row's score fields are
+    /// decided at build time. No refetch, no emission — the rows simply
+    /// become correct on the next read of the data cell. Without raw
+    /// listings (nothing fetched yet) this is a no-op; the eventual
+    /// `FetchModels` will join against the then-present indexes.
+    fn handle_scores_loaded(&mut self) {
         let Some((raw, at)) = self.raw_models.clone() else {
             return;
         };
-        let eci = self.eci_snapshot();
-        let rows = rows::build_rows(&raw, eci.as_deref());
+        let (eci, vals) = self.score_snapshots();
+        let rows = rows::build_rows(&raw, eci.as_deref(), vals.as_deref());
         self.models = Some((rows, at));
         if let Some((rows, at)) = &self.models {
             self.write_models(rows, *at);
@@ -524,7 +534,7 @@ impl OpenRouterMarketActor {
     }
 
     /// Writes a models load into the data cell. The rows arrive
-    /// pre-joined with the ECI index current at build time.
+    /// pre-joined with the score indexes current at build time.
     fn write_models(&self, rows: &[jinn_model_market_msg::MarketRow], at: jiff::Timestamp) {
         self.data.update(|d| {
             d.rows = rows.to_vec();
@@ -545,12 +555,13 @@ impl OpenRouterMarketActor {
         });
     }
 
-    /// Snapshots the ECI index off the data cell.
+    /// Snapshots both score indexes off the data cell.
     ///
     /// The cell read is taken and dropped before any await; the `Arc`
-    /// clone is cheap by construction.
-    fn eci_snapshot(&self) -> Option<Arc<EciIndex>> {
-        self.data.read().eci.clone()
+    /// clones are cheap by construction.
+    fn score_snapshots(&self) -> (Option<Arc<EciIndex>>, Option<Arc<ValsIndex>>) {
+        let read = self.data.read();
+        (read.eci.clone(), read.vals.clone())
     }
 
     /// The models listing's disk path.

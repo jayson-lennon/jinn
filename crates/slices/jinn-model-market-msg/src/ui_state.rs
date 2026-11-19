@@ -13,12 +13,13 @@ pub const RESULTS_VIEWPORT_FALLBACK: usize = 20;
 
 /// The sort-column cycle order: the default first, then left-to-right
 /// across the sortable columns.
-pub const SORT_CYCLE: [SortColumn; 6] = [
+pub const SORT_CYCLE: [SortColumn; 7] = [
     SortColumn::Proj,
     SortColumn::In,
     SortColumn::Out,
     SortColumn::Cache,
     SortColumn::Eci,
+    SortColumn::Vals,
     SortColumn::Model,
 ];
 
@@ -74,6 +75,9 @@ pub enum SortColumn {
     Cache,
     /// Epoch Capabilities Index (unmatched rows sort last either way).
     Eci,
+    /// Vals Index overall accuracy (unmatched rows sort last either
+    /// way).
+    Vals,
     /// `author/slug[:variant]`, lexicographic.
     Model,
 }
@@ -114,6 +118,7 @@ impl SortColumn {
             Self::Out => "OUT/M",
             Self::Cache => "CACHE/M",
             Self::Eci => "ECI",
+            Self::Vals => "VALS",
             Self::Model => "MODEL",
         }
     }

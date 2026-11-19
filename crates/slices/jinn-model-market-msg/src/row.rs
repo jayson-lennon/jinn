@@ -1,9 +1,10 @@
-//! One table row: a single OpenRouter listing joined with its epoch ECI.
+//! One table row: a single OpenRouter listing joined with its benchmark
+//! scores (ECI and Vals Index).
 //!
 //! `MarketRow` is the disk-cache payload (`Serialize + Deserialize`), so
 //! its field set is wire-compatible with the OpenRouter listing the
 //! models actor fetches, normalized for display: prices as `f64`
-//! USD/token, the ECI join resolved ahead of render. PROJ is **not**
+//! USD/token, the score joins resolved ahead of render. PROJ is **not**
 //! stored — it is computed at render time from the active mix preset, so
 //! `m` re-sorts without a refetch.
 
@@ -38,6 +39,11 @@ pub struct MarketRow {
     pub eci: Option<f64>,
     /// The ECI's bootstrap confidence interval as `(low, high)`.
     pub eci_ci: Option<(f64, f64)>,
+    /// The Vals Index overall accuracy after the slug join; `None` when
+    /// the model is unmatched (column `—`, `#` flag). `#[serde(default)]`
+    /// so disk caches written before the column existed load as blank.
+    #[serde(default)]
+    pub vals: Option<f64>,
     /// The listing id ends in `:free`.
     pub is_free: bool,
 }

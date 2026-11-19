@@ -79,6 +79,7 @@ fn variant_row() -> MarketRow {
         context_length: Some(128_000),
         eci: None,
         eci_ci: None,
+        vals: None,
         is_free: true,
     }
 }
@@ -100,6 +101,7 @@ fn plain_row() -> MarketRow {
         context_length: Some(128_000),
         eci: None,
         eci_ci: None,
+        vals: None,
         is_free: false,
     }
 }
@@ -177,7 +179,7 @@ fn detail_mode_renders_no_em_dash() {
                 overrides: Vec::new(),
             }],
         });
-        d.endpoints_fetched_at = Some(jiff::Timestamp::from_second(0).expect("epoch"));
+        d.endpoints_fetched_at = Some(jiff::Timestamp::from_second(0).expect("timestamp"));
     });
     harness.ui.update(|s| {
         s.detail_model = Some("openrouter/a/plain".to_owned());
@@ -543,6 +545,7 @@ fn numbered_row(i: usize) -> MarketRow {
         context_length: Some(128_000),
         eci: None,
         eci_ci: None,
+        vals: None,
         is_free: false,
     }
 }
@@ -624,5 +627,104 @@ fn a_frame_one_up_step_from_the_bottom_shows_the_cursor_strictly_inside() {
     assert!(
         below.contains("m/model11"),
         "the row under the cursor still renders, got: {below:?}"
+    );
+}
+
+/// One plain listing carrying the given score fields — the VALS/ECI
+/// column fixtures.
+fn scored_row(eci: Option<f64>, vals: Option<f64>) -> MarketRow {
+    MarketRow {
+        id: "openrouter/z-ai/glm-5.3".to_owned(),
+        author: "z-ai".to_owned(),
+        slug: "glm-5.3".to_owned(),
+        variant: None,
+        prompt_price: 1e-9,
+        completion_price: 1e-9,
+        cache_read_price: None,
+        has_overrides: false,
+        context_length: Some(128_000),
+        eci,
+        eci_ci: None,
+        vals,
+        is_free: false,
+    }
+}
+
+#[rstest::rstest]
+fn the_vals_column_renders_joined_accuracies() {
+    // Given a popup whose row carries a vals accuracy and no ECI.
+    let harness = Harness::new();
+    harness.data.update(|d| {
+        d.rows = vec![scored_row(None, Some(71.309))];
+    });
+    let popup = ratatui::layout::Rect::new(5, 2, 120, 16);
+
+    // When the popup renders.
+    let buffer = harness.render(popup, 130, 100);
+
+    // Then the VALS header renders and the row shows the accuracy at
+    // two decimals beside the ECI column's empty cell.
+    let header = row_text(&buffer, popup.y + 3, popup.width);
+    assert!(
+        header.contains("VALS"),
+        "the VALS header renders beside ECI, got: {header:?}"
+    );
+    let data_row = (popup.y + 4..popup.y + popup.height)
+        .map(|y| row_text(&buffer, y, popup.width))
+        .find(|text| text.contains("z-ai/glm-5.3"))
+        .expect("the scored row renders");
+    assert!(
+        data_row.contains("71.31"),
+        "the vals accuracy renders at two decimals, got: {data_row:?}"
+    );
+}
+
+#[rstest::rstest]
+fn the_vals_column_renders_the_placeholder_when_unjoined() {
+    // Given a popup whose row carries no vals accuracy.
+    let harness = Harness::new();
+    harness.data.update(|d| {
+        d.rows = vec![scored_row(None, None)];
+    });
+    let popup = ratatui::layout::Rect::new(5, 2, 120, 16);
+
+    // When the popup renders.
+    let buffer = harness.render(popup, 130, 100);
+
+    // Then the row's flags carry the missing-score markers and no
+    // number sits in the VALS column position (the row shows the `-`
+    // placeholders, not a fabricated value).
+    let data_row = (popup.y + 4..popup.y + popup.height)
+        .map(|y| row_text(&buffer, y, popup.width))
+        .find(|text| text.contains("z-ai/glm-5.3"))
+        .expect("the unscored row renders");
+    assert!(
+        !data_row.contains("71."),
+        "no accuracy renders for an unjoined row, got: {data_row:?}"
+    );
+}
+
+#[rstest::rstest]
+fn the_flags_column_marks_each_missing_score_source() {
+    // Given a row with neither score joined.
+    let harness = Harness::new();
+    harness.data.update(|d| {
+        d.rows = vec![scored_row(None, None)];
+    });
+    let popup = ratatui::layout::Rect::new(5, 2, 120, 16);
+
+    // When the popup renders.
+    let buffer = harness.render(popup, 130, 100);
+
+    // Then the flags cell carries two `#` markers — one per missing
+    // source, the ECI column's own no-value convention.
+    let data_row = (popup.y + 4..popup.y + popup.height)
+        .map(|y| row_text(&buffer, y, popup.width))
+        .find(|text| text.contains("z-ai/glm-5.3"))
+        .expect("the unscored row renders");
+    let markers = data_row.matches('#').count();
+    assert_eq!(
+        markers, 2,
+        "each missing score source is flagged once, got: {data_row:?}"
     );
 }
