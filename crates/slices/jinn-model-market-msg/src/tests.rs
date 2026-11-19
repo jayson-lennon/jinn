@@ -44,6 +44,21 @@ fn refresh_scores_force_is_a_command() {
 
 #[rstest::rstest]
 #[test]
+fn open_model_page_is_a_command() {
+    // Given the popup's page-open contract.
+    // When reading its schema definition.
+    let def = <OpenModelPage as trouper::schema::Schema>::schema_def();
+
+    // Then the name and kind are stable: it is an imperative
+    // instruction ("open this page now"), not a fact about the past, so
+    // it is a Command. The OpenRouter market actor is its only
+    // declarant, so the route resolves to exactly that actor.
+    assert_eq!(def.name, "OpenModelPage");
+    assert!(matches!(def.kind, trouper::schema::SchemaKind::Command));
+}
+
+#[rstest::rstest]
+#[test]
 fn vals_loaded_is_an_event() {
     // Given the vals half of the score actor's load announcement.
     // When reading its schema definition.
@@ -102,6 +117,7 @@ fn ui_state_reset_restores_the_opener_defaults() {
         detail_sort_desc: true,
         mix_source: MixSource::Usage,
         active_mix: (1_000, 0.5, 2_000),
+        session_id: Some(jinn_core_types::SessionId::new_v5_tag("s-reset")),
     };
 
     // When the opener resets it.
@@ -129,6 +145,9 @@ fn ui_state_reset_restores_the_opener_defaults() {
     // And the mix returns to the fixed constant under the fixed source.
     assert_eq!(state.mix_source, MixSource::Fixed);
     assert_eq!(state.active_mix, PROJECTION_MIX);
+    // And the session stamp clears — the opener re-stamps it after the
+    // reset, inside the same update.
+    assert_eq!(state.session_id, None);
 }
 
 #[rstest::rstest]

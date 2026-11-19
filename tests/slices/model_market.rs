@@ -23,6 +23,7 @@ use jinn_slices::DynamicIntent;
 use jinn_slices::KeyRoutes;
 use jinn_slices::PublishSink;
 use jinn_slices::RouteResult;
+use jinn_slices::SliceActionState;
 use jinn_slices::Slices;
 use jinn_slices::cell::TypedCell;
 use jinn_slices::empty_config_layer;
@@ -710,8 +711,92 @@ fn paste_while_the_table_is_focused_is_declined() {
     assert_eq!(ui.read().filter, "");
 }
 
-// ── ENTER: drill-in + detail confirm ────────────────────────────────────
+// ── `O`: the web-page open ──────────────────────────────────────────────
 
+#[rstest::rstest]
+fn opener_stamps_the_active_session_into_the_ui_cell() {
+    // Given a fresh wired slice and a known active session.
+    let mut wired = Wired::new();
+    let expected = wired.state.active_session_id();
+
+    // When the opener fires.
+    wired.press("open-model-market", "search openrouter models");
+
+    // Then the UI cell carries that session — the ride-along the input
+    // hook reads for `O`, since the hook's signature has no AppState.
+    assert_eq!(
+        wired.ui().read().session_id,
+        Some(expected),
+        "the opener stamps the session the popup opens over"
+    );
+}
+
+#[rstest::rstest]
+fn table_o_publishes_the_highlighted_models_page_command() {
+    // Given a seeded table with the first row highlighted (PROJ asc
+    // default).
+    let mut wired = Wired::new();
+    wired.press("open-model-market", "search openrouter models");
+    seeded(&mut wired);
+
+    // When `O` arrives as the insert-char intent the keymap's catch-all
+    // mints.
+    let mut result = wired.handle(edit_intent("insert-char", 'O'));
+
+    // Then the highlighted row's listing id went out, addressed to the
+    // session the opener stamped.
+    let page = first_message::<jinn_model_market_msg::OpenModelPage>(&mut result)
+        .expect("table `O` publishes OpenModelPage");
+    assert_eq!(page.model_id, "openrouter/a/small");
+    assert_eq!(page.session_id, wired.state.active_session_id());
+    // And the popup stands exactly as it was: no filter typing, no
+    // fetch, no scope move.
+    let ui = wired.ui();
+    assert_eq!(ui.read().filter, "");
+    assert!(!ui.read().filter_focused);
+    assert_eq!(ui.read().fetch_seq, 0);
+    assert_eq!(
+        wired.state.frontend.scope(),
+        jinn_slices::FocusScope::Dynamic(market_ui_scope())
+    );
+}
+
+#[rstest::rstest]
+fn detail_o_publishes_the_pinned_models_page_command() {
+    // Given detail mode over the fixture, the pin on `a/small`.
+    let mut wired = Wired::new();
+    drill_in(&mut wired);
+
+    // When `O` arrives.
+    let mut result = wired.handle(edit_intent("insert-char", 'O'));
+
+    // Then the pinned model's id went out — the pin is the mode's
+    // "highlighted model".
+    let page = first_message::<jinn_model_market_msg::OpenModelPage>(&mut result)
+        .expect("detail `O` publishes OpenModelPage");
+    assert_eq!(page.model_id, "openrouter/a/small");
+    // And no fetch was minted: the mode never fetches.
+    assert!(result.message_names.iter().all(|n| *n != "FetchEndpoints"));
+}
+
+#[rstest::rstest]
+fn filter_focused_o_types_into_the_filter_and_publishes_nothing() {
+    // Given an open popup with the filter focused.
+    let mut wired = Wired::new();
+    wired.press("open-model-market", "search openrouter models");
+    seeded(&mut wired);
+    wired.ui().update(|s| s.filter_focused = true);
+
+    // When `O` arrives.
+    let result = wired.handle(edit_intent("insert-char", 'O'));
+
+    // Then the letter typed into the filter and nothing published —
+    // typing beats every table arm by design.
+    assert_eq!(wired.ui().read().filter, "O");
+    assert!(result.messages.is_empty());
+}
+
+// ── ENTER: drill-in + detail confirm ────────────────────────────────────
 #[rstest::rstest]
 fn enter_from_table_mode_opens_detail_and_publishes_one_fetch() {
     // Given a seeded table with the first row highlighted, no detail

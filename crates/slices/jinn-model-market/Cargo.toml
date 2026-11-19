@@ -8,6 +8,7 @@ description = "The OpenRouter model-market popup: cost projection under adjustab
 marked-path = { workspace = true }
 error-stack = { workspace = true }
 wherror = { workspace = true }
+jinn-applets = { workspace = true }
 jinn-common = { workspace = true }
 jinn-core-types = { workspace = true }
 jinn-kernel = { workspace = true }
@@ -18,6 +19,7 @@ jinn-provider = { workspace = true }
 jinn-provider-config = { workspace = true }
 jinn-provider-selection-msg = { workspace = true }
 jinn-selection-widget = { workspace = true }
+jinn-session-history-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-theme = { workspace = true }
 csv = { workspace = true }

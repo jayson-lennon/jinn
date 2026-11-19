@@ -12,8 +12,9 @@
 //!   rows (`<up>`/`<down>` plus their `j`/`k` twins);
 //! - every printable character is a hook case: with the filter focused
 //!   it types into the filter; with the table focused, `f`/`i` focus
-//!   the filter, `?` toggles the help card, and `h`/`l`/`s` run their
-//!   sort actions. If those were rows, route dispatch would
+//!   the filter, `?` toggles the help card, `O` opens the highlighted
+//!   model's openrouter.ai page, and `h`/`l`/`s` run their sort
+//!   actions. If those were rows, route dispatch would
 //!   consume them before the hook and typing "mistral" into a focused
 //!   filter would flip sorts instead of filtering.
 //!
@@ -42,6 +43,7 @@ use jinn_model_market_msg::FetchModels;
 use jinn_model_market_msg::MarketDataState;
 use jinn_model_market_msg::MarketRow;
 use jinn_model_market_msg::MarketUiState;
+use jinn_model_market_msg::OpenModelPage;
 use jinn_model_market_msg::RefreshAll;
 use jinn_model_market_msg::market_ui_scope;
 use jinn_preferences_config::protocol::app_state_command::AppStateUpdate;
@@ -96,6 +98,25 @@ fn highlighted(ui: &MarketUiCell, data: &MarketDataCell) -> Option<MarketRow> {
         .cloned()
 }
 
+/// The `O` result: an `OpenModelPage` command for `model_id` when the
+/// popup carries the session stamp the opener laid down, else nothing —
+/// the press is consumed either way. Never a fabricated session id:
+/// `SessionId::default()` mints a fresh UUID, and a failure report
+/// aimed at a nonexistent session would vanish.
+fn open_page_result(ui: &MarketUiCell, model_id: Option<String>) -> IntentResult {
+    let session_id = {
+        let guard = ui.read();
+        guard.session_id.clone()
+    };
+    match (model_id, session_id) {
+        (Some(model_id), Some(session_id)) => IntentResult::new_message(OpenModelPage {
+            model_id,
+            session_id,
+        }),
+        _ => IntentResult::empty(),
+    }
+}
+
 /// The popup's keys as data: the keybind footer's content, in display
 /// order.
 ///
@@ -118,6 +139,7 @@ pub const MARKET_BINDINGS: &[(&str, &str)] = &[
     ("l", "col \u{2192}"),
     ("s", "sort"),
     ("m", "mix"),
+    ("O", "web page"),
     ("f", "filter"),
     ("?", "help"),
 ];
@@ -304,7 +326,8 @@ enum Nav {
 ///   (and serves the editing intents);
 /// - with the table focused: `f`/`i` focus the filter, `?` toggles the
 ///   help card, `j`/`k` move the selection, `h`/`l` cycle the sort
-///   column, `s` flips the sort direction;
+///   column, `s` flips the sort direction, `O` opens the highlighted
+///   model's openrouter.ai page;
 /// - returns `None` otherwise — the key does nothing.
 pub fn register_market_input_hook(routes: &KeyRoutes, ui: &MarketUiCell, data: &MarketDataCell) {
     let owned_ui = ui.clone();
@@ -445,6 +468,14 @@ fn table_char_action(ui: &MarketUiCell, data: &MarketDataCell, ch: char) -> Char
             ui.update(MarketUiState::toggle_mix_source);
             CharAction::Acted(IntentResult::empty())
         }
+        'O' => {
+            // The highlighted model's openrouter.ai page: the command
+            // carries the listing id and the session stamped at popup
+            // open. Nothing here fetches, moves, or closes — the popup
+            // and its state stand exactly as they were.
+            let model_id = highlighted(ui, data).map(|row| row.id);
+            CharAction::Acted(open_page_result(ui, model_id))
+        }
         _ => CharAction::Unclaimed,
     }
 }
@@ -452,8 +483,9 @@ fn table_char_action(ui: &MarketUiCell, data: &MarketDataCell, ch: char) -> Char
 /// Classifies one character in detail mode: `j`/`k` move the detail
 /// highlight, `h`/`l` cycle the detail sort columns, `s` flips the
 /// detail direction, `m` toggles the projection mix (the detail table's
-/// PROJ reads the active mix), `?` toggles the help card. There is no
-/// filter in detail mode — `f`/`i` are unclaimed here and fall through.
+/// PROJ reads the active mix), `?` toggles the help card, `O` opens the
+/// pinned model's page. There is no filter in detail mode — `f`/`i` are
+/// unclaimed here and fall through.
 fn detail_char_action(ui: &MarketUiCell, data: &MarketDataCell, ch: char) -> CharAction {
     match ch {
         '?' => {
@@ -494,21 +526,30 @@ fn detail_char_action(ui: &MarketUiCell, data: &MarketDataCell, ch: char) -> Cha
             ui.update(MarketUiState::toggle_mix_source);
             CharAction::Acted(IntentResult::empty())
         }
+        'O' => {
+            // Detail mode's "highlighted model" is the pin itself: the
+            // model the user drilled into. Same command, same actor, no
+            // fetch — the detail table stands.
+            let model_id = ui.read().detail_model.clone();
+            CharAction::Acted(open_page_result(ui, model_id))
+        }
         _ => CharAction::Unclaimed,
     }
 }
 
 // ── Actions ─────────────────────────────────────────────────────────────
 
-/// Opens the popup: reset the UI cell to the opener defaults, publish
-/// `FetchModels` (the actor serves warm cache or network), and push the
-/// scope.
-fn open_market(
-    _ctx: &mut ActionCtx<'_>,
-    ui: &MarketUiCell,
-    _data: &MarketDataCell,
-) -> IntentResult {
-    ui.update(MarketUiState::reset);
+/// Opens the popup: reset the UI cell to the opener defaults, stamp the
+/// session the popup opens over (the input hook reads it for `O` — the
+/// hook's signature carries no `AppState`), publish `FetchModels` (the
+/// actor serves warm cache or network), and push the scope.
+fn open_market(ctx: &mut ActionCtx<'_>, ui: &MarketUiCell, _data: &MarketDataCell) -> IntentResult {
+    ui.update(|s| {
+        s.reset();
+        if let Some(state) = app(ctx) {
+            s.session_id = Some(state.active_session_id());
+        }
+    });
     IntentResult::new_message(FetchModels).with_scope_signal(ScopeSignal::Push(market_ui_scope()))
 }
 
