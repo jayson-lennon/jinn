@@ -27,7 +27,9 @@ fetched live on open and cached on disk) are the performance columns; `#`
 marks a row with no score for a column. `l`/`h` cycle the sort column, `s`
 reverses it, `<enter>` switches the session to the highlighted model (and
 pins OpenRouter endpoint routing from detail mode), `m` toggles the pricing
-mix, `<c-r>` refetches everything, `?` shows the help card.
+mix, `O` opens the highlighted model's openrouter.ai page in your OS
+default browser (in detail mode it opens the pinned model's page),
+`<c-r>` refetches everything, `?` shows the help card.
 
 ## Reasoning effort
 

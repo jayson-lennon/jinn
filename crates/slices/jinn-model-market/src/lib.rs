@@ -216,6 +216,7 @@ pub async fn activate_actors_with(services: &jinn_kernel::Services, endpoints: A
             ui: ui_cell,
             base_url: endpoints.base_url,
             cache_dir: None,
+            opener: std::sync::Arc::new(openrouter_actor::DefaultPageOpener),
         },
     );
     // The boot kick. Published after both spawns return — the score

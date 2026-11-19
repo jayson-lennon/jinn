@@ -50,7 +50,8 @@ highlights:
   VALS (Vals Index, fetched live and cached). Sort with `l`/`h` (cycles
   PROJ → IN → OUT → CACHE → ECI → VALS → MODEL), reverse with `s`, `<enter>`
   switches/pins the model, `<enter>` again in detail mode shows pricing and
-  performance detail. Rows with no score for a column show `#`.
+  performance detail, `O` opens the highlighted model's openrouter.ai page
+  in your OS default browser. Rows with no score for a column show `#`.
 - **Tool / Skill**: `<Tab>` toggles the highlighted entry on/off for this
   session. Toggles are per-session and persist for the session; the
   `tool_filter` / `skill_filter` defaults in `jinn.toml` stay as written.

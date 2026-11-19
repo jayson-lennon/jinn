@@ -2,10 +2,11 @@
 //! slice's data plane.
 //!
 //! Subscribes to `FetchModels`, `FetchEndpoints`, `RefreshAll`,
-//! `EciLoaded`, and `ValsLoaded`; writes [`MarketDataState`] (the data
-//! cell — this actor is its only OR-side writer) and emits
-//! `ModelsLoaded`, `EndpointsLoaded`, `RefreshFailed`, and
-//! `MarketModelsRefreshed`. `RefreshScores` is the score actor's;
+//! `OpenModelPage`, `EciLoaded`, and `ValsLoaded`; writes
+//! [`MarketDataState`] (the data cell — this actor is its only OR-side
+//! writer) and emits `ModelsLoaded`, `EndpointsLoaded`, `RefreshFailed`,
+//! `MarketModelsRefreshed`, and `PushChatEntry` (a failed `O` page
+//! open). `RefreshScores` is the score actor's;
 //! `EciLoaded`/`ValsLoaded` are *consumed* here: rows join against both
 //! score indexes at build time, so when either lands after the models
 //! (the common cold-open race), the handler rebuilds the rows from the
@@ -62,6 +63,7 @@ use std::time::Duration;
 
 use error_stack::Report;
 
+use jinn_applets::browser::open_in_browser;
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_model_market_msg::EciIndex;
 use jinn_model_market_msg::EciLoaded;
@@ -74,10 +76,12 @@ use jinn_model_market_msg::MarketEndpointRow;
 use jinn_model_market_msg::MarketModelsRefreshed;
 use jinn_model_market_msg::MarketUiState;
 use jinn_model_market_msg::ModelsLoaded;
+use jinn_model_market_msg::OpenModelPage;
 use jinn_model_market_msg::RefreshAll;
 use jinn_model_market_msg::RefreshFailed;
 use jinn_model_market_msg::ValsIndex;
 use jinn_model_market_msg::ValsLoaded;
+use jinn_session_history_msg::PushChatEntry;
 use jinn_slices::TypedCell;
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
 use trouper::context::MsgCtx;
@@ -108,6 +112,74 @@ pub const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
 const MODELS_CACHE_FILE: &str = "models.json";
 const ENDPOINT_CACHE_PREFIX: &str = "endpoints-";
 
+/// Why a model-page open could not run.
+#[derive(Debug, wherror::Error)]
+#[error(debug)]
+pub struct PageOpenError;
+
+/// The browser-launch seam for `O`: production wraps the applets slice's
+/// `open_in_browser` (the OS default browser); tests inject a scripted
+/// fake. Colocated with the actor that consumes it, after the
+/// no-standalone-traits-file convention.
+pub trait PageOpener: Send + Sync {
+    /// Opens `url` — or `Err` carrying the debug chain for the chat
+    /// note when the opener is missing or the spawn fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PageOpenError`] when the page could not be opened.
+    fn open(&self, url: &str) -> Result<(), Report<PageOpenError>>;
+
+    /// Returns the name of this backend for debugging.
+    fn name(&self) -> &'static str;
+}
+
+/// The production opener: the OS default browser via the applets
+/// slice's launcher (`xdg-open` / `open` / `cmd /c start`, detached
+/// stdio so the browser outlives jinn and never paints the TUI).
+pub struct DefaultPageOpener;
+
+impl PageOpener for DefaultPageOpener {
+    fn open(&self, url: &str) -> Result<(), Report<PageOpenError>> {
+        // The local error keeps the seam self-contained — the fake
+        // construction never depends on the applets error type.
+        open_in_browser(url)
+            .map_err(|report| Report::new(PageOpenError).attach(format!("{report:?}")))
+    }
+
+    fn name(&self) -> &'static str {
+        "os-default"
+    }
+}
+
+/// An opener that succeeds silently — the default the cache-contract
+/// tests want: the caching tests publish fetch commands, never page
+/// opens, and a page open that succeeded must publish nothing, so an
+/// accidental `O`-handler publish shows up as an unexpected recorder
+/// entry rather than a lost message.
+pub struct SilentPageOpener;
+
+impl PageOpener for SilentPageOpener {
+    fn open(&self, _url: &str) -> Result<(), Report<PageOpenError>> {
+        Ok(())
+    }
+
+    fn name(&self) -> &'static str {
+        "silent"
+    }
+}
+
+/// The openrouter.ai page for a listing id: the id minus its
+/// `openrouter/` prefix, appended to the site root. The remainder *is*
+/// OpenRouter's page path verbatim, variant suffix (`:free`,
+/// `:thinking`) included; a prefix-miss falls back to the raw id —
+/// defensive only, `MarketRow.id` is prefixed by construction.
+#[must_use]
+pub fn model_page_url(model_id: &str) -> String {
+    let rest = model_id.strip_prefix("openrouter/").unwrap_or(model_id);
+    format!("https://openrouter.ai/{rest}")
+}
+
 /// The OpenRouter market actor.
 pub struct OpenRouterMarketActor {
     /// Runtime services (bus, paths, api keys).
@@ -122,6 +194,9 @@ pub struct OpenRouterMarketActor {
     cache_dir: MarkedPathBuf<Absolute>,
     /// The shared HTTP client.
     client: reqwest::Client,
+    /// The browser-launch seam `O` rides — the OS default browser in
+    /// production, a scripted fake in tests.
+    opener: Arc<dyn PageOpener>,
     /// In-memory *raw* parsed listings with their fetch stamp — the
     /// re-join payload the score-loaded handlers need. `None` until the
     /// first successful models fetch.
@@ -146,6 +221,9 @@ pub struct OpenRouterMarketActorDeps {
     /// Cache directory override; `None` resolves to
     /// `AppPaths::openrouter_cache_dir()`.
     pub cache_dir: Option<MarkedPathBuf<Absolute>>,
+    /// The browser-launch seam `O` rides; production wraps the applets
+    /// launcher.
+    pub opener: Arc<dyn PageOpener>,
 }
 
 impl OpenRouterMarketActorDeps {
@@ -162,6 +240,7 @@ impl OpenRouterMarketActorDeps {
             ui,
             base_url: String::new(),
             cache_dir: None,
+            opener: Arc::new(DefaultPageOpener),
         }
     }
 }
@@ -215,12 +294,14 @@ impl OpenRouterMarketActor {
             .handles::<FetchModels>()
             .handles::<FetchEndpoints>()
             .handles::<RefreshAll>()
+            .handles::<OpenModelPage>()
             .handles::<EciLoaded>()
             .handles::<ValsLoaded>()
             .emits::<ModelsLoaded>()
             .emits::<EndpointsLoaded>()
             .emits::<RefreshFailed>()
             .emits::<MarketModelsRefreshed>()
+            .emits::<PushChatEntry>()
             .mailbox(64, trouper::inbox::OverloadPolicy::Block)
             .start();
         path
@@ -250,6 +331,7 @@ impl OpenRouterMarketActor {
             base_url,
             cache_dir,
             client: reqwest::Client::new(),
+            opener: deps.opener,
             raw_models: None,
             models: None,
             endpoints: HashMap::new(),
@@ -272,6 +354,12 @@ impl MsgHandler<FetchEndpoints> for OpenRouterMarketActor {
 impl MsgHandler<RefreshAll> for OpenRouterMarketActor {
     async fn handle(&mut self, _msg: &RefreshAll, _ctx: &mut MsgCtx<'_>) {
         self.handle_refresh_all().await;
+    }
+}
+
+impl MsgHandler<OpenModelPage> for OpenRouterMarketActor {
+    async fn handle(&mut self, msg: &OpenModelPage, _ctx: &mut MsgCtx<'_>) {
+        self.handle_open_model_page(msg).await;
     }
 }
 
@@ -472,6 +560,25 @@ impl OpenRouterMarketActor {
                 })
                 .await;
             }
+        }
+    }
+
+    /// OpenModelPage: build the openrouter.ai URL and spawn the OS
+    /// opener. A successful launch reports nothing; a failed one is
+    /// user-facing feedback, not a log line — a chat error entry rides
+    /// `PushChatEntry` into the session the popup opened over (the
+    /// same vehicle the applets picker's failed open uses).
+    async fn handle_open_model_page(&mut self, msg: &OpenModelPage) {
+        let url = model_page_url(&msg.model_id);
+        if let Err(report) = self.opener.open(&url) {
+            tracing::warn!(?report, "model page open failed");
+            let note = format!("could not open {url} in a browser: {report:?}");
+            self.publish(PushChatEntry {
+                session_id: msg.session_id.clone(),
+                entry: jinn_core_types::ChatEntry::error(note),
+                pin: None,
+            })
+            .await;
         }
     }
 
