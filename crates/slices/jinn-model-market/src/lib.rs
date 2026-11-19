@@ -1,11 +1,12 @@
 //! The model-market slice — an OpenRouter-only model picker with cost
-//! projection and Epoch ECI quality data.
+//! projection and benchmark score joins (Epoch ECI, Vals Index).
 //!
 //! `<leader>so` opens a centered full-table popup (dynamic scope
 //! [`jinn_model_market_msg::market_ui_scope`]): one row per text-output
 //! OpenRouter listing, columns for prices, a render-time cost projection
 //! under the fixed [`jinn_model_market_msg::PROJECTION_MIX`], and the
-//! Epoch Capabilities Index joined by display name. The popup is
+//! benchmark scores joined by name — the Epoch Capabilities Index and
+//! the Vals Index overall accuracy. The popup is
 //! two-state: ENTER drills into the highlighted model's *detail mode* —
 //! its provider endpoints as table rows, Default (auto-route) first —
 //! where ENTER on a row switches the session model through the same
@@ -31,8 +32,12 @@
 //! - `ui_state` — pure helpers over the two cells
 //! - `format` — display formatting shared by view and tests
 //! - `seed` — the compiled-in epoch CSVs (T2)
-//! - `epoch`, `epoch_cache`, `epoch_actor` — epoch download/parse/join (T2)
-//! - `eci_aliases` — the compiled-in name-join alias table (T2)
+//! - `eci`, `score_cache`, `score_actor` — score download/parse/cache
+//!   (T2): the ECI zip pipeline and the vals JSON pipeline live in one
+//!   actor with per-source error paths
+//! - `vals` — the Vals Index fetch + tolerant parse (T2)
+//! - `eci_aliases` — the compiled-in ECI name-join alias table (T2)
+//! - `vals_aliases` — the compiled-in vals slug-join alias table (T2)
 //! - `or_models`, `or_endpoints`, `market_cache`, `rows` — the
 //!   OpenRouter fetch/cache/row-build layer (T3)
 //! - `openrouter_actor` — the models/endpoints actor (T3)
@@ -43,21 +48,23 @@ pub mod routes;
 pub mod ui_state;
 pub mod view;
 
-// T2 — epoch data territory. Stubs; T2 fills the whole files.
+// T2 — score data territory.
+pub mod eci;
 pub mod eci_aliases;
-pub mod epoch;
-pub mod epoch_actor;
-pub mod epoch_cache;
+pub mod score_actor;
+pub mod score_cache;
 pub mod seed;
+pub mod vals;
+pub mod vals_aliases;
 
-// T3 — OpenRouter data + caching territory. Stubs; T3 fills the whole files.
+// T3 — OpenRouter data + caching territory.
 pub mod market_cache;
 pub mod openrouter_actor;
 pub mod or_endpoints;
 pub mod or_models;
 pub mod rows;
 
-// T4 — help card + attribution territory. Stubs; T4 fills the whole files.
+// T4 — help card + attribution territory.
 pub mod help;
 
 use jinn_slices::SliceHost;
@@ -107,8 +114,8 @@ pub fn activate(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
     routes::register_market_input_hook(host.key_routes(), &ui, &data);
 }
 
-/// Spawns the slice's two data-plane actors: [`epoch_actor::
-/// EpochMarketActor`] and [`openrouter_actor::OpenRouterMarketActor`].
+/// Spawns the slice's two data-plane actors: [`score_actor::
+/// ScoreMarketActor`] and [`openrouter_actor::OpenRouterMarketActor`].
 ///
 /// Called by composition, not by [`activate`]: the spawns need `Services`
 /// (paths, api keys, the trouper system) and must run where those live —
@@ -117,10 +124,10 @@ pub fn activate(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
 /// returns, so composition must call it before any user interaction can
 /// open the popup; within the boot list the whole independents block sits
 /// ahead of the interactive tail, which is the guarantee the popup's
-/// keys ride. The tail also publishes `RefreshEpoch`: the ECI column has
-/// data before the popup can open (001 §1), warm cache within the TTL
-/// serves with no request, and an expired one downloads — the lazy
-/// weekly check is real for the epoch half.
+/// keys ride. The tail also publishes `RefreshScores`: the score columns
+/// have data before the popup can open (001 §1), warm cache within the
+/// TTL serves with no request, and an expired one downloads — the lazy
+/// weekly check is real for both sources.
 ///
 /// # Panics
 ///
@@ -133,13 +140,15 @@ pub async fn activate_actors(services: &jinn_kernel::Services) {
 
 /// The outbound endpoints the two market actors talk to.
 ///
-/// Production resolves both to the real constants; tests override them
+/// Production resolves all to the real constants; tests override them
 /// with dead URLs so a subscription claim never depends on the network
 /// being down (or up).
 #[derive(Clone, Debug)]
 pub struct ActorEndpoints {
     /// The epoch zip URL.
     pub zip_url: String,
+    /// The vals leaderboard page URL the data URL is derived from.
+    pub vals_page_url: String,
     /// The OpenRouter API base URL.
     pub base_url: String,
 }
@@ -149,14 +158,15 @@ impl ActorEndpoints {
     #[must_use]
     pub fn production() -> Self {
         Self {
-            zip_url: epoch_cache::EPOCH_ZIP_URL.to_owned(),
+            zip_url: score_cache::ECI_ZIP_URL.to_owned(),
+            vals_page_url: score_cache::VALS_PAGE_URL.to_owned(),
             base_url: String::new(),
         }
     }
 }
 
 /// [`activate_actors`] with explicit endpoints — the test seam. Ends
-/// with the same boot `RefreshEpoch` kick the production entry point
+/// with the same boot `RefreshScores` kick the production entry point
 /// publishes.
 ///
 /// # Panics
@@ -181,20 +191,21 @@ pub async fn activate_actors_with(services: &jinn_kernel::Services, endpoints: A
         .reader::<jinn_model_market_msg::MarketUiState>(&market_ui_slot())
         .expect("the cell catalog registers the model-market UI slot before any actor spawns");
 
-    // Epoch first: its `EpochLoaded` event is what the OpenRouter actor
-    // consumes to re-join rows, so the event finds a subscriber whether
-    // or not this load lands before the sibling spawns (bus publishes
-    // are unordered; the OR actor handles the event arriving early or
-    // late either way).
-    let _epoch = epoch_actor::EpochMarketActor::spawn(
+    // Scores first: the score actor's `EciLoaded` event is what the
+    // OpenRouter actor consumes to re-join rows, so the event finds a
+    // subscriber whether or not this load lands before the sibling
+    // spawns (bus publishes are unordered; the OR actor handles the
+    // event arriving early or late either way).
+    let _scores = score_actor::ScoreMarketActor::spawn(
         &services.trouper_system,
-        epoch_actor::EpochMarketActorDeps {
+        score_actor::ScoreMarketActorDeps {
             deps: actor_deps.clone(),
             data_cell: data_cell.clone(),
-            cache_dir: services.paths.epoch_cache_dir(),
+            cache_dirs: score_cache::ScoreCacheDirs::new(&services.paths.scores_cache_dir()),
             client: reqwest::Client::new(),
             zip_url: endpoints.zip_url,
-            now_ms: epoch_actor::epoch_market_clock(),
+            vals_page_url: endpoints.vals_page_url,
+            now_ms: score_actor::score_market_clock(),
         },
     );
     let _openrouter = openrouter_actor::OpenRouterMarketActor::spawn(
@@ -207,10 +218,10 @@ pub async fn activate_actors_with(services: &jinn_kernel::Services, endpoints: A
             cache_dir: None,
         },
     );
-    // The boot kick. Published after both spawns return — the epoch
+    // The boot kick. Published after both spawns return — the score
     // subscription is live by then, so the load cannot drop.
     services
         .bus
-        .publish(jinn_model_market_msg::RefreshEpoch)
+        .publish(jinn_model_market_msg::RefreshScores)
         .await;
 }

@@ -2,7 +2,8 @@
 
 ## (development)
 
-- Add webui (prototype/MVP)
+- Add minimal webui.
+- Add Vals index to OpenRouter model market popup.
 
 ## 2026-11-15 v1.25.0
 

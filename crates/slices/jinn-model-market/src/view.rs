@@ -48,11 +48,17 @@ use crate::ui_state::DetailRow;
 
 /// The rows the status line and footer occupy at the popup's bottom —
 /// the table's own rect ends above them so the selection highlight can
-/// never render underneath.
-const STATUS_ROWS: u16 = 2;
+/// never render underneath. The footer is two rows: the binding set
+/// overflows one row at common widths, and a deterministic split beats
+/// a wrapping layout that moves with the terminal's width.
+const STATUS_ROWS: u16 = 3;
 /// The rows the filter line and its separator occupy at the popup's
 /// top, above the table's header.
 const FILTER_ROWS: u16 = 2;
+/// How many of [`MARKET_BINDINGS`]' entries the footer's upper row
+/// carries; the rest render on the second row. Thirteen bindings split
+/// 7/6, which fits both halves at the narrowest popup width.
+const FOOTER_FIRST_ROW: usize = 7;
 
 #[cfg(test)]
 #[path = "view_tests.rs"]
@@ -122,6 +128,13 @@ const MARKET_COLUMNS: &[MarketColumn] = &[
         keyed: true,
         width: 7,
         cell: |row, _ui, _theme| Line::from(format::eci_column(row.eci)),
+    },
+    MarketColumn {
+        header: "VALS",
+        sort: SortColumn::Vals,
+        keyed: true,
+        width: 7,
+        cell: |row, _ui, _theme| Line::from(format::vals_column(row.vals)),
     },
     MarketColumn {
         header: "MODEL",
@@ -702,7 +715,9 @@ fn highlighted_segment(
         .collect()
 }
 
-/// The FLAGS column: `†` pricing overrides, `f` `:free`, `#` no ECI.
+/// The FLAGS column: `†` pricing overrides, `f` `:free`, `#` missing
+/// score data (no ECI match, no vals match — one flag per missing
+/// source, so a row lacking both carries two).
 fn flags_column(row: &MarketRow) -> String {
     let mut flags = String::new();
     if row.has_overrides {
@@ -712,6 +727,9 @@ fn flags_column(row: &MarketRow) -> String {
         flags.push('f');
     }
     if row.eci.is_none() {
+        flags.push('#');
+    }
+    if row.vals.is_none() {
         flags.push('#');
     }
     flags
@@ -727,7 +745,7 @@ fn render_status_line(
     ui: &MarketUiState,
     theme: &Theme,
 ) {
-    let status_y = inner.y + inner.height.saturating_sub(2);
+    let status_y = inner.y + inner.height.saturating_sub(STATUS_ROWS);
     let status_area = Rect::new(inner.x, status_y, inner.width, 1);
     let muted = Style::default().fg(theme.muted_text);
 
@@ -773,7 +791,7 @@ fn render_status_line(
         Style::default().fg(theme.success),
     ));
     spans.push(Span::styled(format!("{numbers} · "), muted));
-    if data.models_loading || data.endpoints_loading || data.epoch_loading {
+    if data.models_loading || data.endpoints_loading || data.eci_loading || data.vals_loading {
         spans.push(Span::styled(" \u{b7} loading\u{2026}", muted));
     }
     if let Some(error) = &data.last_error {
@@ -785,33 +803,45 @@ fn render_status_line(
     frame.render_widget(Line::from(spans), status_area);
 }
 
-/// The keybind footer on the popup's last inner row, rendered from
+/// The keybind footer on the popup's last two inner rows, rendered from
 /// [`MARKET_BINDINGS`] — the same table the bind test checks, so the
-/// footer cannot advertise a key the popup does not bind. The picker
-/// pairing: keys in `accent_action`, labels in `muted_text`.
+/// footer cannot advertise a key the popup does not bind.
+///
+/// The binding set does not fit one row at common widths, and a
+/// wrap-at-width layout would move entries between rows as the terminal
+/// resizes. The split is therefore deterministic: the first
+/// [`FOOTER_FIRST_ROW`] entries on the upper row, the rest below, in
+/// display order. At any popup width the same entry sits on the same
+/// row. The picker pairing: keys in `accent_action`, labels in
+/// `muted_text`.
 fn render_footer(frame: &mut Frame<'_>, inner: Rect, theme: &Theme) {
-    let footer_y = inner.y + inner.height.saturating_sub(1);
-    let footer_area = Rect::new(inner.x, footer_y, inner.width, 1);
+    let footer_y = inner.y + inner.height.saturating_sub(2);
     let key_style = Style::default().fg(theme.accent_action);
     let desc_style = Style::default().fg(theme.muted_text);
-    let mut spans = Vec::new();
-    for (idx, (key, desc)) in MARKET_BINDINGS.iter().enumerate() {
-        if idx > 0 {
-            spans.push(Span::styled(" \u{b7} ", desc_style));
+    let (upper, lower) = MARKET_BINDINGS.split_at(FOOTER_FIRST_ROW);
+    for (row_idx, bindings) in [upper, lower].into_iter().enumerate() {
+        let row_y = footer_y + row_idx as u16;
+        let area = Rect::new(inner.x, row_y, inner.width, 1);
+        let mut spans = Vec::new();
+        for (idx, (key, desc)) in bindings.iter().enumerate() {
+            if idx > 0 {
+                spans.push(Span::styled(" \u{b7} ", desc_style));
+            }
+            spans.push(Span::styled((*key).to_owned(), key_style));
+            spans.push(Span::styled(format!(" {desc}"), desc_style));
         }
-        spans.push(Span::styled((*key).to_owned(), key_style));
-        spans.push(Span::styled(format!(" {desc}"), desc_style));
+        frame.render_widget(Line::from(spans), area);
     }
-    frame.render_widget(Line::from(spans), footer_area);
 }
 
 /// The popup's result-row count for a frame of the given size: the popup
 /// height less both borders, the filter line, its separator, the
-/// header, the status line, and the footer. At least 1, so paging never
-/// windows against zero. Both modes page over this same geometry.
+/// header, the status line, and the two footer rows. At least 1, so
+/// paging never windows against zero. Both modes page over this same
+/// geometry.
 #[must_use]
 pub fn results_viewport(popup: Rect) -> usize {
-    block_inner(popup).saturating_sub(5).max(1) as usize
+    block_inner(popup).saturating_sub(6).max(1) as usize
 }
 
 /// The first visible row index for a selection, centering it in a

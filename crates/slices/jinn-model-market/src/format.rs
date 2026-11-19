@@ -38,6 +38,13 @@ pub fn eci_column(eci: Option<f64>) -> String {
     eci.map_or_else(|| EMPTY_CELL.to_owned(), |v| format!("{v:.1}"))
 }
 
+/// Formats a Vals Index accuracy, [`EMPTY_CELL`] when unmatched — two
+/// decimals, the precision Vals publishes.
+#[must_use]
+pub fn vals_column(vals: Option<f64>) -> String {
+    vals.map_or_else(|| EMPTY_CELL.to_owned(), |v| format!("{v:.2}"))
+}
+
 /// The elapsed time since `stamp` as a compact human string
 /// (`42s ago`, `7m ago`, `3h ago`), the models picker's form.
 #[must_use]
