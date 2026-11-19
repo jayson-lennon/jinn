@@ -436,14 +436,19 @@ impl AppPaths {
             .expect("name joins keep the base absolute")
     }
 
-    /// Epoch benchmark cache directory (`~/.cache/jinn/epoch`).
+    /// Benchmark score cache directory (`~/.cache/jinn/scores`).
     ///
-    /// Holds the three CSVs `<c-r>` extracts from the downloaded epoch
-    /// zip; absent on first run, where the compiled-in seed stands in.
+    /// Holds one subdirectory per benchmark source — `eci/` (the three
+    /// CSVs `<c-r>` extracts from the Epoch AI zip) and `vals/`
+    /// (the downloaded Vals Index JSON); absent on first run, where the
+    /// compiled-in ECI seed stands in and the vals column stays blank.
+    /// The previous `~/.cache/jinn/epoch` directory is never read
+    /// again: the cache is disposable by design, so it is orphaned
+    /// rather than migrated.
     #[must_use]
-    pub fn epoch_cache_dir(&self) -> MarkedPathBuf<Absolute> {
+    pub fn scores_cache_dir(&self) -> MarkedPathBuf<Absolute> {
         self.cache_dir
-            .join_all([APP_NAME, "epoch"])
+            .join_all([APP_NAME, "scores"])
             .expect("name joins keep the base absolute")
     }
 
@@ -682,21 +687,21 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn new_in_epoch_cache_dir_is_under_root_cache() {
+    fn new_in_scores_cache_dir_is_under_root_cache() {
         // Given an AppPaths created with new_in.
         let root = jinn_testutil::tempdir();
         let paths = AppPaths::new_in(&root.path.as_marked_path());
 
-        // When reading the epoch cache dir.
-        let epoch_dir = paths.epoch_cache_dir();
+        // When reading the scores cache dir.
+        let scores_dir = paths.scores_cache_dir();
 
-        // Then it is root/cache/jinn/epoch.
+        // Then it is root/cache/jinn/scores.
         assert_eq!(
-            epoch_dir,
+            scores_dir,
             root.path
                 .join_all(["cache", "jinn"])
                 .expect("root joins bare names")
-                .join("epoch")
+                .join("scores")
                 .expect("typed parent joins a bare name"),
         );
     }

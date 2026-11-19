@@ -10,13 +10,13 @@
 //! - **Flags** — `f` (`:free`) is the id's variant suffix; `†`
 //!   (overrides) is the presence of a nonempty override list; `#`
 //!   (no ECI) falls out of the join.
-//! - **The ECI join** — routed through T2's
-//!   [`crate::eci_aliases::resolve_eci`], the single canonicalizing
-//!   resolver: it folds case and separators on *both* sides, strict-
-//!   matches against the index's raw display names, then consults the
-//!   compiled-in alias table. This module deliberately carries **no**
-//!   competing normalization of its own — two canonical forms is how
-//!   the join silently dies.
+//! - **The score joins** — each routed through its single canonicalizing
+//!   resolver: ECI through [`crate::eci_aliases::resolve_eci`], vals
+//!   through [`crate::vals_aliases::resolve_vals`]. Both fold case and
+//!   separators on *both* sides, strict-match against the index's raw
+//!   keys, then consult their compiled-in alias table. This module
+//!   deliberately carries **no** competing normalization of its own —
+//!   two canonical forms is how a join silently dies.
 //!
 //! The id's `openrouter/` prefix is prepended here, per the `-msg`
 //! crate's `MarketRow.id` docs: ENTER publishes exactly that string as
@@ -24,27 +24,32 @@
 
 use jinn_model_market_msg::EciIndex;
 use jinn_model_market_msg::MarketRow;
+use jinn_model_market_msg::ValsIndex;
 
 use crate::or_models::RawModel;
 
 /// Builds the market rows from the parsed catalog, joined with the ECI
-/// index when the epoch data is present.
+/// index and the Vals Index when either is present.
 ///
 /// Text-output gating (`or_models::is_text_output`) has already run or
 /// runs here — this function applies it, so a caller handing it the raw
 /// catalog gets exactly the popup's row set, in catalog order (the
 /// render pass sorts; the fetch order is the stable base).
 #[must_use]
-pub fn build_rows(models: &[RawModel], eci: Option<&EciIndex>) -> Vec<MarketRow> {
+pub fn build_rows(
+    models: &[RawModel],
+    eci: Option<&EciIndex>,
+    vals: Option<&ValsIndex>,
+) -> Vec<MarketRow> {
     models
         .iter()
         .filter(|m| crate::or_models::is_text_output(m))
-        .map(|model| build_row(model, eci))
+        .map(|model| build_row(model, eci, vals))
         .collect()
 }
 
 /// Builds one row.
-fn build_row(model: &RawModel, eci: Option<&EciIndex>) -> MarketRow {
+fn build_row(model: &RawModel, eci: Option<&EciIndex>, vals: Option<&ValsIndex>) -> MarketRow {
     let pricing = model.pricing.as_ref();
     let prompt_price = crate::or_models::parse_price(pricing.and_then(|p| p.prompt.as_deref()))
         .unwrap_or_default();
@@ -61,6 +66,10 @@ fn build_row(model: &RawModel, eci: Option<&EciIndex>) -> MarketRow {
         let name = crate::eci_aliases::resolve_eci(&model.id, index)?;
         index.get(name).cloned()
     });
+    let vals_score = vals.and_then(|index| {
+        let slug = crate::vals_aliases::resolve_vals(&model.id, index)?;
+        index.get(slug).cloned()
+    });
 
     MarketRow {
         id: full_row_id(&model.id),
@@ -76,6 +85,7 @@ fn build_row(model: &RawModel, eci: Option<&EciIndex>) -> MarketRow {
         context_length: model.context_length,
         eci: eci_score.as_ref().map(|s| s.eci),
         eci_ci: eci_score.map(|s| (s.ci_low, s.ci_high)),
+        vals: vals_score.map(|s| s.accuracy),
         is_free,
     }
 }
@@ -126,8 +136,8 @@ mod rows_tests {
     )]
 
     use super::*;
-    use crate::epoch::SEED_ECI_SCORES;
-    use crate::epoch::parse_eci_scores;
+    use crate::eci::SEED_ECI_SCORES;
+    use crate::eci::parse_eci_scores;
 
     /// Parses one listing fixture (single-entry `data` array).
     #[expect(
@@ -141,7 +151,7 @@ mod rows_tests {
     }
 
     /// The REAL seed index, parsed by T2's own parser — the same bytes
-    /// and the same key form the epoch actor puts in the data cell.
+    /// and the same key form the score actor puts in the data cell.
     fn seed_index() -> EciIndex {
         let (index, total) = parse_eci_scores(SEED_ECI_SCORES).expect("seed parses");
         assert!(total > 0, "the shipped seed carries rows");
@@ -156,8 +166,8 @@ mod rows_tests {
             "pricing": {"prompt": "0.000003", "completion": "0.000015"}
         }));
 
-        // When building its row with no epoch data.
-        let row = build_row(&model, None);
+        // When building its row with no score data.
+        let row = build_row(&model, None, None);
 
         // Then the id is the publishable selection string and the parts
         // are split without the variant.
@@ -176,7 +186,7 @@ mod rows_tests {
         }));
 
         // When building its row.
-        let row = build_row(&model, None);
+        let row = build_row(&model, None, None);
 
         // Then the variant is split off, the slug is bare, and the free
         // flag rides the suffix.
@@ -195,7 +205,7 @@ mod rows_tests {
         }));
 
         // When building its row.
-        let row = build_row(&model, None);
+        let row = build_row(&model, None, None);
 
         // Then the cache price is None and no override flag is set.
         assert_eq!(row.cache_read_price, None);
@@ -218,7 +228,7 @@ mod rows_tests {
         }));
 
         // When building its row.
-        let row = build_row(&model, None);
+        let row = build_row(&model, None, None);
 
         // Then the override flag is set and the cache price parsed.
         assert!(row.has_overrides);
@@ -240,7 +250,7 @@ mod rows_tests {
         };
 
         // When building rows.
-        let rows = build_rows(&models, None);
+        let rows = build_rows(&models, None, None);
 
         // Then only the text-output listing is present.
         assert_eq!(rows.len(), 1);
@@ -259,7 +269,7 @@ mod rows_tests {
         }));
 
         // When building the row with the index.
-        let row = build_row(&model, Some(&index));
+        let row = build_row(&model, Some(&index), None);
 
         // Then the join resolves: the raw display-name key matches, and
         // the score rides with its interval.
@@ -281,7 +291,7 @@ mod rows_tests {
         }));
 
         // When building the row with the index.
-        let row = build_row(&model, Some(&index));
+        let row = build_row(&model, Some(&index), None);
 
         // Then the alias closes the join.
         assert!(
@@ -299,11 +309,47 @@ mod rows_tests {
         }));
 
         // When building the row.
-        let row = build_row(&model, Some(&index));
+        let row = build_row(&model, Some(&index), None);
 
         // Then the row keeps None — the `#` flag and `—` column.
         assert_eq!(row.eci, None);
         assert_eq!(row.eci_ci, None);
+    }
+
+    #[rstest::rstest]
+    fn build_row_joins_vals_against_a_synthetic_index() {
+        // Given a synthetic vals index keyed in OpenRouter's own
+        // namespace (no shipped roster copy — the alias tests carry the
+        // alias path) and a matching listing.
+        let mut vals = ValsIndex::default();
+        vals.scores.insert(
+            "z-ai/glm-5.3".to_owned(),
+            jinn_model_market_msg::ValsScore { accuracy: 58.4 },
+        );
+        let model = one_listing(serde_json::json!({
+            "id": "z-ai/glm-5.3"
+        }));
+
+        // When building the row with the vals index.
+        let row = build_row(&model, None, Some(&vals));
+
+        // Then the accuracy rides the row's vals field.
+        assert_eq!(row.vals, Some(58.4));
+    }
+
+    #[rstest::rstest]
+    fn build_row_leaves_vals_none_when_unmatched() {
+        // Given an empty vals index.
+        let vals = ValsIndex::default();
+        let model = one_listing(serde_json::json!({
+            "id": "z-ai/glm-5.3"
+        }));
+
+        // When building the row.
+        let row = build_row(&model, None, Some(&vals));
+
+        // Then the vals field stays None — blank cell, `#` flag.
+        assert_eq!(row.vals, None);
     }
 
     #[rstest::rstest]
@@ -312,7 +358,7 @@ mod rows_tests {
         let model = one_listing(serde_json::json!({"id": "a/unpriced"}));
 
         // When building its row.
-        let row = build_row(&model, None);
+        let row = build_row(&model, None, None);
 
         // Then prices default to zero and the row still exists.
         assert_eq!(row.prompt_price, 0.0);
@@ -333,7 +379,7 @@ mod rows_tests {
         }));
 
         // When building its row.
-        let row = build_row(&model, None);
+        let row = build_row(&model, None, None);
 
         // Then the `†` flag rides the override list's presence.
         assert!(row.has_overrides);

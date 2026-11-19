@@ -72,6 +72,7 @@ fn listed_row(id: &str) -> MarketRow {
         context_length: Some(128_000),
         eci: None,
         eci_ci: None,
+        vals: None,
         is_free: false,
     }
 }
@@ -564,7 +565,7 @@ fn table_mode_uses_the_full_height_after_the_pane_gone() {
         .ui
         .update(jinn_model_market_msg::MarketUiState::leave_detail);
     let buffer = harness.render(popup, 140, 100);
-    let status_y = popup.y + popup.height - 3;
+    let status_y = popup.y + popup.height - 4;
 
     // Then rows render down to the row just above the status line: no
     // band sits reserved under the table.

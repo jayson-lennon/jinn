@@ -537,4 +537,6 @@ This project includes third-party software under separate licenses. See [THIRD_P
 
 The OpenRouter model search performance data (the Epoch Capabilities Index) comes from [Epoch AI](https://epoch.ai/benchmarks/use-this-data), used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); a bundled snapshot ships in `crates/slices/jinn-model-market/src/seed/`, see [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
 
+The model search agentic performance data (the Vals Index) comes from [Vals AI](https://vals.ai/benchmarks/vals_index); it is fetched at runtime and cached locally, never bundled.
+
 Copyright 2026 Jayson Lennon.

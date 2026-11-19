@@ -18,6 +18,17 @@ active model is chosen per session at runtime.
 The choice persists with the session. The last-selected model is remembered
 across launches.
 
+## The OpenRouter model market
+
+`<leader>so` opens a searchable table of OpenRouter's catalog with per-model
+pricing and performance columns. ECI (Epoch Capabilities Index, from Epoch
+AI — a snapshot bundled at build time) and VALS (Vals Index, from Vals AI —
+fetched live on open and cached on disk) are the performance columns; `#`
+marks a row with no score for a column. `l`/`h` cycle the sort column, `s`
+reverses it, `<enter>` switches the session to the highlighted model (and
+pins OpenRouter endpoint routing from detail mode), `m` toggles the pricing
+mix, `<c-r>` refetches everything, `?` shows the help card.
+
 ## Reasoning effort
 
 `<leader>sr` opens the reasoning-effort picker for models that support it.

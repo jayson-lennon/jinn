@@ -164,7 +164,8 @@ fn drawn_card_renders_its_border_title_and_sections() {
 
     // Then the screen carries the border, the title, and exactly the
     // two sections the card documents — no key inventory, no status
-    // line, no data-sources prose.
+    // line, no data-sources *section* (the sources ride one muted
+    // line at the bottom).
     let text: String = terminal
         .backend()
         .buffer()
@@ -182,7 +183,7 @@ fn drawn_card_renders_its_border_title_and_sections() {
     for gone in [
         "Keys",
         "Status line",
-        "Data sources",
+        "Data sources:",
         "<leader>so",
         "[m]",
         "Detail pane",
@@ -222,10 +223,47 @@ fn drawn_card_documents_the_columns_and_flags() {
         .map(ratatui::buffer::Cell::symbol)
         .collect();
     for fact in [
-        "MODEL", "IN/M", "OUT/M", "CACHE/M", "PROJ", "ECI", "FLAGS", "\u{2020}", "#",
+        "MODEL", "IN/M", "OUT/M", "CACHE/M", "PROJ", "ECI", "VALS", "FLAGS", "\u{2020}", "#",
     ] {
         assert!(text.contains(fact), "card must document {fact:?}");
     }
+}
+
+#[rstest::rstest]
+fn drawn_card_names_both_data_sources() {
+    // Given a visible help card over a tall frame so the whole card is
+    // on screen.
+    let ui = MarketUiState {
+        help_visible: true,
+        ..MarketUiState::default()
+    };
+    let card = card_for(&ui).expect("a visible help produces a card");
+    let frame = popup_frame();
+
+    // When it draws against a test backend.
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(
+        frame.terminal.width,
+        120,
+    ))
+    .expect("test terminal");
+    terminal.draw(|f| card.draw(f)).expect("draw");
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect();
+
+    // Then the sources line names both score providers.
+    assert!(
+        text.contains("Epoch Capabilities Index") && text.contains("epoch.ai"),
+        "the ECI source is named, got: {text:?}"
+    );
+    assert!(
+        text.contains("Vals Index") && text.contains("vals.ai"),
+        "the vals source is named, got: {text:?}"
+    );
 }
 
 #[rstest::rstest]
@@ -299,7 +337,7 @@ fn attribution_file_carries_the_required_wording() {
     // And it says what we ship and where runtime copies live.
     assert!(normalized.contains("eci_scores.csv"), "seed files named");
     assert!(
-        normalized.contains("~/.cache/jinn/epoch/"),
+        normalized.contains("~/.cache/jinn/scores/eci/"),
         "runtime cache dir named"
     );
 }
@@ -373,4 +411,45 @@ fn help_lines_render_within_a_reasonable_popup_width() {
             "row of {len} exceeds text width {text_width}: {row:?}"
         );
     }
+}
+
+#[rstest::rstest]
+#[test]
+fn help_names_both_data_sources_on_one_line() {
+    // Given the help card's lines for the default theme.
+    let lines = help_lines(&default_theme());
+
+    // When the data-sources line is found.
+    let sources = lines
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.to_string())
+                .collect::<String>()
+        })
+        .find(|t| t.contains("Scores:"))
+        .expect("a data-sources line exists");
+
+    // Then it names both providers with their hosts.
+    assert!(
+        sources.contains("epoch.ai") && sources.contains("vals.ai"),
+        "both data sources are named, got: {sources:?}"
+    );
+    // And the line is a single row — the card grows by content, not
+    // layout.
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.to_string())
+                    .collect::<String>()
+                    .contains("Scores:")
+            })
+            .count(),
+        1,
+        "exactly one sources line"
+    );
 }

@@ -141,6 +141,7 @@ pub fn sort_key(row: &MarketRow, col: SortColumn, mix: (u32, f64, u32)) -> Optio
         SortColumn::Out => Some(row.completion_price),
         SortColumn::Cache => row.cache_read_price,
         SortColumn::Eci => row.eci,
+        SortColumn::Vals => row.vals,
         SortColumn::Model => None,
     }
 }
@@ -436,6 +437,7 @@ mod projected_cost_tests {
             context_length: None,
             eci: None,
             eci_ci: None,
+            vals: None,
             is_free: false,
         }
     }
@@ -507,6 +509,7 @@ mod detail_projection_tests {
             context_length: None,
             eci: None,
             eci_ci: None,
+            vals: None,
             is_free: false,
         }
     }
@@ -756,6 +759,7 @@ mod filter_tests {
             context_length: None,
             eci: None,
             eci_ci: None,
+            vals: None,
             is_free: false,
         }
     }
