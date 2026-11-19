@@ -512,7 +512,7 @@ async fn activate(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
 ) -> Result<Page, HandlerError> {
-    crate::delivery::handle_switch(&shared.bus, &session_id)
+    crate::delivery::handle_switch(shared.state(), shared.bus(), &session_id)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
     // Validate the path id (the page render re-parses it; this check
