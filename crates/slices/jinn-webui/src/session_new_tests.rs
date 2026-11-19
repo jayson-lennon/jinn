@@ -156,6 +156,54 @@ fn selecting_a_parameterized_lifecycle_renders_the_args_input() {
 
 #[rstest::rstest]
 #[test]
+fn the_args_input_shows_the_setup_replacement_tokens() {
+    // Given the project+lifecycle config whose `worktree` setup is
+    // `git worktree add ~/wt/$1 $2`.
+    let config = config_doc();
+
+    // When rendering the form fragment for that lifecycle.
+    let html =
+        crate::regions::session_new::form_fragment(&config, "worktree").expect("the form renders");
+
+    // Then the input's placeholder carries the Discord-style token
+    // prompt — `Please enter: <1> <2>` — so the user knows what to
+    // type.
+    assert!(
+        html.contains(r#"placeholder="Please enter: &#60;1&#62; &#60;2&#62;""#),
+        "the token prompt rides the placeholder, got {html}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_named_parameter_renders_its_angle_name_and_a_splat_renders_args() {
+    // Given a config whose lifecycle names a `<branch>` parameter and
+    // splats the rest.
+    let config = jinn_config::testutil::config_layer(
+        r#"
+[[project.entry]]
+path = "~/code/demo"
+
+[[session_lifecycle.script]]
+name = "branchy"
+setup_command = "setup.sh <branch> $@"
+"#,
+    );
+
+    // When rendering the form fragment for that lifecycle.
+    let html =
+        crate::regions::session_new::form_fragment(&config, "branchy").expect("the form renders");
+
+    // Then the token prompt lists the named parameter and the splat
+    // as `<branch> <args>`.
+    assert!(
+        html.contains(r#"placeholder="Please enter: &#60;branch&#62; &#60;args&#62;""#),
+        "named + splat tokens render, got {html}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
 fn a_lifecycle_without_setup_declares_no_parameters() {
     // Given the project+lifecycle config.
     let config = config_doc();

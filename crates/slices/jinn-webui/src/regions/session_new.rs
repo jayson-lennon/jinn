@@ -32,6 +32,7 @@ use axum::extract::Query as AxQuery;
 use axum::extract::State as AxumState;
 use jinn_preferences_config::schemas::{ProjectConfig, SessionLifecycle};
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
+use jinn_session_lifecycle_msg::command_template::Param;
 use jinn_webui_msg::SseKind;
 
 use crate::region::RegionParts;
@@ -111,38 +112,39 @@ async fn pull_handler(
     form_fragment(shared.config(), &lifecycle).map(crate::server::Fragment::new)
 }
 
-/// One lifecycle's form-facing view: name and its setup template's
-/// parameter count.
+/// One lifecycle's form-facing view: name and its setup template.
 struct LifecycleOption {
     name: String,
-    param_count: usize,
+    template: Option<CommandTemplate>,
 }
 
-/// The configured lifecycle entries with their setup templates'
-/// parameter counts. A lifecycle whose setup is a `Builtin` command
-/// carries no template; the TUI picker omits such rows from the arg
-/// path, and the web form treats them the same way (no args input,
-/// no minimum) while still listing them.
+impl LifecycleOption {
+    /// The setup template's minimum arg count. A lifecycle whose
+    /// setup is a `Builtin` command carries no template; the TUI
+    /// picker omits such rows from the arg path, and the web form
+    /// treats them the same way (no args input, no minimum) while
+    /// still listing them.
+    fn param_count(&self) -> usize {
+        self.template
+            .as_ref()
+            .map_or(0, CommandTemplate::param_count)
+    }
+}
+
+/// The configured lifecycle entries with their setup templates.
 fn lifecycle_options(config: &jinn_slices::ConfigLayer) -> Vec<LifecycleOption> {
     config
         .get_list::<SessionLifecycle>()
         .unwrap_or_default()
         .into_iter()
-        .map(|lifecycle| {
-            let param_count = lifecycle
-                .setup
-                .as_ref()
-                .and_then(|command| match command {
-                    jinn_preferences_config::schemas::LifecycleCommand::Shell(shell) => {
-                        Some(CommandTemplate::parse(shell).param_count())
-                    }
-                    jinn_preferences_config::schemas::LifecycleCommand::Builtin(_) => None,
-                })
-                .unwrap_or(0);
-            LifecycleOption {
-                name: lifecycle.name,
-                param_count,
-            }
+        .map(|lifecycle| LifecycleOption {
+            name: lifecycle.name,
+            template: lifecycle.setup.as_ref().and_then(|command| match command {
+                jinn_preferences_config::schemas::LifecycleCommand::Shell(shell) => {
+                    Some(CommandTemplate::parse(shell))
+                }
+                jinn_preferences_config::schemas::LifecycleCommand::Builtin(_) => None,
+            }),
         })
         .collect()
 }
@@ -184,7 +186,7 @@ pub(crate) fn form_fragment(
             Vec::new(),
             String::new(),
             false,
-            0,
+            String::new(),
         ))
         .map_err(|e| crate::server::map_render_error(&e));
     }
@@ -203,11 +205,12 @@ pub(crate) fn form_fragment(
         ));
     };
 
-    let param_count = lifecycles
-        .iter()
-        .find(|l| l.name == selected)
-        .map_or(0, |l| l.param_count);
+    let selected_option = lifecycles.iter().find(|l| l.name == selected);
+    let param_count = selected_option.map_or(0, LifecycleOption::param_count);
     let show_args = param_count > 0;
+    let arg_tokens = selected_option
+        .and_then(|l| l.template.as_ref())
+        .map_or_else(String::new, arg_display_tokens);
 
     let mut rendered = Vec::with_capacity(lifecycles.len() + 1);
     rendered.push(SessionNewOption {
@@ -219,18 +222,31 @@ pub(crate) fn form_fragment(
         rendered.push(SessionNewOption {
             value: option.name.clone(),
             label: option.name.clone(),
-            param_count: (option.param_count > 0).then_some(option.param_count),
+            param_count: (option.param_count() > 0).then_some(option.param_count()),
         });
     }
 
     crate::templates::render(&crate::templates::SessionNewTemplate::with_contract(
-        projects,
-        rendered,
-        selected,
-        show_args,
-        param_count,
+        projects, rendered, selected, show_args, arg_tokens,
     ))
     .map_err(|e| crate::server::map_render_error(&e))
+}
+
+/// The template's replacement tokens in display form, space-joined —
+/// `<1> <branch> <args>` — what the setup script asks the user to
+/// fill, the same token list the Discord prompt shows (`Please
+/// enter: …`).
+fn arg_display_tokens(template: &CommandTemplate) -> String {
+    template
+        .params()
+        .iter()
+        .map(|p| match p {
+            Param::Named(name) => format!("<{name}>"),
+            Param::Positional(n) => format!("<{n}>"),
+            Param::Splat => "<args>".to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The new-session modal's stylesheet: overlay, card, field rows,

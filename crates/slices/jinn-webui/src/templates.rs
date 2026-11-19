@@ -600,9 +600,10 @@ pub struct SessionNewTemplate {
     /// Whether the selected lifecycle's setup declares parameters —
     /// the args input renders only when it does.
     pub show_args: bool,
-    /// The selected lifecycle's minimum arg count — the input's
-    /// placeholder names the shortfall.
-    pub param_count: usize,
+    /// The selected lifecycle's replacement tokens, display-form and
+    /// space-joined (`<1> <branch> <args>`) — what the user is being
+    /// asked to type, the Discord prompt's token list.
+    pub arg_tokens: String,
     /// The modal overlay's id.
     pub modal_id: &'static str,
     /// The project select's id.
@@ -629,14 +630,14 @@ impl SessionNewTemplate {
         lifecycles: Vec<SessionNewOption>,
         selected_lifecycle: String,
         show_args: bool,
-        param_count: usize,
+        arg_tokens: String,
     ) -> Self {
         Self {
             projects,
             lifecycles,
             selected_lifecycle,
             show_args,
-            param_count,
+            arg_tokens,
             modal_id: contract::SESSION_NEW_MODAL_ID,
             project_id: contract::SESSION_NEW_PROJECT_SELECT_ID,
             lifecycle_id: contract::SESSION_NEW_LIFECYCLE_SELECT_ID,

@@ -55,11 +55,14 @@ test("selecting the parameterized lifecycle re-pulls with the args input", async
     .selectOption("echo-setup");
 
   // Then the re-pulled fragment renders the args input (one
-  // parameter), and the lifecycle row is selected.
+  // parameter), the lifecycle row is selected, and the input's
+  // placeholder names the replacement token the setup script wants
+  // (`echo $1` → `Please enter: <1>`) — what to type, Discord-style.
   const lifecycle = page.locator(sel.SESSION_NEW_LIFECYCLE);
   await expect(lifecycle).toHaveValue("echo-setup");
   const args = page.locator(sel.SESSION_NEW_ARGS);
   await expect(args).toBeVisible();
+  await expect(args).toHaveAttribute("placeholder", "Please enter: <1>");
 });
 
 test("creating a session lands on the new session's page", async ({ page }) => {
