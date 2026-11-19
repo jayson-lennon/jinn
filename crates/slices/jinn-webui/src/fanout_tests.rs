@@ -12,20 +12,36 @@
 
 use jinn_inference_msg::StreamToken;
 use jinn_kernel::State;
+use jinn_slices::Slices;
+use jinn_slices::cell::TypedCell;
 use jinn_webui_msg::SseEnvelope;
 use jinn_webui_msg::SseKind;
+use jinn_webui_msg::UnreadSessionMarks;
 
 use crate::fanout::WebUiFanoutActor;
 
-/// A fresh actor with a subscribed receiver: `(actor, rx, state)`.
+/// A fresh actor with a subscribed receiver: `(actor, rx, state,
+/// marks)`. The marks handle is the same cell the actor holds, and the
+/// registry holding it is attached to the state's session map — the
+/// same wiring production `activate` builds — so the actor's writes
+/// are visible to the fragment renders the pushed HTML carries.
 fn fixture() -> (
     WebUiFanoutActor,
     tokio::sync::broadcast::Receiver<SseEnvelope>,
     State,
+    TypedCell<UnreadSessionMarks>,
 ) {
+    let slices = Slices::new();
+    let marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per fixture");
     let state = State::new(jinn_app_state::AppState::default());
-    let (actor, rx) = WebUiFanoutActor::test_with_receiver(state.clone());
-    (actor, rx, state)
+    state.write().session.attach_slices(slices);
+    let (actor, rx) = WebUiFanoutActor::test_with_receiver(state.clone(), marks.clone());
+    (actor, rx, state, marks)
 }
 
 fn token(session: &jinn_core_types::SessionId, text: &str) -> StreamToken {
@@ -50,7 +66,7 @@ fn seed_session(state: &State) -> jinn_core_types::SessionId {
 #[tokio::test]
 async fn buffered_tokens_flush_as_one_fragment_per_window() {
     // Given a fan-out actor and a subscriber.
-    let (mut actor, mut rx, _state) = fixture();
+    let (mut actor, mut rx, _state, _marks) = fixture();
     let id = jinn_core_types::SessionId::new();
 
     // When three tokens land for the session and the window flushes.
@@ -71,7 +87,7 @@ async fn buffered_tokens_flush_as_one_fragment_per_window() {
 #[tokio::test]
 async fn a_flushed_session_buffer_does_not_leak_into_the_next_window() {
     // Given a session whose first window already flushed.
-    let (mut actor, mut rx, _state) = fixture();
+    let (mut actor, mut rx, _state, _marks) = fixture();
     let id = jinn_core_types::SessionId::new();
     actor.append_token(&token(&id, "first"));
     actor.flush_for_test(&id);
@@ -88,7 +104,7 @@ async fn a_flushed_session_buffer_does_not_leak_into_the_next_window() {
 #[tokio::test]
 async fn an_idle_settle_flushes_the_partial_buffer_before_the_full_render() {
     // Given tokens buffered for a live session mid-stream.
-    let (mut actor, mut rx, state) = fixture();
+    let (mut actor, mut rx, state, _marks) = fixture();
     let id = seed_session(&state);
     actor.append_token(&token(&id, "partial"));
 
@@ -109,7 +125,7 @@ async fn an_idle_settle_flushes_the_partial_buffer_before_the_full_render() {
 #[tokio::test]
 async fn a_busy_transition_pushes_the_controls_fragment() {
     // Given a live session and a subscriber.
-    let (mut actor, mut rx, state) = fixture();
+    let (mut actor, mut rx, state, _marks) = fixture();
     let id = seed_session(&state);
 
     // When a busy phase change arrives.
@@ -126,7 +142,7 @@ async fn a_busy_transition_pushes_the_controls_fragment() {
 #[tokio::test]
 async fn a_session_activation_pushes_a_sessions_list_refresh() {
     // Given a subscriber.
-    let (mut actor, mut rx, state) = fixture();
+    let (mut actor, mut rx, state, _marks) = fixture();
     let id = seed_session(&state);
 
     // When an activation lands.
@@ -142,7 +158,7 @@ async fn a_session_activation_pushes_a_sessions_list_refresh() {
 #[tokio::test]
 async fn a_cache_stored_event_pushes_one_models_signal_and_one_transcript_per_live_session() {
     // Given a default session plus two seeded ones, and a subscriber.
-    let (mut actor, mut rx, state) = fixture();
+    let (mut actor, mut rx, state, _marks) = fixture();
     let first = seed_session(&state);
     let second = seed_session(&state);
     let live = state.read().session.sessions().len();
@@ -205,7 +221,7 @@ async fn a_cache_stored_event_pushes_one_models_signal_and_one_transcript_per_li
 async fn the_handle_pushes_a_sessions_refresh_from_outside_the_actor() {
     // Given a live session whose title a web rename just changed, and
     // a subscriber to the actor's broadcast channel.
-    let (actor, mut rx, state) = fixture();
+    let (actor, mut rx, state, _marks) = fixture();
     let id = seed_session(&state);
     state
         .write()
@@ -240,7 +256,7 @@ async fn the_handle_pushes_a_sessions_refresh_from_outside_the_actor() {
 #[tokio::test]
 async fn every_broadcast_names_its_own_session() {
     // Given tokens for two sessions buffered on one actor.
-    let (mut actor, mut rx, _state) = fixture();
+    let (mut actor, mut rx, _state, _marks) = fixture();
     let a = jinn_core_types::SessionId::new();
     let b = jinn_core_types::SessionId::new();
     actor.append_token(&token(&a, "aaa"));
@@ -266,7 +282,7 @@ async fn every_broadcast_names_its_own_session() {
 #[tokio::test]
 async fn thinking_tokens_render_in_the_thinking_span() {
     // Given a thinking token and a text token buffered together.
-    let (mut actor, mut rx, _state) = fixture();
+    let (mut actor, mut rx, _state, _marks) = fixture();
     let id = jinn_core_types::SessionId::new();
     let mut thinking = token(&id, "pondering");
     thinking.is_thinking = true;
@@ -288,4 +304,313 @@ async fn thinking_tokens_render_in_the_thinking_span() {
         "{}",
         envelope.html
     );
+}
+
+// ── The unread mark: set on an unseen settle ────────────────────────
+
+/// A phase-change event naming the transition.
+fn phase_change(
+    session: &jinn_core_types::SessionId,
+    old_phase: jinn_slices::PhaseView,
+    new_phase: jinn_slices::PhaseView,
+) -> jinn_session_msg::SessionPhaseChanged {
+    jinn_session_msg::SessionPhaseChanged {
+        session_id: session.clone(),
+        old_phase,
+        new_phase,
+        at: jiff::Timestamp::now(),
+    }
+}
+
+/// Drains `count` sessions-list envelopes off the receiver, returning
+/// the last one's HTML (they all carry the same render).
+fn last_sessions_html(
+    rx: &mut tokio::sync::broadcast::Receiver<SseEnvelope>,
+    count: usize,
+) -> String {
+    let mut html = String::new();
+    let mut seen = 0;
+    while seen < count {
+        match rx.try_recv() {
+            Ok(envelope) => {
+                if envelope.kind == SseKind::Sessions {
+                    html = envelope.html;
+                    seen += 1;
+                }
+            }
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+                panic!("expected {count} sessions envelopes, got {seen}")
+            }
+            Err(other) => panic!("broadcast error: {other:?}"),
+        }
+    }
+    html
+}
+
+/// Seeds a session with the given origin, returning its id.
+fn seed_session_with_origin(
+    state: &State,
+    origin: jinn_session_msg::SessionOrigin,
+) -> jinn_core_types::SessionId {
+    let session = jinn_session_state::ChatSessionState::new();
+    let id = session.session_id().clone();
+    state.write().session.insert(session);
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .set_origin(origin);
+    id
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_unseen_settle_marks_the_session_and_refreshes_every_list() {
+    // Given two live sessions, Bar active, and a subscriber.
+    let (mut actor, mut rx, state, marks) = fixture();
+    let foo = seed_session(&state);
+    let bar = seed_session(&state);
+    assert!(
+        state.write().session.set_active(bar.clone()),
+        "bar activates"
+    );
+    let live = state.read().session.sessions().len();
+
+    // When Foo settles Streaming → Idle (the settle the user did not
+    // watch).
+    actor.on_phase_changed(&phase_change(
+        &foo,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+
+    // Then Foo's mark landed, and every live session's stream received
+    // one addressed sessions refresh carrying the unread class — the
+    // per-stream filter means an addressed push would miss the page
+    // viewing Bar, which is exactly where the news is.
+    assert!(marks.read().is_marked(&foo), "the mark landed");
+    assert!(!marks.read().is_marked(&bar));
+    let html = last_sessions_html(&mut rx, live);
+    assert!(html.contains("unread"), "the fragment marks Foo: {html}");
+    assert!(
+        !marks_of(&state, &bar),
+        "the active session is never marked"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_active_session_never_marks_on_its_own_settle() {
+    // Given one live session, active, with a subscriber.
+    let (mut actor, mut rx, state, marks) = fixture();
+    let id = seed_session(&state);
+    assert!(state.write().session.set_active(id.clone()), "activates");
+
+    // When the session runs its own Idle → Streaming → Idle cycle
+    // while the user watches it.
+    actor.on_phase_changed(&phase_change(
+        &id,
+        jinn_slices::PhaseView::Idle,
+        jinn_slices::PhaseView::Streaming,
+    ));
+    actor.on_phase_changed(&phase_change(
+        &id,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+
+    // Then no mark ever lands and no sessions refresh fires for it —
+    // a settle the user is watching is not news.
+    assert!(!marks.read().is_marked(&id));
+    while let Ok(envelope) = rx.try_recv() {
+        assert_ne!(
+            envelope.kind,
+            SseKind::Sessions,
+            "no sessions refresh for the viewed session: {envelope:?}"
+        );
+    }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_subagent_session_never_marks() {
+    // Given a subagent-origin session while another session is active.
+    let (mut actor, mut rx, state, marks) = fixture();
+    let sub = seed_session_with_origin(&state, jinn_session_msg::SessionOrigin::Subagent);
+    let other = seed_session(&state);
+    assert!(
+        state.write().session.set_active(other.clone()),
+        "the other session activates"
+    );
+    let _ = rx.try_recv();
+
+    // When the subagent settles Streaming → Idle.
+    actor.on_phase_changed(&phase_change(
+        &sub,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+
+    // Then no mark lands and no sessions refresh was emitted — the
+    // exclusion is decided at set time, and a quiet settle pushes
+    // nothing.
+    assert!(!marks.read().is_marked(&sub));
+    let mut any_sessions = false;
+    while let Ok(envelope) = rx.try_recv() {
+        if envelope.kind == SseKind::Sessions {
+            any_sessions = true;
+        }
+    }
+    assert!(!any_sessions, "no refresh for a subagent settle");
+    // Both seeds are live (plus the map's default session) — the
+    // exclusion decided nothing about liveness, only about marking.
+    let live = state.read().session.sessions().len();
+    assert_eq!(live, 3, "both seeds are live (exclusion is by origin)");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_cancel_settle_marks_like_any_other_settle() {
+    // Given a non-active session draining a cancel.
+    let (mut actor, _rx, state, marks) = fixture();
+    let id = seed_session(&state);
+    let other = seed_session(&state);
+    assert!(
+        state.write().session.set_active(other.clone()),
+        "the other session activates"
+    );
+
+    // When the cancel drain lands the session at Idle.
+    actor.on_phase_changed(&phase_change(
+        &id,
+        jinn_slices::PhaseView::Cancelling,
+        jinn_slices::PhaseView::Idle,
+    ));
+
+    // Then the mark is set — a cancelled turn delivered entries the
+    // user has not seen.
+    assert!(marks.read().is_marked(&id));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_self_settle_from_idle_marks_nothing() {
+    // Given a non-active session that reports Idle → Idle (a no-op
+    // transition the phase writers can emit).
+    let (mut actor, _rx, state, marks) = fixture();
+    let id = seed_session(&state);
+    let other = seed_session(&state);
+    assert!(
+        state.write().session.set_active(other.clone()),
+        "the other session activates"
+    );
+
+    // When an Idle → Idle change arrives.
+    actor.on_phase_changed(&phase_change(
+        &id,
+        jinn_slices::PhaseView::Idle,
+        jinn_slices::PhaseView::Idle,
+    ));
+
+    // Then nothing is marked — there was no work delivered.
+    assert!(!marks.read().is_marked(&id));
+}
+
+// ── The unread mark: cleared on activation ──────────────────────────
+
+#[rstest::rstest]
+#[tokio::test]
+async fn activating_a_marked_session_clears_it_and_refreshes_every_list() {
+    // Given a marked session Foo and an active session Bar.
+    let (mut actor, mut rx, state, marks) = fixture();
+    let foo = seed_session(&state);
+    let bar = seed_session(&state);
+    assert!(state.write().session.set_active(bar.clone()), "activates");
+    actor.on_phase_changed(&phase_change(
+        &foo,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+    assert!(marks.read().is_marked(&foo), "precondition: Foo is marked");
+    // Drain the mark transition's traffic before observing the clear.
+    while let Ok(_envelope) = rx.try_recv() {}
+
+    // When Foo becomes the active session and its load completes.
+    assert!(state.write().session.set_active(foo.clone()), "activates");
+    actor.on_load_completed(&jinn_session_store_msg::SessionLoadCompleted {
+        session_id: foo.clone(),
+    });
+
+    // Then the mark is gone, and every page's list refreshed without
+    // the unread class — one addressed refresh for the activated
+    // session plus one addressed envelope per live session id.
+    assert!(!marks.read().is_marked(&foo));
+    let live = state.read().session.sessions().len();
+    let mut sessions_envelopes = 0;
+    let mut last_html = String::new();
+    while let Ok(envelope) = rx.try_recv() {
+        if envelope.kind == SseKind::Sessions {
+            sessions_envelopes += 1;
+            last_html = envelope.html;
+        }
+    }
+    assert_eq!(
+        sessions_envelopes,
+        live + 1,
+        "the addressed refresh plus one envelope per live session: got {sessions_envelopes}"
+    );
+    assert!(
+        !last_html.contains("unread"),
+        "the post-clear fragment is clean: {last_html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_background_tree_member_keeps_its_mark_on_load() {
+    // Given a marked session Foo, active Bar, and a third session Baz.
+    let (mut actor, mut rx, state, marks) = fixture();
+    let foo = seed_session(&state);
+    let bar = seed_session(&state);
+    let baz = seed_session(&state);
+    assert!(state.write().session.set_active(bar.clone()), "activates");
+    actor.on_phase_changed(&phase_change(
+        &foo,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+    actor.on_phase_changed(&phase_change(
+        &baz,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+    assert!(marks.read().is_marked(&foo), "Foo marked");
+    assert!(marks.read().is_marked(&baz), "Baz marked");
+    let _ = rx.try_recv();
+
+    // When a tree load restores Foo as a BACKGROUND member — its
+    // load-completed event arrives while Baz is the active session.
+    actor.on_load_completed(&jinn_session_store_msg::SessionLoadCompleted {
+        session_id: foo.clone(),
+    });
+
+    // Then Foo keeps its mark — its entries are still unviewed; only
+    // activation clears. (Baz is untouched too.)
+    assert!(
+        marks.read().is_marked(&foo),
+        "a background member keeps its mark"
+    );
+    assert!(marks.read().is_marked(&baz));
+}
+
+/// The marks set through the state's attached registry — the read side
+/// the render paths use (asserts the same cell the actor writes).
+fn marks_of(state: &State, id: &jinn_core_types::SessionId) -> bool {
+    let guard = state.read();
+    let slices = guard.session.slices().expect("registry attached");
+    let cell = slices
+        .reader::<UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+        .expect("the unread cell resolves");
+    cell.read().is_marked(id)
 }
