@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- Add webui (prototype/MVP)
+
 ## 2026-11-15 v1.25.0
 
 - Add `browser` MCP for headed browser automation.
