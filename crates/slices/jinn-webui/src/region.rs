@@ -21,6 +21,7 @@ use jinn_kernel::common::state::StateReadGuard;
 use jinn_webui_msg::SseKind;
 
 pub use crate::regions::composer;
+pub use crate::regions::menu;
 pub use crate::regions::model_picker;
 pub use crate::regions::sessions;
 pub use crate::regions::transcript;
@@ -131,6 +132,10 @@ pub fn regions() -> &'static [&'static dyn WebRegion] {
         &transcript::TranscriptRegion,
         &composer::ComposerRegion,
         &model_picker::ModelPickerRegion,
+        // The menu appends at the tail: registration order is the CSS
+        // join's tie-breaker, so a new region never overrides an
+        // established one's rules (Invariant: append, never reorder).
+        &menu::MenuRegion,
     ]
 }
 

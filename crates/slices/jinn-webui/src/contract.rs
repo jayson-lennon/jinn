@@ -130,6 +130,36 @@ pub const SESSION_ROW_CLASS: &str = "srow";
 /// content-wise on the landing page, whose "jinn" title is inert.
 pub const SESSION_TITLE_ID: &str = "session-title";
 
+/// The titlebar's menu region — the hamburger button's host span,
+/// rendered left of the session title. The panel renders inside this
+/// host too (a static fragment, like the model-status wrapper), so
+/// the region owns one container on the page.
+pub const MENU_ID: &str = "menu";
+
+/// The menu's hamburger button — the titlebar control that opens the
+/// panel. Visible at every viewport width.
+pub const MENU_BUTTON_ID: &str = "menu-button";
+
+/// The menu's item panel — the small list the hamburger opens. The
+/// server renders it with the `hidden` attribute; the client toggles
+/// visibility (the model-picker modal's lifecycle).
+pub const MENU_PANEL_ID: &str = "menu-panel";
+
+/// The menu's one item — closes the menu; below 768px it then opens
+/// the session drawer (the class on the page root decides that).
+pub const MENU_ITEM_SESSIONS_ID: &str = "menu-item-sessions";
+
+/// The class the client toggles on the page root when the session
+/// drawer is open — the drawer-open state hook. Deliberately **not**
+/// in [`DOM_CONSTANTS`]: membership there asserts presence in a fresh
+/// server render, and no server render ever emits this class — it is
+/// client-mutated view state whose absence in the served markup is
+/// exactly what makes a page swap reset the drawer structurally.
+pub const DRAWER_OPEN_CLASS: &str = "drawer-open";
+
+/// The menu's action name — the one item's action attribute value.
+pub const ACTION_MENU_SESSIONS: &str = "menu-sessions";
+
 // ── Endpoints ───────────────────────────────────────────────────────
 
 /// The landing/session page path (the client's entry URL).
@@ -245,6 +275,11 @@ pub const DOM_CONSTANTS: &[&str] = &[
     MODEL_ID_DATA_ATTR,
     MODEL_MARKER_ATTR,
     MODEL_UNAVAILABLE_ATTR,
+    MENU_ID,
+    MENU_BUTTON_ID,
+    MENU_PANEL_ID,
+    MENU_ITEM_SESSIONS_ID,
+    ACTION_MENU_SESSIONS,
 ];
 
 /// The contract's endpoint constants a client can build a URL from.

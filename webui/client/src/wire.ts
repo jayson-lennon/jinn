@@ -112,6 +112,33 @@ export const MODEL_UNAVAILABLE_ATTR = "data-webui-unavailable";
 /** The titlebar title span — the inline rename editor's host. */
 export const SESSION_TITLE_ID = "session-title";
 
+/** The titlebar's menu region — the hamburger button's host span. */
+export const MENU_ID = "menu";
+
+/** The menu's hamburger button id — opens the panel, all widths. */
+export const MENU_BUTTON_ID = "menu-button";
+
+/**
+ * The menu's item panel id — the list the hamburger opens. The server
+ * renders it `hidden`; the client toggles visibility.
+ */
+export const MENU_PANEL_ID = "menu-panel";
+
+/** The menu's one item id — "Sessions"; closes the menu. */
+export const MENU_ITEM_SESSIONS_ID = "menu-item-sessions";
+
+/**
+ * The drawer-open class the client toggles on #page-root — never
+ * rendered by the server, so a page swap structurally resets the
+ * drawer. Deliberately outside the generated fixture's DOM set (the
+ * referential gate asserts fresh-render presence); parity with the
+ * Rust constant is hand-maintained.
+ */
+export const DRAWER_OPEN_CLASS = "drawer-open";
+
+/** The menu item's action name (`data-webui-action` value). */
+export const ACTION_MENU_SESSIONS = "menu-sessions";
+
 /** The streaming spinner — present above the composer while busy. */
 export const BUSY_SPINNER_ID = "busy-spinner";
 

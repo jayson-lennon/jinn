@@ -142,6 +142,21 @@ function delegateDocumentClick(target: EventTarget | null): void {
 }
 
 /**
+ * Dispatches the document-level keydown for dismissal keys that must
+ * fire at any keyboard focus (Escape with focus on `body`, where the
+ * selector dispatch cannot resolve a claiming region). Consulted after
+ * the selector dispatch, on the onDocumentClick precedent: a key a
+ * region consumed must not also close another region's overlay.
+ */
+function delegateDocumentKeyDown(event: KeyboardEvent): void {
+  for (const region of regions()) {
+    if (region.onDocumentKeyDown?.(event)) {
+      return;
+    }
+  }
+}
+
+/**
  * Wires the page's delegated behaviors and opens the stream. All
  * listeners live on `document` — elements the page swap destroys are
  * re-resolved per event by the regions' selectors, so delegation
@@ -167,13 +182,17 @@ export function initialize(): void {
     // The composer's Enter binding rides the same dispatch: only the
     // region claiming the target sees it.
     const element = dom.targetWithAttribute(event.target);
-    if (element === null) {
-      return;
+    if (element !== null) {
+      const region = regionOf(element);
+      if (region !== null) {
+        region.onKeyDown?.(element, event as KeyboardEvent);
+      }
     }
-    const region = regionOf(element);
-    if (region !== null) {
-      region.onKeyDown?.(element, event as KeyboardEvent);
-    }
+    // Overlay dismissal at any focus rides the same event, after the
+    // selector dispatch (the document-click precedent): focus on
+    // `body` resolves no region, and that is the case this pass
+    // exists for.
+    delegateDocumentKeyDown(event as KeyboardEvent);
   });
 
   // The stream for whatever session this page renders. The landing

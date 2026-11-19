@@ -92,6 +92,7 @@ fn rendered_page() -> String {
         transcript_html: transcript,
         controls_html: controls,
         status_html: model,
+        menu_html: crate::regions::menu::menu_fragment(),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
@@ -104,6 +105,7 @@ fn rendered_page() -> String {
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
         controls_id: contract::CONTROLS_ID,
         session_title_id: contract::SESSION_TITLE_ID,
+        menu_id: contract::MENU_ID,
     })
     .expect("the page shell renders")
 }
@@ -123,7 +125,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 10] = [
+    let targets: [(&str, &str); 14] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
@@ -137,6 +139,10 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
         ("model picker button", contract::MODEL_PICKER_BUTTON_ID),
         ("composer", contract::COMPOSER_ID),
         ("session title", contract::SESSION_TITLE_ID),
+        ("menu", contract::MENU_ID),
+        ("menu button", contract::MENU_BUTTON_ID),
+        ("menu panel", contract::MENU_PANEL_ID),
+        ("menu item sessions", contract::MENU_ITEM_SESSIONS_ID),
     ];
 
     // Then each one appears as `id="..."` in the markup — a missing
@@ -198,6 +204,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         transcript_html: String::new(),
         controls_html: String::new(),
         status_html: String::new(),
+        menu_html: crate::regions::menu::menu_fragment(),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
@@ -210,6 +217,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
         controls_id: contract::CONTROLS_ID,
         session_title_id: contract::SESSION_TITLE_ID,
+        menu_id: contract::MENU_ID,
     })
     .expect("the page shell renders");
 

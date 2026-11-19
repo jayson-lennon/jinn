@@ -46,10 +46,16 @@ worktrees/*
 .issues/*
 .autodev.ledger.md
 *.html
+# Askama templates are source, not build output: the webui slice's page
+# and fragment templates compile into the binary and must be tracked
+# (the `*.html` rule above ate the four model templates once — fresh
+# checkouts could not compile).
+!crates/slices/jinn-webui/templates/*.html
 *.wav
 .artifacts
 /*.toml
 /*.html
+/*.png
 /*.md
 !clippy.toml
 !Cargo.toml

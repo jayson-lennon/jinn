@@ -17,6 +17,7 @@
   </nav>
   <main id="main">
     <div id="titlebar">
+      <span id="{{ menu_id }}">{{ menu_html|safe }}</span>
       <span class="t" {% if !session_title_id.is_empty() %}id="{{ session_title_id }}"{% endif %}>{{ title }}</span>
       {{ status_html|safe }}
     </div>
