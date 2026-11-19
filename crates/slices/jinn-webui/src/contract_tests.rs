@@ -107,6 +107,7 @@ fn rendered_page() -> String {
         session_title_id: contract::SESSION_TITLE_ID,
         menu_id: contract::MENU_ID,
         drawer_scrim_id: contract::DRAWER_SCRIM_ID,
+        menu_scrim_id: contract::MENU_SCRIM_ID,
     })
     .expect("the page shell renders")
 }
@@ -126,7 +127,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 15] = [
+    let targets: [(&str, &str); 16] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
@@ -145,6 +146,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
         ("menu panel", contract::MENU_PANEL_ID),
         ("menu item sessions", contract::MENU_ITEM_SESSIONS_ID),
         ("drawer scrim", contract::DRAWER_SCRIM_ID),
+        ("menu scrim", contract::MENU_SCRIM_ID),
     ];
 
     // Then each one appears as `id="..."` in the markup — a missing
@@ -221,6 +223,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         session_title_id: contract::SESSION_TITLE_ID,
         menu_id: contract::MENU_ID,
         drawer_scrim_id: contract::DRAWER_SCRIM_ID,
+        menu_scrim_id: contract::MENU_SCRIM_ID,
     })
     .expect("the page shell renders");
 

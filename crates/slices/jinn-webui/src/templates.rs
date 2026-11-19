@@ -49,11 +49,6 @@ body { margin: 0; background: var(--bg); color: var(--fg);
                padding: 6px 10px; font: inherit; line-height: 1;
                cursor: pointer; }
 #menu-button:hover { border-color: var(--accent); }
-#menu-panel { position: absolute; top: calc(100% + 6px); left: 0;
-              background: var(--panel); border: 1px solid var(--border);
-              border-radius: 8px; min-width: 160px; padding: 4px;
-              display: flex; flex-direction: column; z-index: 50; }
-#menu-panel[hidden] { display: none; }
 #menu-panel button { background: transparent; color: var(--fg); text-align: left;
                      border: 0; border-radius: 5px; padding: 8px 12px;
                      font: inherit; cursor: pointer; white-space: nowrap; }
@@ -155,6 +150,9 @@ pub struct PageTemplate {
     /// The drawer scrim's id — the static shell overlay behind the
     /// off-canvas sidebar when the drawer is open.
     pub drawer_scrim_id: &'static str,
+    /// The menu scrim's id — the static shell overlay behind the
+    /// slide-in menu panel (stacked above the drawer scrim).
+    pub menu_scrim_id: &'static str,
 }
 
 impl PageTemplate {
@@ -186,6 +184,7 @@ impl PageTemplate {
             session_title_id: "",
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
+            menu_scrim_id: contract::MENU_SCRIM_ID,
         }
     }
 
@@ -226,6 +225,7 @@ impl PageTemplate {
             session_title_id: contract::SESSION_TITLE_ID,
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
+            menu_scrim_id: contract::MENU_SCRIM_ID,
         }
     }
 }

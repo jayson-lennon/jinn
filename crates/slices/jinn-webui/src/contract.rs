@@ -140,7 +140,8 @@ pub const MENU_ID: &str = "menu";
 /// panel. Visible at every viewport width.
 pub const MENU_BUTTON_ID: &str = "menu-button";
 
-/// The menu's item panel — the small list the hamburger opens. The
+/// The menu's item panel — the slide-in launcher list the hamburger
+/// opens (full-height, from the left edge, over its own scrim). The
 /// server renders it with the `hidden` attribute; the client toggles
 /// visibility (the model-picker modal's lifecycle).
 pub const MENU_PANEL_ID: &str = "menu-panel";
@@ -166,6 +167,14 @@ pub const ACTION_MENU_SESSIONS: &str = "menu-sessions";
 /// fresh render, so unlike [`DRAWER_OPEN_CLASS`] it **is** a
 /// [`DOM_CONSTANTS`] member and the referential gate holds it.
 pub const DRAWER_SCRIM_ID: &str = "drawer-scrim";
+
+/// The menu scrim — the full-viewport overlay behind the slide-in
+/// menu panel, at every viewport width. Static shell markup inside
+/// `#page-root`, mirrored `hidden` like the drawer scrim, present in
+/// every fresh render — a [`DOM_CONSTANTS`] member held by the
+/// referential gate. Stacks above the drawer scrim (A6): the menu is
+/// the entry surface.
+pub const MENU_SCRIM_ID: &str = "menu-scrim";
 
 // ── Endpoints ───────────────────────────────────────────────────────
 
@@ -288,6 +297,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     MENU_ITEM_SESSIONS_ID,
     ACTION_MENU_SESSIONS,
     DRAWER_SCRIM_ID,
+    MENU_SCRIM_ID,
 ];
 
 /// The contract's endpoint constants a client can build a URL from.

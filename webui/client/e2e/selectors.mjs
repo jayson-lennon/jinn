@@ -57,6 +57,8 @@ export const MENU = "#menu";
 export const MENU_BUTTON = "#menu-button";
 /** The menu's item panel id (`wire.MENU_PANEL_ID`). */
 export const MENU_PANEL = "#menu-panel";
+/** The menu scrim id (`wire.MENU_SCRIM_ID`). */
+export const MENU_SCRIM = "#menu-scrim";
 /** The menu's one item id (`wire.MENU_ITEM_SESSIONS_ID`). */
 export const MENU_ITEM_SESSIONS = "#menu-item-sessions";
 /** The drawer scrim id (`wire.DRAWER_SCRIM_ID`). */

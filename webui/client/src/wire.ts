@@ -119,8 +119,9 @@ export const MENU_ID = "menu";
 export const MENU_BUTTON_ID = "menu-button";
 
 /**
- * The menu's item panel id — the list the hamburger opens. The server
- * renders it `hidden`; the client toggles visibility.
+ * The menu's item panel id — the slide-in launcher list the hamburger
+ * opens (full-height, from the left edge, over its own scrim). The
+ * server renders it `hidden`; the client toggles visibility.
  */
 export const MENU_PANEL_ID = "menu-panel";
 
@@ -146,6 +147,14 @@ export const ACTION_MENU_SESSIONS = "menu-sessions";
  * generated fixture.
  */
 export const DRAWER_SCRIM_ID = "drawer-scrim";
+
+/**
+ * The menu scrim id — the full-viewport overlay behind the slide-in
+ * menu panel, at every viewport width. Static shell markup inside
+ * #page-root, mirrored `hidden` like the drawer scrim, present in
+ * every fresh server render — rides the generated fixture.
+ */
+export const MENU_SCRIM_ID = "menu-scrim";
 
 /** The streaming spinner — present above the composer while busy. */
 export const BUSY_SPINNER_ID = "busy-spinner";

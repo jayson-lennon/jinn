@@ -82,15 +82,27 @@ pub fn menu_fragment() -> String {
     )
 }
 
-/// The menu region's stylesheet: Unit 1's functional styles live in
-/// `BASE_CSS` (the button, the panel, the `[hidden]` open/closed rule
-/// the whole page needs); this fragment carries the region-owned
-/// interaction affordances — hover/focus feedback at every width, and
-/// the phone media query's touch-target bumps (the hamburger and its
-/// item reach the 40px hit height only at phone widths; desktop keeps
-/// its compact titlebar sizing). The query mirrors the drawer's
-/// breakpoint in `sessions.rs`.
+/// The menu region's stylesheet: the slide-in panel's geometry and its
+/// scrim — full-height, left-anchored, 280px (the sidebar's width),
+/// translateX transition, stacked above the drawer stack (the menu is
+/// the entry surface) — plus the interaction affordances (hover/focus
+/// feedback) and the phone media query's touch-target bumps. The panel
+/// geometry is width-independent; only the touch bumps are
+/// width-specific, decided by a media query. The scrim's stack level
+/// also rides here (mirrored in `sessions.rs`'s sheet for the
+/// drawer-side of the A6 sandwich).
 pub const MENU_CSS: &str = r#"
+#menu-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; }
+#menu-scrim[hidden] { display: none; }
+#menu-panel { position: fixed; top: 0; bottom: 0; left: 0; width: 280px;
+              background: var(--panel); border-right: 1px solid var(--border);
+              padding: 12px 8px; display: flex; flex-direction: column;
+              gap: 4px; z-index: 70;
+              transform: translateX(-100%);
+              transition: transform .25s ease; }
+#menu-panel[hidden] { transform: translateX(-100%); visibility: hidden;
+                      transition: none; }
+#menu-panel:not([hidden]) { transform: translateX(0); }
 #menu-button:hover { border-color: var(--accent); }
 #menu-panel button:hover { background: #23272f; }
 #menu-panel button:focus-visible { outline: 1px solid var(--accent); }
@@ -213,6 +225,34 @@ mod menu_region_tests {
         assert!(
             !contract::DOM_CONSTANTS.contains(&contract::DRAWER_OPEN_CLASS),
             "the drawer-open class is client state, not fresh-render markup"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_menu_css_pins_the_slide_in_panel_over_the_drawer_stack() {
+        // Given the menu region's stylesheet.
+        let css = super::MENU_CSS;
+
+        // Then it carries the slide-in geometry (fixed, left, 280px,
+        // translateX transition), the scrim's stack sandwich, and the
+        // panel parked off-canvas by default — the Addendum 1 panel at
+        // every width, above the drawer's z-order.
+        assert!(
+            css.contains("position: fixed") && css.contains("width: 280px"),
+            "the panel is a fixed 280px slide-in: {css}"
+        );
+        assert!(
+            css.contains("transform: translateX(-100%)") && css.contains("transition: transform"),
+            "the panel slides on a transform transition: {css}"
+        );
+        assert!(
+            css.contains("z-index: 70") && css.contains("z-index: 60"),
+            "the panel (70) and its scrim (60) stack above the drawer: {css}"
+        );
+        assert!(
+            css.contains("#menu-scrim[hidden]"),
+            "the scrim's hidden rule keeps it inert at boot: {css}"
         );
     }
 }

@@ -1,11 +1,13 @@
-//! The menu region — the titlebar hamburger, its "Sessions" panel,
-//! and the drawer-open controller (client half of
+//! The menu region — the titlebar hamburger, its "Sessions" slide-in
+//! panel, and the drawer-open controller (client half of
 //! `crates/slices/jinn-webui/src/regions/menu.rs`).
 //!
 //! Owns:
-//! - the hamburger click → toggle the panel's visibility (the panel
-//!   ships `hidden` from the server, so a fresh page and every page
-//!   swap boot with the menu closed),
+//! - the hamburger click → open the panel (a full-height slide-in
+//!   from the left edge, at every viewport width) by clearing its
+//!   `hidden` attribute and showing the menu scrim; close reverses
+//!   both (the panel ships `hidden` from the server, so a fresh page
+//!   and every page swap boot with the menu closed),
 //! - the "Sessions" item → close the menu and toggle the drawer-open
 //!   class on `#page-root` — the drawer's carrier is the page root,
 //!   never `body`: the page swap replaces `#page-root`'s outerHTML
@@ -16,12 +18,15 @@
 //!   root for the same reason, and this module mirrors the class onto
 //!   the scrim's `hidden` attribute so the two state hooks move as
 //!   one,
-//! - the scrim click → close the drawer (this module owns the
+//! - the drawer scrim click → close the drawer (this module owns the
 //!   drawer's whole controller, the scrim included — the scrim's
 //!   dismissal target is the drawer-open toggle it already owns),
-//! - Escape at ANY keyboard focus → close the menu when open; close
-//!   the drawer when open; when both are open, close both in one
-//!   press. This rides the document-level keydown hook
+//! - the menu scrim click → close the menu (same ownership logic, one
+//!   scrim per overlay, both scrims inside `#page-root`),
+//! - Escape at ANY keyboard focus → close whichever overlay is open —
+//!   panel-then-drawer in one press if both are (in practice they
+//!   never intentionally co-open; the menu scrim stacks above the
+//!   drawer stack). This rides the document-level keydown hook
 //!   (`onDocumentKeyDown`), not the selector dispatch: the selector
 //!   path resolves the target through `targetWithAttribute` and a
 //!   region's selectors, which fails for focus on `body` — the common
@@ -48,7 +53,7 @@ import type { RegionModule } from "./mod.js";
 /** The menu region's client surface. */
 export const menuRegion: RegionModule = {
   id: "menu",
-  selectors: [`#${wire.MENU_ID}`, `#${wire.DRAWER_SCRIM_ID}`],
+  selectors: [`#${wire.MENU_ID}`, `#${wire.DRAWER_SCRIM_ID}`, `#${wire.MENU_SCRIM_ID}`],
 
   onClick(target) {
     const origin = targetElement(target);
@@ -56,7 +61,7 @@ export const menuRegion: RegionModule = {
       return false;
     }
     if (origin.closest(`#${wire.MENU_BUTTON_ID}`) !== null) {
-      toggleMenu();
+      openMenu();
       return true;
     }
     const item = origin.closest(`#${wire.MENU_ITEM_SESSIONS_ID}`);
@@ -65,12 +70,16 @@ export const menuRegion: RegionModule = {
       toggleDrawer();
       return true;
     }
-    // The scrim sits outside every other region's DOM and inside the
-    // page root; the click delegation only reaches it when it is the
-    // event's own target (the drawer covers everything else while
-    // open). Dismissing is the scrim's one job.
+    // Each scrim sits outside every other region's DOM and inside the
+    // page root; the click delegation only reaches a scrim when it is
+    // the event's own target (its overlay covers everything else
+    // while open). Dismissing is a scrim's one job.
     if (origin.closest(`#${wire.DRAWER_SCRIM_ID}`) !== null) {
       closeDrawer();
+      return true;
+    }
+    if (origin.closest(`#${wire.MENU_SCRIM_ID}`) !== null) {
+      closeMenu();
       return true;
     }
     return false;
@@ -117,23 +126,31 @@ function isDrawerOpen(): boolean {
   return root !== null && root.classList.contains(wire.DRAWER_OPEN_CLASS);
 }
 
-/** Toggles the panel's visibility — the menu's open/closed state. */
-function toggleMenu(): void {
+/** Opens the panel and shows the menu scrim (idempotent). */
+function openMenu(): void {
   const panel = byPanel();
   if (panel === null) {
     return;
   }
-  panel.hidden = !panel.hidden;
-  byButton()?.setAttribute("aria-expanded", panel.hidden ? "false" : "true");
+  panel.hidden = false;
+  byButton()?.setAttribute("aria-expanded", "true");
+  menuScrim().hidden = false;
 }
 
-/** Closes the panel (idempotent — closing a closed menu is a no-op). */
+/** Closes the panel and hides the menu scrim (idempotent). */
 function closeMenu(): void {
   const panel = byPanel();
   if (panel !== null) {
     panel.hidden = true;
   }
   byButton()?.setAttribute("aria-expanded", "false");
+  menuScrim().hidden = true;
+}
+
+/** Resolves the menu scrim, or an inert stand-in when absent. */
+function menuScrim(): { hidden: boolean } {
+  const scrim = document.getElementById(wire.MENU_SCRIM_ID);
+  return scrim ?? { hidden: true };
 }
 
 /**

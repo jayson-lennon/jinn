@@ -24,7 +24,9 @@
 //!
 //! The geometry claims (End States 5–7) are computed-style and
 //! bounding-box reads at phone width — the only tier that can see a
-//! real layout engine.
+//! real layout engine. The menu itself is a slide-in panel from the
+//! left edge over its own scrim at every width (Addendum 1), so its
+//! assertions read the same transform/scrim hooks the drawer's do.
 
 import { expect, test } from "@playwright/test";
 import * as sel from "./selectors.mjs";
@@ -98,6 +100,55 @@ async function expectSidebarOnCanvas(page) {
 }
 
 /**
+ * Asserts the menu panel is currently parked off-canvas (a negative
+ * transform x — the closed slide-in state).
+ *
+ * @param {import("@playwright/test").Page} page the browser page.
+ * @returns {Promise<void>} resolves when the transform reads negative.
+ */
+async function expectMenuPanelOffCanvas(page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const panel = document.getElementById("menu-panel");
+        if (!panel) return 0;
+        return new DOMMatrix(getComputedStyle(panel).transform).e;
+      }),
+    )
+    .toBeLessThan(0);
+}
+
+/**
+ * Asserts the menu panel is currently on-canvas (transform x 0 —
+ * the slid-in state).
+ *
+ * @param {import("@playwright/test").Page} page the browser page.
+ * @returns {Promise<void>} resolves when the transform reads zero.
+ */
+async function expectMenuPanelOnCanvas(page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const panel = document.getElementById("menu-panel");
+        if (!panel) return -1;
+        return new DOMMatrix(getComputedStyle(panel).transform).e;
+      }),
+    )
+    .toBe(0);
+}
+
+/**
+ * Opens the menu panel via the hamburger and settles its slide-in.
+ *
+ * @param {import("@playwright/test").Page} page the browser page.
+ */
+async function openMenuPanel(page) {
+  await page.locator(sel.MENU_BUTTON).click();
+  await expectMenuPanelOnCanvas(page);
+  await expect(page.locator(sel.MENU_SCRIM)).toBeVisible();
+}
+
+/**
  * Opens the drawer via the real path: hamburger, then the Sessions
  * item. Every drawer test goes through the UI, never straight to the
  * class — the spec tests the flow a finger performs.
@@ -105,8 +156,7 @@ async function expectSidebarOnCanvas(page) {
  * @param {import("@playwright/test").Page} page the browser page.
  */
 async function openDrawer(page) {
-  await page.locator(sel.MENU_BUTTON).click();
-  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+  await openMenuPanel(page);
   await page.locator(sel.MENU_ITEM_SESSIONS).click();
   await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
     new RegExp(sel.DRAWER_OPEN_CLASS),
@@ -139,7 +189,7 @@ test("the hamburger is visible at a phone viewport", async ({ page }) => {
   await expect(page.locator(sel.MENU_BUTTON)).toBeVisible();
 });
 
-test("the hamburger opens the menu with exactly one Sessions item", async ({
+test("the hamburger slides in the panel with its scrim and one Sessions item", async ({
   page,
 }) => {
   // Given the session page at 390×844.
@@ -148,7 +198,10 @@ test("the hamburger opens the menu with exactly one Sessions item", async ({
   // When tapping the hamburger.
   await page.locator(sel.MENU_BUTTON).click();
 
-  // Then the panel shows carrying exactly one item, labeled Sessions.
+  // Then the panel slid in from the left over its scrim, carrying
+  // exactly one item, labeled Sessions.
+  await expectMenuPanelOnCanvas(page);
+  await expect(page.locator(sel.MENU_SCRIM)).toBeVisible();
   const items = page.locator(`${sel.MENU_PANEL} button`);
   await expect(items).toHaveCount(1);
   await expect(items.first()).toHaveText("Sessions");
@@ -159,15 +212,16 @@ test("the Sessions item closes the menu and opens the drawer", async ({
 }) => {
   // Given the session page with the menu open.
   await openBootedSession(page);
-  await page.locator(sel.MENU_BUTTON).click();
-  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+  await openMenuPanel(page);
 
   // When activating the Sessions item.
   await page.locator(sel.MENU_ITEM_SESSIONS).click();
 
-  // Then the menu closed, the drawer-open class landed on the page
-  // root, the sidebar slid in, and the scrim shows.
-  await expect(page.locator(sel.MENU_PANEL)).not.toBeVisible();
+  // Then the menu closed (panel parked off-canvas, its scrim gone),
+  // the drawer-open class landed on the page root, the sidebar slid
+  // in, and the drawer scrim shows.
+  await expectMenuPanelOffCanvas(page);
+  await expect(page.locator(sel.MENU_SCRIM)).not.toBeVisible();
   await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
     new RegExp(sel.DRAWER_OPEN_CLASS),
   );
@@ -227,15 +281,16 @@ test("Escape closes an open menu when the drawer is closed", async ({
 }) => {
   // Given the session page with only the menu open.
   await openBootedSession(page);
-  await page.locator(sel.MENU_BUTTON).click();
-  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+  await openMenuPanel(page);
   await page.evaluate(() => document.activeElement?.blur());
 
   // When pressing Escape.
   await page.keyboard.press("Escape");
 
-  // Then the menu closed and no drawer state appeared.
-  await expect(page.locator(sel.MENU_PANEL)).not.toBeVisible();
+  // Then the menu closed (panel parked, scrim gone) and no drawer
+  // state appeared.
+  await expectMenuPanelOffCanvas(page);
+  await expect(page.locator(sel.MENU_SCRIM)).not.toBeVisible();
   await expect(page.locator(sel.PAGE_ROOT)).not.toHaveClass(
     new RegExp(sel.DRAWER_OPEN_CLASS),
   );
@@ -354,11 +409,10 @@ test("interactive controls reach the 40px hit height at a phone viewport", async
   page,
 }) => {
   // Given the session page at 390×844 with the menu open (the item is
-  // a menu-panel child — it measures only while the panel shows; the
-  // drawer stays closed).
+  // a menu-panel child — it measures only while the panel is slid in;
+  // the drawer stays closed).
   await openBootedSession(page);
-  await page.locator(sel.MENU_BUTTON).click();
-  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+  await openMenuPanel(page);
 
   // When measuring the row, the send button, the hamburger, and the
   // menu item.
@@ -384,12 +438,12 @@ test("interactive controls reach the 40px hit height at a phone viewport", async
   }
 });
 
-// ── The desktop half (≥768px unchanged) ─────────────────────────────
+// ── The desktop half (≥768px: sidebar static, menu still slides) ────
 
 test.describe("desktop no-op", () => {
   test.use({ viewport: DESKTOP });
 
-  test("the sidebar stays in flow and the hamburger is inert-effect", async ({
+  test("the sidebar stays in flow and the panel slides over it", async ({
     page,
   }) => {
     // Given the session page at 1280×800.
@@ -405,14 +459,51 @@ test.describe("desktop no-op", () => {
     expect(position).toBe("static");
     await expect(page.locator(sel.MENU_BUTTON)).toBeVisible();
 
-    // When opening the menu and activating Sessions.
-    await page.locator(sel.MENU_BUTTON).click();
-    await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+    // When opening the menu.
+    await openMenuPanel(page);
+
+    // Then the panel slid in OVER the permanent sidebar (the menu is
+    // the entry surface): fixed, stacked above it, scrim showing, and
+    // the sidebar itself never moved.
+    const panelState = await page.evaluate(() => {
+      const panel = document.getElementById("menu-panel");
+      const scrim = document.getElementById("menu-scrim");
+      const sidebarElement = document.getElementById("sidebar");
+      if (!panel || !scrim || !sidebarElement) return null;
+      const panelComputed = getComputedStyle(panel);
+      const sidebarComputed = getComputedStyle(sidebarElement);
+      const sidebarTransform = sidebarComputed.transform;
+      // A static sidebar has `z-index: auto` — it paints below any
+      // positioned element; read `auto` as 0 for the ordering claim.
+      const sidebarZ = sidebarComputed.zIndex === "auto"
+        ? 0
+        : Number.parseInt(sidebarComputed.zIndex, 10);
+      return {
+        panelPosition: panelComputed.position,
+        panelTransformX: new DOMMatrix(panelComputed.transform).e,
+        panelZ: Number.parseInt(panelComputed.zIndex, 10),
+        sidebarZ,
+        scrimHidden: scrim.hidden,
+        sidebarTransform,
+      };
+    });
+    if (panelState === null) {
+      throw new Error("the panel/scrim/sidebar triad is missing");
+    }
+    expect(panelState.panelPosition).toBe("fixed");
+    expect(panelState.panelTransformX).toBe(0);
+    expect(panelState.scrimHidden).toBe(false);
+    expect(panelState.panelZ).toBeGreaterThan(panelState.sidebarZ);
+    expect(panelState.sidebarTransform).toBe("none");
+    await expect(sidebar).toBeVisible();
+
+    // When activating Sessions.
     await page.locator(sel.MENU_ITEM_SESSIONS).click();
 
-    // Then the menu closed and NO drawer appeared — the class landed
+    // Then the panel closed and NO drawer appeared — the class landed
     // but the ≥768px media query gives it nothing to move.
-    await expect(page.locator(sel.MENU_PANEL)).not.toBeVisible();
+    await expectMenuPanelOffCanvas(page);
+    await expect(page.locator(sel.MENU_SCRIM)).not.toBeVisible();
     await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
       new RegExp(sel.DRAWER_OPEN_CLASS),
     );
