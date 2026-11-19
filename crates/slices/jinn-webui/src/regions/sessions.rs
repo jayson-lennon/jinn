@@ -125,6 +125,7 @@ pub const SIDEBAR_CSS: &str = r#"
   #page-root.drawer-open #sidebar { transform: translateX(0); }
   #drawer-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 30;
                   display: block; }
+  #drawer-scrim[hidden] { display: none; }
   .srow { padding: 12px 14px; }
   .srow .stitle { min-height: 22px; }
   #sessions-filter { margin: 8px 10px; padding: 9px 10px; font-size: 16px;

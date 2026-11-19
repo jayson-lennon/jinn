@@ -85,13 +85,19 @@ pub fn menu_fragment() -> String {
 /// The menu region's stylesheet: Unit 1's functional styles live in
 /// `BASE_CSS` (the button, the panel, the `[hidden]` open/closed rule
 /// the whole page needs); this fragment carries the region-owned
-/// interaction affordances — hover/focus feedback on the hamburger
-/// and its item — so the region keeps a real, region-scoped sheet in
-/// the registry's CSS join like every other region.
+/// interaction affordances — hover/focus feedback at every width, and
+/// the phone media query's touch-target bumps (the hamburger and its
+/// item reach the 40px hit height only at phone widths; desktop keeps
+/// its compact titlebar sizing). The query mirrors the drawer's
+/// breakpoint in `sessions.rs`.
 pub const MENU_CSS: &str = r#"
 #menu-button:hover { border-color: var(--accent); }
 #menu-panel button:hover { background: #23272f; }
 #menu-panel button:focus-visible { outline: 1px solid var(--accent); }
+@media (max-width: 767px) {
+  #menu-button { min-height: 40px; min-width: 40px; }
+  #menu-panel button { min-height: 40px; padding: 10px 12px; }
+}
 "#;
 
 #[cfg(test)]

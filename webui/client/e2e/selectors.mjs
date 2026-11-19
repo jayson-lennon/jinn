@@ -51,6 +51,19 @@ export const MODEL_UNAVAILABLE_ATTR = "data-webui-unavailable";
 /** The session page path (`wire.SESSION_PAGE_PATH`). */
 export const SESSION_PAGE_PATH = "/web/session/";
 
+/** The titlebar's menu region host (`wire.MENU_ID`). */
+export const MENU = "#menu";
+/** The hamburger button id (`wire.MENU_BUTTON_ID`). */
+export const MENU_BUTTON = "#menu-button";
+/** The menu's item panel id (`wire.MENU_PANEL_ID`). */
+export const MENU_PANEL = "#menu-panel";
+/** The menu's one item id (`wire.MENU_ITEM_SESSIONS_ID`). */
+export const MENU_ITEM_SESSIONS = "#menu-item-sessions";
+/** The drawer scrim id (`wire.DRAWER_SCRIM_ID`). */
+export const DRAWER_SCRIM = "#drawer-scrim";
+/** The drawer-open class the client toggles on the page root. */
+export const DRAWER_OPEN_CLASS = "drawer-open";
+
 /**
  * The one model this tier's scratch config defines.
  *
