@@ -1303,9 +1303,10 @@ mod stream_catchup {
             crate::server::render_catchup_events(transcript.since(Some(1)), 1, transcript.len());
 
         // Then one entry event arrives — everything after cursor 1 —
-        // and the trailing no-op parks the cursor at the length: the
-        // entry's `id:` is 2 (cursor 1 + 1) and the trailing event's
-        // data is an empty signals patch.
+        // and the trailing park advances the resume cursor to the
+        // length while bumping chatTick so the reader's scroll effect
+        // follows the catch-up tail: the entry's `id:` is 2 (cursor
+        // 1 + 1) and the trailing event is the tick signal patch.
         let [entry, trailing] = events.as_slice() else {
             panic!(
                 "an entry event and the trailing event, got {}",
@@ -1316,7 +1317,10 @@ mod stream_catchup {
         let entry_data = entry.data.join("\n");
         assert!(entry_data.contains("third"), "{entry_data}");
         assert_eq!(trailing.id.as_deref(), Some("2"));
-        assert_eq!(trailing.data.join(""), "signals {}");
+        assert_eq!(
+            trailing.data.join(""),
+            format!("signals {{\"{}\":2}}", crate::contract::SIGNAL_CHAT_TICK)
+        );
     }
 
     #[rstest::rstest]
@@ -1335,13 +1339,18 @@ mod stream_catchup {
         let total = transcript.len();
         let events = crate::server::render_catchup_events(transcript.since(Some(1)), 1, total);
 
-        // Then no entry events arrive, and one empty event advances the
-        // cursor so the client does not re-pull forever.
+        // Then no entry events arrive, and one park event advances the
+        // resume cursor so the client does not re-catch-up forever —
+        // with the chatTick bump (nothing rendered, so a reader at the
+        // bottom stays there; the effect's scroll is a no-op).
         let [trailing] = events.as_slice() else {
             panic!("only the trailing event, got {}", events.len())
         };
         assert_eq!(trailing.id.as_deref(), Some("1"));
-        assert_eq!(trailing.data.join(""), "signals {}");
+        assert_eq!(
+            trailing.data.join(""),
+            format!("signals {{\"{}\":1}}", crate::contract::SIGNAL_CHAT_TICK)
+        );
     }
 
     #[rstest::rstest]

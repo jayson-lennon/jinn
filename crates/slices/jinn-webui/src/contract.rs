@@ -204,6 +204,13 @@ pub const SIGNAL_MODELS_REFRESHING: &str = "modelsRefreshing";
 /// The model-cache-changed tick — every landing bumps it; the open
 /// modal's effect re-pulls its rows in response.
 pub const SIGNAL_MODELS_TICK: &str = "modelsTick";
+
+/// The transcript-append tick — bumped alongside every streamed
+/// transcript patch (append and full replace). The transcript wrap's
+/// scroll effect reads it: a change means the transcript grew, and a
+/// reader keeping watch on the tail scrolls to it. Purely a client
+/// reactive key — no surface reads its value.
+pub const SIGNAL_CHAT_TICK: &str = "chatTick";
 /// The sessions-list tick — every pushed list refresh bumps it; the
 /// list's effect re-pulls with the active filter (pushed lists are
 /// signal-only: the pull remains the renderer).

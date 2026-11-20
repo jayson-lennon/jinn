@@ -569,7 +569,7 @@ fn every_sse_kind_maps_to_a_datastar_transport() {
     // selector it patches names a contract id — the push vocabulary
     // and the DOM vocabulary cannot drift apart.
     for kind in kinds {
-        let event = crate::push::sdk_event_of(
+        let events = crate::push::sdk_events_of(
             &jinn_webui_msg::SseEnvelope {
                 kind,
                 session_id: jinn_core_types::SessionId::new(),
@@ -579,6 +579,10 @@ fn every_sse_kind_maps_to_a_datastar_transport() {
             1,
         )
         .unwrap_or_else(|error| panic!("{kind:?} must translate: {error:?}"));
+        let event = events
+            .first()
+            .expect("every kind translates to at least one event")
+            .clone();
         let data = event.data.join("\n");
         for id in [contract::TRANSCRIPT_ID, contract::CONTROLS_ID] {
             let _ = id; // vocabulary tie: selectors live in push.rs

@@ -62,7 +62,12 @@ pub(crate) enum PushError {
     EmptyChat,
 }
 
-/// Translates one envelope into at most one SDK event.
+/// Translates one envelope into its SSE event sequence: one event
+/// for most kinds, plus a [`contract::SIGNAL_CHAT_TICK`] signal bump
+/// after every transcript patch (append and full replace) — the
+/// browser's scroll effect keys on it, so a reader watching the tail
+/// follows each batch. The bump rides after the render (patch first,
+/// tick second) so the effect's scroll lands on the grown DOM.
 ///
 /// `sessions_tick` is the per-stream counter the sessions signal
 /// bumps — the endpoint owns the counter so every connection counts
@@ -73,38 +78,67 @@ pub(crate) enum PushError {
 /// Returns [`PushError::EmptyChat`] for a `Chat` envelope with empty
 /// HTML (the cursor-advance sentinel of the old protocol — Datastar
 /// has no empty-append, so the sentinel dissolves into a no-op here).
-pub(crate) fn sdk_event_of(
+pub(crate) fn sdk_events_of(
     envelope: &SseEnvelope,
     sessions_tick: u64,
-) -> Result<datastar::DatastarEvent, PushError> {
+) -> Result<Vec<datastar::DatastarEvent>, PushError> {
+    let patch = |html: String,
+                 selector: String,
+                 mode: datastar::consts::ElementPatchMode,
+                 id: Option<String>| {
+        let mut builder = PatchElements::new(html).selector(selector).mode(mode);
+        if let Some(id) = id {
+            builder = builder.id(id);
+        }
+        builder.into_datastar_event()
+    };
+    let tick = |n: u64| {
+        PatchSignals::new(serde_json::json!({ contract::SIGNAL_CHAT_TICK: n }).to_string())
+            .into_datastar_event()
+    };
     match envelope.kind {
         SseKind::Chat => {
             if envelope.html.is_empty() {
                 return Err(PushError::EmptyChat);
             }
-            Ok(PatchElements::new(envelope.html.clone())
-                .selector(transcript_selector())
-                .mode(ElementPatchMode::Append)
-                .id(envelope.cursor.to_string())
-                .into_datastar_event())
+            Ok(vec![
+                patch(
+                    envelope.html.clone(),
+                    transcript_selector(),
+                    ElementPatchMode::Append,
+                    Some(envelope.cursor.to_string()),
+                ),
+                tick(sessions_tick),
+            ])
         }
-        SseKind::TranscriptFull => Ok(PatchElements::new(envelope.html.clone())
-            .selector(transcript_selector())
-            .mode(ElementPatchMode::Inner)
-            .into_datastar_event()),
-        SseKind::Controls => Ok(PatchElements::new(envelope.html.clone())
-            .selector(controls_selector())
-            .mode(ElementPatchMode::Inner)
-            .into_datastar_event()),
-        SseKind::Sessions => Ok(PatchSignals::new(format!(
-            "{{\"{}\": {sessions_tick}}}",
-            contract::SIGNAL_SESSIONS_TICK
-        ))
-        .into_datastar_event()),
-        SseKind::Models => Ok(PatchSignals::new(
-            serde_json::json!({ contract::SIGNAL_MODELS_TICK: envelope.html }).to_string(),
-        )
-        .into_datastar_event()),
+        SseKind::TranscriptFull => Ok(vec![
+            patch(
+                envelope.html.clone(),
+                transcript_selector(),
+                ElementPatchMode::Inner,
+                None,
+            ),
+            tick(sessions_tick),
+        ]),
+        SseKind::Controls => Ok(vec![patch(
+            envelope.html.clone(),
+            controls_selector(),
+            ElementPatchMode::Inner,
+            None,
+        )]),
+        SseKind::Sessions => Ok(vec![
+            PatchSignals::new(format!(
+                "{{\"{}\": {sessions_tick}}}",
+                contract::SIGNAL_SESSIONS_TICK
+            ))
+            .into_datastar_event(),
+        ]),
+        SseKind::Models => Ok(vec![
+            PatchSignals::new(
+                serde_json::json!({ contract::SIGNAL_MODELS_TICK: envelope.html }).to_string(),
+            )
+            .into_datastar_event(),
+        ]),
     }
 }
 
@@ -128,8 +162,9 @@ mod tests {
     #[test]
     fn chat_becomes_an_append_patch_at_the_transcript_with_the_cursor_id() {
         // Given a chat envelope with one entry's HTML and a cursor.
-        let event = sdk_event_of(&envelope(SseKind::Chat, "<p>hi</p>", 7), 0)
-            .expect("a non-empty chat translates");
+        let event = sdk_events_of(&envelope(SseKind::Chat, "<p>hi</p>", 7), 0)
+            .expect("a non-empty chat translates")
+            .remove(0);
 
         // Then it is a patch-elements event appending at #transcript,
         // carrying the cursor on the id line.
@@ -151,8 +186,9 @@ mod tests {
     #[test]
     fn transcript_full_becomes_an_inner_replace_and_carries_no_id() {
         // Given a convergence envelope (cursor 0, full HTML).
-        let event = sdk_event_of(&envelope(SseKind::TranscriptFull, "<p>all</p>", 0), 0)
-            .expect("a transcript-full translates");
+        let event = sdk_events_of(&envelope(SseKind::TranscriptFull, "<p>all</p>", 0), 0)
+            .expect("a transcript-full translates")
+            .remove(0);
 
         // Then it replaces #transcript's inner HTML and carries no id
         // line — a reconnect resumes from the last real chat cursor,
@@ -174,8 +210,9 @@ mod tests {
     #[test]
     fn controls_become_an_inner_replace_of_the_controls_container() {
         // Given a controls envelope.
-        let event = sdk_event_of(&envelope(SseKind::Controls, "<button>go</button>", 0), 0)
-            .expect("controls translate");
+        let event = sdk_events_of(&envelope(SseKind::Controls, "<button>go</button>", 0), 0)
+            .expect("controls translate")
+            .remove(0);
 
         // Then they replace #composer-controls's inner HTML.
         let datastar::DatastarEvent {
@@ -193,8 +230,9 @@ mod tests {
         // Given a sessions refresh envelope (the fan-out renders the
         // list into the html field; the browser must not receive it —
         // the effect re-pulls with the active filter instead).
-        let event = sdk_event_of(&envelope(SseKind::Sessions, "<a>row</a>", 0), 3)
-            .expect("a sessions push translates");
+        let event = sdk_events_of(&envelope(SseKind::Sessions, "<a>row</a>", 0), 3)
+            .expect("a sessions push translates")
+            .remove(0);
 
         // Then the event is a signal patch bumping sessionsTick, and
         // no list HTML rides it.
@@ -216,8 +254,9 @@ mod tests {
     fn models_pushes_stamp_the_timestamp_into_the_tick_signal() {
         // Given a models-changed envelope whose payload is the cache
         // write timestamp (non-empty — the dispatch contract).
-        let event = sdk_event_of(&envelope(SseKind::Models, "2026-01-01T00:00:00Z", 0), 0)
-            .expect("a models push translates");
+        let event = sdk_events_of(&envelope(SseKind::Models, "2026-01-01T00:00:00Z", 0), 0)
+            .expect("a models push translates")
+            .remove(0);
 
         // Then the event is a signal patch carrying the timestamp.
         let datastar::DatastarEvent {
@@ -239,12 +278,55 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
+    fn a_chat_batch_is_a_patch_then_a_chat_tick_bump() {
+        // Given a chat envelope (one streamed batch's HTML).
+        let events = sdk_events_of(&envelope(SseKind::Chat, "<span>t</span>", 7), 3)
+            .expect("a chat push translates");
+
+        // Then it is two events: the append patch first (the DOM
+        // grows), then the chatTick bump (the wrap's scroll effect
+        // fires on the grown DOM — tick-after-render is the order
+        // that scrolls to the NEW tail).
+        assert_eq!(events.len(), 2, "{events:?}");
+        let patch = events.first().expect("the patch rides first");
+        let tick = events.get(1).expect("the tick rides second");
+        assert_eq!(patch.event, datastar::consts::EventType::PatchElements);
+        assert_eq!(tick.event, datastar::consts::EventType::PatchSignals);
+        let joined = tick.data.join("\n");
+        assert!(
+            joined
+                .replace(' ', "")
+                .contains(&format!("\"{}\":3", contract::SIGNAL_CHAT_TICK)),
+            "{joined}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn non_transcript_pushes_carry_no_chat_tick() {
+        // Given a controls envelope (a region push that does not grow
+        // the transcript).
+        let events = sdk_events_of(&envelope(SseKind::Controls, "<button>b</button>", 0), 1)
+            .expect("a controls push translates");
+
+        // Then it is one event with no tick bump — a controls swap
+        // must not scroll the transcript.
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(
+            events.first().expect("the controls patch").event,
+            datastar::consts::EventType::PatchElements
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
     fn models_payloads_are_json_escaped() {
         // Given a models payload containing quotes and backslashes
         // (defensive: a timestamp never carries them, but the seam
         // must not emit malformed JSON if one ever does).
-        let event = sdk_event_of(&envelope(SseKind::Models, "a\"b\\c", 0), 0)
-            .expect("a models push translates");
+        let event = sdk_events_of(&envelope(SseKind::Models, "a\"b\\c", 0), 0)
+            .expect("a models push translates")
+            .remove(0);
 
         // Then the payload's quotes and backslashes are escaped —
         // the dataline parses as JSON in the browser.
@@ -258,8 +340,8 @@ mod tests {
     fn an_empty_chat_is_the_dissolved_cursor_sentinel() {
         // Given the old protocol's trailing cursor-advance frame (empty
         // HTML, real cursor).
-        let error =
-            sdk_event_of(&envelope(SseKind::Chat, "", 5), 0).expect_err("an empty chat is a no-op");
+        let error = sdk_events_of(&envelope(SseKind::Chat, "", 5), 0)
+            .expect_err("an empty chat is a no-op");
 
         // Then the seam names it: the endpoint drops the frame.
         assert_eq!(error, PushError::EmptyChat);

@@ -258,6 +258,7 @@ pub const SESSION_NEW_CSS: &str = r#"
 .session-new-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55);
                      display: flex; align-items: flex-start;
                      justify-content: center; padding-top: 10vh; z-index: 50; }
+.session-new-modal[hidden] { display: none; }
 .session-new-modal-inner { background: var(--panel); border: 1px solid var(--border);
                            border-radius: 8px; width: min(520px, 92vw);
                            padding: 16px; display: flex; flex-direction: column; gap: 12px; }

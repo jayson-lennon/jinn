@@ -992,25 +992,35 @@ async fn stream(
     let rx = shared.fanout.subscribe();
     let session_filter = id.clone();
     let tick = std::sync::atomic::AtomicU64::new(0);
-    let live = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(move |result| {
-        futures::future::ready(result.ok().and_then(|envelope: SseEnvelope| {
-            if envelope.session_id != session_filter {
-                return None;
-            }
-            let n = tick.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-            crate::push::sdk_event_of(&envelope, n)
-                .ok()
-                .map(|event| Ok::<_, Infallible>(event.write_as_axum_sse_event()))
-        }))
-    });
-    let stream = futures::StreamExt::chain(
-        futures::stream::iter(
-            catchup_events
-                .into_iter()
-                .map(|event| Ok::<_, Infallible>(event.write_as_axum_sse_event())),
-        ),
-        live,
-    );
+    let live = tokio_stream::wrappers::BroadcastStream::new(rx)
+        .filter_map(move |result| {
+            futures::future::ready(result.ok().and_then(|envelope: SseEnvelope| {
+                if envelope.session_id != session_filter {
+                    return None;
+                }
+                let n = tick.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                crate::push::sdk_events_of(&envelope, n).ok()
+            }))
+        })
+        .map(
+            |events| -> futures::stream::Iter<
+                std::vec::IntoIter<Result<axum::response::sse::Event, Infallible>>,
+            > {
+                futures::stream::iter(
+                    events
+                        .into_iter()
+                        .map(|event| Ok(event.write_as_axum_sse_event()))
+                        .collect::<Vec<_>>(),
+                )
+            },
+        );
+    let catchup = futures::stream::iter(catchup_events.into_iter().map(|event| {
+        futures::stream::iter(vec![Ok(event.write_as_axum_sse_event())])
+            as futures::stream::Iter<
+                std::vec::IntoIter<Result<axum::response::sse::Event, Infallible>>,
+            >
+    }));
+    let stream = futures::StreamExt::chain(catchup, live).flatten();
     Sse::new(stream)
         .keep_alive(KeepAlive::new().interval(SSE_KEEPALIVE).text("keepalive"))
         .into_response()
@@ -1057,13 +1067,17 @@ pub(crate) fn render_catchup_events(
             )
         })
         .collect();
-    // The trailing cursor-park: a no-op signals patch whose `id:` is
-    // the whole point — the browser's lastEventId advances to `total`
-    // even though nothing rendered.
+    // The trailing cursor-park + scroll tick: a signal patch whose
+    // `id:` parks the browser's resume cursor at `total` and whose
+    // chatTick bump keys the wrap's scroll effect — a reconnect's
+    // catch-up appends land with the reader following the tail, same
+    // as a live batch.
     events.push(
-        PatchSignals::new("{}")
-            .id(total.max(start).to_string())
-            .into_datastar_event(),
+        PatchSignals::new(
+            serde_json::json!({ crate::contract::SIGNAL_CHAT_TICK: total }).to_string(),
+        )
+        .id(total.max(start).to_string())
+        .into_datastar_event(),
     );
     events
 }

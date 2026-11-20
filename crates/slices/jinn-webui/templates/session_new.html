@@ -1,6 +1,6 @@
 {% if !projects.is_empty() %}<div id="{{ modal_id }}" class="session-new-modal"
      data-attr:hidden="$sessionNewOpen ? null : true"
-     data-on:click__outside="$sessionNewOpen = false"
+     data-on:click="evt.target === evt.currentTarget && ($sessionNewOpen = false)"
      data-on:keydown__escape__document="$sessionNewOpen = false"><div class="session-new-modal-inner"><h2 class="session-new-title">New session</h2><div class="session-new-field"><label for="{{ project_id }}">Project</label><select id="{{ project_id }}" autocomplete="off"
         data-bind:sessionnewproject>{% for option in projects %}<option value="{{ option.value }}">{{ option.label }}</option>{% endfor %}</select></div><div class="session-new-field"><label for="{{ lifecycle_id }}">Lifecycle</label><select id="{{ lifecycle_id }}" autocomplete="off"
         data-bind:sessionnewlifecycle

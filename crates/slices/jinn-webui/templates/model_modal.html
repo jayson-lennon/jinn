@@ -1,6 +1,6 @@
 <div id="{{ modal_id }}" class="model-picker-modal" data-attr:hidden="$modalOpen ? null : true" hidden><div class="model-picker-modal-inner"
      data-effect="$modelsTick && ($modelsRefreshing = false)"
-     data-on:click__outside="$modalOpen = false"
+     data-on:click="evt.target === evt.currentTarget && ($modalOpen = false)"
      data-on:keydown__escape__document="$modalOpen = false"><div class="model-picker-modal-head"><input id="{{ filter_id }}" type="text" value="{{ filter }}" autocomplete="off" placeholder="filter models…"
            data-bind:modelfilter><button id="{{ refresh_id }}"
         data-attr:disabled="$modelsRefreshing ? '' : null"
