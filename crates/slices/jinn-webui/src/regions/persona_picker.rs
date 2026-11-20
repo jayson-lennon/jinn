@@ -30,8 +30,8 @@
 use axum::extract::Path as AxPath;
 use axum::extract::Query as AxQuery;
 use axum::extract::State as AxumState;
-use jinn_persona_msg::filter_rows;
 use jinn_persona_msg::PersonaRow;
+use jinn_persona_msg::filter_rows;
 use jinn_webui_msg::SseKind;
 
 use crate::region::RegionParts;

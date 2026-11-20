@@ -77,12 +77,14 @@ impl WebRegion for MenuRegion {
 /// per-session, so a page viewing nothing has no persona to open).
 #[must_use]
 pub fn menu_fragment(viewed_session: &str) -> String {
-    crate::templates::render(&crate::templates::MenuTemplate::with_contract(viewed_session))
-        .unwrap_or_else(|error| {
-            tracing::warn!(%error, what = "menu-fragment", "webui template render failed; \
+    crate::templates::render(&crate::templates::MenuTemplate::with_contract(
+        viewed_session,
+    ))
+    .unwrap_or_else(|error| {
+        tracing::warn!(%error, what = "menu-fragment", "webui template render failed; \
                  rendering an empty menu");
-            String::new()
-        })
+        String::new()
+    })
 }
 
 /// The menu region's stylesheet: the slide-in panel's geometry and its
@@ -185,7 +187,9 @@ mod menu_region_tests {
         // Then the persona item's pull targets the persona-picker route
         // for the viewed session and swaps into the persona modal's own
         // host span — never the menu's container (the host-not-container
-        // rule).
+        // rule) — and opens the modal's signal so the pulled overlay
+        // renders visible (the visibility is signal-driven, the same
+        // shape the model picker's button uses).
         let item = html
             .split_once(&format!("id=\"{}\"", contract::MENU_ITEM_PERSONA_ID))
             .and_then(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag.to_owned()))
@@ -201,6 +205,10 @@ mod menu_region_tests {
             item.contains(contract::PERSONA_MODAL_HOST_SELECTOR),
             "the pull swaps into the persona modal host: {item}"
         );
+        assert!(
+            item.contains(&format!("${} = true", contract::SIGNAL_PERSONA_MODAL_OPEN)),
+            "the click opens the modal signal: {item}"
+        );
     }
 
     #[rstest::rstest]
@@ -213,7 +221,7 @@ mod menu_region_tests {
         // omits it, rather than shipping a hidden control the runtime
         // must know to disable.
         assert!(
-            !html.contains(&contract::MENU_ITEM_PERSONA_ID),
+            !html.contains(contract::MENU_ITEM_PERSONA_ID),
             "the landing menu carries no persona item: {html}"
         );
         assert!(

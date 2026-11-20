@@ -582,10 +582,7 @@ impl MenuTemplate {
             menu_new_session_action: contract::ACTION_MENU_NEW_SESSION,
             session_new_path: contract::SESSION_NEW_ROUTE,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
-            persona_picker_url: format!(
-                "{}{viewed_session}",
-                contract::PERSONA_PICKER_PREFIX
-            ),
+            persona_picker_url: format!("{}{viewed_session}", contract::PERSONA_PICKER_PREFIX),
             persona_modal_host_selector: contract::PERSONA_MODAL_HOST_SELECTOR,
         }
     }

@@ -7,7 +7,9 @@
 #![allow(
     clippy::expect_used,
     clippy::panic,
-    reason = "test assertions need expect/panic to state what went wrong"
+    clippy::string_slice,
+    reason = "test assertions need expect/panic to state what went wrong; \
+              HTML probing slices at ASCII markers"
 )]
 
 use crate::contract;
@@ -147,32 +149,38 @@ async fn the_modal_lists_the_scanned_personas_with_the_active_marked() {
         "the modal overlay is missing: {html}"
     );
     assert!(
-        html.contains(&format!("{}=\"coding-assistant\"", contract::PERSONA_NAME_DATA_ATTR)),
+        html.contains(&format!(
+            "{}=\"coding-assistant\"",
+            contract::PERSONA_NAME_DATA_ATTR
+        )),
         "the first persona row is missing: {html}"
     );
     assert!(
-        html.contains(&format!("{}=\"learning-tutor\"", contract::PERSONA_NAME_DATA_ATTR)),
+        html.contains(&format!(
+            "{}=\"learning-tutor\"",
+            contract::PERSONA_NAME_DATA_ATTR
+        )),
         "the second persona row is missing: {html}"
     );
     let active_count = html
         .matches(&format!("{}=\"true\"", contract::PERSONA_ACTIVE_ATTR))
         .count();
     assert_eq!(active_count, 1, "exactly one row is active: {html}");
-    let tutor_tag = html
+    // The active attribute sits on the row div opening the name; the
+    // nearest preceding `<div` start carries it. Search the whole
+    // prefix — the row div is the last `<div` before the name, and the
+    // attribute rides that div's opening tag.
+    let tutor_row_open = html
         .split_once("learning-tutor")
-        .and_then(|(before, _)| {
-            // The active attribute sits on the row div opening the
-            // name; the nearest preceding div start carries it.
+        .is_some_and(|(before, _)| {
             before
                 .rmatch_indices("<div")
                 .next()
-                .map(|(pos, _)| &before[pos..])
-        })
-        .unwrap_or_default();
-    assert!(
-        tutor_tag.contains(&format!("{}=\"true\"", contract::PERSONA_ACTIVE_ATTR)),
-        "the tutor row is the active one: {html}"
-    );
+                .is_some_and(|(pos, _)| {
+                    before[pos..].contains(&format!("{}=\"true\"", contract::PERSONA_ACTIVE_ATTR))
+                })
+        });
+    assert!(tutor_row_open, "the tutor row is the active one: {html}");
 }
 
 #[rstest::rstest]
@@ -191,10 +199,7 @@ async fn the_modal_renders_no_rows_for_an_empty_catalog() {
         html.contains(&format!("id=\"{}\"", contract::PERSONA_ROWS_ID)),
         "the rows container renders: {html}"
     );
-    assert!(
-        !html.contains("persona-row\""),
-        "no rows render: {html}"
-    );
+    assert!(!html.contains("persona-row\""), "no rows render: {html}");
 }
 
 #[rstest::rstest]

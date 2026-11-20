@@ -1142,7 +1142,8 @@ mod persona_actions {
         // the TUI confirm publishes — the app-state seed and the
         // interaction mark, no new schema.
         assert_eq!(status, StatusCode::OK);
-        let published = audit.of_type::<jinn_preferences_config::protocol::app_state_command::UpdateAppState>();
+        let published =
+            audit.of_type::<jinn_preferences_config::protocol::app_state_command::UpdateAppState>();
         let [update] = published.as_slice() else {
             panic!(
                 "exactly one UpdateAppState was published, got {}",
@@ -1181,7 +1182,10 @@ mod persona_actions {
             .and_then(|(before, _)| before.rsplit("<div").next().map(str::to_owned))
             .expect("the blockful row renders");
         assert!(
-            row.contains(&format!("{}=\"true\"", crate::contract::PERSONA_ACTIVE_ATTR)),
+            row.contains(&format!(
+                "{}=\"true\"",
+                crate::contract::PERSONA_ACTIVE_ATTR
+            )),
             "the new persona's row is the marked one: {body}"
         );
     }
@@ -1236,10 +1240,7 @@ mod persona_actions {
         // markup, so the swap is matched by its selector line.
         assert_eq!(status, StatusCode::OK);
         assert!(
-            body.contains(&format!(
-                "selector #{}",
-                crate::contract::TRANSCRIPT_ID
-            )),
+            body.contains(&format!("selector #{}", crate::contract::TRANSCRIPT_ID)),
             "the transcript swap is in the response: {body}"
         );
         let expected = jinn_persona_msg::missing_compaction_block_message("blockless");

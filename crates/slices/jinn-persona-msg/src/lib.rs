@@ -3,20 +3,20 @@
 mod compaction_block;
 mod event;
 pub mod persona_entry;
-pub mod persona_rows;
 mod persona_picker_scope;
 mod persona_picker_state;
+pub mod persona_rows;
 pub mod persona_state;
 
 pub use compaction_block::missing_compaction_block_message;
 pub use event::PersonasLoaded;
 pub use persona_entry::{PersonaEntry, persona_row};
-pub use persona_rows::{
-    FilteredPersonaRow, PersonaRow, PersonaRowSegments, TextSegment, filter_rows,
-};
 pub use persona_picker_scope::persona_picker_scope;
 pub use persona_picker_state::{
     PersonaPickerState, RESULTS_VIEWPORT_FALLBACK, persona_picker_slot,
+};
+pub use persona_rows::{
+    FilteredPersonaRow, PersonaRow, PersonaRowSegments, TextSegment, filter_rows,
 };
 pub use persona_state::{Personas, personas_slot};
 

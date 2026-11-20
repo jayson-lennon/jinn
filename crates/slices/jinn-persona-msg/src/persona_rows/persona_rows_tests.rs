@@ -1,10 +1,20 @@
 //! Tests for the shared persona rows — the vocabulary both picker
 //! surfaces consume.
+//!
+//! Test code: assertions use indexing/unwrap/panic to state what went
+//! wrong.
+#![allow(
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::expect_used,
+    reason = "test assertions need panicking forms to state what went wrong"
+)]
 
 use jinn_slices::Persona;
 
-use super::filter_rows;
 use super::PersonaRow;
+use super::filter_rows;
 
 /// Two personas, the first active.
 fn fixture() -> Vec<Persona> {
