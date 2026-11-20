@@ -10,6 +10,7 @@ jinn-selection-widget = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-theme = { workspace = true }
 ratatui = { workspace = true }
+unicode-segmentation = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 trouper = { workspace = true }
 

@@ -20,27 +20,28 @@
 //! what the caller needs to turn into messages — they never reach session
 //! state themselves, which is what keeps the picker inside its slice.
 
-use jinn_persona_msg::{PersonaEntry, PersonaPickerState, persona_row};
+use jinn_persona_msg::{PersonaEntry, PersonaPickerState, PersonaRow, persona_row};
 use jinn_picker::make_items_with_hooks;
 use jinn_slices::Persona;
 use jinn_theme::Theme;
 
 /// Builds the picker's rows from the scanned personas.
 ///
-/// The active persona is marked so the user can see where they are before
-/// moving. Ordering is the personas cell's own order (name-sorted), so the
-/// menu matches every other persona list in the app.
+/// The row list is the shared vocabulary's ([`PersonaRow::rows`]); this
+/// adapter attaches the theme so the widget's row hook can render. The
+/// active persona is marked inside the shared builder, so the menu
+/// matches every other persona list in the app.
 pub fn build_persona_entries(
     personas: &[Persona],
     active: Option<&str>,
     theme: &Theme,
 ) -> Vec<PersonaEntry> {
-    personas
-        .iter()
-        .map(|persona| PersonaEntry {
-            name: persona.name.clone(),
-            description: persona.description.clone(),
-            is_active: active == Some(persona.name.as_str()),
+    PersonaRow::rows(personas, active)
+        .into_iter()
+        .map(|row| PersonaEntry {
+            name: row.name,
+            description: row.description,
+            is_active: row.is_active,
             theme: theme.clone(),
         })
         .collect()
