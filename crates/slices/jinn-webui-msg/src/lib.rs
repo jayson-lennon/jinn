@@ -20,7 +20,7 @@ pub mod wire;
 pub use unread::UnreadSessionMarks;
 pub use unread::webui_unread_slot;
 pub use wire::{
-    CancelForm, CreateSessionForm, ModelForm, ModelsRefreshForm, RenameForm, SendForm,
+    CancelForm, CreateSessionForm, ModelForm, ModelsRefreshForm, PersonaForm, RenameForm, SendForm,
     SessionListItem, SessionNewQuery, SessionsQuery, SseEnvelope, SseKind, SwitchForm,
     TranscriptQuery,
 };

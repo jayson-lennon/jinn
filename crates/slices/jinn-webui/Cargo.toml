@@ -38,6 +38,10 @@ jinn-session-lifecycle-msg = { workspace = true }
 jinn-inference-msg = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-provider-selection-msg = { workspace = true }
+# The persona modal's rows come from the shared row vocabulary in the
+# persona msg crate. Contract crate only: never the persona
+# implementation slice.
+jinn-persona-msg = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-provider-config = { workspace = true }
 axum = { version = "0.8" }

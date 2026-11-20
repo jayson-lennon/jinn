@@ -35,6 +35,12 @@ fn harness() -> (State, ServerShared) {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once per harness");
+    let personas_cell = slices
+        .register(
+            jinn_persona_msg::personas_slot(),
+            jinn_persona_msg::Personas::default(),
+        )
+        .expect("the personas cell registers once per harness");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -59,6 +65,7 @@ fn harness() -> (State, ServerShared) {
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        personas_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
@@ -121,6 +128,7 @@ fn the_registry_ids_are_unique_and_mirror_the_client_modules() {
         "composer",
         "menu",
         "model-picker",
+        "persona-picker",
         "session-new",
         "sessions",
         "transcript",
@@ -158,7 +166,7 @@ async fn every_declared_container_id_appears_in_the_rendered_page_shell() {
         transcript_html,
         controls,
         model,
-        crate::regions::menu::menu_fragment(),
+        crate::regions::menu::menu_fragment(&id.to_string()),
     ))
     .expect("the page renders");
 

@@ -94,7 +94,7 @@ fn rendered_page() -> String {
         transcript_html: transcript,
         controls_html: controls,
         status_html: model,
-        menu_html: crate::regions::menu::menu_fragment(),
+        menu_html: crate::regions::menu::menu_fragment("00000000-0000-0000-0000-000000000000"),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
@@ -103,6 +103,7 @@ fn rendered_page() -> String {
         sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
         session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
+        persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -133,7 +134,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 16] = [
+    let targets: [(&str, &str); 18] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
@@ -151,6 +152,8 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
         ("menu button", contract::MENU_BUTTON_ID),
         ("menu panel", contract::MENU_PANEL_ID),
         ("menu item sessions", contract::MENU_ITEM_SESSIONS_ID),
+        ("menu item persona", contract::MENU_ITEM_PERSONA_ID),
+        ("persona modal host", contract::PERSONA_MODAL_HOST_ID),
         ("drawer scrim", contract::DRAWER_SCRIM_ID),
         ("menu scrim", contract::MENU_SCRIM_ID),
     ];
@@ -215,7 +218,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         transcript_html: String::new(),
         controls_html: String::new(),
         status_html: String::new(),
-        menu_html: crate::regions::menu::menu_fragment(),
+        menu_html: crate::regions::menu::menu_fragment(&id.to_string()),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
@@ -224,6 +227,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
         session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
+        persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -448,6 +452,57 @@ async fn the_button_fragment_carries_the_button_id_and_the_model_action_name() {
     );
 }
 
+#[rstest::rstest]
+#[tokio::test]
+async fn every_modal_carries_click_away_on_the_overlay_and_escape_on_the_card() {
+    // Given the three modal templates' rendered markup (empty persona
+    // rows — the close handlers' placement is what is under test).
+    let shared = test_shared();
+    let session_id = seed_session(&shared);
+    let persona = crate::regions::persona_picker::modal_fragment(&shared, &session_id, "")
+        .expect("the persona modal renders");
+    let model = crate::regions::model_picker::modal_fragment(&shared, &session_id, "")
+        .expect("the model modal renders");
+    let session_new =
+        crate::regions::session_new::form_fragment(jinn_config::empty_config_layer(), "")
+            .expect("the new-session modal renders");
+
+    // Then each modal's `data-on:click` close handler rides the
+    // OVERLAY element (the `<div id=…>` the `data-attr:hidden` rides)
+    // — a handler on the inner card fires only when the card itself
+    // is clicked, and the backdrop click the user expects never
+    // reaches it. The `data-on:keydown__escape__document` handler
+    // rides the card, where the fragment renders it.
+    for (name, html, overlay_id) in [
+        ("persona", &persona, contract::PERSONA_MODAL_ID),
+        ("model", &model, contract::MODEL_PICKER_MODAL_ID),
+        ("session-new", &session_new, contract::SESSION_NEW_MODAL_ID),
+    ] {
+        let overlay_open = html
+            .split_once(&format!("id=\"{overlay_id}\""))
+            .map(|(_, tail)| tail.split('>').next().unwrap_or(""))
+            .unwrap_or("");
+        assert!(
+            overlay_open.contains("data-on:click=\"evt.target === evt.currentTarget"),
+            "the {name} modal's overlay tag must carry the click-away handler: {html}"
+        );
+        assert!(
+            overlay_open.contains("data-attr:hidden="),
+            "the {name} modal's overlay tag is the visibility owner: {html}"
+        );
+        // And the card never carries the click handler — the card's
+        // own clicks must not close the modal.
+        let card = html
+            .split_once("-inner\"")
+            .map(|(_, tail)| tail.split('>').next().unwrap_or(""))
+            .unwrap_or("");
+        assert!(
+            !card.contains("currentTarget"),
+            "the {name} modal's card must not carry the click-away handler: {html}"
+        );
+    }
+}
+
 /// Renders one row with the contract hooks filled.
 fn render_row(entry: jinn_provider_selection_msg::ProviderPickerEntry, is_active: bool) -> String {
     templates::render(&templates::ModelRowTemplate::from_filtered(
@@ -472,6 +527,12 @@ fn test_shared() -> crate::server::ServerShared {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once");
+    let personas_cell = slices
+        .register(
+            jinn_persona_msg::personas_slot(),
+            jinn_persona_msg::Personas::default(),
+        )
+        .expect("the personas cell registers once");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -496,6 +557,7 @@ fn test_shared() -> crate::server::ServerShared {
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        personas_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {

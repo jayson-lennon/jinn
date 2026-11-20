@@ -5,6 +5,10 @@
   <span id="{{ menu_panel_id }}" data-attr:hidden="$menuOpen ? null : true" hidden>
     <button id="{{ menu_item_new_session_id }}"
             data-on:click="$menuOpen = false; $sessionNewOpen = true; @get('{{ session_new_path }}', {selector: '#{{ session_new_host_id }}', openWhenHidden: true})">New session</button>
+    {% if has_session %}
+    <button id="{{ menu_item_persona_id }}"
+            data-on:click="$menuOpen = false; $personaModalOpen = true; @get('{{ persona_picker_url }}', {selector: '{{ persona_modal_host_selector }}', openWhenHidden: true})">Persona</button>
+    {% endif %}
     <button id="{{ menu_item_sessions_id }}"
             data-on:click="$menuOpen = false; $drawerOpen = !$drawerOpen">Sessions</button>
   </span>

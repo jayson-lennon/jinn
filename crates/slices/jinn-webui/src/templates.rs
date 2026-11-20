@@ -136,6 +136,9 @@ pub struct PageTemplate {
     /// sibling; each modal swaps into its own host, so opening one
     /// can never destroy the other.
     pub session_new_host_id: &'static str,
+    /// The persona modal's host id — the third empty span sibling
+    /// (the same host-not-container rule).
+    pub persona_modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -193,6 +196,7 @@ impl PageTemplate {
             sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
+            persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -241,6 +245,7 @@ impl PageTemplate {
             sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
+            persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -294,6 +299,8 @@ pub struct PageRootTemplate {
     pub modal_host_id: &'static str,
     /// The new-session modal's host id.
     pub session_new_host_id: &'static str,
+    /// The persona modal's host id.
+    pub persona_modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -350,6 +357,7 @@ impl PageRootTemplate {
             sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
+            persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -530,6 +538,13 @@ pub struct MenuTemplate {
     pub menu_item_sessions_id: &'static str,
     /// The new-session item's id ("New session").
     pub menu_item_new_session_id: &'static str,
+    /// The persona item's id ("Persona"); rendered only when a session
+    /// is viewed.
+    pub menu_item_persona_id: &'static str,
+    /// Whether a session is viewed — the persona item's render gate.
+    /// Persona binds per-session and the landing page views nothing,
+    /// so the server omits the item rather than hiding it client-side.
+    pub has_session: bool,
     /// The attribute a button names its action with.
     pub action_attr: &'static str,
     /// The menu item's action name.
@@ -540,23 +555,35 @@ pub struct MenuTemplate {
     pub session_new_path: &'static str,
     /// The new-session modal host's id — the pull's swap target.
     pub session_new_host_id: &'static str,
+    /// The persona-picker pull's URL prefix — the persona item's
+    /// `@get` target is `<prefix><viewed session id>`.
+    pub persona_picker_url: String,
+    /// The persona modal host's CSS selector — the pull's swap target.
+    pub persona_modal_host_selector: &'static str,
 }
 
 impl MenuTemplate {
     /// Builds the template with the contract's hooks filled.
+    ///
+    /// `viewed_session` is the page's viewed session id — empty on the
+    /// landing page, which omits the persona item entirely.
     #[must_use]
-    pub fn with_contract() -> Self {
+    pub fn with_contract(viewed_session: &str) -> Self {
         Self {
             menu_id: contract::MENU_ID,
             menu_button_id: contract::MENU_BUTTON_ID,
             menu_panel_id: contract::MENU_PANEL_ID,
             menu_item_sessions_id: contract::MENU_ITEM_SESSIONS_ID,
             menu_item_new_session_id: contract::MENU_ITEM_NEW_SESSION_ID,
+            menu_item_persona_id: contract::MENU_ITEM_PERSONA_ID,
+            has_session: !viewed_session.is_empty(),
             action_attr: contract::ACTION_DATA_ATTR,
             menu_action: contract::ACTION_MENU_SESSIONS,
             menu_new_session_action: contract::ACTION_MENU_NEW_SESSION,
             session_new_path: contract::SESSION_NEW_ROUTE,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
+            persona_picker_url: format!("{}{viewed_session}", contract::PERSONA_PICKER_PREFIX),
+            persona_modal_host_selector: contract::PERSONA_MODAL_HOST_SELECTOR,
         }
     }
 }
@@ -847,6 +874,98 @@ impl SessionNewTemplate {
             session_new_route: contract::SESSION_NEW_ROUTE,
             page_root_id: contract::PAGE_ROOT_ID,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
+        }
+    }
+}
+
+/// One row of the persona modal — the shared row vocabulary's
+/// [`PersonaRow`][row] data stamped into markup. Rendered standalone;
+/// the modal embeds the pre-rendered rows.
+///
+/// [row]: jinn_persona_msg::PersonaRow
+#[derive(Template)]
+#[template(path = "persona_row.html")]
+pub struct PersonaRowTemplate {
+    /// The row's entry data (presentation-free).
+    pub entry: jinn_persona_msg::PersonaRow,
+    /// The name field split into matched/plain runs from the fuzzy
+    /// filter — matched runs render in a highlight span. One plain run
+    /// of the full text when there is no filter.
+    pub name_segments: Vec<jinn_persona_msg::TextSegment>,
+    /// The description field, split like `name_segments`.
+    pub description_segments: Vec<jinn_persona_msg::TextSegment>,
+    /// The attribute a row names its persona with — the switch POST's
+    /// payload field.
+    pub persona_attr: &'static str,
+    /// The attribute marking the active row.
+    pub active_attr: &'static str,
+    /// The attribute a row names its action with (contract
+    /// vocabulary; the Datastar click handler drives the switch).
+    pub action_attr: &'static str,
+    /// The switch action's contract name.
+    pub persona_action: &'static str,
+    /// The switch POST's endpoint.
+    pub persona_path: &'static str,
+}
+
+impl PersonaRowTemplate {
+    /// Builds the template from a filtered row: the row data plus its
+    /// filter-highlight segments.
+    #[must_use]
+    pub fn from_filtered(filtered: jinn_persona_msg::FilteredPersonaRow) -> Self {
+        let segments = filtered.segments();
+        Self {
+            entry: filtered.row,
+            name_segments: segments.name,
+            description_segments: segments.description,
+            persona_attr: contract::PERSONA_NAME_DATA_ATTR,
+            active_attr: contract::PERSONA_ACTIVE_ATTR,
+            action_attr: contract::ACTION_DATA_ATTR,
+            persona_action: contract::ACTION_PERSONA,
+            persona_path: contract::PERSONA_PATH,
+        }
+    }
+}
+
+/// The persona modal: the overlay with filter input and the filtered
+/// TUI-parity rows. Rendered into the persona modal host by the GET
+/// pull (with the filter applied server-side); the client toggles its
+/// visibility. The rows arrive pre-rendered (each
+/// [`PersonaRowTemplate`] renders first — the same shape the model
+/// picker's rows use).
+#[derive(Template)]
+#[template(path = "persona_modal.html")]
+pub struct PersonaModalTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The filter text the rows were rendered with (the input's
+    /// initial value, so a re-pull keeps what the user typed).
+    pub filter: String,
+    /// The modal overlay's id.
+    pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+    /// The modal host span's id — the pull's swap target.
+    pub modal_host_id: &'static str,
+    /// The persona-picker pull's route prefix — the filter effect's
+    /// `@get` target.
+    pub picker_route: &'static str,
+}
+
+impl PersonaModalTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(rows: Vec<String>, filter: String) -> Self {
+        Self {
+            rows,
+            filter,
+            modal_id: contract::PERSONA_MODAL_ID,
+            filter_id: contract::PERSONA_FILTER_ID,
+            rows_id: contract::PERSONA_ROWS_ID,
+            modal_host_id: contract::PERSONA_MODAL_HOST_ID,
+            picker_route: contract::PERSONA_PICKER_PREFIX,
         }
     }
 }

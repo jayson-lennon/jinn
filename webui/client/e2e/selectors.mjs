@@ -73,6 +73,27 @@ export const MENU_SCRIM = "#menu-scrim";
 export const MENU_ITEM_SESSIONS = "#menu-item-sessions";
 /** The menu's new-session item id (`wire.MENU_ITEM_NEW_SESSION_ID`). */
 export const MENU_ITEM_NEW_SESSION = "#menu-item-new-session";
+/** The menu's persona item id (`wire.MENU_ITEM_PERSONA_ID`). */
+export const MENU_ITEM_PERSONA = "#menu-item-persona";
+/** The persona modal overlay id (`wire.PERSONA_MODAL_ID`). */
+export const PERSONA_MODAL = "#persona-modal";
+/** The persona modal's host span id (`wire.PERSONA_MODAL_HOST_ID`). */
+export const PERSONA_MODAL_HOST = "#persona-modal-host";
+/** The persona modal's filter input id (`wire.PERSONA_FILTER_ID`). */
+export const PERSONA_FILTER = "#persona-filter";
+/** The persona modal's row container id (`wire.PERSONA_ROWS_ID`). */
+export const PERSONA_ROWS = "#persona-rows";
+/** One persona row, by its persona name attr (`wire.PERSONA_NAME_DATA_ATTR`). */
+export const PERSONA_ROW = (name) => `[data-webui-persona="${name}"]`;
+/** The switch POST's endpoint (`wire.PERSONA_PATH`). */
+export const PERSONA_PATH = "/web/persona";
+/** The persona-picker pull's route prefix (`wire.PERSONA_PICKER_PREFIX`). */
+export const PERSONA_PICKER_PREFIX = "/web/persona-picker/";
+/**
+ * The block-less scratch persona global-setup stages for the run —
+ * the persona the warning-path spec pivots on.
+ */
+export const BLOCKLESS_PERSONA = "blockless-e2e";
 /** The new-session modal overlay id (`wire.SESSION_NEW_MODAL_ID`). */
 export const SESSION_NEW_MODAL = "#session-new-modal";
 /** The new-session modal's host span id (`wire.SESSION_NEW_MODAL_HOST_ID`). */

@@ -22,6 +22,12 @@ fn deps_on(bind: std::net::SocketAddr) -> WebUiListenerActorDeps {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once");
+    let personas_cell = slices
+        .register(
+            jinn_persona_msg::personas_slot(),
+            jinn_persona_msg::Personas::default(),
+        )
+        .expect("the personas cell registers once");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -41,6 +47,7 @@ fn deps_on(bind: std::net::SocketAddr) -> WebUiListenerActorDeps {
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        personas_cell,
         provider_registry: jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {

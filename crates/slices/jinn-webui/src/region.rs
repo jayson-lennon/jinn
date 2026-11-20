@@ -140,6 +140,10 @@ pub fn regions() -> &'static [&'static dyn WebRegion] {
         // the tail region's CSS wins ties, and the modal must be able
         // to overlay whatever the established regions drew.
         &crate::regions::session_new::SessionNewRegion,
+        // The persona modal appends at the tail like every region
+        // before it: its overlay CSS may need to win a tie against
+        // the modals that registered earlier.
+        &crate::regions::persona_picker::PersonaRegion,
     ]
 }
 
