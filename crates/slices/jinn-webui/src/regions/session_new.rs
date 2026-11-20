@@ -109,7 +109,10 @@ async fn pull_handler(
     AxQuery(query): AxQuery<SessionNewPullQuery>,
 ) -> Result<crate::server::Fragment, crate::server::HandlerError> {
     let lifecycle = query.lifecycle.unwrap_or_default();
-    form_fragment(shared.config(), &lifecycle).map(crate::server::Fragment::new)
+    form_fragment(shared.config(), &lifecycle).map(|html| {
+        crate::server::Fragment::new(html)
+            .with_swap(crate::contract::SESSION_NEW_MODAL_HOST_SELECTOR, "inner")
+    })
 }
 
 /// One lifecycle's form-facing view: name and its setup template.

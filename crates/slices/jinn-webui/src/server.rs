@@ -77,26 +77,64 @@ impl axum::response::IntoResponse for Page {
 /// client-side swap into an existing page. Distinct from [`Page`] so a
 /// handler that answers a fragment cannot be confused with one that
 /// answers a page.
+///
+/// A runtime pull that names a swap target (`{selector: '#…'}` in its
+/// Datastar binding) needs the response to say where the markup goes:
+/// [`Fragment::with_swap`] stamps the `Datastar-Selector`/`Datastar-Mode`
+/// headers the browser reads off a `text/html` action response. A plain
+/// [`Fragment::new`] stays header-less (a browser fetch with no selector
+/// of its own drops the markup — the tests read the body directly).
 #[derive(Debug, Clone)]
-pub struct Fragment(String);
+pub struct Fragment {
+    html: String,
+    selector: Option<&'static str>,
+    mode: Option<&'static str>,
+}
 
 impl Fragment {
     /// Wraps rendered fragment HTML.
     #[must_use]
     pub fn new(html: String) -> Self {
-        Self(html)
+        Self {
+            html,
+            selector: None,
+            mode: None,
+        }
+    }
+
+    /// Names the swap target and mode the browser applies this
+    /// fragment with.
+    #[must_use]
+    pub fn with_swap(mut self, selector: &'static str, mode: &'static str) -> Self {
+        self.selector = Some(selector);
+        self.mode = Some(mode);
+        self
     }
 
     /// The wrapped HTML.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.html
     }
 }
 
 impl axum::response::IntoResponse for Fragment {
     fn into_response(self) -> axum::response::Response {
-        axum::response::Html(self.0).into_response()
+        let mut response = axum::response::Html(self.html).into_response();
+        if let (Some(selector), Some(mode)) = (self.selector, self.mode) {
+            let name = axum::http::HeaderName::from_static("datastar-selector");
+            if let (Ok(value), Ok(mode_value)) = (
+                axum::http::HeaderValue::from_str(selector),
+                axum::http::HeaderValue::from_str(mode),
+            ) {
+                response.headers_mut().insert(name, value);
+                response.headers_mut().insert(
+                    axum::http::HeaderName::from_static("datastar-mode"),
+                    mode_value,
+                );
+            }
+        }
+        response
     }
 }
 
@@ -218,7 +256,13 @@ async fn overlay_reset_patches(
         .map_err(|e| fail(500, e.to_string()))?;
     let model_html = crate::regions::model_picker::status_fragment(shared, &id.to_string())?;
     let menu_html = crate::regions::menu::menu_fragment();
-    let page = crate::templates::render(&crate::templates::PageTemplate::session(
+    // The root fragment — NOT the full page shell. The runtime morphs
+    // element patches; a document-shaped patch (DOCTYPE + <html>) is
+    // parsed as a whole document and its fight with the live page
+    // leaves the old subtree's stray nodes alive. The root div alone
+    // replaces cleanly (and its data-signals seed resets every
+    // transient overlay signal atomically).
+    let page = crate::templates::render(&crate::templates::PageRootTemplate::session(
         &id.to_string(),
         view.transcript.title.clone(),
         view.transcript.len(),

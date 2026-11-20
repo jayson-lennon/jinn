@@ -150,9 +150,10 @@ async fn pull_handler(
     AxumState(shared): AxumState<ServerShared>,
     AxQuery(query): AxQuery<SessionsQuery>,
 ) -> Result<Fragment, HandlerError> {
-    Ok(Fragment::new(
-        sessions_fragment(&shared, query.filter_text()).await?,
-    ))
+    Ok(
+        Fragment::new(sessions_fragment(&shared, query.filter_text()).await?)
+            .with_swap("#sessions", "inner"),
+    )
 }
 
 /// The unread marks for the given session map: the shared cell's

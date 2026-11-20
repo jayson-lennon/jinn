@@ -50,6 +50,11 @@ pub const MODEL_PICKER_ID: &str = "model-picker";
 /// and the titlebar untouched.
 pub const MODEL_PICKER_MODAL_HOST_ID: &str = "model-picker-modal-host";
 
+/// The same host spelled as a CSS selector — the swap-target header the
+/// fragment pulls stamp (`Datastar-Selector`) and the Datastar bindings
+/// in the templates name.
+pub const MODEL_PICKER_MODAL_HOST_SELECTOR: &str = "#model-picker-modal-host";
+
 /// The titlebar's model-status wrapper — the static `.m` label span
 /// and the picker container rendered together as one fragment, so a
 /// model switch re-renders both in one swap and the two can never
@@ -192,7 +197,7 @@ pub const SIGNAL_SESSION_NEW_OPEN: &str = "sessionNewOpen";
 /// The model-switch POST's chosen provider id (stamped by the row).
 pub const SIGNAL_PROVIDER_ID: &str = "providerId";
 /// The model-picker filter text.
-pub const SIGNAL_MODEL_FILTER: &str = "modelFilter";
+pub const SIGNAL_MODEL_FILTER: &str = "modelfilter";
 /// The refresh-models spinner flag (set on click, cleared when the
 /// cache-landed signal lands).
 pub const SIGNAL_MODELS_REFRESHING: &str = "modelsRefreshing";
@@ -203,6 +208,13 @@ pub const SIGNAL_MODELS_TICK: &str = "modelsTick";
 /// list's effect re-pulls with the active filter (pushed lists are
 /// signal-only: the pull remains the renderer).
 pub const SIGNAL_SESSIONS_TICK: &str = "sessionsTick";
+
+/// The sessions filter's signal — bound by the filter input's
+/// `data-bind`. HTML attribute names are ASCII case-insensitive, so a
+/// `data-bind`-carried signal name reaches the runtime lowercased;
+/// bound signals are single lowercase tokens (the expressions that
+/// read them spell the same token).
+pub const SIGNAL_SESSIONS_FILTER: &str = "sessionsfilter";
 /// The viewed session's id (the page root's data attribute at boot).
 pub const SIGNAL_VIEWED_SESSION: &str = "viewedSession";
 /// The inline rename editor's draft title.
@@ -214,11 +226,11 @@ pub const SIGNAL_TITLE_COMMITTING: &str = "titleCommitting";
 /// The composer's draft text.
 pub const SIGNAL_TEXT: &str = "text";
 /// The new-session form's chosen project path.
-pub const SIGNAL_SESSION_NEW_PROJECT: &str = "sessionNewProject";
+pub const SIGNAL_SESSION_NEW_PROJECT: &str = "sessionnewproject";
 /// The new-session form's chosen lifecycle name.
-pub const SIGNAL_SESSION_NEW_LIFECYCLE: &str = "sessionNewLifecycle";
+pub const SIGNAL_SESSION_NEW_LIFECYCLE: &str = "sessionnewlifecycle";
 /// The new-session form's args draft.
-pub const SIGNAL_SESSION_NEW_ARGS: &str = "sessionNewArgs";
+pub const SIGNAL_SESSION_NEW_ARGS: &str = "sessionnewargs";
 
 /// The drawer scrim — the full-viewport overlay behind the off-canvas
 /// sidebar when the drawer is open. Static shell markup (inert at
@@ -243,6 +255,11 @@ pub const MENU_SCRIM_ID: &str = "menu-scrim";
 /// menu that opened it). The form fragment swaps into this host on
 /// open and on every lifecycle re-pull.
 pub const SESSION_NEW_MODAL_HOST_ID: &str = "session-new-modal-host";
+
+/// The same host spelled as a CSS selector — the swap-target header the
+/// fragment pulls stamp (`Datastar-Selector`) and the Datastar bindings
+/// in the templates name.
+pub const SESSION_NEW_MODAL_HOST_SELECTOR: &str = "#session-new-modal-host";
 
 /// The new-session modal overlay — the server-rendered form the
 /// menu item opens; present in the page only after the pull renders

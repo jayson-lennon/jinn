@@ -256,6 +256,115 @@ impl PageTemplate {
     }
 }
 
+/// The page-root fragment: exactly the shell's root `div` — the shape
+/// a navigation patch (`POST activate` / `POST session-new`) replaces
+/// the live root with. The full [`PageTemplate`] renders this same
+/// markup through the shared `page_root.html` include; this struct
+/// exists so the overlay patch carries only the root subtree (never a
+/// whole HTML document — the browser runtime morphs element patches,
+/// and a document-shaped patch would fight the page it lands in).
+#[derive(Template)]
+#[template(path = "page_root.html")]
+pub struct PageRootTemplate {
+    /// The viewed session's id (empty on the landing page).
+    pub session_id: String,
+    /// The session title.
+    pub title: String,
+    /// The sessions-list fragment.
+    pub sessions_html: String,
+    /// The transcript fragment.
+    pub transcript_html: String,
+    /// The composer-controls fragment.
+    pub controls_html: String,
+    /// The model-status fragment.
+    pub status_html: String,
+    /// The menu fragment.
+    pub menu_html: String,
+    /// The rendered-entry cursor the inline transcript carries.
+    pub cursor: usize,
+    /// The page-root id.
+    pub page_root_id: &'static str,
+    /// The attribute carrying the viewed session's id.
+    pub page_session_attr: &'static str,
+    /// The sessions-list container id.
+    pub sessions_id: &'static str,
+    /// The sessions filter input's id.
+    pub sessions_filter_input_id: &'static str,
+    /// The model-picker modal's host id.
+    pub modal_host_id: &'static str,
+    /// The new-session modal's host id.
+    pub session_new_host_id: &'static str,
+    /// The transcript scroll-wrap id.
+    pub transcript_wrap_id: &'static str,
+    /// The transcript entry container id.
+    pub transcript_id: &'static str,
+    /// The attribute carrying the inline transcript's cursor.
+    pub cursor_attr: &'static str,
+    /// The composer-controls container id.
+    pub controls_id: &'static str,
+    /// The titlebar title span's id (empty on the landing page).
+    pub session_title_id: &'static str,
+    /// The menu region's host container id.
+    pub menu_id: &'static str,
+    /// The drawer scrim's id.
+    pub drawer_scrim_id: &'static str,
+    /// The menu scrim's id.
+    pub menu_scrim_id: &'static str,
+    /// The sessions pull's route — the list's effect re-pulls it.
+    pub sessions_route: &'static str,
+    /// The activate POST's route prefix — the rename editor's target.
+    pub session_page_path: &'static str,
+    /// The viewed session's stream URL (empty on the landing page) —
+    /// the `data-init` `@get` binding the root carries on session
+    /// pages, so a navigation patch re-opens the stream by itself.
+    pub stream_url: String,
+}
+
+impl PageRootTemplate {
+    /// Builds the root fragment for one viewed session — the same
+    /// shape `PageTemplate::session` renders inline (one field source,
+    /// two render targets).
+    #[must_use]
+    pub fn session(
+        session_id: &str,
+        title: String,
+        cursor: usize,
+        sessions_html: String,
+        transcript_html: String,
+        controls_html: String,
+        status_html: String,
+        menu_html: String,
+    ) -> Self {
+        Self {
+            session_id: session_id.to_owned(),
+            title,
+            cursor,
+            sessions_html,
+            transcript_html,
+            controls_html,
+            status_html,
+            menu_html,
+            page_root_id: contract::PAGE_ROOT_ID,
+            page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+            sessions_id: contract::SESSIONS_ID,
+            sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
+            modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
+            session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
+            transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
+            transcript_id: contract::TRANSCRIPT_ID,
+            cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
+            controls_id: contract::CONTROLS_ID,
+            session_title_id: contract::SESSION_TITLE_ID,
+            menu_id: contract::MENU_ID,
+            drawer_scrim_id: contract::DRAWER_SCRIM_ID,
+            menu_scrim_id: contract::MENU_SCRIM_ID,
+            sessions_route: contract::SESSIONS_ROUTE,
+            session_page_path: contract::SESSION_PAGE_PREFIX,
+            stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
+        }
+    }
+}
+
 /// One transcript entry of the transcript fragment.
 #[derive(Template)]
 #[template(path = "entry.html")]

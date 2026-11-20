@@ -115,11 +115,10 @@ async fn pull_handler(
     AxQuery(query): AxQuery<ModelFilterQuery>,
 ) -> Result<crate::server::Fragment, crate::server::HandlerError> {
     let filter = query.filter.unwrap_or_default();
-    Ok(crate::server::Fragment::new(modal_fragment(
-        &shared,
-        &session_id,
-        &filter,
-    )?))
+    Ok(
+        crate::server::Fragment::new(modal_fragment(&shared, &session_id, &filter)?)
+            .with_swap(crate::contract::MODEL_PICKER_MODAL_HOST_SELECTOR, "inner"),
+    )
 }
 
 /// The session's current model label, read under one short-lived
