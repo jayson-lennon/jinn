@@ -42,6 +42,11 @@ jinn-provider-selection-msg = { workspace = true }
 # persona msg crate. Contract crate only: never the persona
 # implementation slice.
 jinn-persona-msg = { workspace = true }
+# The MCP modal's rows come from the shared row vocabulary in the MCP
+# msg crate (the same builder the TUI inspector consumes), and the
+# toggle publishes that crate's `McpEnablementChanged`. Contract crate
+# only: never the MCP implementation slice.
+jinn-mcp-msg = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-provider-config = { workspace = true }
 axum = { version = "0.8" }

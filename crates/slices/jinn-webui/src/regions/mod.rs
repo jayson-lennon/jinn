@@ -10,6 +10,7 @@
 //! each region's browser behavior rides declarative Datastar attributes
 
 pub mod composer;
+pub mod mcp_servers;
 pub mod menu;
 pub mod model_picker;
 pub mod persona_picker;

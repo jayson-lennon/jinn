@@ -8,6 +8,8 @@
     {% if has_session %}
     <button id="{{ menu_item_persona_id }}"
             data-on:click="$menuOpen = false; $personaModalOpen = true; @get('{{ persona_picker_url }}', {selector: '{{ persona_modal_host_selector }}', openWhenHidden: true})">Persona</button>
+    <button id="{{ menu_item_mcp_id }}"
+            data-on:click="$menuOpen = false; $mcpOpen = true; @get('{{ mcp_picker_url }}', {selector: '{{ mcp_modal_host_selector }}', openWhenHidden: true})">MCP servers</button>
     {% endif %}
     <button id="{{ menu_item_sessions_id }}"
             data-on:click="$menuOpen = false; $drawerOpen = !$drawerOpen">Sessions</button>

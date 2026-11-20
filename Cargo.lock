@@ -6043,6 +6043,7 @@ dependencies = [
  "jinn-core-types",
  "jinn-inference-msg",
  "jinn-kernel",
+ "jinn-mcp-msg",
  "jinn-persona-msg",
  "jinn-picker",
  "jinn-preferences-config",

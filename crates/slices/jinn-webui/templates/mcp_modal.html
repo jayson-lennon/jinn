@@ -1,0 +1,7 @@
+<div id="{{ modal_id }}" class="mcp-modal"
+     data-attr:hidden="$mcpOpen ? null : true" hidden
+     data-on:click="evt.target === evt.currentTarget && ($mcpOpen = false)"><div class="mcp-modal-inner"
+     data-on:keydown__escape__document="$mcpOpen = false"><div class="mcp-modal-head">MCP servers</div><div id="{{ rows_id }}"
+      data-effect="($mcpTick + ' ' + $mcpOpen).trim() && $mcpOpen && @get('{{ picker_route }}' + $viewedSession, {selector: '#{{ modal_host_id }}', openWhenHidden: true})"
+
+    >{% for row in rows %}{{ row|safe }}{% endfor %}</div></div></div>

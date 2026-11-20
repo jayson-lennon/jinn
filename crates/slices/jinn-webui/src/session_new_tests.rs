@@ -66,6 +66,9 @@ async fn harness_with(config: jinn_config::ConfigLayer) -> (TestHarness, State, 
     let personas_cell = slices
         .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
         .expect("the catalog registered the personas slot");
+    let mcp_runtime_cell = slices
+        .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
+        .expect("the catalog registered the MCP runtime slot");
     let state = {
         let app = AppState::default();
         app.session.attach_slices(slices.clone());
@@ -90,6 +93,7 @@ async fn harness_with(config: jinn_config::ConfigLayer) -> (TestHarness, State, 
         )),
         provider_cell,
         personas_cell,
+        mcp_runtime_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {

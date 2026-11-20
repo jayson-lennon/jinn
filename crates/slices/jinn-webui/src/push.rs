@@ -16,14 +16,15 @@
 //! | Controls        | PatchElements  | `#composer-controls`  | inner  |
 //! | Sessions        | PatchSignals   | `sessionsTick` bump   | —      |
 //! | Models          | PatchSignals   | `modelsTick` stamp    | —      |
+//! | McpStatus       | PatchSignals   | `mcpTick` stamp       | —      |
 //!
-//! Sessions and Models pushes are **signals, not HTML**: the pushed
-//! list is a signal to the page's own effect, which re-pulls the
-//! fragment with its active filter — the pull endpoint remains the
-//! renderer (the filtered-list trap: an unfiltered pushed list would
-//! un-filter the sidebar under the user's eyes). Models keeps the
-//! cache-write timestamp as its payload (non-empty by construction —
-//! the dispatch contract), sessions bumps a counter.
+//! Sessions, Models, and McpStatus pushes are **signals, not HTML**:
+//! the pushed list is a signal to the page's own effect, which
+//! re-pulls the fragment with its active filter — the pull endpoint
+//! remains the renderer (the filtered-list trap: an unfiltered pushed
+//! list would un-filter the sidebar under the user's eyes). Models and
+//! McpStatus keep the write timestamp as the payload (non-empty by
+//! construction — the dispatch contract), sessions bumps a counter.
 //!
 //! No `id:` line rides any of these events: the browser keeps the
 //! last received `id` across events, and convergence pushes stamped
@@ -136,6 +137,12 @@ pub(crate) fn sdk_events_of(
         SseKind::Models => Ok(vec![
             PatchSignals::new(
                 serde_json::json!({ contract::SIGNAL_MODELS_TICK: envelope.html }).to_string(),
+            )
+            .into_datastar_event(),
+        ]),
+        SseKind::McpStatus => Ok(vec![
+            PatchSignals::new(
+                serde_json::json!({ contract::SIGNAL_MCP_TICK: envelope.html }).to_string(),
             )
             .into_datastar_event(),
         ]),

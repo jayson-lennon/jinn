@@ -109,6 +109,25 @@ pub struct PersonaForm {
     pub persona: String,
 }
 
+/// `POST /web/mcp` — toggle one MCP server's enablement for a session.
+///
+/// The POST names the server only; the desired state is derived
+/// server-side from the session's current enabled set (one XOR per
+/// request, mirroring the TUI inspector's `<tab>`), so the wire never
+/// carries a desired-state field that could disagree with the state
+/// the server actually holds. The response is the re-rendered modal
+/// fragment, so the row's mark and badge are correct the moment the
+/// response lands.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct McpToggleForm {
+    /// The session whose enablement set to toggle.
+    #[serde(alias = "sessionId")]
+    pub session_id: String,
+    /// The server name, exactly as a rendered row carries it (the
+    /// `[mcp.<name>]` table key).
+    pub server: String,
+}
+
 /// `POST /web/session/{id}/activate` — activate a session.
 ///
 /// The path carries the session id. The urlencoded contract posts an
@@ -244,6 +263,14 @@ pub enum SseKind {
     /// re-pulls its rows from the picker's GET route (with its current
     /// filter), which remains the correctness dependency.
     Models,
+    /// Signal that the MCP runtime cell's status projection changed —
+    /// the MCP servers modal's rows. The envelope is a signal only: an
+    /// open modal re-pulls its rows from the modal's GET route, which
+    /// remains the correctness dependency. Subscribed from
+    /// `McpRuntimeStored` (the coordinator's stored event, emitted
+    /// strictly after each cell write), never the raw status events —
+    /// those have two publishers against one cell writer.
+    McpStatus,
     /// Full transcript replace — the convergence push after a turn
     /// settles (or anything else invalidates the incremental cursor).
     TranscriptFull,
@@ -258,6 +285,7 @@ impl SseKind {
             Self::Controls => "controls",
             Self::Sessions => "sessions",
             Self::Models => "models",
+            Self::McpStatus => "mcp-status",
             Self::TranscriptFull => "transcript-full",
         }
     }
@@ -287,8 +315,7 @@ pub struct SseEnvelope {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
 
-    use super::SseKind;
-    use super::TranscriptQuery;
+    use super::{McpToggleForm, SseKind, TranscriptQuery};
 
     #[rstest::rstest]
     #[test]
@@ -334,8 +361,28 @@ mod tests {
     #[case(SseKind::Controls, "controls")]
     #[case(SseKind::Sessions, "sessions")]
     #[case(SseKind::Models, "models")]
+    #[case(SseKind::McpStatus, "mcp-status")]
     #[case(SseKind::TranscriptFull, "transcript-full")]
     fn sse_kind_names_its_event(#[case] kind: SseKind, #[case] expected: &str) {
         assert_eq!(kind.event_name(), expected);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn mcp_toggle_form_deserializes_snake_and_camel_session_keys() {
+        // Given the urlencoded shape the browser posts (camelCase
+        // alias) and the shape curl/tests post (snake_case field).
+        let camel: McpToggleForm =
+            serde_json::from_str("{\"sessionId\":\"abc\",\"server\":\"excalimate\"}")
+                .expect("camelCase parses");
+        let snake: McpToggleForm =
+            serde_json::from_str("{\"session_id\":\"abc\",\"server\":\"excalimate\"}")
+                .expect("snake_case parses");
+
+        // Then both encodings land in the same form — the dual
+        // extractor accepts either body shape.
+        assert_eq!(camel, snake);
+        assert_eq!(camel.session_id, "abc");
+        assert_eq!(camel.server, "excalimate");
     }
 }

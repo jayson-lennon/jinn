@@ -104,6 +104,7 @@ fn rendered_page() -> String {
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
         session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
         persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
+        mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -134,7 +135,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 18] = [
+    let targets: [(&str, &str); 20] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
@@ -154,6 +155,8 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
         ("menu item sessions", contract::MENU_ITEM_SESSIONS_ID),
         ("menu item persona", contract::MENU_ITEM_PERSONA_ID),
         ("persona modal host", contract::PERSONA_MODAL_HOST_ID),
+        ("menu item mcp", contract::MENU_ITEM_MCP_ID),
+        ("mcp modal host", contract::MCP_MODAL_HOST_ID),
         ("drawer scrim", contract::DRAWER_SCRIM_ID),
         ("menu scrim", contract::MENU_SCRIM_ID),
     ];
@@ -228,6 +231,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
         session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
         persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
+        mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -533,6 +537,12 @@ fn test_shared() -> crate::server::ServerShared {
             jinn_persona_msg::Personas::default(),
         )
         .expect("the personas cell registers once");
+    let mcp_runtime_cell = slices
+        .register(
+            jinn_mcp_msg::mcp_runtime_slot(),
+            jinn_mcp_msg::McpRuntimeState::default(),
+        )
+        .expect("the MCP runtime cell registers once");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -558,6 +568,7 @@ fn test_shared() -> crate::server::ServerShared {
         )),
         provider_cell,
         personas_cell,
+        mcp_runtime_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
@@ -625,6 +636,7 @@ fn every_sse_kind_maps_to_a_datastar_transport() {
         jinn_webui_msg::SseKind::Controls,
         jinn_webui_msg::SseKind::Sessions,
         jinn_webui_msg::SseKind::Models,
+        jinn_webui_msg::SseKind::McpStatus,
         jinn_webui_msg::SseKind::TranscriptFull,
     ];
 

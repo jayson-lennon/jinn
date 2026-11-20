@@ -67,6 +67,9 @@ pub struct WebUiListenerActorDeps {
     /// The personas cell, for the persona modal's rows and the switch
     /// POST's validation.
     pub personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
+    /// The MCP runtime cell, for the MCP modal's status projection
+    /// (read-only; the coordinator is the writer).
+    pub mcp_runtime_cell: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
     /// The provider registry, for the picker rows' shared builder.
     pub provider_registry: jinn_provider_config::ProviderRegistryService,
     /// The resolved API keys, for the picker rows' availability flags.
@@ -128,6 +131,7 @@ impl WebUiListenerActor {
             deps.session_store.clone(),
             deps.provider_cell.clone(),
             deps.personas_cell.clone(),
+            deps.mcp_runtime_cell.clone(),
             deps.provider_registry.clone(),
             deps.api_keys.clone(),
             deps.config.clone(),
