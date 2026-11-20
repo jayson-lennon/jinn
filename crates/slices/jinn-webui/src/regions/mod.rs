@@ -12,6 +12,7 @@
 pub mod composer;
 pub mod menu;
 pub mod model_picker;
+pub mod persona_picker;
 pub mod session_new;
 pub mod sessions;
 pub mod transcript;

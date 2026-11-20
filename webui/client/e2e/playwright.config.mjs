@@ -15,6 +15,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  // The persona spec creates its own scratch persona via
+  // global-setup's staged file; the z-prefixed specs keep their
+  // after-this-one ordering untouched.
   globalSetup: path.join(here, "global-setup.mjs"),
   globalTeardown: path.join(here, "global-teardown.mjs"),
   reporter: [["list"]],

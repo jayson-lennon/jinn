@@ -67,19 +67,22 @@ impl WebRegion for MenuRegion {
     }
 }
 
-/// The menu's static fragment — the hamburger button and its one
-/// "Sessions" item panel. Infallible: the fragment is all contract
-/// constants, so a render failure is a template bug that must be a
-/// compile error (askama checks the fields), not a runtime path.
+/// The menu's static fragment — the hamburger button and its item
+/// panel. Infallible: the fragment is all contract constants, so a
+/// render failure is a template bug that must be a compile error (askama
+/// checks the fields), not a runtime path.
+///
+/// `viewed_session` is the page's viewed session id: empty on the
+/// landing page, which omits the persona item (persona binds
+/// per-session, so a page viewing nothing has no persona to open).
 #[must_use]
-pub fn menu_fragment() -> String {
-    crate::templates::render(&crate::templates::MenuTemplate::with_contract()).unwrap_or_else(
-        |error| {
+pub fn menu_fragment(viewed_session: &str) -> String {
+    crate::templates::render(&crate::templates::MenuTemplate::with_contract(viewed_session))
+        .unwrap_or_else(|error| {
             tracing::warn!(%error, what = "menu-fragment", "webui template render failed; \
                  rendering an empty menu");
             String::new()
-        },
-    )
+        })
 }
 
 /// The menu region's stylesheet: the slide-in panel's geometry and its
@@ -124,20 +127,27 @@ mod menu_region_tests {
     use crate::contract;
     use crate::region::WebRegion as _;
 
-    /// The fragment, rendered once per test (it is static).
+    /// The fragment as a session page renders it (a session viewed,
+    /// persona item present).
     fn fragment() -> String {
-        super::menu_fragment()
+        super::menu_fragment("00000000-0000-0000-0000-000000000001")
+    }
+
+    /// The fragment as the landing page renders it (nothing viewed).
+    fn landing_fragment() -> String {
+        super::menu_fragment("")
     }
 
     #[rstest::rstest]
     #[test]
-    fn the_fragment_carries_the_button_and_the_one_sessions_item() {
-        // Given the menu fragment.
+    fn the_fragment_carries_the_button_and_the_three_items() {
+        // Given the session-page menu fragment.
         let html = fragment();
 
         // Then it renders the hamburger button, the hidden panel, and
-        // both items — the new-session item (this task's addition) and
-        // the sessions item — the region's whole page presence.
+        // all three items — the new-session item, the persona item
+        // (a session is viewed), and the sessions item — the region's
+        // whole page presence.
         assert!(
             html.contains(&format!("id=\"{}\"", contract::MENU_BUTTON_ID)),
             "the hamburger button is missing: {html}"
@@ -154,11 +164,70 @@ mod menu_region_tests {
             html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_NEW_SESSION_ID)),
             "the New session item is missing: {html}"
         );
+        assert!(
+            html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_PERSONA_ID)),
+            "the Persona item is missing: {html}"
+        );
         let items = html.matches("menu-item").count();
-        assert_eq!(items, 2, "the panel lists both items: {html}");
+        assert_eq!(items, 3, "the panel lists all three items: {html}");
         assert!(
             html.contains("Sessions"),
             "the item labels Sessions: {html}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_persona_item_pulls_into_the_persona_modal_host_with_the_viewed_session() {
+        // Given the session-page menu fragment.
+        let html = fragment();
+
+        // Then the persona item's pull targets the persona-picker route
+        // for the viewed session and swaps into the persona modal's own
+        // host span — never the menu's container (the host-not-container
+        // rule).
+        let item = html
+            .split_once(&format!("id=\"{}\"", contract::MENU_ITEM_PERSONA_ID))
+            .and_then(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag.to_owned()))
+            .expect("the persona item renders");
+        assert!(
+            item.contains(&format!(
+                "{}00000000-0000-0000-0000-000000000001",
+                contract::PERSONA_PICKER_PREFIX
+            )),
+            "the pull names the viewed session: {item}"
+        );
+        assert!(
+            item.contains(contract::PERSONA_MODAL_HOST_SELECTOR),
+            "the pull swaps into the persona modal host: {item}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_landing_menu_omits_the_persona_item_entirely() {
+        // Given the landing fragment (no viewed session).
+        let html = landing_fragment();
+
+        // Then the persona item is absent from the markup — the server
+        // omits it, rather than shipping a hidden control the runtime
+        // must know to disable.
+        assert!(
+            !html.contains(&contract::MENU_ITEM_PERSONA_ID),
+            "the landing menu carries no persona item: {html}"
+        );
+        assert!(
+            !html.contains(contract::PERSONA_PICKER_PREFIX),
+            "the landing menu spells no persona URL: {html}"
+        );
+        // And the other two items still render.
+        assert!(
+            html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_SESSIONS_ID)),
+            "the Sessions item survives: {html}"
+        );
+        assert!(
+            html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_NEW_SESSION_ID)),
+            "the New session item survives: {html}"
         );
     }
 

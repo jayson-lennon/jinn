@@ -39,6 +39,12 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once per harness");
+    let personas_cell = slices
+        .register(
+            jinn_persona_msg::personas_slot(),
+            jinn_persona_msg::Personas::default(),
+        )
+        .expect("the personas cell registers once per harness");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -63,6 +69,7 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        personas_cell,
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         jinn_config::empty_config_layer().clone(),
@@ -267,6 +274,10 @@ async fn harness_with_store_actor() -> (State, BusAudit, Slices, axum::Router) {
         actor_services.bus.clone(),
         actor_services.session_store,
         provider_cell,
+        actor_services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("the cell catalog registers the personas slot"),
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         jinn_config::empty_config_layer().clone(),
@@ -474,6 +485,12 @@ fn harness_with_archived_row_and_receiver() -> (
         State::new(app)
     };
     let archived_id = SessionId::new();
+    let personas_cell = slices
+        .register(
+            jinn_persona_msg::personas_slot(),
+            jinn_persona_msg::Personas::default(),
+        )
+        .expect("the personas cell registers once per harness");
     let (bus, audit) = BusService::new_recording();
     let (fanout, rx) =
         crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone(), unread_marks_for(&slices));
@@ -485,6 +502,7 @@ fn harness_with_archived_row_and_receiver() -> (
             "Archived from last run".to_owned(),
         ))),
         provider_cell,
+        personas_cell,
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         jinn_config::empty_config_layer().clone(),
@@ -1074,7 +1092,277 @@ mod actions {
     }
 }
 
-/// Rename: the TUI confirm's semantics through the web endpoint.
+/// Persona: the TUI confirm's semantics through the web endpoint.
+mod persona_actions {
+    use super::*;
+
+    /// Seeds the personas cell the harness registers: the first persona
+    /// carries a compaction block, the second does not — the two shapes
+    /// every persona-switch behavior branches on.
+    fn seed_personas(slices: &Slices) {
+        let cell: jinn_slices::cell::TypedCell<jinn_persona_msg::Personas> = slices
+            .reader(&jinn_persona_msg::personas_slot())
+            .expect("the harness registered the personas cell");
+        cell.update(|personas: &mut jinn_persona_msg::Personas| {
+            personas.entries = vec![
+                jinn_slices::Persona {
+                    name: "blockful".to_owned(),
+                    description: "carries a compaction block".to_owned(),
+                    body: String::new(),
+                    handoff_prompt: "<compaction>x</compaction>".to_owned(),
+                },
+                jinn_slices::Persona {
+                    name: "blockless".to_owned(),
+                    description: "carries none".to_owned(),
+                    body: String::new(),
+                    handoff_prompt: String::new(),
+                },
+            ];
+        });
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn persona_switch_publishes_update_app_state_and_mark_session_interacted() {
+        // Given a live session, the personas cell seeded, and the
+        // router over them.
+        let (state, audit, slices, router) = harness();
+        let id = seed_session(&state);
+        seed_personas(&slices);
+
+        // When posting a persona pick for the blockful persona.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::PERSONA_PATH,
+            &format!("session_id={id}&persona=blockful"),
+        )
+        .await;
+
+        // Then the ack is OK and the bus names exactly the message set
+        // the TUI confirm publishes — the app-state seed and the
+        // interaction mark, no new schema.
+        assert_eq!(status, StatusCode::OK);
+        let published = audit.of_type::<jinn_preferences_config::protocol::app_state_command::UpdateAppState>();
+        let [update] = published.as_slice() else {
+            panic!(
+                "exactly one UpdateAppState was published, got {}",
+                published.len()
+            )
+        };
+        assert!(
+            matches!(
+                update.updates.as_slice(),
+                [jinn_preferences_config::protocol::app_state_command::AppStateUpdate::SetPersona(Some(name))] if name == "blockful"
+            ),
+            "{update:?}"
+        );
+        let marks = audit.of_type::<jinn_session_msg::MarkSessionInteracted>();
+        let [mark] = marks.as_slice() else {
+            panic!(
+                "exactly one MarkSessionInteracted was published, got {}",
+                marks.len()
+            )
+        };
+        assert_eq!(mark.session_id, id);
+        // And the response is the re-rendered modal with the new
+        // active mark (the stale-fragment pattern — the modal, not the
+        // old row, is what the response swaps). The SSE frames carry
+        // the markup line-folded, so the two attributes are matched
+        // independently on the active row's own div.
+        assert!(
+            body.contains(&format!("id=\"{}\"", crate::contract::PERSONA_MODAL_ID)),
+            "{body}"
+        );
+        let row = body
+            .split_once(&format!(
+                "{}=\"blockful\"",
+                crate::contract::PERSONA_NAME_DATA_ATTR
+            ))
+            .and_then(|(before, _)| before.rsplit("<div").next().map(str::to_owned))
+            .expect("the blockful row renders");
+        assert!(
+            row.contains(&format!("{}=\"true\"", crate::contract::PERSONA_ACTIVE_ATTR)),
+            "the new persona's row is the marked one: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn persona_switch_applies_the_viewed_sessions_persona_before_publishing() {
+        // Given a live session and the seeded personas cell.
+        let (state, _audit, slices, router) = harness();
+        let id = seed_session(&state);
+        seed_personas(&slices);
+
+        // When posting a persona pick.
+        post_form(
+            &router,
+            crate::contract::PERSONA_PATH,
+            &format!("session_id={id}&persona=blockful"),
+        )
+        .await;
+
+        // Then the session already carries the persona — the write
+        // precedes the publish, so the response fragments re-render
+        // from state that holds the pick.
+        assert_eq!(
+            state.read().session.get(&id).expect("live").persona_name(),
+            "blockful"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_blockless_persona_switch_answers_with_the_transcript_carrying_the_error_entry() {
+        // Given a live session and the seeded personas cell.
+        let (state, _audit, slices, router) = harness();
+        let id = seed_session(&state);
+        seed_personas(&slices);
+
+        // When posting a persona pick for the persona with no
+        // compaction block.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::PERSONA_PATH,
+            &format!("session_id={id}&persona=blockless"),
+        )
+        .await;
+
+        // Then the transcript swap is part of the response (the
+        // fan-out handles no chat-entry event; the POST response is
+        // the only path that shows the entry without a reload), the
+        // entry carries the exact message the TUI pushes, and the
+        // state already holds it. The SSE frames line-fold the
+        // markup, so the swap is matched by its selector line.
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains(&format!(
+                "selector #{}",
+                crate::contract::TRANSCRIPT_ID
+            )),
+            "the transcript swap is in the response: {body}"
+        );
+        let expected = jinn_persona_msg::missing_compaction_block_message("blockless");
+        // The wire HTML-escapes the body text; compare escaped.
+        let expected_escaped = expected
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;");
+        assert!(
+            body.contains(&expected_escaped),
+            "the loud entry renders: {body}"
+        );
+        let session = state.read().session.get(&id).expect("live").clone();
+        assert!(
+            session
+                .history()
+                .iter()
+                .any(|entry| entry.text() == expected),
+            "the entry is in the history"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_blockful_persona_switch_answers_without_a_transcript_swap() {
+        // Given a live session and the seeded personas cell.
+        let (state, _audit, slices, router) = harness();
+        let id = seed_session(&state);
+        seed_personas(&slices);
+
+        // When posting a persona pick for the persona carrying a
+        // compaction block.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::PERSONA_PATH,
+            &format!("session_id={id}&persona=blockful"),
+        )
+        .await;
+
+        // Then the response swaps the modal and no transcript swap is
+        // in it — a blanket transcript would race the fan-out's
+        // convergence pushes for no benefit. Matched by selector line
+        // (the SSE frames line-fold markup).
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains(&format!("selector #{}", crate::contract::PERSONA_MODAL_ID)),
+            "{body}"
+        );
+        assert!(
+            !body.contains(&format!("selector #{}", crate::contract::TRANSCRIPT_ID)),
+            "no transcript swap rides a blockful switch: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn persona_switch_refuses_a_name_outside_the_rendered_rows() {
+        // Given a live session and the seeded personas cell.
+        let (state, audit, slices, router) = harness();
+        let id = seed_session(&state);
+        seed_personas(&slices);
+
+        // When posting a persona pick naming a persona the modal never
+        // rendered.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::PERSONA_PATH,
+            &format!("session_id={id}&persona=ghost"),
+        )
+        .await;
+
+        // Then the request is refused as a client error and nothing is
+        // published.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("ghost"), "{body}");
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn persona_switch_refuses_a_session_absent_from_live_state() {
+        // Given the seeded personas cell and no live session.
+        let (_state, audit, slices, router) = harness();
+        seed_personas(&slices);
+        let id = SessionId::new();
+
+        // When posting a persona pick for the absent session.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::PERSONA_PATH,
+            &format!("session_id={id}&persona=blockful"),
+        )
+        .await;
+
+        // Then the request is refused (404, the model-switch class)
+        // and nothing is published.
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn persona_switch_refuses_a_malformed_session_id() {
+        // Given the seeded personas cell.
+        let (_state, audit, slices, router) = harness();
+        seed_personas(&slices);
+
+        // When posting a persona pick with a malformed id.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::PERSONA_PATH,
+            "session_id=not-a-uuid&persona=blockful",
+        )
+        .await;
+
+        // Then the request is refused as a client error and nothing is
+        // published.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+    }
+}
+
 mod rename_actions {
     use super::*;
 

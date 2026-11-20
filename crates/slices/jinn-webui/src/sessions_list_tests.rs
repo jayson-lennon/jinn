@@ -229,6 +229,12 @@ fn harness_with<T>(
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once per harness");
+    let personas_cell = slices
+        .register(
+            jinn_persona_msg::personas_slot(),
+            jinn_persona_msg::Personas::default(),
+        )
+        .expect("the personas cell registers once per harness");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -253,6 +259,7 @@ fn harness_with<T>(
         bus,
         jinn_session_state::SessionStoreService::new(Arc::new(SeededSummaryStore::with(summaries))),
         provider_cell,
+        personas_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
@@ -792,6 +799,12 @@ async fn a_harness_without_a_registry_renders_no_marks() {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once per harness");
+    let personas_cell = slices
+        .register(
+            jinn_persona_msg::personas_slot(),
+            jinn_persona_msg::Personas::default(),
+        )
+        .expect("the personas cell registers once per harness");
     let (bus, _audit) = BusService::new_recording();
     let fanout = {
         use trouper::system::ActorSystem;
@@ -809,6 +822,7 @@ async fn a_harness_without_a_registry_renders_no_marks() {
         bus,
         jinn_session_state::SessionStoreService::new(Arc::new(SeededSummaryStore::default())),
         provider_cell,
+        personas_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {

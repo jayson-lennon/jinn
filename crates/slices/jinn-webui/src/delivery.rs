@@ -27,8 +27,11 @@ use jinn_core_types::ModelSelection;
 use jinn_core_types::SessionId;
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::State;
+use jinn_preferences_config::protocol::app_state_command::AppStateUpdate;
+use jinn_preferences_config::protocol::app_state_command::UpdateAppState;
 use jinn_provider_selection_msg::ProviderSwitch;
 use jinn_provider_selection_msg::RefreshModels;
+use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::PersistSession;
 use jinn_session_store_msg::SessionLoadRequested;
 use jinn_slices::bus::BusService;
@@ -52,6 +55,10 @@ pub enum ActionError {
     /// The requested model id names no available picker row (unknown,
     /// unknown provider, or an unavailable provider).
     UnknownModel(String),
+    /// The requested persona name names no row the persona modal
+    /// renders (the rendered rows are the accepted set, the
+    /// model-switch precedent).
+    UnknownPersona(String),
     /// The request named no configured `[[project.entry]]` (or the
     /// request carried none at all).
     UnknownProject(String),
@@ -88,6 +95,7 @@ impl ActionError {
             | Self::EmptyTitle
             | Self::BotTarget(_)
             | Self::UnknownModel(_)
+            | Self::UnknownPersona(_)
             | Self::UnknownProject(_)
             | Self::BadProjectPath(_)
             | Self::UnknownLifecycle(_)
@@ -113,6 +121,9 @@ impl ActionError {
             }
             Self::UnknownSession(id) => format!("no live session with id {id}"),
             Self::UnknownModel(id) => format!("model {id} is not in the available model rows"),
+            Self::UnknownPersona(name) => {
+                format!("persona {name:?} is not in the rendered persona rows")
+            }
             Self::UnknownProject(project) => {
                 format!("project {project:?} is not a configured [[project.entry]]")
             }
@@ -292,6 +303,88 @@ pub async fn handle_model(
     })
     .await;
     Ok(())
+}
+
+/// Handles one `POST /web/persona` — the persona modal's row click.
+///
+/// The web mirror of the TUI persona picker's confirm: validates the
+/// name against the rows the modal renders (the personas cell is the
+/// offered set, so it is the accepted set — the model-switch
+/// precedent), switches the viewed session's persona **synchronously
+/// before** the publish (the POST's response fragment re-renders from
+/// session state, and the bus is async — the stale-fragment pattern
+/// `handle_model` documents), then publishes the same message set the
+/// TUI confirm publishes: [`UpdateAppState`] with
+/// `AppStateUpdate::SetPersona` (the startup-session seed) and
+/// [`MarkSessionInteracted`].
+///
+/// Returns whether the chosen persona carries no `<compaction>`
+/// handoff block — the caller renders the transcript fragment into
+/// the response when it does, so the loud error entry (the same text
+/// the TUI pushes, from `jinn_persona_msg`) is visible without a
+/// reload. The fan-out handles no chat-entry event, so the POST
+/// response is the only correction path.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] for a malformed id, an unknown session, or
+/// a persona name outside the rendered rows.
+pub async fn handle_persona(
+    state: &State,
+    personas_cell: &jinn_slices::TypedCell<jinn_persona_msg::Personas>,
+    bus: &BusService,
+    session_id: &str,
+    persona: &str,
+) -> Result<bool, ActionError> {
+    let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+
+    // The offered set is the accepted set: the modal's rows are built
+    // from this cell, so a name outside it was never rendered.
+    let chosen = personas_cell
+        .read()
+        .entries
+        .iter()
+        .find(|entry| entry.name == persona)
+        .cloned()
+        .ok_or_else(|| ActionError::UnknownPersona(persona.to_owned()))?;
+
+    {
+        let guard = state.read();
+        if !guard.session.contains(&session_id) {
+            return Err(ActionError::UnknownSession(session_id));
+        }
+    }
+
+    // Apply the switch to the session state synchronously, BEFORE the
+    // publish — the same ordering discipline `handle_model` documents.
+    let blockless = chosen.handoff_prompt.is_empty();
+    state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_persona_name(chosen.name.clone());
+    });
+
+    if blockless {
+        // The block-less persona is a loud error, not a silent
+        // downgrade: the entry names the persona and states the
+        // fallback — byte-identical to the TUI's push (the load-path
+        // dedupe compares this exact text).
+        state.with_session(|view| {
+            view.session.map().get_or_create(&session_id).push_entry(
+                jinn_core_types::ChatEntry::error(
+                    jinn_persona_msg::missing_compaction_block_message(&chosen.name),
+                ),
+            );
+        });
+    }
+
+    bus.publish(UpdateAppState {
+        updates: vec![AppStateUpdate::SetPersona(Some(chosen.name.clone()))],
+    })
+    .await;
+    bus.publish(MarkSessionInteracted { session_id }).await;
+    Ok(blockless)
 }
 
 /// Handles one `POST /web/models/refresh` — the modal's refresh button.

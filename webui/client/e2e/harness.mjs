@@ -98,6 +98,25 @@ export function probePort() {
   });
 }
 
+/** Staged scratch persona body — written into the run's personas dir. */
+let stagedPersona;
+
+/**
+ * Stages one scratch persona `.md` for the run's personas dir.
+ *
+ * MUST run before {@linkcode startJinn}: the persona scan happens at
+ * activation, so a file written after boot is invisible for the whole
+ * run. {@linkcode writeScratch} lands it in
+ * `<root>/config/jinn/personas/` under the SAME root the run boots
+ * with — a separate temp dir would be invisible (`JINN_PATHS_ROOT`).
+ *
+ * @param {string} content the full persona file body (frontmatter +
+ *   markdown).
+ */
+export function writeScratchPersona(content) {
+  stagedPersona = content;
+}
+
 /**
  * Writes the scratch tree: config dir, providers.toml, jinn.toml, db.
  *
@@ -116,6 +135,11 @@ export function writeScratch(root, port) {
   fs.mkdirSync(path.join(root, "db"), { recursive: true });
   fs.writeFileSync(path.join(configDir, "providers.toml"), PROVIDERS_TOML);
   fs.writeFileSync(path.join(configDir, "jinn.toml"), jinnTomlFor(port));
+  if (stagedPersona !== undefined) {
+    const personasDir = path.join(configDir, "personas");
+    fs.mkdirSync(personasDir, { recursive: true });
+    fs.writeFileSync(path.join(personasDir, "blockless-e2e.md"), stagedPersona);
+  }
 }
 
 /**
