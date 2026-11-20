@@ -94,10 +94,12 @@ test("choosing a row switches the persona and marks the new row active", async (
 test("a block-less persona switch pushes the loud error entry without a reload", async ({
   page,
 }) => {
-  // Given the boot session open with no error entries in the
-  // transcript.
+  // Given the boot session open. The tier runs serially against one
+  // scratch jinn, so the boot session may already carry error entries
+  // (the chat spec's cancel pushes "Cancelled") — the pin is the count
+  // GROWING by exactly one warning, not starting at zero.
   await openSession(page);
-  await expect(page.locator(sel.ENTRY("error"))).toHaveCount(0);
+  const before = await page.locator(sel.ENTRY("error")).count();
 
   // When opening the persona modal and choosing the scratch persona
   // with no compaction block.
@@ -106,13 +108,16 @@ test("a block-less persona switch pushes the loud error entry without a reload",
   await expect(page.locator(sel.PERSONA_MODAL)).toBeVisible();
   await page.locator(sel.PERSONA_ROW(BLOCKLESS_PERSONA)).click();
 
-  // Then the modal closes and the error entry is already in the
-  // transcript — no reload, the POST response carried the swap.
+  // Then the modal closes and the warning is already in the
+  // transcript — no reload, the POST response carried the swap. The
+  // warning is matched by text (the DOM's text content reads the
+  // unescaped angle brackets), and the total error count grew by one.
   await expect(page.locator(sel.PERSONA_MODAL)).not.toBeVisible();
-  await expect(page.locator(sel.ENTRY("error"))).toHaveCount(1);
-  await expect(page.locator(sel.ENTRY("error"))).toContainText(
-    "carries no <compaction> handoff block",
-  );
+  const warnings = page
+    .locator(sel.ENTRY("error"))
+    .filter({ hasText: "carries no <compaction> handoff block" });
+  await expect(warnings).toHaveCount(1);
+  await expect(page.locator(sel.ENTRY("error"))).toHaveCount(before + 1);
   // And the switched persona is the active one on the re-rendered
   // modal the next open shows.
   await page.locator(sel.MENU_BUTTON).click();
