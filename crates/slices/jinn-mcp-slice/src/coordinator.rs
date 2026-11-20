@@ -46,7 +46,7 @@ use jinn_core_types::SessionId;
 use jinn_kernel::Services;
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_kernel::common::services::bus_service::BusService;
-use jinn_mcp_msg::{McpEnablementChanged, McpRuntimeState, RestartError, RestartMcpServer};
+use jinn_mcp_msg::{McpEnablementChanged, McpRuntimeState, McpRuntimeStored, RestartError, RestartMcpServer};
 use jinn_mcp_msg::{McpServerLog, McpServerStatus};
 use jinn_preferences_config::schemas::mcp::McpServerConfig;
 use jinn_preferences_config::schemas::mcp::McpServersConfig;
@@ -188,6 +188,12 @@ impl McpCoordinatorActor {
             // when a reconcile finds a singleton absent from (or back in) a
             // session's enabled set.
             .emits::<jinn_tools_msg::ProviderVisibilityChanged>()
+            // The webui fan-out's push trigger: one stored event strictly
+            // after each runtime-cell STATUS write (never the stderr
+            // writes — the web modal renders no stderr). A type absent
+            // from this list is dropped silently at runtime, so the
+            // declaration is load-bearing.
+            .emits::<McpRuntimeStored>()
             .mailbox(64, trouper::inbox::OverloadPolicy::Block);
         // Test-only ask surface: `RestartForTest` carries the injectable
         // startup budget the production `RestartMcpServer` message has no
@@ -827,6 +833,16 @@ impl MsgHandler<McpServerStatus> for McpCoordinatorActor {
                 runtime.set_status(&msg.session_id, &msg.server, msg.status);
             }
         });
+        // Strictly after the cell write lands: the stored event is the
+        // webui fan-out's push trigger, and emitting it anywhere the
+        // cell write has not happened would let a re-pull read stale
+        // rows (the race ModelCacheStored closed for the model cache).
+        // Raw `McpServerStatus` is deliberately NOT this trigger — it
+        // has two publishers against this one cell writer.
+        self.publish(McpRuntimeStored {
+            stored_at: jiff::Timestamp::now(),
+        })
+        .await;
     }
 }
 
@@ -1714,12 +1730,12 @@ mod status_tests {
     use jinn_kernel::common::app_state::AppState;
     use jinn_kernel::common::bus::HarnessServices;
     use jinn_kernel::common::state::State;
-    use jinn_mcp_msg::{McpConnectionStatus, McpRuntimeState, McpServerLog, McpServerStatus};
+    use jinn_mcp_msg::{McpConnectionStatus, McpRuntimeState, McpRuntimeStored, McpServerLog, McpServerStatus};
     use jinn_session_lifecycle_msg::SessionTeardownFinished;
     use jinn_session_msg::{SessionArchived, SessionClosed};
     use jinn_session_store_msg::SessionLoadCompleted;
     use jinn_slices::TypedCell;
-    use jinn_testutil::bus_harness::TestHarness;
+    use jinn_testutil::bus_harness::{TestHarness, await_recorded};
 
     use super::McpCoordinatorActor;
     use crate::coordinator::McpCoordinatorActorDeps;
@@ -2043,5 +2059,82 @@ mod status_tests {
             Some("only-in-a".to_owned())
         );
         assert_eq!(tail_of(&runtime, &session_b, "excalimate"), None);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_status_write_stores_a_runtime_event_strictly_after_the_write() {
+        // Given a coordinator whose runtime cell holds no status, and a
+        // recorder tapped into the stored-event schema.
+        let harness = TestHarness::new().await;
+        let stored = harness.spawn_recorder::<McpRuntimeStored>().await;
+        let (runtime, session_id, _actor, _services) = spawn_with_session(&harness).await;
+        {
+            let read = runtime.read();
+            assert_eq!(read.status(&session_id, "excalimate"), None);
+        }
+
+        // When publishing a status transition.
+        harness
+            .publish(McpServerStatus {
+                session_id: session_id.clone(),
+                server: "excalimate".to_owned(),
+                status: McpConnectionStatus::Running,
+            })
+            .await;
+
+        // Then the cell holds the status BEFORE the stored event
+        // arrives — the ordering the webui re-pull correctness depends
+        // on (a push that precedes the write would re-pull stale rows).
+        jinn_testutil::wait::await_cell(&runtime, std::time::Duration::from_secs(10), |state| {
+            state.status(&session_id, "excalimate") == Some(McpConnectionStatus::Running)
+        })
+        .await;
+        let events =
+            await_recorded(&stored, 1, std::time::Duration::from_secs(10)).await;
+        assert!(
+            !events.is_empty(),
+            "a status write must emit exactly the stored event for the fan-out"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_stderr_write_stores_no_runtime_event() {
+        // Given a coordinator and a recorder tapped into the stored-event
+        // schema (the web modal renders no stderr, so a log-write push
+        // would be noise with no rendering consumer).
+        let harness = TestHarness::new().await;
+        let stored = harness.spawn_recorder::<McpRuntimeStored>().await;
+        let (runtime, session_id, actor, services) = spawn_with_session(&harness).await;
+
+        // When publishing a stderr tail.
+        harness
+            .publish(McpServerLog {
+                session_id: session_id.clone(),
+                server: "excalimate".to_owned(),
+                tail: "npm warn something".to_owned(),
+            })
+            .await;
+        jinn_testutil::wait::await_cell(&runtime, std::time::Duration::from_secs(10), |state| {
+            state.stderr(&session_id, "excalimate").is_some()
+        })
+        .await;
+        // The tail has landed; drain the coordinator's inbox so any
+        // (wrongly) emitted stored event would already be in flight.
+        jinn_testutil::wait::await_inbox_drained(
+            &services.trouper_system,
+            &actor,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+
+        // Then no stored event arrived — the emit sites are the status
+        // writes only.
+        let events = stored.drain();
+        assert!(
+            events.is_empty(),
+            "a stderr write must not emit the stored event, got: {events:?}"
+        );
     }
 }

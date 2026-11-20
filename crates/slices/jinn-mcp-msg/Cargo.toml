@@ -11,6 +11,7 @@ jinn-theme = { workspace = true }
 ratatui = { workspace = true }
 trouper = { workspace = true }
 serde = { workspace = true }
+jiff = { workspace = true }
 async-trait = { workspace = true }
 error-stack = { workspace = true }
 wherror = { workspace = true }
