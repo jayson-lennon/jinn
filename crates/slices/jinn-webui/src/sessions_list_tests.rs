@@ -229,6 +229,12 @@ fn harness_with<T>(
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once per harness");
+    let unread_marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per harness");
     let state = {
         let app = AppState::default();
         app.session.attach_slices(slices.clone());
@@ -240,7 +246,7 @@ fn harness_with<T>(
     let fanout = {
         use trouper::system::ActorSystem;
         let system = ActorSystem::new(trouper::system::SystemConfig::production());
-        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone())
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
     };
     let shared = ServerShared::new(
         state.clone(),
@@ -259,6 +265,7 @@ fn harness_with<T>(
             .expect("an empty providers config expands"),
         ),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
         fanout,
         0,
         "sessions-list-test".to_owned(),
@@ -289,6 +296,7 @@ fn seed_titled(state: &State, title: &str) -> SessionId {
 struct Row {
     session_id: String,
     active: bool,
+    unread: bool,
 }
 
 /// Parses the fragment into its rows, in render order. Rows are the
@@ -313,6 +321,7 @@ fn rows_in_order(html: &str) -> Vec<Row> {
             Row {
                 session_id,
                 active: class.split(' ').any(|part| part == "active"),
+                unread: class.split(' ').any(|part| part == "unread"),
             }
         })
         .filter(|row| !row.session_id.is_empty())
@@ -635,4 +644,198 @@ async fn exactly_one_row_renders_active_after_a_switch() {
     assert_eq!(actives.len(), 1, "exactly one row is active: {html}");
     let active_id = actives.first().map_or("", |row| row.session_id.as_str());
     assert_eq!(active_id, second.to_string(), "{html}");
+}
+
+// ── The unread mark: both render paths ──────────────────────────────
+
+/// Marks `ids` unread through the harness's registry — the same cell
+/// the fan-out actor writes, resolved the way the render paths read it.
+fn mark_unread(shared: &ServerShared, ids: &[SessionId]) {
+    let guard = shared.read_state();
+    let slices = guard.session.slices().expect("registry attached");
+    let cell = slices
+        .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+        .expect("the unread cell resolves");
+    cell.update(|marks| {
+        for id in ids {
+            marks.mark(id.clone());
+        }
+    });
+}
+
+/// The row for `id`, if it rendered.
+fn row_for<'a>(rows: &'a [Row], id: &SessionId) -> &'a Row {
+    rows.iter()
+        .find(|row| row.session_id == id.to_string())
+        .expect("the session's row rendered")
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_pull_fragment_marks_the_unread_row() {
+    // Given two live sessions, one marked unread, Bar active.
+    let (state, shared) = harness(Vec::new());
+    let foo = seed_titled(&state, "Foo");
+    let bar = seed_titled(&state, "Bar");
+    assert!(state.write().session.set_active(bar.clone()), "activates");
+    mark_unread(&shared, std::slice::from_ref(&foo));
+
+    // When pulling the merged sessions fragment.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+        .await
+        .expect("sessions pull renders");
+
+    // Then Foo's row wears the unread class and Bar's does not — the
+    // merged path reads the same cell the fan-out writes.
+    let rows = rows_in_order(&html);
+    assert!(row_for(&rows, &foo).unread, "Foo renders marked: {html}");
+    assert!(!row_for(&rows, &bar).unread, "Bar renders clean: {html}");
+    assert!(row_for(&rows, &bar).active, "Bar is still active");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_pushed_fragment_marks_the_unread_row() {
+    // Given a marked session in live state.
+    let (state, shared) = harness(Vec::new());
+    let foo = seed_titled(&state, "Foo");
+    let bar = seed_titled(&state, "Bar");
+    assert!(state.write().session.set_active(bar.clone()), "activates");
+    mark_unread(&shared, std::slice::from_ref(&foo));
+    let guard = state.read();
+
+    // When rendering the fan-out's live (pushed) fragment.
+    let html = crate::regions::sessions::sessions_live_fragment(&guard);
+
+    // Then the same row is marked on the push path — both paths
+    // produce the same shape through `picker_rows`.
+    let rows = rows_in_order(&html);
+    assert!(row_for(&rows, &foo).unread, "Foo renders marked: {html}");
+    assert!(!row_for(&rows, &bar).unread, "Bar renders clean: {html}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_archived_row_keeps_its_mark() {
+    // Given an archived summary — the store alone serves its row; and
+    // its id marked unread in the cell.
+    let archived_id = SessionId::new();
+    let (_state, shared) = harness_with(
+        |_state| archived_id.clone(),
+        |seeded| {
+            vec![SessionSummary {
+                session_id: seeded.clone(),
+                title: "Settled then archived".to_owned(),
+                updated_at: jiff::Timestamp::now(),
+                created_at: jiff::Timestamp::now(),
+                session_state: SessionState::Archived,
+                in_library: false,
+                is_bot: false,
+                parent_session: None,
+                project: None,
+            }]
+        },
+    );
+    mark_unread(&shared, std::slice::from_ref(&archived_id));
+
+    // When pulling the merged fragment.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+        .await
+        .expect("sessions pull renders");
+
+    // Then the archived row still wears the mark — archived-but-
+    // unviewed is still unviewed; only activation clears.
+    let rows = rows_in_order(&html);
+    assert!(
+        row_for(&rows, &archived_id).unread,
+        "the archived row stays marked: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_fresh_harness_renders_no_marks() {
+    // Given a fresh harness (the cell default: an empty set) with
+    // live and archived sessions.
+    let (state, shared) = harness(vec![archived_summary(SessionId::new(), "Aardvark")]);
+    seed_titled(&state, "Zebra");
+
+    // When pulling the fragment.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+        .await
+        .expect("sessions pull renders");
+
+    // Then no row carries the unread class — a fresh boot shows no
+    // markers.
+    let rows = rows_in_order(&html);
+    assert!(
+        rows.iter().all(|row| !row.unread),
+        "no row renders marked on a fresh harness: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_harness_without_a_registry_renders_no_marks() {
+    // Given a state with NO slice registry attached and a shared state
+    // over it (the cell cannot resolve).
+    let state = {
+        let app = AppState::default();
+        State::new(app)
+    };
+    let slices = Slices::new();
+    let provider_cell = slices
+        .register(
+            jinn_provider_selection_msg::provider_state_slot(),
+            jinn_provider_selection_msg::ProviderCell::default(),
+        )
+        .expect("the provider cell registers once per harness");
+    let (bus, _audit) = BusService::new_recording();
+    let fanout = {
+        use trouper::system::ActorSystem;
+        let system = ActorSystem::new(trouper::system::SystemConfig::production());
+        let marks = slices
+            .register(
+                jinn_webui_msg::webui_unread_slot(),
+                jinn_webui_msg::UnreadSessionMarks::default(),
+            )
+            .expect("the unread cell registers once per harness");
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), marks)
+    };
+    let shared = ServerShared::new(
+        state.clone(),
+        bus,
+        jinn_session_state::SessionStoreService::new(Arc::new(SeededSummaryStore::default())),
+        provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(
+            jinn_provider_config::ProviderRegistry::from_config(
+                jinn_provider_config::ProvidersConfig {
+                    providers: std::collections::BTreeMap::default(),
+                    aliases: vec![],
+                    default_provider: None,
+                    endpoint_defaults: vec![],
+                },
+            )
+            .expect("an empty providers config expands"),
+        ),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
+        fanout,
+        0,
+        "no-registry-test".to_owned(),
+    );
+    seed_titled(&state, "Foo");
+
+    // When pulling the fragment.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+        .await
+        .expect("sessions pull renders");
+
+    // Then the render degrades to no marks rather than failing — the
+    // mark is signal, not correctness.
+    let rows = rows_in_order(&html);
+    assert!(
+        rows.iter().all(|row| !row.unread),
+        "no row renders marked without a registry: {html}"
+    );
 }

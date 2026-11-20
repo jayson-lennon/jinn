@@ -103,8 +103,13 @@ fn column_section(theme: &Theme) -> Vec<Line<'static>> {
             theme,
         ),
         entry(
+            "VALS",
+            "Vals Index overall accuracy: agentic performance weighted by each sector's GDP share.",
+            theme,
+        ),
+        entry(
             "FLAGS",
-            "\u{2020} conditional pricing overrides \u{b7} f a :free listing \u{b7} # no ECI data for this model.",
+            "\u{2020} conditional pricing overrides \u{b7} f a :free listing \u{b7} # missing score data (ECI and/or Vals).",
             theme,
         ),
     ]);
@@ -142,9 +147,19 @@ fn detail_section(theme: &Theme) -> Vec<Line<'static>> {
     lines
 }
 
+/// The card's data-sources line: where the two score columns come from.
+/// One muted line, not a section — the card documents the on-screen
+/// facts, and the sources are one fact each.
+fn sources_line(theme: &Theme) -> Line<'static> {
+    Line::from(Span::styled(
+        "Scores: Epoch Capabilities Index (epoch.ai, CC BY 4.0) \u{b7} Vals Index (vals.ai)",
+        Style::default().fg(theme.muted_text),
+    ))
+}
+
 /// The card's text: its title, then one section per on-screen area the
-/// card documents. Authored unwrapped; [`market_help_card`] wraps it to
-/// the card's inner width.
+/// card documents, then the data-sources line. Authored unwrapped;
+/// [`market_help_card`] wraps it to the card's inner width.
 fn help_lines(theme: &Theme) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(Span::styled(
         "OpenRouter Model Market help",
@@ -152,6 +167,8 @@ fn help_lines(theme: &Theme) -> Vec<Line<'static>> {
     ))];
     lines.extend(column_section(theme));
     lines.extend(detail_section(theme));
+    lines.push(Line::from(""));
+    lines.push(sources_line(theme));
     lines
 }
 

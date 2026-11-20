@@ -30,11 +30,13 @@ use jinn_core_types::SessionId;
 use jinn_inference_msg::StreamToken;
 use jinn_kernel::State;
 use jinn_provider_selection_msg::ModelCacheStored;
+use jinn_session_msg::SessionOrigin;
 use jinn_session_msg::{SessionArchived, SessionPhaseChanged};
 use jinn_session_store_msg::{SessionLibraryMembershipChanged, SessionLoadCompleted};
 use jinn_slices::PhaseView;
 use jinn_slices::bus::BusService;
-use jinn_webui_msg::{SseEnvelope, SseKind};
+use jinn_slices::cell::TypedCell;
+use jinn_webui_msg::{SseEnvelope, SseKind, UnreadSessionMarks};
 use tokio::sync::broadcast;
 use trouper::actor::ActorPath;
 use trouper::actor::{MsgHandler, ServiceActor};
@@ -130,6 +132,11 @@ pub struct WebUiFanoutActor {
     /// One partially-accumulated token buffer per session: the HTML
     /// appended since the last flush.
     pending: HashMap<SessionId, String>,
+    /// The unread-mark cell's write handle — the fan-out is the sole
+    /// writer of the mark (set on an unseen settle, cleared on
+    /// activation of the marked session). Resolved once in the webui's
+    /// `activate` and handed nowhere else.
+    unread_marks: TypedCell<UnreadSessionMarks>,
 }
 
 impl ServiceActor for WebUiFanoutActor {
@@ -152,8 +159,18 @@ impl WebUiFanoutActor {
     /// from it would be dropped silently at runtime, so every event the
     /// `MsgHandler` impls handle must appear here. Events plus the
     /// self-addressed flush tick — never a domain command.
+    ///
+    /// `unread_marks` is the sole write handle to the unread-mark
+    /// cell: minted by the cell catalog, resolved once in the webui's
+    /// `activate`, and handed only here. Render paths resolve their own
+    /// read handles.
     #[must_use]
-    pub fn spawn(system: &ActorSystem, state: State, _bus: BusService) -> FanoutHandle {
+    pub fn spawn(
+        system: &ActorSystem,
+        state: State,
+        _bus: BusService,
+        unread_marks: TypedCell<UnreadSessionMarks>,
+    ) -> FanoutHandle {
         let (tx, _rx) = broadcast::channel(BROADCAST_CAPACITY);
         let tx = Arc::new(tx);
         let actor_tx = tx.clone();
@@ -168,6 +185,7 @@ impl WebUiFanoutActor {
                         state,
                         tx,
                         pending: HashMap::new(),
+                        unread_marks: unread_marks.clone(),
                     })
                 })
             })
@@ -177,6 +195,16 @@ impl WebUiFanoutActor {
             .handles::<SessionArchived>()
             .handles::<SessionLibraryMembershipChanged>()
             .handles::<ModelCacheStored>()
+            // A browser-created session must reach every connected
+            // page's sidebar without a reload (the creation POST's
+            // response reaches only the creating page), and the async
+            // setup's outcome must reach that creating page's
+            // transcript. Both are Events — broadcast is legal for any
+            // number of declarants — and neither carries creation
+            // logic here: the handlers below render existing region
+            // fragments only.
+            .handles::<jinn_session_lifecycle_msg::SessionCreated>()
+            .handles::<jinn_session_lifecycle_msg::SessionSetupCompleted>()
             .handles::<FlushTick>()
             // Arms the first flush ~1 tick after spawn; the chain
             // self-perpetuates from the handler.
@@ -191,13 +219,17 @@ impl WebUiFanoutActor {
     /// `MsgHandler` impls delegate to the plain methods these tests
     /// drive, and `MsgCtx` is trouper-internal.
     #[cfg(test)]
-    pub(crate) fn test_with_receiver(state: State) -> (Self, broadcast::Receiver<SseEnvelope>) {
+    pub(crate) fn test_with_receiver(
+        state: State,
+        unread_marks: TypedCell<UnreadSessionMarks>,
+    ) -> (Self, broadcast::Receiver<SseEnvelope>) {
         let (tx, rx) = broadcast::channel(BROADCAST_CAPACITY);
         (
             Self {
                 state,
                 tx: Arc::new(tx),
                 pending: HashMap::new(),
+                unread_marks,
             },
             rx,
         )
@@ -226,10 +258,11 @@ impl WebUiFanoutActor {
     pub(crate) fn test_pair(
         state: &State,
         bus: BusService,
+        unread_marks: TypedCell<UnreadSessionMarks>,
     ) -> (FanoutHandle, broadcast::Receiver<SseEnvelope>) {
         use trouper::system::ActorSystem;
         let system = ActorSystem::new(trouper::system::SystemConfig::production());
-        let handle = Self::spawn(&system, state.clone(), bus);
+        let handle = Self::spawn(&system, state.clone(), bus, unread_marks);
         (handle.clone(), handle.subscribe())
     }
 
@@ -304,6 +337,30 @@ impl WebUiFanoutActor {
         }
     }
 
+    /// Marks a session unread — the unseen-settle write — and, when
+    /// the mark is new, refreshes every page's sessions list so the
+    /// yellow border lands without a reload.
+    ///
+    /// `false` (a re-mark of an already-marked session) refreshes
+    /// nothing: the rendered list already carries the border.
+    fn mark_unread(&mut self, session_id: &SessionId) {
+        let transitioned = self
+            .unread_marks
+            .update(|marks| marks.mark(session_id.clone()));
+        if transitioned {
+            self.refresh_all_sessions_lists();
+        }
+    }
+
+    /// Clears a session's unread mark — activation landed — and,
+    /// when a mark was actually removed, refreshes every page's list.
+    fn clear_unread(&mut self, session_id: &SessionId) {
+        let transitioned = self.unread_marks.update(|marks| marks.clear(session_id));
+        if transitioned {
+            self.refresh_all_sessions_lists();
+        }
+    }
+
     /// Settles a session to idle: flush the partial token buffer FIRST,
     /// then the regions' settle fragments in registry order — the
     /// transcript's convergence push (cursor 0 — the client re-bases on
@@ -361,6 +418,40 @@ impl WebUiFanoutActor {
             cursor: 0,
             html,
         });
+    }
+
+    /// Pushes a refreshed sessions-list fragment to **every** live
+    /// session's stream — one addressed `sessions` envelope per live
+    /// session id, the `push_models_changed` shape.
+    ///
+    /// The sessions fragment is page-global (one list, every viewer),
+    /// but the SSE endpoint filters per stream: an addressed push
+    /// reaches only the page viewing that session, and the
+    /// interesting mark transitions happen on pages viewing *other*
+    /// sessions. So a set-or-clear transition loops every live
+    /// session id with one render feeding every envelope — the list
+    /// does not vary by viewer.
+    fn refresh_all_sessions_lists(&mut self) {
+        let ids: Vec<SessionId> = self
+            .state
+            .read()
+            .session
+            .sessions()
+            .keys()
+            .cloned()
+            .collect();
+        let html = {
+            let guard = self.state.read();
+            crate::regions::sessions::sessions_live_fragment(&guard)
+        };
+        for session_id in ids {
+            self.broadcast(SseEnvelope {
+                kind: SseKind::Sessions,
+                session_id,
+                cursor: 0,
+                html: html.clone(),
+            });
+        }
     }
 
     /// Signals every open model modal that the discovered-model cache
@@ -422,6 +513,48 @@ impl WebUiFanoutActor {
             });
         }
     }
+
+    /// A browser-created session landed: refresh the sessions list.
+    /// Synchronous work only; `async` is the `MsgHandler::handle`
+    /// signature's shape, dropped here.
+    pub(crate) fn on_session_created(&mut self, msg: &jinn_session_lifecycle_msg::SessionCreated) {
+        // Every page's sidebar refreshes so it lists the new session —
+        // the same live-only refresh shape the other "the list
+        // changed" events push. The creating page also receives this
+        // (its POST response carries the new page, whose sidebar is
+        // already fresh; the double render is the same harmless
+        // overlap a rename POST causes).
+        self.push_sessions_refresh(&msg.session_id);
+    }
+
+    /// The setup script's async outcome: push the transcript-full
+    /// convergence for that session. Synchronous work only; `async`
+    /// is the `MsgHandler::handle` signature's shape, dropped here.
+    pub(crate) fn on_session_setup_completed(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionSetupCompleted,
+    ) {
+        // Success notes and error entries alike land in the session's
+        // history before this event fires (the lifecycle actor's own
+        // handling), so the transcript-full convergence push is the
+        // whole visibility path: cursor 0, full replace, exactly the
+        // shape a settle's convergence uses. This is NOT
+        // `settle_to_idle`: the session is not settling phases here,
+        // and flipping the composer controls would lie about the
+        // session's state.
+        let session_id = &msg.session_id;
+        let transcript_html = {
+            let guard = self.state.read();
+            crate::region::owner_of(SseKind::TranscriptFull)
+                .map_or_default(|region| region.render(session_id, &guard))
+        };
+        self.broadcast(SseEnvelope {
+            kind: SseKind::TranscriptFull,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html: transcript_html,
+        });
+    }
 }
 
 /// The settle push order: every region's `settle_kinds` flattened in
@@ -451,20 +584,73 @@ impl MsgHandler<StreamToken> for WebUiFanoutActor {
 
 impl MsgHandler<SessionPhaseChanged> for WebUiFanoutActor {
     async fn handle(&mut self, msg: &SessionPhaseChanged, _ctx: &mut MsgCtx<'_>) {
+        self.on_phase_changed(msg);
+    }
+}
+
+impl WebUiFanoutActor {
+    /// The phase-change body, split out of the `MsgHandler` impl so
+    /// tests can drive it without fabricating trouper-internal
+    /// `MsgCtx` values (the same seam `settle_to_idle` exposes).
+    pub(crate) fn on_phase_changed(&mut self, msg: &SessionPhaseChanged) {
         // Busy: swap the composer control to cancel immediately.
         if msg.new_phase != PhaseView::Idle {
             self.push_busy_controls(&msg.session_id);
             return;
         }
         self.settle_to_idle(&msg.session_id);
+        // The unseen-settle mark, decided at set time: only a settle
+        // FROM a working phase (a cancel drain or error settle delivers
+        // entries the user has not seen, so it marks like any other)
+        // of a session that is not the instance's active one right now
+        // and is not subagent-origin (subagent rows render only inside
+        // their tree, under a session the user is interacting with;
+        // `SessionTreeEntry`/`SessionSummary` carry no origin, so the
+        // render path could not filter them). Re-marking is a no-op;
+        // marking the active session is refused — a session the user
+        // is watching is viewed by definition.
+        let idle_settle = msg.old_phase != PhaseView::Idle;
+        let origin = {
+            let guard = self.state.read();
+            guard
+                .session
+                .get(&msg.session_id)
+                .map(jinn_kernel::ChatSessionState::origin)
+        };
+        let is_active = active_session_id_of(&self.state) == msg.session_id;
+        if idle_settle && !is_active && origin != Some(SessionOrigin::Subagent) {
+            self.mark_unread(&msg.session_id);
+        }
     }
+}
+
+/// The instance's active session id, under one short-lived read guard.
+#[must_use]
+fn active_session_id_of(state: &State) -> SessionId {
+    state.read().session.active_session_id().clone()
 }
 
 impl MsgHandler<SessionLoadCompleted> for WebUiFanoutActor {
     async fn handle(&mut self, msg: &SessionLoadCompleted, _ctx: &mut MsgCtx<'_>) {
+        self.on_load_completed(msg);
+    }
+}
+
+impl WebUiFanoutActor {
+    /// The load-completed body, split out for the same test seam.
+    pub(crate) fn on_load_completed(&mut self, msg: &SessionLoadCompleted) {
         // A session activation landed (from the web or the TUI — both
         // ride the same command): refresh every page's sessions list.
         self.push_sessions_refresh(&msg.session_id);
+        // The "the user has now viewed it" clear, keyed to the active
+        // id at handling time: a tree load publishes one completed
+        // event per background member restored under a different
+        // active id, and those members are still unviewed — clearing
+        // them would erase the exact signal the mark exists for. Only
+        // the session that IS the active one at this moment was viewed.
+        if active_session_id_of(&self.state) == msg.session_id {
+            self.clear_unread(&msg.session_id);
+        }
     }
 }
 
@@ -488,5 +674,25 @@ impl MsgHandler<ModelCacheStored> for WebUiFanoutActor {
         // event's timestamp rides the push so the frame dispatches
         // (a signal with an empty data line never fires).
         self.push_models_changed(msg.stored_at);
+    }
+}
+
+impl MsgHandler<jinn_session_lifecycle_msg::SessionCreated> for WebUiFanoutActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionCreated,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        self.on_session_created(msg);
+    }
+}
+
+impl MsgHandler<jinn_session_lifecycle_msg::SessionSetupCompleted> for WebUiFanoutActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionSetupCompleted,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        self.on_session_setup_completed(msg);
     }
 }

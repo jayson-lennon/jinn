@@ -2,7 +2,9 @@
 
 ## (development)
 
-- Add webui (prototype/MVP)
+- Add minimal webui.
+- Add Vals index to OpenRouter model market popup.
+- The OpenRouter model page (web) can now be opened from the model market window using `O`.
 
 ## 2026-11-15 v1.25.0
 

@@ -13,12 +13,13 @@ pub const RESULTS_VIEWPORT_FALLBACK: usize = 20;
 
 /// The sort-column cycle order: the default first, then left-to-right
 /// across the sortable columns.
-pub const SORT_CYCLE: [SortColumn; 6] = [
+pub const SORT_CYCLE: [SortColumn; 7] = [
     SortColumn::Proj,
     SortColumn::In,
     SortColumn::Out,
     SortColumn::Cache,
     SortColumn::Eci,
+    SortColumn::Vals,
     SortColumn::Model,
 ];
 
@@ -74,6 +75,9 @@ pub enum SortColumn {
     Cache,
     /// Epoch Capabilities Index (unmatched rows sort last either way).
     Eci,
+    /// Vals Index overall accuracy (unmatched rows sort last either
+    /// way).
+    Vals,
     /// `author/slug[:variant]`, lexicographic.
     Model,
 }
@@ -114,6 +118,7 @@ impl SortColumn {
             Self::Out => "OUT/M",
             Self::Cache => "CACHE/M",
             Self::Eci => "ECI",
+            Self::Vals => "VALS",
             Self::Model => "MODEL",
         }
     }
@@ -245,6 +250,12 @@ pub struct MarketUiState {
     /// values for [`MixSource::Usage`]. Render-measured state like
     /// `results_viewport`: recomputed each frame, read by the cells.
     pub active_mix: (u32, f64, u32),
+    /// The session the popup opened over, stamped by the opener
+    /// action. The input hook reads it when `O` publishes
+    /// [`OpenModelPage`](crate::OpenModelPage) — the hook's signature
+    /// carries no `AppState`, so this cell field is the session's
+    /// ride-along. `None` while the popup is closed.
+    pub session_id: Option<jinn_core_types::SessionId>,
 }
 
 /// Resolves the mix the frame projects and sorts under: the shipped
@@ -290,6 +301,7 @@ impl Default for MarketUiState {
             detail_sort_desc: false,
             mix_source: MixSource::default(),
             active_mix: PROJECTION_MIX,
+            session_id: None,
         }
     }
 }

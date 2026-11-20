@@ -8,7 +8,7 @@
 //! the button; the streaming spinner renders above the composer while
 //! busy.
 //!
-//! Client half: `webui/client/src/regions/composer.ts` — the
+//! Browser half: the controls' Datastar bindings (`controls.html`) — the
 //! action-attribute delegation (send/cancel), the Enter-to-send
 //! binding, and the [`crate::contract::CONTROLS_ID`] swap.
 

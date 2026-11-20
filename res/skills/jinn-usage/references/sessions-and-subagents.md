@@ -19,6 +19,15 @@ One more slash command works the same way in the input box: `/export`
 (write the session to a self-contained file). Context summarization is
 handoff compaction's job — see `context-management.md`.
 
+The **web UI** creates sessions too: the titlebar hamburger menu carries a
+**New session** item that opens a modal over the page. Pick a project (the
+curated `[[project.entry]]` list — required; with none configured the modal
+says so), a lifecycle recipe (blank first, its args input appears only when
+the recipe's setup takes parameters), and submit — the browser navigates to
+the created session's page, and every other open page's sidebar picks the
+new session up without a reload. It is the same creation path the TUI
+pickers and Discord `/new` ride, so the session looks identical everywhere.
+
 A **lifecycle recipe** is a named pair of setup/teardown commands configured
 in `jinn.toml` (`[[session_lifecycle.script]]`, e.g. open a fossil branch
 checkout or a git worktree). A command may be a shell string or a builtin

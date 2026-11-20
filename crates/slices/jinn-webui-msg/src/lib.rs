@@ -2,8 +2,9 @@
 //! boundary.
 //!
 //! Everything here is pure data: the form payloads the browser posts,
-//! the transcript query's cursor grammar, and the SSE envelope the
-//! fan-out actor produces. No bus schema lives here — the web UI
+//! the transcript query's cursor grammar, the SSE envelope the
+//! fan-out actor produces, and the unread-mark cell payload beside
+//! its slot key. No bus schema lives here — the web UI
 //! publishes *existing* schemas (`EnqueueUserMessage`, `CancelTurn`,
 //! `ProviderSwitch`, `SessionLoadRequested`) and subscribes existing
 //! events, so this crate never depends on an implementation crate and
@@ -13,11 +14,15 @@
 //! server-rendered HTML, not JSON — the browser swaps it into the page
 //! as-is, so its "type" is a template, not a struct.
 
+pub mod unread;
 pub mod wire;
 
+pub use unread::UnreadSessionMarks;
+pub use unread::webui_unread_slot;
 pub use wire::{
-    CancelForm, ModelForm, ModelsRefreshForm, RenameForm, SendForm, SessionListItem, SessionsQuery,
-    SseEnvelope, SseKind, SwitchForm, TranscriptQuery,
+    CancelForm, CreateSessionForm, ModelForm, ModelsRefreshForm, RenameForm, SendForm,
+    SessionListItem, SessionNewQuery, SessionsQuery, SseEnvelope, SseKind, SwitchForm,
+    TranscriptQuery,
 };
 
 #[cfg(test)]

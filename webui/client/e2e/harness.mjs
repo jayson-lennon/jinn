@@ -68,6 +68,15 @@ function jinnTomlFor(port) {
 
 [webui]
 bind = "127.0.0.1:${port}"
+
+# The new-session spec needs one configured project and one
+# parameterized lifecycle to create from the browser.
+[[project.entry]]
+path = "~/e2e-scratch"
+
+[[session_lifecycle.script]]
+name = "echo-setup"
+setup_command = "echo $1"
 `;
 }
 

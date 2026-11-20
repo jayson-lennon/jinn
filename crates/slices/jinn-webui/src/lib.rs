@@ -28,8 +28,8 @@
 //! Units, by module:
 //!
 //! - [`contract`] — the client/server DOM-and-URL contract: every id,
-//!   attribute, and path the browser client targets, with the
-//!   referential-integrity and parity gates beside it.
+//!   attribute, signal name, and path the browser runtime targets,
+//!   with the referential-integrity gate beside it.
 //! - [`listener`] — the listener actor: bind, dashboard note, serve
 //!   task. The bind is frozen: read once here, never re-read on
 //!   config reload, because a rebind would strand every connected
@@ -47,9 +47,12 @@
 //! - [`transcript`] — the transcript projection and render functions.
 //! - [`fanout`] — the SSE fan-out actor: events in, HTML fragments
 //!   out.
+//! - [`push`] — the push seam: an [`fanout`] envelope becomes one
+//!   Datastar SDK event (the only place the two vocabularies meet).
 //! - [`vendor`] — the embedded, pre-gzipped frontend asset set (the
-//!   compiled client bundle plus any third-party dists).
-//! - [`templates`] — the askama page and fragment templates.
+//!   Datastar browser bundle).
+//! - [`templates`] — the askama page and fragment templates, carrying
+//!   the Datastar attributes that make the page live.
 //!
 //! Like the remote surface there is no authentication; unlike remote,
 //! non-loopback binds are taken as configured — reaching the UI over a
@@ -59,6 +62,7 @@ pub mod contract;
 pub mod delivery;
 pub mod fanout;
 pub mod listener;
+pub mod push;
 pub mod region;
 pub mod regions;
 pub mod server;
@@ -151,8 +155,22 @@ pub async fn activate(
         )
         .expect("the cell catalog registers the provider slot before any slice activates");
 
+    // The unread-mark cell. Its write handle goes to the fan-out and
+    // nowhere else: the fan-out actor is the mark's only writer (set
+    // on an unseen settle, cleared when the session activates); the
+    // sessions-list render paths resolve their own read handles from
+    // the session map's attached registry.
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: a missing webui unread slot is a broken boot order and must abort launch, not continue degraded"
+    )]
+    let unread_marks = host
+        .slices()
+        .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+        .expect("the cell catalog registers the webui unread slot before any slice activates");
+
     let system: trouper::system::ActorSystem = host.system().clone();
-    let fanout = fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone());
+    let fanout = fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks);
 
     listener::WebUiListenerActor::spawn(
         &system,
@@ -164,6 +182,7 @@ pub async fn activate(
             provider_cell,
             provider_registry: services.provider_registry.clone(),
             api_keys: services.api_keys.clone(),
+            config: config.clone(),
             fanout,
             version: env!("CARGO_PKG_VERSION").to_owned(),
         },
@@ -182,6 +201,9 @@ mod listener_tests;
 
 #[cfg(test)]
 mod server_tests;
+
+#[cfg(test)]
+mod session_new_tests;
 
 #[cfg(test)]
 mod sessions_list_tests;

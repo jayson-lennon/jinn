@@ -14,7 +14,9 @@
 //!   out of scope for the web).
 //! - switch → [`SessionLoadRequested`] with `content_width: None` —
 //!   the Discord precedent: the web renderer consumes no TUI layout
-//!   measurement. The web UI and the TUI share one active session.
+//!   measurement. The web UI and the TUI share one active session. The
+//!   handler then waits (bounded) for the store actor to apply the
+//!   activation, so the response page renders the *new* active mark.
 //! - rename → [`PersistSession`] after the TUI rename confirm's three
 //!   mutations (`set_title`, `touch`, `mark_interacted`) under one
 //!   guard — the web adds only an entry point to the one rename
@@ -50,6 +52,29 @@ pub enum ActionError {
     /// The requested model id names no available picker row (unknown,
     /// unknown provider, or an unavailable provider).
     UnknownModel(String),
+    /// The request named no configured `[[project.entry]]` (or the
+    /// request carried none at all).
+    UnknownProject(String),
+    /// A configured project path is neither `~`-prefixed nor absolute
+    /// — config corruption the form cannot act on.
+    BadProjectPath(String),
+    /// The lifecycle value is neither blank nor a configured
+    /// `[[session_lifecycle.script]]` name.
+    UnknownLifecycle(String),
+    /// The args text parsed to fewer values than the lifecycle's
+    /// setup template declares.
+    MissingArgs {
+        /// The lifecycle whose minimum was missed.
+        lifecycle: String,
+        /// How many args the request carried.
+        have: usize,
+        /// How many the setup template requires.
+        want: usize,
+    },
+    /// The creation function returned without a `SessionCreated`
+    /// closure — an invariant of the shared path; refusing (not
+    /// half-answering) is the safe answer.
+    CreationMissingEvent,
 }
 
 impl ActionError {
@@ -62,10 +87,17 @@ impl ActionError {
             | Self::EmptyText
             | Self::EmptyTitle
             | Self::BotTarget(_)
-            | Self::UnknownModel(_) => 400,
+            | Self::UnknownModel(_)
+            | Self::UnknownProject(_)
+            | Self::BadProjectPath(_)
+            | Self::UnknownLifecycle(_)
+            | Self::MissingArgs { .. } => 400,
             // A well-formed request naming a session that does not
             // exist: 404.
             Self::UnknownSession(_) => 404,
+            // The shared creation path always names its created
+            // session; a miss is a server-side invariant break.
+            Self::CreationMissingEvent => 500,
         }
     }
 
@@ -81,6 +113,23 @@ impl ActionError {
             }
             Self::UnknownSession(id) => format!("no live session with id {id}"),
             Self::UnknownModel(id) => format!("model {id} is not in the available model rows"),
+            Self::UnknownProject(project) => {
+                format!("project {project:?} is not a configured [[project.entry]]")
+            }
+            Self::BadProjectPath(path) => {
+                format!("configured project path {path:?} is neither ~-prefixed nor absolute")
+            }
+            Self::UnknownLifecycle(name) => {
+                format!("lifecycle {name:?} is not a configured [[session_lifecycle.script]]")
+            }
+            Self::MissingArgs {
+                lifecycle,
+                have,
+                want,
+            } => format!("lifecycle {lifecycle:?} takes {want} argument(s), got {have}"),
+            Self::CreationMissingEvent => {
+                "session creation completed without naming the created session".to_owned()
+            }
         }
     }
 }
@@ -269,6 +318,136 @@ pub async fn handle_refresh_models(bus: &BusService, session_id: &str) -> Result
     Ok(())
 }
 
+/// Handles one `POST /web/session-new` — create a session through the
+/// shared creation path.
+///
+/// Validates against the config layer (project must name a configured
+/// `[[project.entry]]`; lifecycle must be blank or a configured
+/// `[[session_lifecycle.script]]`; args must meet the lifecycle's
+/// parameter minimum), then — under ONE state write guard — stashes
+/// the `PendingSessionCreation` (the Discord precedent: the stash and
+/// the call are one synchronous unit, so the web's stash cannot race
+/// an abandoned TUI picker's) and calls
+/// `jinn_kernel::session_lifecycle::intent::handle_session_lifecycle_setup`,
+/// the exact function the TUI pickers and Discord `/new` end in. The
+/// returned publish closures ride [`jinn_slices::bus::Bridge`], the
+/// same drain the TUI's IntentHandler uses — no new schema, no
+/// typed publish.
+///
+/// The session is created active instance-wide; the POST's response
+/// is the new session's whole page (server-side; the client merely
+/// swaps it).
+///
+/// # Errors
+///
+/// Returns [`ActionError`] for every refusal: no configured projects,
+/// an unknown project, an unknown lifecycle, or args short of the
+/// lifecycle's parameter minimum — all 400s. Publication happens only
+/// on `Ok`, after the guard drops. Synchronous: the bridge drain is a
+/// channel send, and nothing here awaits.
+pub fn handle_create(
+    state: &State,
+    bus: &BusService,
+    config: &jinn_slices::ConfigLayer,
+    form: &jinn_webui_msg::CreateSessionForm,
+) -> Result<jinn_core_types::SessionId, ActionError> {
+    use jinn_kernel::Bridge;
+    use jinn_kernel::session_lifecycle::intent::handle_session_lifecycle_setup;
+    use jinn_preferences_config::schemas::{LifecycleCommand, ProjectConfig, SessionLifecycle};
+
+    let args_text = form.args.as_deref().unwrap_or_default();
+    let arg_values = jinn_session_lifecycle_msg::command_template::parse_quoted_args(args_text);
+
+    let project_dir = {
+        // The project list and the lifecycle list are read before the
+        // guard; both are config data, not session state.
+        let projects: Vec<ProjectConfig> = config.get_list().unwrap_or_default();
+        let chosen = projects
+            .iter()
+            .find(|entry| entry.path.to_string_lossy() == form.project)
+            .ok_or_else(|| ActionError::UnknownProject(form.project.clone()))?;
+
+        // ~ expansion — the Discord handler's exact form (no `dirs`
+        // edge; the home resolution rides the chat-input msg crate's
+        // helper).
+        let expanded = match chosen.path.strip_prefix("~") {
+            Ok(rest) => jinn_chat_input_msg::home_dir()
+                .join(rest)
+                .map_err(|_path_error| {
+                    ActionError::BadProjectPath(chosen.path.to_string_lossy().into_owned())
+                })?,
+            Err(_) => marked_path::MarkedPathBuf::<marked_path::Absolute>::new(chosen.path.clone())
+                .map_err(|_path_error| {
+                    ActionError::BadProjectPath(chosen.path.to_string_lossy().into_owned())
+                })?,
+        };
+
+        // The lifecycle must be blank or exactly a configured name —
+        // `find_lifecycle` silently falls back to blank for an
+        // unknown name, so the POST validates it here or a bogus name
+        // would stamp a session that runs no script.
+        let lifecycles: Vec<SessionLifecycle> = config.get_list().unwrap_or_default();
+        if !form.lifecycle.is_empty() && !lifecycles.iter().any(|l| l.name == form.lifecycle) {
+            return Err(ActionError::UnknownLifecycle(form.lifecycle.clone()));
+        }
+
+        // The arg minimum is the setup template's parameter count —
+        // the TUI arg popup's rule. `$@` splat templates add none.
+        let param_count = lifecycles
+            .iter()
+            .find(|l| l.name == form.lifecycle)
+            .and_then(|l| l.setup.as_ref())
+            .and_then(|setup| match setup {
+                LifecycleCommand::Shell(raw) => Some(
+                    jinn_session_lifecycle_msg::command_template::CommandTemplate::parse(raw)
+                        .param_count(),
+                ),
+                LifecycleCommand::Builtin(_) => None,
+            })
+            .unwrap_or(0);
+        if arg_values.len() < param_count {
+            return Err(ActionError::MissingArgs {
+                lifecycle: form.lifecycle.clone(),
+                have: arg_values.len(),
+                want: param_count,
+            });
+        }
+
+        expanded
+    };
+
+    // One synchronous unit: stash the project, run the shared
+    // creation, collect the closures — the guard drops when the block
+    // ends, before any await (guard discipline, and the reason the
+    // stash cannot go stale).
+    let closures = {
+        let mut guard = state.write();
+        guard.frontend.pending_creation =
+            Some(jinn_kernel::state::frontend_state::PendingSessionCreation {
+                project_dir: project_dir.clone(),
+                starting_cwd: project_dir,
+            });
+        let result =
+            handle_session_lifecycle_setup(&mut guard, &form.lifecycle, &arg_values, None, config);
+        result.messages
+    };
+
+    // The created session is the one the shared path made active
+    // instance-wide — the same id the closures' `SessionCreated`
+    // carries, read from state (the POST's response page is rendered
+    // from this same active session).
+    let created = state.read().session.active_session_id().clone();
+
+    let bridge = Bridge::new(bus.clone());
+    for closure in closures {
+        // A closed bridge is the process shutting down; the TUI's own
+        // drain ignores the error the same way.
+        let _ = bridge.send(closure);
+    }
+
+    Ok(created)
+}
+
 /// Handles one session activation (`POST /web/session/{id}/activate`).
 ///
 /// Publishes [`SessionLoadRequested`] — the same command the TUI's
@@ -278,17 +457,66 @@ pub async fn handle_refresh_models(bus: &BusService, session_id: &str) -> Result
 /// consumes no TUI layout measurement, and the store actor derives a
 /// width from its own layout.
 ///
+/// The publish only enqueues — the store actor is the single writer of
+/// the active pointer and applies it on its own turn. The response page
+/// renders its sidebar from the active pointer, so this handler waits
+/// (bounded) for the activation to land before returning: without the
+/// wait the swapped-in page names the *previous* active session, and
+/// the correcting `sessions` SSE push races the client's swap and is
+/// lost — the visible symptom was a highlight one click behind.
+/// Unknown ids never converge (nothing will insert them), so the wait
+/// is skipped for them and the render falls through to the store.
+///
 /// # Errors
 ///
 /// Returns [`ActionError::BadSessionId`] for a malformed id.
-pub async fn handle_switch(bus: &BusService, session_id: &str) -> Result<(), ActionError> {
+pub async fn handle_switch(
+    state: &State,
+    bus: &BusService,
+    session_id: &str,
+) -> Result<(), ActionError> {
     let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+    let known_live = state.read().session.contains(&session_id);
     bus.publish(SessionLoadRequested {
-        session_id,
+        session_id: session_id.clone(),
         content_width: None,
     })
     .await;
+    if known_live {
+        wait_for_activation(state, &session_id).await;
+    }
     Ok(())
+}
+
+/// How long [`handle_switch`] waits for the store actor to apply an
+/// activation before rendering the response anyway.
+///
+/// The happy path is the store actor's dispatch latency — microseconds.
+/// The budget only ever binds on a wedged actor or a session the actor
+/// refuses to activate; both render today's behavior (the page for the
+/// requested session with the stale active mark) instead of hanging.
+const ACTIVATION_CONVERGENCE_BUDGET: std::time::Duration = std::time::Duration::from_millis(2_000);
+
+/// Poll interval for [`wait_for_activation`] — short enough that the
+/// happy path lands within a tick or two, coarse enough not to spin.
+const ACTIVATION_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(5);
+
+/// Waits until the session is the active one, or the budget expires.
+///
+/// The guard discipline: take the read guard, check, drop it, then
+/// sleep — never a guard held across the `.await`.
+async fn wait_for_activation(state: &State, session_id: &SessionId) {
+    let deadline = tokio::time::Instant::now() + ACTIVATION_CONVERGENCE_BUDGET;
+    loop {
+        if state.read().session.active_session_id() == session_id {
+            return;
+        }
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            return;
+        }
+        tokio::time::sleep((deadline - now).min(ACTIVATION_POLL_INTERVAL)).await;
+    }
 }
 
 /// Handles one `POST /web/session/{id}/rename`.

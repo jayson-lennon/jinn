@@ -25,6 +25,7 @@ use jinn_kernel::State;
 use jinn_slices::Slices;
 use jinn_slices::bus::BusService;
 
+use crate::contract;
 use crate::fanout::FanoutHandle;
 use crate::server::ServerShared;
 use crate::server::router;
@@ -65,6 +66,12 @@ async fn harness_seeded_with_fanout(
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once per harness");
+    let unread_marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per harness");
     let state = {
         let app = AppState::default();
         app.session.attach_slices(slices.clone());
@@ -87,7 +94,7 @@ async fn harness_seeded_with_fanout(
     let fanout = {
         use trouper::system::ActorSystem;
         let system = ActorSystem::new(trouper::system::SystemConfig::production());
-        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone())
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
     };
     let shared = {
         let mut registry = jinn_provider_config::ProviderRegistry::from_config(
@@ -110,6 +117,7 @@ async fn harness_seeded_with_fanout(
             provider_cell,
             jinn_provider_config::ProviderRegistryService::new(registry),
             jinn_provider_config::ApiKeysService::new(api_keys),
+            jinn_config::empty_config_layer().clone(),
             fanout.clone(),
             0,
             "serve-test".to_owned(),
@@ -215,15 +223,19 @@ async fn activating_a_session_returns_the_whole_page_over_the_wire() {
         .await
         .expect("the activate completes");
 
-    // Then the response is the WHOLE page — `<!DOCTYPE html>` and the
-    // page shell — not the sessions fragment. This is the shape the
-    // client's page swap consumes; the shipped bug served a fragment
-    // here and the swap destroyed the page.
+    // Then the response is the navigation patch sequence — an SSE
+    // body whose element patch replaces `#page-root` with the whole
+    // page shell (the Datastar transport of the same shape; the
+    // shipped bug served a sessions fragment here and the swap
+    // destroyed the page).
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.text().await.expect("body reads");
     assert!(
-        body.starts_with("<!DOCTYPE html>"),
-        "activate must return a whole page, got a fragment: {body}"
+        body.contains(&format!(
+            "selector #{}\ndata: mode replace",
+            contract::PAGE_ROOT_ID
+        )),
+        "activate must replace the page root: {body}"
     );
     assert!(body.contains("id=\"page-root\""), "{body}");
     assert!(body.contains("Second session"), "{body}");
@@ -559,8 +571,9 @@ async fn the_model_picker_refresh_post_answers_over_the_wire_without_blocking() 
         .await
         .expect("refresh post completes");
 
-    // Then it answers 200 with the status wrapper immediately (no
-    // discovery happens in the harness — a blocking POST would hang).
+    // Then it answers 200 with the status wrapper inside a patch
+    // elements body (no discovery happens in the harness — a blocking
+    // POST would hang), and never the modal.
     assert_eq!(response.status(), 200);
     let body = response.text().await.expect("body reads");
     assert!(
@@ -575,7 +588,10 @@ async fn the_model_picker_refresh_post_answers_over_the_wire_without_blocking() 
         "{body}"
     );
     assert!(
-        !body.contains(crate::contract::MODEL_PICKER_MODAL_ID),
+        !body.contains(&format!(
+            "id=\"{}\"",
+            crate::contract::MODEL_PICKER_MODAL_ID
+        )),
         "the refresh POST must not answer with the modal: {body}"
     );
 }
@@ -870,10 +886,12 @@ async fn a_models_push_reaches_a_live_stream_as_a_dispatchable_frame_with_data()
     let stored_at = jiff::Timestamp::now();
     harness_fanout.push_models_changed_from(&id, stored_at);
 
-    // Then the stream yields a `models` frame whose data line is
-    // non-empty: a browser dispatches an SSE event only when its data
-    // buffer holds bytes, so an empty line here is the
-    // never-stops-spinner bug re-enabled at the byte level.
+    // Then the stream yields a `patch-signals` frame whose data line
+    // carries the modelsTick signal: a browser dispatches an SSE
+    // event only when its data buffer holds bytes, so an empty line
+    // here is the never-stops-spinner bug re-enabled at the byte
+    // level — and the tick is what clears the spinner (the modal's
+    // effect) and re-pulls the rows.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let mut saw_models_with_data = false;
     while std::time::Instant::now() < deadline {
@@ -882,7 +900,9 @@ async fn a_models_push_reaches_a_live_stream_as_a_dispatchable_frame_with_data()
         };
         let text = String::from_utf8_lossy(&chunk);
         for frame in text.split("\n\n") {
-            if frame.contains("event: models") {
+            if frame.contains("event: datastar-patch-signals")
+                && frame.contains(crate::contract::SIGNAL_MODELS_TICK)
+            {
                 assert!(
                     frame.lines().any(|line| line
                         .strip_prefix("data:")

@@ -228,17 +228,17 @@ pub const ECI_ALIASES: &[EciAlias] = &[
 pub fn resolve_eci<'a>(or_id: &str, index: &'a EciIndex) -> Option<&'a str> {
     let base = strip_variant(or_id);
     let slug = base.rsplit('/').next().unwrap_or(base);
-    let key = crate::epoch::canonical_name(slug);
+    let key = crate::eci::canonical_name(slug);
     let strict = index
         .scores
         .keys()
-        .find(|name| crate::epoch::canonical_name(name) == key);
+        .find(|name| crate::eci::canonical_name(name) == key);
     if let Some(name) = strict {
         return Some(name.as_str());
     }
     ECI_ALIASES
         .iter()
-        .find(|alias| crate::epoch::canonical_name(alias.or_slug) == key)
+        .find(|alias| crate::eci::canonical_name(alias.or_slug) == key)
         .map(|alias| alias.eci_name)
 }
 

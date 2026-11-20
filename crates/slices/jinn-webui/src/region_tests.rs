@@ -35,6 +35,12 @@ fn harness() -> (State, ServerShared) {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once per harness");
+    let unread_marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per harness");
     let state = {
         let app = AppState::default();
         app.session.attach_slices(slices.clone());
@@ -44,7 +50,7 @@ fn harness() -> (State, ServerShared) {
     let fanout = {
         use trouper::system::ActorSystem;
         let system = ActorSystem::new(trouper::system::SystemConfig::production());
-        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone())
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
     };
     let shared = ServerShared::new(
         state.clone(),
@@ -65,6 +71,7 @@ fn harness() -> (State, ServerShared) {
             .expect("an empty providers config expands"),
         ),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
         fanout,
         0,
         "region-test".to_owned(),
@@ -110,7 +117,14 @@ fn the_registry_ids_are_unique_and_mirror_the_client_modules() {
     // on when a reader jumps from one half of a region to the other.
     let mut sorted = ids.clone();
     sorted.sort_unstable();
-    let expected = ["composer", "menu", "model-picker", "sessions", "transcript"];
+    let expected = [
+        "composer",
+        "menu",
+        "model-picker",
+        "session-new",
+        "sessions",
+        "transcript",
+    ];
     assert_eq!(sorted, expected, "the registry ids are fixed vocabulary");
 }
 
@@ -137,7 +151,7 @@ async fn every_declared_container_id_appears_in_the_rendered_page_shell() {
     let model = crate::regions::model_picker::status_fragment(&shared, &id.to_string())
         .expect("picker renders");
     let page = crate::templates::render(&crate::templates::PageTemplate::session(
-        id.to_string(),
+        &id.to_string(),
         "Conformance".to_owned(),
         0,
         sessions,

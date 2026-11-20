@@ -132,6 +132,10 @@ pub struct PageTemplate {
     /// The model-picker modal's host id — the empty span sibling the
     /// modal fragment swaps into.
     pub modal_host_id: &'static str,
+    /// The new-session modal's host id — the second empty span
+    /// sibling; each modal swaps into its own host, so opening one
+    /// can never destroy the other.
+    pub session_new_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -153,6 +157,17 @@ pub struct PageTemplate {
     /// The menu scrim's id — the static shell overlay behind the
     /// slide-in menu panel (stacked above the drawer scrim).
     pub menu_scrim_id: &'static str,
+    /// The viewed session's stream URL, empty on the landing page —
+    /// the `data-init` `@get` binds to it; the runtime keeps the
+    /// fetch-stream open (with retries) for the page's lifetime and
+    /// re-reads it after a page-root replace (the activation path).
+    pub stream_url: String,
+    /// The sessions pull's route — the list's filter/tick effect
+    /// re-pulls it.
+    pub sessions_route: &'static str,
+    /// The activate POST's route prefix — the rename editor's `@post`
+    /// target builds `<prefix><id>/rename` from it.
+    pub session_page_path: &'static str,
 }
 
 impl PageTemplate {
@@ -177,6 +192,7 @@ impl PageTemplate {
             sessions_id: contract::SESSIONS_ID,
             sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
+            session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -185,14 +201,20 @@ impl PageTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            stream_url: String::new(),
+            sessions_route: contract::SESSIONS_ROUTE,
+            session_page_path: contract::SESSION_PAGE_PREFIX,
         }
     }
 
     /// A session page: every region filled for one viewed session at
-    /// the cursor its inline transcript already carries.
+    /// the cursor its inline transcript already carries. The stream
+    /// URL targets the same session; its `?since=` names the page's
+    /// rendered cursor so the first catch-up never re-appends what
+    /// the page already rendered.
     #[must_use]
     pub fn session(
-        session_id: String,
+        session_id: &str,
         title: String,
         cursor: usize,
         sessions_html: String,
@@ -203,7 +225,7 @@ impl PageTemplate {
     ) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
-            session_id,
+            session_id: session_id.to_owned(),
             title,
             cursor,
             sessions_html,
@@ -218,6 +240,7 @@ impl PageTemplate {
             sessions_id: contract::SESSIONS_ID,
             sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
+            session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -226,6 +249,118 @@ impl PageTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
+            sessions_route: contract::SESSIONS_ROUTE,
+            session_page_path: contract::SESSION_PAGE_PREFIX,
+        }
+    }
+}
+
+/// The page-root fragment: exactly the shell's root `div` — the shape
+/// a navigation patch (`POST activate` / `POST session-new`) replaces
+/// the live root with. The full [`PageTemplate`] renders this same
+/// markup through the shared `page_root.html` include; this struct
+/// exists so the overlay patch carries only the root subtree (never a
+/// whole HTML document — the browser runtime morphs element patches,
+/// and a document-shaped patch would fight the page it lands in).
+#[derive(Template)]
+#[template(path = "page_root.html")]
+pub struct PageRootTemplate {
+    /// The viewed session's id (empty on the landing page).
+    pub session_id: String,
+    /// The session title.
+    pub title: String,
+    /// The sessions-list fragment.
+    pub sessions_html: String,
+    /// The transcript fragment.
+    pub transcript_html: String,
+    /// The composer-controls fragment.
+    pub controls_html: String,
+    /// The model-status fragment.
+    pub status_html: String,
+    /// The menu fragment.
+    pub menu_html: String,
+    /// The rendered-entry cursor the inline transcript carries.
+    pub cursor: usize,
+    /// The page-root id.
+    pub page_root_id: &'static str,
+    /// The attribute carrying the viewed session's id.
+    pub page_session_attr: &'static str,
+    /// The sessions-list container id.
+    pub sessions_id: &'static str,
+    /// The sessions filter input's id.
+    pub sessions_filter_input_id: &'static str,
+    /// The model-picker modal's host id.
+    pub modal_host_id: &'static str,
+    /// The new-session modal's host id.
+    pub session_new_host_id: &'static str,
+    /// The transcript scroll-wrap id.
+    pub transcript_wrap_id: &'static str,
+    /// The transcript entry container id.
+    pub transcript_id: &'static str,
+    /// The attribute carrying the inline transcript's cursor.
+    pub cursor_attr: &'static str,
+    /// The composer-controls container id.
+    pub controls_id: &'static str,
+    /// The titlebar title span's id (empty on the landing page).
+    pub session_title_id: &'static str,
+    /// The menu region's host container id.
+    pub menu_id: &'static str,
+    /// The drawer scrim's id.
+    pub drawer_scrim_id: &'static str,
+    /// The menu scrim's id.
+    pub menu_scrim_id: &'static str,
+    /// The sessions pull's route — the list's effect re-pulls it.
+    pub sessions_route: &'static str,
+    /// The activate POST's route prefix — the rename editor's target.
+    pub session_page_path: &'static str,
+    /// The viewed session's stream URL (empty on the landing page) —
+    /// the `data-init` `@get` binding the root carries on session
+    /// pages, so a navigation patch re-opens the stream by itself.
+    pub stream_url: String,
+}
+
+impl PageRootTemplate {
+    /// Builds the root fragment for one viewed session — the same
+    /// shape `PageTemplate::session` renders inline (one field source,
+    /// two render targets).
+    #[must_use]
+    pub fn session(
+        session_id: &str,
+        title: String,
+        cursor: usize,
+        sessions_html: String,
+        transcript_html: String,
+        controls_html: String,
+        status_html: String,
+        menu_html: String,
+    ) -> Self {
+        Self {
+            session_id: session_id.to_owned(),
+            title,
+            cursor,
+            sessions_html,
+            transcript_html,
+            controls_html,
+            status_html,
+            menu_html,
+            page_root_id: contract::PAGE_ROOT_ID,
+            page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+            sessions_id: contract::SESSIONS_ID,
+            sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
+            modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
+            session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
+            transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
+            transcript_id: contract::TRANSCRIPT_ID,
+            cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
+            controls_id: contract::CONTROLS_ID,
+            session_title_id: contract::SESSION_TITLE_ID,
+            menu_id: contract::MENU_ID,
+            drawer_scrim_id: contract::DRAWER_SCRIM_ID,
+            menu_scrim_id: contract::MENU_SCRIM_ID,
+            sessions_route: contract::SESSIONS_ROUTE,
+            session_page_path: contract::SESSION_PAGE_PREFIX,
+            stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
         }
     }
 }
@@ -262,6 +397,12 @@ pub struct SessionRowTemplate {
     pub row_class: &'static str,
     /// The attribute carrying the row's session id.
     pub session_id_attr: &'static str,
+    /// The activate POST's route prefix — the row's `@post` target is
+    /// `<prefix><id>/activate`, and the response replaces the page
+    /// root (the activation navigation).
+    pub session_page_path: &'static str,
+    /// The page-root id — the activate response's swap target.
+    pub page_root_id: &'static str,
 }
 
 impl SessionRowTemplate {
@@ -272,6 +413,8 @@ impl SessionRowTemplate {
             item,
             row_class: contract::SESSION_ROW_CLASS,
             session_id_attr: contract::SESSION_ID_DATA_ATTR,
+            session_page_path: contract::SESSION_PAGE_PREFIX,
+            page_root_id: contract::PAGE_ROOT_ID,
         }
     }
 }
@@ -288,6 +431,10 @@ pub struct SessionsTemplate {
     pub row_class: &'static str,
     /// The attribute carrying each row's session id.
     pub session_id_attr: &'static str,
+    /// The activate POST's route prefix, visible to the row include.
+    pub session_page_path: &'static str,
+    /// The page-root id, visible to the row include.
+    pub page_root_id: &'static str,
 }
 
 impl SessionsTemplate {
@@ -298,6 +445,8 @@ impl SessionsTemplate {
             rows,
             row_class: contract::SESSION_ROW_CLASS,
             session_id_attr: contract::SESSION_ID_DATA_ATTR,
+            session_page_path: contract::SESSION_PAGE_PREFIX,
+            page_root_id: contract::PAGE_ROOT_ID,
         }
     }
 }
@@ -316,12 +465,18 @@ pub struct ControlsTemplate {
     pub composer_id: &'static str,
     /// The textarea's id.
     pub input_id: &'static str,
-    /// The attribute a button names its action with.
+    /// The attribute a button names its action with — rendered on
+    /// non-interactive descendants where a hook is still useful
+    /// (kept for the contract gate's vocabulary assertion).
     pub action_attr: &'static str,
     /// The send action's contract name.
     pub send_action: &'static str,
     /// The cancel action's contract name.
     pub cancel_action: &'static str,
+    /// The send endpoint — the composer's `@post` target.
+    pub send_path: &'static str,
+    /// The cancel endpoint — the cancel button's `@post` target.
+    pub cancel_path: &'static str,
     /// The send button's label.
     pub send_label: &'static str,
     /// The cancel button's label.
@@ -341,6 +496,8 @@ impl ControlsTemplate {
             action_attr: contract::ACTION_DATA_ATTR,
             send_action: contract::ACTION_SEND,
             cancel_action: contract::ACTION_CANCEL,
+            send_path: contract::SEND_PATH,
+            cancel_path: contract::CANCEL_PATH,
             send_label: "Send",
             cancel_label: "Cancel",
         }
@@ -364,10 +521,18 @@ pub struct MenuTemplate {
     pub menu_panel_id: &'static str,
     /// The one item's id ("Sessions").
     pub menu_item_sessions_id: &'static str,
+    /// The new-session item's id ("New session").
+    pub menu_item_new_session_id: &'static str,
     /// The attribute a button names its action with.
     pub action_attr: &'static str,
     /// The menu item's action name.
     pub menu_action: &'static str,
+    /// The new-session item's action name.
+    pub menu_new_session_action: &'static str,
+    /// The new-session form pull's URL — the item's `@get` target.
+    pub session_new_path: &'static str,
+    /// The new-session modal host's id — the pull's swap target.
+    pub session_new_host_id: &'static str,
 }
 
 impl MenuTemplate {
@@ -379,8 +544,12 @@ impl MenuTemplate {
             menu_button_id: contract::MENU_BUTTON_ID,
             menu_panel_id: contract::MENU_PANEL_ID,
             menu_item_sessions_id: contract::MENU_ITEM_SESSIONS_ID,
+            menu_item_new_session_id: contract::MENU_ITEM_NEW_SESSION_ID,
             action_attr: contract::ACTION_DATA_ATTR,
             menu_action: contract::ACTION_MENU_SESSIONS,
+            menu_new_session_action: contract::ACTION_MENU_NEW_SESSION,
+            session_new_path: contract::SESSION_NEW_ROUTE,
+            session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
         }
     }
 }
@@ -399,6 +568,10 @@ pub struct ModelButtonTemplate {
     pub button_id: &'static str,
     /// The picker container's id.
     pub picker_id: &'static str,
+    /// The modal-open pull's URL (unfiltered) — the button's `@get`.
+    pub picker_url: String,
+    /// The modal host span's id — the pull's swap target.
+    pub modal_host_id: &'static str,
 }
 
 impl ModelButtonTemplate {
@@ -406,10 +579,12 @@ impl ModelButtonTemplate {
     #[must_use]
     pub fn with_contract(session_id: String, current: String) -> Self {
         Self {
-            session_id,
-            current,
+            picker_url: format!("{}{session_id}", contract::MODEL_PICKER_PREFIX),
             button_id: contract::MODEL_PICKER_BUTTON_ID,
             picker_id: contract::MODEL_PICKER_ID,
+            modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
+            session_id,
+            current,
         }
     }
 }
@@ -465,16 +640,20 @@ pub struct ModelRowTemplate {
     pub session_id: String,
     /// Whether this row is the session's current model (bold + marked).
     pub is_active: bool,
-    /// The attribute a row names its model with.
+    /// The attribute a row names its model with — the click handler
+    /// reads it when stamping `$providerId`.
     pub model_attr: &'static str,
     /// The attribute a row names its marker with.
     pub marker_attr: &'static str,
     /// The attribute an unavailable row carries.
     pub unavailable_attr: &'static str,
-    /// The attribute a row names its action with.
+    /// The attribute a row names its action with (contract
+    /// vocabulary; the Datastar click handler drives the switch).
     pub action_attr: &'static str,
     /// The switch action's contract name.
     pub model_action: &'static str,
+    /// The switch POST's endpoint.
+    pub model_path: &'static str,
 }
 
 impl ModelRowTemplate {
@@ -498,6 +677,7 @@ impl ModelRowTemplate {
             unavailable_attr: contract::MODEL_UNAVAILABLE_ATTR,
             action_attr: contract::ACTION_DATA_ATTR,
             model_action: contract::ACTION_MODEL,
+            model_path: contract::MODEL_PATH,
         }
     }
 }
@@ -530,6 +710,15 @@ pub struct ModelModalTemplate {
     pub action_attr: &'static str,
     /// The refresh action's contract name.
     pub refresh_action: &'static str,
+    /// The refresh POST's endpoint.
+    pub refresh_path: &'static str,
+    /// The picker pull's route pattern (the modelsTick re-pull's base).
+    pub picker_route: &'static str,
+    /// The switch POST's endpoint.
+    pub model_path: &'static str,
+    /// The modal host span's id — the filter/tick re-pull's swap
+    /// target.
+    pub modal_host_id: &'static str,
 }
 
 impl ModelModalTemplate {
@@ -546,6 +735,111 @@ impl ModelModalTemplate {
             refresh_id: contract::MODEL_PICKER_REFRESH_ID,
             action_attr: contract::ACTION_DATA_ATTR,
             refresh_action: contract::ACTION_REFRESH_MODELS,
+            refresh_path: contract::MODELS_REFRESH_PATH,
+            picker_route: contract::MODEL_PICKER_PREFIX,
+            model_path: contract::MODEL_PATH,
+            modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
+        }
+    }
+}
+
+/// One `<option>` row of the new-session form's selects — a raw
+/// value string plus a label, presentation-free.
+#[derive(Debug, Clone)]
+pub struct SessionNewOption {
+    /// The value the option submits (the configured path string for
+    /// projects; the lifecycle name for lifecycles; empty for the
+    /// blank row).
+    pub value: String,
+    /// The label the option shows.
+    pub label: String,
+    /// The selected lifecycle's parameter count, carried by lifecycle
+    /// options so the client can show/hide the args input; projects
+    /// leave this `None`.
+    pub param_count: Option<usize>,
+}
+
+/// The new-session modal: project select, lifecycle select, args
+/// input (only when the selected lifecycle declares parameters), and
+/// submit. Rendered by the GET pull into
+/// [`contract::SESSION_NEW_MODAL_HOST_ID`]; a lifecycle re-pull
+/// replaces it wholesale. When no project entries are configured the
+/// template renders the explanatory refusal wrapper instead of the
+/// usable form (`empty` state, one string swap — no option-driven
+/// branching in the template body).
+#[derive(Template)]
+#[template(path = "session_new.html")]
+pub struct SessionNewTemplate {
+    /// The project options, in configured order. Empty → refusal
+    /// state.
+    pub projects: Vec<SessionNewOption>,
+    /// The lifecycle options, blank row first.
+    pub lifecycles: Vec<SessionNewOption>,
+    /// The lifecycle the form renders selected (empty string = the
+    /// blank row).
+    pub selected_lifecycle: String,
+    /// Whether the selected lifecycle's setup declares parameters —
+    /// the args input renders only when it does.
+    pub show_args: bool,
+    /// The selected lifecycle's replacement tokens, display-form and
+    /// space-joined (`<1> <branch> <args>`) — what the user is being
+    /// asked to type, the Discord prompt's token list.
+    pub arg_tokens: String,
+    /// The modal overlay's id.
+    pub modal_id: &'static str,
+    /// The project select's id.
+    pub project_id: &'static str,
+    /// The lifecycle select's id.
+    pub lifecycle_id: &'static str,
+    /// The args input's id.
+    pub args_id: &'static str,
+    /// The submit button's id.
+    pub submit_id: &'static str,
+    /// The refusal wrapper's id.
+    pub empty_id: &'static str,
+    /// The lifecycle option attribute carrying the param count.
+    pub param_count_attr: &'static str,
+    /// The submit action's contract name.
+    pub create_action: &'static str,
+    /// The create POST's endpoint.
+    pub create_path: &'static str,
+    /// The lifecycle re-pull's route.
+    pub session_new_route: &'static str,
+    /// The page-root id — the create response's swap target.
+    pub page_root_id: &'static str,
+    /// The modal host span's id — the lifecycle re-pull's swap
+    /// target.
+    pub session_new_host_id: &'static str,
+}
+
+impl SessionNewTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(
+        projects: Vec<SessionNewOption>,
+        lifecycles: Vec<SessionNewOption>,
+        selected_lifecycle: String,
+        show_args: bool,
+        arg_tokens: String,
+    ) -> Self {
+        Self {
+            projects,
+            lifecycles,
+            selected_lifecycle,
+            show_args,
+            arg_tokens,
+            modal_id: contract::SESSION_NEW_MODAL_ID,
+            project_id: contract::SESSION_NEW_PROJECT_SELECT_ID,
+            lifecycle_id: contract::SESSION_NEW_LIFECYCLE_SELECT_ID,
+            args_id: contract::SESSION_NEW_ARGS_INPUT_ID,
+            submit_id: contract::SESSION_NEW_SUBMIT_ID,
+            empty_id: contract::SESSION_NEW_EMPTY_ID,
+            param_count_attr: contract::SESSION_NEW_PARAM_COUNT_ATTR,
+            create_action: contract::ACTION_SESSION_CREATE,
+            create_path: contract::SESSION_CREATE_PATH,
+            session_new_route: contract::SESSION_NEW_ROUTE,
+            page_root_id: contract::PAGE_ROOT_ID,
+            session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
         }
     }
 }

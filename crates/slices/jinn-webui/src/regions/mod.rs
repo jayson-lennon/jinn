@@ -7,10 +7,11 @@
 //! region's module owns its guard render, its pull-route handler, its
 //! contract container, and its settle declaration — everything the
 //! server half of the region contract names. The TypeScript half of
-//! each region lives in `webui/client/src/regions/<id>.ts`.
+//! each region's browser behavior rides declarative Datastar attributes
 
 pub mod composer;
 pub mod menu;
 pub mod model_picker;
+pub mod session_new;
 pub mod sessions;
 pub mod transcript;

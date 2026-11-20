@@ -1,9 +1,9 @@
 //! Every selector the e2e specs use, derived from the wire contract.
 //!
-//! Mirrors `webui/client/src/wire.ts` — the contract's drift tests
-//! already hold wire.ts equal to the Rust contract, and these strings
-//! hold this file equal to wire.ts. A contract rename therefore fails
-//! here as a visibly wrong selector, not as a silently passing one.
+//! The contract's single source is the Rust `contract.rs`; these
+//! strings are the ids the server's page template renders. A contract
+//! rename therefore fails here as a visibly wrong selector, not as a
+//! silently passing one.
 
 /** The sessions-list container id (`wire.SESS​IONS_ID`). */
 export const SESSIONS_ID = "#sessions";
@@ -59,8 +59,24 @@ export const MENU_BUTTON = "#menu-button";
 export const MENU_PANEL = "#menu-panel";
 /** The menu scrim id (`wire.MENU_SCRIM_ID`). */
 export const MENU_SCRIM = "#menu-scrim";
-/** The menu's one item id (`wire.MENU_ITEM_SESSIONS_ID`). */
+/** The menu's sessions item id (`wire.MENU_ITEM_SESSIONS_ID`). */
 export const MENU_ITEM_SESSIONS = "#menu-item-sessions";
+/** The menu's new-session item id (`wire.MENU_ITEM_NEW_SESSION_ID`). */
+export const MENU_ITEM_NEW_SESSION = "#menu-item-new-session";
+/** The new-session modal overlay id (`wire.SESSION_NEW_MODAL_ID`). */
+export const SESSION_NEW_MODAL = "#session-new-modal";
+/** The new-session modal's host span id (`wire.SESSION_NEW_MODAL_HOST_ID`). */
+export const SESSION_NEW_MODAL_HOST = "#session-new-modal-host";
+/** The new-session project select id (`wire.SESSION_NEW_PROJECT_SELECT_ID`). */
+export const SESSION_NEW_PROJECT = "#session-new-project";
+/** The new-session lifecycle select id (`wire.SESSION_NEW_LIFECYCLE_SELECT_ID`). */
+export const SESSION_NEW_LIFECYCLE = "#session-new-lifecycle";
+/** The new-session args input id (`wire.SESSION_NEW_ARGS_INPUT_ID`). */
+export const SESSION_NEW_ARGS = "#session-new-args";
+/** The new-session submit button id (`wire.SESSION_NEW_SUBMIT_ID`). */
+export const SESSION_NEW_SUBMIT = "#session-new-submit";
+/** The new-session refusal wrapper id (`wire.SESSION_NEW_EMPTY_ID`). */
+export const SESSION_NEW_EMPTY = "#session-new-empty";
 /** The drawer scrim id (`wire.DRAWER_SCRIM_ID`). */
 export const DRAWER_SCRIM = "#drawer-scrim";
 /** The drawer-open class the client toggles on the page root. */

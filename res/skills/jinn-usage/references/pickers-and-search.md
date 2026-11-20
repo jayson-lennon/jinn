@@ -45,6 +45,13 @@ highlights:
 
 - **Model**: `<Tab>` multi-selects models into an **alloy**, `<c-a>` toggles
   alloy mode, `<c-r>` refreshes the model list from the provider.
+- **Model market** (`<leader>so`): searchable table of OpenRouter's catalog
+  with per-model performance columns — ECI (Epoch AI, bundled snapshot) and
+  VALS (Vals Index, fetched live and cached). Sort with `l`/`h` (cycles
+  PROJ → IN → OUT → CACHE → ECI → VALS → MODEL), reverse with `s`, `<enter>`
+  switches/pins the model, `<enter>` again in detail mode shows pricing and
+  performance detail, `O` opens the highlighted model's openrouter.ai page
+  in your OS default browser. Rows with no score for a column show `#`.
 - **Tool / Skill**: `<Tab>` toggles the highlighted entry on/off for this
   session. Toggles are per-session and persist for the session; the
   `tool_filter` / `skill_filter` defaults in `jinn.toml` stay as written.

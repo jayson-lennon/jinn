@@ -136,6 +136,10 @@ pub fn regions() -> &'static [&'static dyn WebRegion] {
         // join's tie-breaker, so a new region never overrides an
         // established one's rules (Invariant: append, never reorder).
         &menu::MenuRegion,
+        // The new-session modal appends after the menu: same rule —
+        // the tail region's CSS wins ties, and the modal must be able
+        // to overlay whatever the established regions drew.
+        &crate::regions::session_new::SessionNewRegion,
     ]
 }
 

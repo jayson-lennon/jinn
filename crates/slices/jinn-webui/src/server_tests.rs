@@ -11,6 +11,7 @@
     reason = "test assertions need expect/panic to state what went wrong"
 )]
 
+use crate::contract;
 use axum::body::Body;
 use axum::http::Request;
 use axum::http::StatusCode;
@@ -38,6 +39,12 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once per harness");
+    let unread_marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per harness");
     let state = {
         let app = AppState::default();
         app.session.attach_slices(slices.clone());
@@ -47,7 +54,7 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
     let fanout = {
         use trouper::system::ActorSystem;
         let system = ActorSystem::new(trouper::system::SystemConfig::production());
-        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone())
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
     };
     let shared = ServerShared::new(
         state.clone(),
@@ -58,11 +65,26 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
         provider_cell,
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
         fanout,
         8387,
         "test".to_owned(),
     );
     (state, audit, slices, router(shared))
+}
+
+/// Registers the unread-mark cell and returns its write handle — the
+/// same resolution production `activate` performs against the shared
+/// catalog, against a harness-local registry instead.
+fn unread_marks_for(
+    slices: &Slices,
+) -> jinn_slices::cell::TypedCell<jinn_webui_msg::UnreadSessionMarks> {
+    slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per harness")
 }
 
 /// The harness registry: one keyless `openai` provider offering the
@@ -142,6 +164,118 @@ async fn axax_bytes(response: axum::response::Response) -> String {
         .await
         .expect("body reads");
     String::from_utf8_lossy(&text).into_owned()
+}
+
+/// The ids of the rows carrying the active class in sessions-list
+/// markup — per-row truth, not a whole-document guess.
+fn active_row_ids(html: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    let row_open = format!("{} ", crate::contract::SESSION_ROW_CLASS);
+    for segment in html.split(&row_open) {
+        // The row opens as `class="srow active bot unread"`, so every
+        // split boundary after the first is inside a class list; a
+        // boundary whose following text continues with `active` marks
+        // an active row. The id is the session attribute's quoted
+        // value on the same tag.
+        let Some(classes) = segment.split('"').next() else {
+            continue;
+        };
+        let classes: Vec<&str> = classes.split_whitespace().collect();
+        if !classes.contains(&"active") {
+            continue;
+        }
+        let attr = format!("{}=\"", crate::contract::SESSION_ID_DATA_ATTR);
+        let Some(after) = segment.split(attr.as_str()).nth(1) else {
+            continue;
+        };
+        let Some(id) = after.split('"').next() else {
+            continue;
+        };
+        ids.push(id.to_owned());
+    }
+    ids
+}
+
+/// The harness plus a **real** store actor: the single writer of the
+/// active pointer, so switch-convergence tests exercise the actual
+/// async handoff the recording-bus harness cannot (nothing there
+/// consumes the published command, so no activation ever lands).
+///
+/// Cells resolve from the shared catalog exactly as production
+/// activation does; the store behind the actor is the kernel's
+/// in-memory fake (loads return `None`, so the in-memory activation
+/// path is what runs). The router publishes onto the actor's troupe
+/// bus — the delivering fabric — while the audit stays recording-only
+/// (a recording bus captures publishes and delivers nothing, so the
+/// switch command could never reach the actor through it); the tests
+/// this harness serves assert on state and markup, not the audit.
+async fn harness_with_store_actor() -> (State, BusAudit, Slices, axum::Router) {
+    let slices = Slices::new();
+    let provider_cell = slices
+        .register(
+            jinn_provider_selection_msg::provider_state_slot(),
+            jinn_provider_selection_msg::ProviderCell::default(),
+        )
+        .expect("the provider cell registers once per harness");
+    let unread_marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per harness");
+    let state = {
+        let app = AppState::default();
+        app.session.attach_slices(slices.clone());
+        State::new(app)
+    };
+    // The actor's own `Services`: a fake-config container whose troupe
+    // bus delivers its publishes, catalog-seeded cells resolved the way
+    // the slice's production `activate` resolves them, and the shared
+    // `State` the actor writes the active pointer into.
+    let actor_services = jinn_kernel::Services::new_fake().await;
+    let session_picker_cell = actor_services
+        .slices
+        .reader::<jinn_session_store_msg::SessionPickerState>(
+            &jinn_session_store_msg::session_picker_slot(),
+        )
+        .expect("the cell catalog registers the session-picker slot");
+    let library_cell = actor_services
+        .slices
+        .reader::<jinn_session_store_msg::LibraryState>(&jinn_session_store_msg::library_slot())
+        .expect("the cell catalog registers the library slot");
+    jinn_session_store::session_store_actor::SessionStoreActor::spawn(
+        &actor_services.trouper_system,
+        jinn_session_store::session_store_actor::SessionStoreActorDeps {
+            services: actor_services.clone(),
+            state: state.clone(),
+            session_picker_cell,
+            library_cell,
+        },
+    );
+    let fanout = {
+        use trouper::system::ActorSystem;
+        let system = ActorSystem::new(trouper::system::SystemConfig::production());
+        crate::fanout::WebUiFanoutActor::spawn(
+            &system,
+            state.clone(),
+            actor_services.bus.clone(),
+            unread_marks,
+        )
+    };
+    let shared = ServerShared::new(
+        state.clone(),
+        actor_services.bus.clone(),
+        actor_services.session_store,
+        provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(harness_registry()),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
+        fanout,
+        8388,
+        "test-store-actor".to_owned(),
+    );
+    let (_bus, audit) = BusService::new_recording();
+    (state, audit, slices, router(shared))
 }
 
 /// The count of recorded publishes whose schema short name ends with
@@ -341,7 +475,8 @@ fn harness_with_archived_row_and_receiver() -> (
     };
     let archived_id = SessionId::new();
     let (bus, audit) = BusService::new_recording();
-    let (fanout, rx) = crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone());
+    let (fanout, rx) =
+        crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone(), unread_marks_for(&slices));
     let shared = ServerShared::new(
         state.clone(),
         bus,
@@ -352,6 +487,7 @@ fn harness_with_archived_row_and_receiver() -> (
         provider_cell,
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
         fanout,
         8387,
         "test".to_owned(),
@@ -372,10 +508,15 @@ mod reads {
         // When getting the home page.
         let (status, body) = get(&router, "/web").await;
 
-        // Then it renders with the regions the client drives.
+        // Then it renders with the regions the runtime drives, and
+        // the auto-initializing Datastar script tag is present.
         assert_eq!(status, StatusCode::OK);
         assert!(
-            body.contains("type=\"module\""),
+            body.contains(&format!(
+                "src=\"{}{}\"",
+                contract::VENDOR_PREFIX,
+                crate::templates::app_js_versioned_path()
+            )),
             "missing client script: {body}"
         );
         assert!(body.contains("id=\"composer-controls\""));
@@ -825,7 +966,10 @@ mod actions {
             "{body}"
         );
         assert!(
-            !body.contains(crate::contract::MODEL_PICKER_MODAL_ID),
+            !body.contains(&format!(
+                "id=\"{}\"",
+                crate::contract::MODEL_PICKER_MODAL_ID
+            )),
             "the refresh POST must not answer with the modal: {body}"
         );
     }
@@ -879,15 +1023,11 @@ mod actions {
         // When rendering the session page.
         let (_status, body) = get(&router, &format!("/web/session/{id}")).await;
 
-        // Then the composer offers send, not cancel — buttons name
-        // their action with the contract attribute, and main.ts maps
-        // the action to the endpoint.
+        // Then the composer offers send, not cancel — the send
+        // button's declarative click posts the send endpoint spelled
+        // from the contract.
         assert!(
-            body.contains(&format!(
-                "{}=\"{}\"",
-                crate::contract::ACTION_DATA_ATTR,
-                crate::contract::ACTION_SEND
-            )),
+            body.contains(&format!("@post('{}'", crate::contract::SEND_PATH)),
             "{body}"
         );
         assert!(
@@ -916,14 +1056,11 @@ mod actions {
         // When rendering the session page.
         let (_status, body) = get(&router, &format!("/web/session/{id}")).await;
 
-        // Then the composer offers cancel, not send — the same
-        // contract-attribute assertion as the idle side.
+        // Then the composer offers cancel, not send — the cancel
+        // button's declarative click posts the cancel endpoint
+        // spelled from the contract.
         assert!(
-            body.contains(&format!(
-                "{}=\"{}\"",
-                crate::contract::ACTION_DATA_ATTR,
-                crate::contract::ACTION_CANCEL
-            )),
+            body.contains(&format!("@post('{}'", crate::contract::CANCEL_PATH)),
             "{body}"
         );
         assert!(
@@ -1161,26 +1298,28 @@ mod stream_catchup {
         );
         drop(guard);
 
-        // When building the catch-up frames from cursor 1.
-        let frames =
-            crate::server::render_catchup_frames(transcript.since(Some(1)), 1, transcript.len());
+        // When building the catch-up events from cursor 1.
+        let events =
+            crate::server::render_catchup_events(transcript.since(Some(1)), 1, transcript.len());
 
-        // Then one entry frame arrives — everything after cursor 1 —
-        // and the trailing frame parks the cursor at the length.
-        let [entry, trailing] = frames.as_slice() else {
+        // Then one entry event arrives — everything after cursor 1 —
+        // and the trailing park advances the resume cursor to the
+        // length while bumping chatTick so the reader's scroll effect
+        // follows the catch-up tail: the entry's `id:` is 2 (cursor
+        // 1 + 1) and the trailing event is the tick signal patch.
+        let [entry, trailing] = events.as_slice() else {
             panic!(
-                "an entry frame and the trailing frame, got {}",
-                frames.len()
+                "an entry event and the trailing event, got {}",
+                events.len()
             )
         };
-        assert_eq!(entry.cursor, 2);
-        assert!(entry.html.contains("third"), "{}", entry.html);
+        assert_eq!(entry.id.as_deref(), Some("2"));
+        let entry_data = entry.data.join("\n");
+        assert!(entry_data.contains("third"), "{entry_data}");
+        assert_eq!(trailing.id.as_deref(), Some("2"));
         assert_eq!(
-            trailing,
-            &crate::server::CatchupFrame {
-                html: String::new(),
-                cursor: 2
-            }
+            trailing.data.join(""),
+            format!("signals {{\"{}\":2}}", crate::contract::SIGNAL_CHAT_TICK)
         );
     }
 
@@ -1198,19 +1337,19 @@ mod stream_catchup {
 
         // When building catch-up from the full cursor.
         let total = transcript.len();
-        let frames = crate::server::render_catchup_frames(transcript.since(Some(1)), 1, total);
+        let events = crate::server::render_catchup_events(transcript.since(Some(1)), 1, total);
 
-        // Then no entry frames arrive, and one empty frame advances the
-        // cursor so the client does not re-pull forever.
-        let [trailing] = frames.as_slice() else {
-            panic!("only the trailing frame, got {}", frames.len())
+        // Then no entry events arrive, and one park event advances the
+        // resume cursor so the client does not re-catch-up forever —
+        // with the chatTick bump (nothing rendered, so a reader at the
+        // bottom stays there; the effect's scroll is a no-op).
+        let [trailing] = events.as_slice() else {
+            panic!("only the trailing event, got {}", events.len())
         };
+        assert_eq!(trailing.id.as_deref(), Some("1"));
         assert_eq!(
-            trailing,
-            &crate::server::CatchupFrame {
-                html: String::new(),
-                cursor: 1
-            }
+            trailing.data.join(""),
+            format!("signals {{\"{}\":1}}", crate::contract::SIGNAL_CHAT_TICK)
         );
     }
 
@@ -1252,9 +1391,10 @@ mod stream_catchup {
         );
         let body = aggregate_body(response.into_body()).await;
 
-        // Then the response is SSE carrying the catch-up entry, the
-        // cursor on the id line, and keepalive comments.
-        assert!(body.contains("event: chat"), "{body}");
+        // Then the response is SSE carrying the catch-up entry as a
+        // patch-elements append (cursor 1 on the id line), and
+        // keepalive comments.
+        assert!(body.contains("event: datastar-patch-elements"), "{body}");
         assert!(body.contains("id: 1"), "{body}");
         assert!(body.contains("hello"), "{body}");
     }
@@ -1363,7 +1503,15 @@ mod whole_flow {
         for (name, (status, body)) in reads {
             assert_eq!(*status, StatusCode::OK, "{name}: {body}");
         }
-        assert!(home.1.contains("type=\"module\""), "home: {}", home.1);
+        assert!(
+            home.1.contains(&format!(
+                "src=\"{}{}\"",
+                contract::VENDOR_PREFIX,
+                crate::templates::app_js_versioned_path()
+            )),
+            "home: {}",
+            home.1
+        );
         assert!(page.1.contains("Trip plan"), "page: {}", page.1);
         assert!(
             sessions.1.contains(&id.to_string()),
@@ -1584,13 +1732,103 @@ mod switch_markup {
         // When activating the second from the web.
         let (status, body) = post_form(&router, &format!("/web/session/{b}/activate"), "").await;
 
-        // Then the response is the whole page for B — the client's
-        // swap consumes it wholesale — and the publish rides the
-        // shared command.
+        // Then the response is the navigation patch sequence for B —
+        // the page root replaced wholesale inside an SSE body — and
+        // the publish rides the shared command.
         assert_eq!(status, StatusCode::OK);
-        assert!(body.starts_with("<!DOCTYPE html>"), "{body}");
+        assert!(
+            body.contains(&format!(
+                "selector #{}\ndata: mode replace",
+                crate::contract::PAGE_ROOT_ID
+            )),
+            "{body}"
+        );
         assert!(body.contains("Second session"), "{body}");
         assert_eq!(audit_count(&audit, "SessionLoadRequested"), 1);
         let _ = a;
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn activating_converges_the_active_pointer_before_the_response() {
+        // Given the router whose switch path publishes to a real store
+        // actor — the single writer of the active pointer.
+        let (state, _audit, _slices, router) = harness_with_store_actor().await;
+        let a = seed_session(&state);
+        let b = seed_session(&state);
+        state.write().session.set_active(a.clone());
+
+        // When activating the second from the web.
+        let (status, body) = post_form(&router, &format!("/web/session/{b}/activate"), "").await;
+
+        // Then the response already names B as the active row: the
+        // handler waited for the store actor's `set_active` before
+        // rendering, so the swapped-in page is never one click behind.
+        assert_eq!(status, StatusCode::OK);
+        let active_rows = active_row_ids(&body);
+        assert_eq!(active_rows, vec![b.to_string()], "response page: {body}");
+
+        // And live state agrees — the pointer itself moved.
+        assert_eq!(state.read().session.active_session_id(), &b);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn activating_an_unknown_session_never_hangs_the_request() {
+        // Given the router over an empty session map with a real store
+        // actor — nothing will ever make an unknown id active.
+        let (_state, _audit, _slices, router) = harness_with_store_actor().await;
+        let unknown = SessionId::new();
+
+        // When activating it.
+        let started = std::time::Instant::now();
+        let (status, _body) =
+            post_form(&router, &format!("/web/session/{unknown}/activate"), "").await;
+        let elapsed = started.elapsed();
+
+        // Then the request answers promptly (the convergence wait is
+        // skipped for a session nothing can activate) with the store
+        // fall-through's 404 — not a hang.
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            elapsed < std::time::Duration::from_millis(1_000),
+            "unknown-id activate took {elapsed:?}; the convergence wait must be skipped"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_switch_waits_until_the_active_pointer_moves() {
+        // Given a live session and a state whose pointer flips to it
+        // only after a controlled delay — a stand-in for the store
+        // actor's asynchronous `set_active`. The recording bus
+        // delivers nothing, so the flip comes only from the task.
+        let (state, _audit, _slices, _router) = harness();
+        let target = seed_session(&state);
+        let flipper_state = state.clone();
+        let flipper_target = target.clone();
+        let flipper = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            flipper_state.write().session.set_active(flipper_target);
+        });
+        let (bus, _switch_audit) = BusService::new_recording();
+
+        // When switching to it through the delivery handler directly.
+        let started = std::time::Instant::now();
+        crate::delivery::handle_switch(&state, &bus, &target.to_string())
+            .await
+            .expect("the switch publishes");
+        let elapsed = started.elapsed();
+
+        // Then the handler returned only after the pointer had moved —
+        // the wait did the blocking, and the response would render the
+        // new active row. With the wait reverted this returns in
+        // microseconds with the pointer unmoved, failing both arms.
+        assert!(
+            elapsed >= std::time::Duration::from_millis(80),
+            "handle_switch returned after {elapsed:?}; it must wait for the pointer"
+        );
+        assert_eq!(state.read().session.active_session_id(), &target);
+        flipper.await.expect("the flipper task joins");
     }
 }

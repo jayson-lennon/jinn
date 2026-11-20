@@ -6,7 +6,7 @@
 )]
 
 use super::*;
-use crate::epoch::EciScore;
+use crate::scores::{EciScore, ValsScore};
 
 // ── Crossing-schema contract ─────────────────────────────────────────
 
@@ -30,16 +30,44 @@ fn refresh_all_is_still_a_command() {
 
 #[rstest::rstest]
 #[test]
-fn refresh_epoch_force_is_a_command() {
-    // Given the epoch actor's forced-refresh contract.
+fn refresh_scores_force_is_a_command() {
+    // Given the score actor's forced-refresh contract.
     // When reading its schema definition.
-    let def = <RefreshEpochForce as trouper::schema::Schema>::schema_def();
+    let def = <RefreshScoresForce as trouper::schema::Schema>::schema_def();
 
     // Then the name and kind are stable: it is an imperative
-    // instruction, and the epoch actor is its only declarant, so the
+    // instruction, and the score actor is its only declarant, so the
     // route resolves to exactly that actor.
-    assert_eq!(def.name, "RefreshEpochForce");
+    assert_eq!(def.name, "RefreshScoresForce");
     assert!(matches!(def.kind, trouper::schema::SchemaKind::Command));
+}
+
+#[rstest::rstest]
+#[test]
+fn open_model_page_is_a_command() {
+    // Given the popup's page-open contract.
+    // When reading its schema definition.
+    let def = <OpenModelPage as trouper::schema::Schema>::schema_def();
+
+    // Then the name and kind are stable: it is an imperative
+    // instruction ("open this page now"), not a fact about the past, so
+    // it is a Command. The OpenRouter market actor is its only
+    // declarant, so the route resolves to exactly that actor.
+    assert_eq!(def.name, "OpenModelPage");
+    assert!(matches!(def.kind, trouper::schema::SchemaKind::Command));
+}
+
+#[rstest::rstest]
+#[test]
+fn vals_loaded_is_an_event() {
+    // Given the vals half of the score actor's load announcement.
+    // When reading its schema definition.
+    let def = <ValsLoaded as trouper::schema::Schema>::schema_def();
+
+    // Then the name and kind are stable: it is a past-tense fact ("the
+    // vals index landed in the cell"), so it is an Event.
+    assert_eq!(def.name, "ValsLoaded");
+    assert!(matches!(def.kind, trouper::schema::SchemaKind::Event));
 }
 
 #[rstest::rstest]
@@ -51,7 +79,7 @@ fn market_models_refreshed_is_an_event() {
 
     // Then the name and kind are stable: it is a past-tense fact
     // ("the models table was refreshed"), so it is an Event and
-    // broadcasts to its single declarant — the epoch actor.
+    // broadcasts to its single declarant — the score actor.
     assert_eq!(def.name, "MarketModelsRefreshed");
     assert!(matches!(def.kind, trouper::schema::SchemaKind::Event));
 }
@@ -89,6 +117,7 @@ fn ui_state_reset_restores_the_opener_defaults() {
         detail_sort_desc: true,
         mix_source: MixSource::Usage,
         active_mix: (1_000, 0.5, 2_000),
+        session_id: Some(jinn_core_types::SessionId::new_v5_tag("s-reset")),
     };
 
     // When the opener resets it.
@@ -116,6 +145,9 @@ fn ui_state_reset_restores_the_opener_defaults() {
     // And the mix returns to the fixed constant under the fixed source.
     assert_eq!(state.mix_source, MixSource::Fixed);
     assert_eq!(state.active_mix, PROJECTION_MIX);
+    // And the session stamp clears — the opener re-stamps it after the
+    // reset, inside the same update.
+    assert_eq!(state.session_id, None);
 }
 
 #[rstest::rstest]
@@ -253,7 +285,8 @@ fn projection_mix_is_the_fixed_contract_mix() {
 #[case(SortColumn::In, SortColumn::Out)]
 #[case(SortColumn::Out, SortColumn::Cache)]
 #[case(SortColumn::Cache, SortColumn::Eci)]
-#[case(SortColumn::Eci, SortColumn::Model)]
+#[case(SortColumn::Eci, SortColumn::Vals)]
+#[case(SortColumn::Vals, SortColumn::Model)]
 #[case(SortColumn::Model, SortColumn::Proj)]
 fn sort_cycle_advances_left_to_right_wrapping(#[case] from: SortColumn, #[case] to: SortColumn) {
     // Given a sort column and the column that follows it in the cycle.
@@ -356,6 +389,7 @@ fn market_row_roundtrips_through_json() {
         context_length: Some(200_000),
         eci: Some(42.0),
         eci_ci: Some((40.0, 44.0)),
+        vals: Some(58.4),
         is_free: false,
     };
 
@@ -374,17 +408,77 @@ fn market_data_state_defaults_to_a_clean_table() {
     // When the default payload is read.
     let state = MarketDataState::default();
 
-    // Then nothing has loaded: empty rows, no index, no stamps, no
-    // in-flight flags, seed source, no error.
+    // Then nothing has loaded: empty rows, no indexes, no stamps, no
+    // in-flight flags, seed ECI source, unset vals source, no error.
     assert_eq!(state.rows, [] as [row::MarketRow; 0]);
     assert!(state.detail.is_none());
     assert!(state.eci.is_none());
+    assert!(state.vals.is_none());
     assert!(state.models_fetched_at.is_none());
-    assert!(state.epoch_fetched_at.is_none());
+    assert!(state.eci_fetched_at.is_none());
+    assert!(state.vals_fetched_at.is_none());
     assert!(state.endpoints_fetched_at.is_none());
     assert!(!state.models_loading);
     assert!(!state.endpoints_loading);
-    assert!(!state.epoch_loading);
-    assert_eq!(state.epoch_source, EpochSource::Seed);
+    assert!(!state.eci_loading);
+    assert!(!state.vals_loading);
+    assert_eq!(state.eci_source, EciSource::Seed);
+    assert_eq!(state.vals_source, ValsSource::None);
     assert!(state.last_error.is_none());
+}
+
+#[rstest::rstest]
+fn vals_index_lookups_key_on_the_provider_model_slug() {
+    // Given an index with one model.
+    let mut index = ValsIndex::default();
+    index.scores.insert(
+        "anthropic/claude-sonnet-5-5".to_owned(),
+        ValsScore { accuracy: 71.309 },
+    );
+
+    // When looking the slug up.
+    let score = index.get("anthropic/claude-sonnet-5-5");
+
+    // Then the accuracy comes back.
+    assert_eq!(score, Some(&ValsScore { accuracy: 71.309 }));
+    // And a missing slug resolves to nothing (the `—` + `#` path).
+    assert!(index.get("unmatched/model").is_none());
+    // And the census reflects the single entry.
+    assert_eq!(index.len(), 1);
+    assert!(!index.is_empty());
+}
+
+#[rstest::rstest]
+fn market_row_roundtrips_the_vals_field_and_defaults_it_for_old_caches() {
+    // Given a row with the vals field set, serialized to JSON.
+    let row = MarketRow {
+        id: "openrouter/z-ai/glm-5.3".to_owned(),
+        author: "z-ai".to_owned(),
+        slug: "glm-5.3".to_owned(),
+        variant: None,
+        prompt_price: 1e-6,
+        completion_price: 2e-6,
+        cache_read_price: None,
+        has_overrides: false,
+        context_length: None,
+        eci: None,
+        eci_ci: None,
+        vals: Some(58.4),
+        is_free: false,
+    };
+    let json = serde_json::to_string(&row).expect("row serializes");
+
+    // When deserializing it back, and also deserializing a cache payload
+    // written before the field existed (no `vals` key).
+    let back: MarketRow = serde_json::from_str(&json).expect("row deserializes");
+    let legacy = "{\"id\":\"openrouter/a/b\",\"author\":\"a\",\"slug\":\"b\",\
+        \"prompt_price\":1e-6,\"completion_price\":2e-6,\"cache_read_price\":null,\
+        \"has_overrides\":false,\"context_length\":null,\"eci\":null,\"eci_ci\":null,\
+        \"is_free\":false}";
+
+    // Then the roundtrip carries the accuracy, and the legacy payload
+    // defaults the field to None instead of failing to load.
+    assert_eq!(back.vals, Some(58.4));
+    let loaded: MarketRow = serde_json::from_str(legacy).expect("legacy cache loads");
+    assert_eq!(loaded.vals, None);
 }

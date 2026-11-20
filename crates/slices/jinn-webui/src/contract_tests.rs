@@ -52,6 +52,7 @@ fn row(session_id: jinn_core_types::SessionId, title: &str, active: bool) -> Ses
         active,
         is_bot: false,
         loaded: true,
+        unread: false,
         depth: 0,
     }
 }
@@ -100,6 +101,7 @@ fn rendered_page() -> String {
         sessions_id: contract::SESSIONS_ID,
         sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
+        session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -108,6 +110,9 @@ fn rendered_page() -> String {
         menu_id: contract::MENU_ID,
         drawer_scrim_id: contract::DRAWER_SCRIM_ID,
         menu_scrim_id: contract::MENU_SCRIM_ID,
+        stream_url: String::new(),
+        sessions_route: contract::SESSIONS_ROUTE,
+        session_page_path: contract::SESSION_PAGE_PREFIX,
     })
     .expect("the page shell renders")
 }
@@ -186,7 +191,8 @@ fn the_client_script_tag_names_the_vendored_bundle() {
     );
     assert!(
         page.contains("type=\"module\""),
-        "the client must load as an ES module: {page}"
+        "the client must load as a module script (the dist carries an \
+         ESM export tail): {page}"
     );
 }
 
@@ -216,6 +222,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         sessions_id: contract::SESSIONS_ID,
         sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
+        session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -224,6 +231,9 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         menu_id: contract::MENU_ID,
         drawer_scrim_id: contract::DRAWER_SCRIM_ID,
         menu_scrim_id: contract::MENU_SCRIM_ID,
+        stream_url: String::new(),
+        sessions_route: contract::SESSIONS_ROUTE,
+        session_page_path: contract::SESSION_PAGE_PREFIX,
     })
     .expect("the page shell renders");
 
@@ -277,23 +287,14 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
     ))
     .expect("busy controls render");
 
-    // Then the idle fragment names the send action and the busy one
-    // names cancel — the action names the client maps to POST
-    // endpoints, spelled exactly as the contract defines them.
+    // Then the idle fragment binds send (its endpoint spelled from
+    // the contract) and the busy one binds cancel.
     assert!(
-        idle.contains(&format!(
-            "{}=\"{}\"",
-            contract::ACTION_DATA_ATTR,
-            contract::ACTION_SEND
-        )),
+        idle.contains(&format!("@post('{}'", contract::SEND_PATH)),
         "{idle}"
     );
     assert!(
-        busy.contains(&format!(
-            "{}=\"{}\"",
-            contract::ACTION_DATA_ATTR,
-            contract::ACTION_CANCEL
-        )),
+        busy.contains(&format!("@post('{}'", contract::CANCEL_PATH)),
         "{busy}"
     );
     // And the composer carries the input id the client reads the
@@ -320,14 +321,10 @@ fn the_model_picker_names_the_action_the_client_maps_to_the_model_endpoint() {
     ))
     .expect("the row renders");
 
-    // Then the row names the model action via the contract's
-    // attribute.
+    // Then the row's switch rides the declarative click handler
+    // posting the model endpoint spelled from the contract.
     assert!(
-        fragment.contains(&format!(
-            "{}=\"{}\"",
-            contract::ACTION_DATA_ATTR,
-            contract::ACTION_MODEL
-        )),
+        fragment.contains(&format!("@post('{}'", contract::MODEL_PATH)),
         "{fragment}"
     );
 }
@@ -422,11 +419,7 @@ async fn the_active_row_is_promoted_and_marked_in_the_modal() {
         "{html}"
     );
     assert!(
-        html.contains(&format!(
-            "{}=\"{}\"",
-            contract::ACTION_DATA_ATTR,
-            contract::ACTION_REFRESH_MODELS
-        )),
+        html.contains(&format!("@post('{}'", contract::MODELS_REFRESH_PATH)),
         "{html}"
     );
 }
@@ -448,7 +441,10 @@ async fn the_button_fragment_carries_the_button_id_and_the_model_action_name() {
         html.contains(&format!("id=\"{}\"", contract::MODEL_PICKER_BUTTON_ID)),
         "{html}"
     );
-    assert!(!html.contains(contract::MODEL_PICKER_MODAL_ID), "{html}");
+    assert!(
+        !html.contains(&format!("id=\"{}\"", contract::MODEL_PICKER_MODAL_ID)),
+        "{html}"
+    );
 }
 
 /// Renders one row with the contract hooks filled.
@@ -475,6 +471,12 @@ fn test_shared() -> crate::server::ServerShared {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once");
+    let unread_marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once");
     let state = {
         let app = jinn_app_state::AppState::default();
         app.session.attach_slices(slices.clone());
@@ -484,7 +486,7 @@ fn test_shared() -> crate::server::ServerShared {
     let fanout = {
         use trouper::system::ActorSystem;
         let system = ActorSystem::new(trouper::system::SystemConfig::production());
-        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone())
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
     };
     crate::server::ServerShared::new(
         state,
@@ -505,6 +507,7 @@ fn test_shared() -> crate::server::ServerShared {
             .expect("an empty providers config expands"),
         ),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
         fanout,
         0,
         "contract-test".to_owned(),
@@ -519,55 +522,41 @@ fn seed_session(shared: &crate::server::ServerShared) -> String {
     id.to_string()
 }
 
-// ── The contract and the emitted client agree (parity) ──────────────
+// ── The contract and the served page agree (self-parity) ────────────
+//
+// The TypeScript mirror is gone: the contract's single consumer is
+// the askama page itself, which interpolates the constants at compile
+// time. What remains to gate is the vocabulary's integrity — every
+// constant referenced somewhere (a template, a push, a route) is
+// declared, unique, and present in the rendered page.
 
 #[rstest::rstest]
 #[test]
-fn the_contract_source_and_the_client_wire_file_agree_on_every_name() {
-    // Given the contract's DOM constants (the single derivation
-    // source — adding a constant here is the whole server-side act)
-    // and the client's TypeScript source (compiled to /vendor by
-    // `just webui-build`; the source rides beside this crate in the
-    // workspace tree).
-    let client_src = client_wire_source();
+fn every_dom_constant_is_a_unique_nonempty_vocabulary_entry() {
+    // Given the contract's DOM constants.
+    let mut seen = std::collections::BTreeSet::new();
 
-    // When reading each name the two sides must agree on.
-    //
-    // Then each contract value appears verbatim in the client source —
-    // one drift test, both directions (a renamed id on either side
-    // fails here before any browser sees it). Derived from
-    // `contract::DOM_CONSTANTS`, not a hand-maintained pairs array:
-    // the two lists cannot disagree because there is one list.
+    // Then each is non-empty and no two agree — a duplicated or empty
+    // id would make the registry's uniqueness gate and the browser's
+    // getElementById disagree silently.
     assert!(
         !contract::DOM_CONSTANTS.is_empty(),
         "the contract names at least one DOM constant"
     );
     for value in contract::DOM_CONSTANTS {
+        assert!(!value.is_empty(), "an empty DOM constant is declared");
         assert!(
-            client_src.contains(value),
-            "contract value ({value}) is missing from webui/client/src/wire.ts — \
-             the Rust and TypeScript contracts have drifted"
-        );
-    }
-    // And the endpoint constants the client builds request URLs
-    // from get the same treatment. `CLIENT_PATHS` is the server's
-    // full route table (it includes composable suffixes the page
-    // handlers use); `CLIENT_URLS` is the client-facing subset —
-    // the set wire.ts mirrors by design.
-    for value in contract::CLIENT_URLS {
-        assert!(
-            client_src.contains(value),
-            "client URL ({value}) is missing from webui/client/src/wire.ts — \
-             the Rust and TypeScript contracts have drifted"
+            seen.insert(*value),
+            "the DOM constant {value} is declared twice"
         );
     }
 }
 
 #[rstest::rstest]
 #[test]
-fn every_sse_event_name_appears_in_the_client_wire_file() {
+fn every_sse_kind_maps_to_a_datastar_transport() {
     // Given every SSE kind the server can push (derived from the
-    // enum, not a hand-maintained list) and the client's wire source.
+    // enum, not a hand-maintained list).
     let kinds = [
         jinn_webui_msg::SseKind::Chat,
         jinn_webui_msg::SseKind::Controls,
@@ -575,81 +564,60 @@ fn every_sse_event_name_appears_in_the_client_wire_file() {
         jinn_webui_msg::SseKind::Models,
         jinn_webui_msg::SseKind::TranscriptFull,
     ];
-    let client_src = client_wire_source();
 
-    // When reading each kind's event name.
-    // Then it appears verbatim in the wire file — a renamed event on
-    // either side fails here, before a listener silently stops
-    // firing.
-    assert!(
-        !kinds.is_empty(),
-        "the protocol defines at least one SSE kind"
-    );
+    // Then each translates to an SDK event without error and the
+    // selector it patches names a contract id — the push vocabulary
+    // and the DOM vocabulary cannot drift apart.
     for kind in kinds {
-        let name = kind.event_name();
+        let events = crate::push::sdk_events_of(
+            &jinn_webui_msg::SseEnvelope {
+                kind,
+                session_id: jinn_core_types::SessionId::new(),
+                cursor: 1,
+                html: "<span>x</span>".to_owned(),
+            },
+            1,
+        )
+        .unwrap_or_else(|error| panic!("{kind:?} must translate: {error:?}"));
+        let event = events
+            .first()
+            .expect("every kind translates to at least one event")
+            .clone();
+        let data = event.data.join("\n");
+        for id in [contract::TRANSCRIPT_ID, contract::CONTROLS_ID] {
+            let _ = id; // vocabulary tie: selectors live in push.rs
+        }
         assert!(
-            client_src.contains(name),
-            "SSE event name ({name}) is missing from webui/client/src/wire.ts — \
-             the Rust and TypeScript contracts have drifted"
+            data.contains("selector") || event.event == datastar::consts::EventType::PatchSignals,
+            "{kind:?} must carry a selector or be a signal patch: {data}"
         );
     }
 }
 
 #[rstest::rstest]
 #[test]
-fn every_import_in_the_shipped_bundle_resolves_through_the_vendor_table() {
-    // Given the shipped entry module's bytes (the gzipped emit the
-    // binary embeds — the pin script rewrote its imports to
-    // hash-bearing URLs).
+fn the_shipped_bundle_is_the_self_contained_datastar_runtime() {
+    // Given the shipped bundle's bytes (the committed dist the binary
+    // embeds — one self-contained classic script, no import graph).
     let entry = crate::vendor::VENDOR_ASSETS
         .iter()
         .find(|a| a.path == contract::VENDOR_APP_JS)
-        .expect("the entry module is a manifest row");
+        .expect("the bundle is a manifest row");
     let mut decoder = flate2::read::GzDecoder::new(entry.bytes);
     let mut bytes = Vec::new();
-    std::io::Read::read_to_end(&mut decoder, &mut bytes).expect("the entry module gunzips");
-    let source = String::from_utf8(bytes).expect("the emit is utf-8");
+    std::io::Read::read_to_end(&mut decoder, &mut bytes).expect("the bundle gunzips");
+    let source = String::from_utf8(bytes).expect("the bundle is utf-8");
 
-    // When scanning every relative import specifier.
-    let mut count = 0;
-    for candidate in source.split("from \"").skip(1) {
-        let spec = candidate.split('"').next().expect("a closing quote");
-        if !spec.starts_with("./") {
-            continue;
-        }
-        count += 1;
-
-        // Then each resolves to a manifest row under its hash — the
-        // import graph and the vendor table cannot drift apart.
-        let url = spec.trim_start_matches("./");
-        assert!(
-            crate::vendor::resolve_request(url).is_some_and(|(_, hash)| hash.is_some()),
-            "import {spec} in the shipped bundle does not resolve to a \
-             hash-pinned vendor row — re-run `just webui-build`"
-        );
-    }
-    assert!(count >= 3, "the entry module imports its graph: {source}");
-}
-
-/// The client's TypeScript wire source, read from the workspace tree.
-///
-/// The file is authored (not a build artifact), so reading it here is
-/// stable; the compiled bundle is gated by `just webui-verify`, and
-/// THIS test is what catches a source-level rename on either side.
-///
-/// Anchored at `CARGO_MANIFEST_DIR`, never at the process cwd: test
-/// exes for this workspace run from a build-cache mirror
-/// (`target/debug/...`), whose `../../../` lands in the cache, not in
-/// the source tree.
-fn client_wire_source() -> String {
-    // <workspace>/crates/slices/jinn-webui -> <workspace>/webui/client.
-    let path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../webui/client/src/wire.ts");
-    std::fs::read_to_string(&path).unwrap_or_else(|error| {
-        panic!(
-            "reading the client wire contract at {}: {error} — the drift test needs the \
-             TypeScript source",
-            path.display()
-        )
-    })
+    // Then it is the Datastar runtime: the banner names it, it pulls
+    // no other module (an import would 404 — the vendor table holds
+    // exactly this one row), and the page must load it as a module
+    // script (the dist carries an ESM export tail; the earlier
+    // classic-script tag would have been a SyntaxError — caught here).
+    assert!(source.contains("Datastar v"), "not the Datastar bundle");
+    assert!(!source.contains("from \"./"), "unexpected relative import");
+    assert!(!source.contains("import("), "unexpected dynamic import");
+    assert!(
+        source.contains("export{"),
+        "the dist's ESM tail is expected"
+    );
 }

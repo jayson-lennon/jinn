@@ -14,8 +14,11 @@ import { baseUrl } from "./run.mjs";
  * Waits until the page's SSE stream is connected before returning:
  * the busy-controls push a cancel test relies on is broadcast-only
  * (no catch-up replay), so interacting before the stream opens races
- * a missed push. An init script counts EventSource instances and
- * their open events — an observer, not an app hook.
+ * a missed push. An init script counts stream fetches that got an
+ * `text/event-stream` response — the Datastar runtime's transport is
+ * `fetch()` plus manual SSE parsing (no EventSource), so counting
+ * those responses observes "a stream opened", same semantics as the
+ * old EventSource counter. An observer, not an app hook.
  *
  * @param {import("@playwright/test").Page} page the browser page.
  * @returns {Promise<string>} the session id now in the page root.
@@ -46,21 +49,24 @@ export async function openSession(page) {
 async function observeEventSources(page) {
   await page.addInitScript(() => {
     window.__e2eSseOpens = 0;
-    const Native = window.EventSource;
+    const Native = window.fetch;
     if (!Native) return;
-    window.EventSource = class extends Native {
-      constructor(...args) {
-        super(...args);
-        this.addEventListener("open", () => {
+    window.fetch = (...args) =>
+      Native(...args).then((response) => {
+        const url = typeof args[0] === "string" ? args[0] : args[0]?.url ?? "";
+        if (
+          url.includes("/web/stream/") &&
+          response.headers.get("content-type")?.includes("text/event-stream")
+        ) {
           window.__e2eSseOpens += 1;
-        });
-      }
-    };
+        }
+        return response;
+      });
   });
 }
 
 /**
- * Waits until at least one EventSource on the page has fired `open`.
+ * Waits until at least one stream fetch on the page has connected.
  *
  * @param {import("@playwright/test").Page} page the browser page.
  * @returns {Promise<void>} resolves once the stream is connected.

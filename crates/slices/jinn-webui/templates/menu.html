@@ -1,6 +1,11 @@
 <span id="{{ menu_id }}">
-  <button id="{{ menu_button_id }}" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="{{ menu_panel_id }}">&#x2630;</button>
-  <span id="{{ menu_panel_id }}" hidden>
-    <button id="{{ menu_item_sessions_id }}" {{ action_attr }}="{{ menu_action }}">Sessions</button>
+  <button id="{{ menu_button_id }}" type="button" aria-haspopup="true"
+          data-attr:aria-expanded="$menuOpen ? 'true' : 'false'"
+          data-on:click="$menuOpen = true" aria-controls="{{ menu_panel_id }}">&#x2630;</button>
+  <span id="{{ menu_panel_id }}" data-attr:hidden="$menuOpen ? null : true" hidden>
+    <button id="{{ menu_item_new_session_id }}"
+            data-on:click="$menuOpen = false; $sessionNewOpen = true; @get('{{ session_new_path }}', {selector: '#{{ session_new_host_id }}', openWhenHidden: true})">New session</button>
+    <button id="{{ menu_item_sessions_id }}"
+            data-on:click="$menuOpen = false; $drawerOpen = !$drawerOpen">Sessions</button>
   </span>
 </span>

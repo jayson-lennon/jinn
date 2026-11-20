@@ -17,8 +17,8 @@
 
 use jinn_kernel::common::bus::HarnessServices;
 use jinn_kernel::common::render_test::seed_cell;
+use jinn_model_market_msg::EciLoaded;
 use jinn_model_market_msg::EndpointsLoaded;
-use jinn_model_market_msg::EpochLoaded;
 use jinn_model_market_msg::FetchEndpoints;
 use jinn_model_market_msg::FetchModels;
 use jinn_model_market_msg::MarketDataState;
@@ -40,8 +40,8 @@ use std::time::Duration;
 
 use super::OpenRouterMarketActor;
 use super::OpenRouterMarketActorDeps;
-use crate::epoch_actor::EpochMarketActor;
-use crate::epoch_actor::EpochMarketActorDeps;
+use crate::score_actor::ScoreMarketActor;
+use crate::score_actor::ScoreMarketActorDeps;
 
 /// The harness wait: past the 250ms debounce, small enough to keep the
 /// suite snappy. Tests that wait on a full refresh — two network fetches
@@ -54,8 +54,8 @@ const SETTLE: Duration = Duration::from_millis(700);
 /// The wait for tests that ride a RefreshAll through the mockito server.
 const REFRESH_SETTLE: Duration = Duration::from_secs(5);
 
-/// The epoch zip URL pointing at a port nothing listens on — the epoch
-/// actor's download fails fast, which is all a delivery test needs.
+/// The score URLs pointing at a port nothing listens on — every score
+/// download fails fast, which is all a delivery test needs.
 const DEAD_ZIP_URL: &str = "http://127.0.0.1:9/data/benchmark_data.zip";
 
 /// One wired test world: harness bus, the two cells, mockito URL.
@@ -76,9 +76,9 @@ struct World {
     /// one `Arc<RwLock<…>>`, so inserting here after the spawn is
     /// exactly what production's env ask does after the actor spawns.
     api_keys: jinn_provider_config::ApiKeysService,
-    /// The epoch cache dir inside the market cache dir — the epoch
+    /// The score cache dir inside the market cache dir — the score
     /// actor's own drop target.
-    epoch_dir: MarkedPathBuf<Absolute>,
+    score_dir: MarkedPathBuf<Absolute>,
 }
 
 impl World {
@@ -103,6 +103,7 @@ impl World {
                 ui: ui.clone(),
                 base_url: base_url.to_owned(),
                 cache_dir: Some(cache_dir.clone()),
+                opener: std::sync::Arc::new(super::SilentPageOpener),
             },
         );
         Self {
@@ -111,32 +112,33 @@ impl World {
             ui,
             base_url: base_url.to_owned(),
             api_keys,
-            epoch_dir: cache_dir
-                .join("epoch")
+            score_dir: cache_dir
+                .join("scores")
                 .expect("cache root joins a bare name"),
             cache_dir,
         }
     }
 
     /// Builds the world with BOTH market actors on the bus: the
-    /// OpenRouter models actor and the epoch actor.
+    /// OpenRouter models actor and the score actor.
     ///
-    /// The epoch actor's zip URL points at a dead port, so its download
+    /// The score actor's URLs point at dead ports, so its download
     /// fails fast and it falls back to the shipped seed — the delivery
-    /// test is about which actors act, not about the epoch download
+    /// test is about which actors act, not about the downloads
     /// succeeding.
-    async fn start_with_epoch_actor(base_url: &str, cache_dir: MarkedPathBuf<Absolute>) -> Self {
+    async fn start_with_score_actor(base_url: &str, cache_dir: MarkedPathBuf<Absolute>) -> Self {
         let world = Self::start(base_url, cache_dir).await;
         let deps = world.harness.actor_deps().await;
-        EpochMarketActor::spawn(
+        ScoreMarketActor::spawn(
             world.harness.system(),
-            EpochMarketActorDeps {
+            ScoreMarketActorDeps {
                 deps,
                 data_cell: world.data.clone(),
-                cache_dir: world.epoch_dir.clone(),
+                cache_dirs: crate::score_cache::ScoreCacheDirs::new(&world.score_dir.clone()),
                 client: reqwest::Client::new(),
                 zip_url: DEAD_ZIP_URL.to_owned(),
-                now_ms: crate::epoch_actor::epoch_market_clock(),
+                vals_page_url: DEAD_ZIP_URL.to_owned(),
+                now_ms: crate::score_actor::score_market_clock(),
             },
         );
         world
@@ -274,7 +276,7 @@ async fn expired_models_ttl_refetches() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn epoch_loaded_rejoins_rows_without_a_refetch() {
+async fn eci_loaded_rejoins_rows_without_a_refetch() {
     // Given an actor that fetched models while the index was absent —
     // rows built with dead ECI fields — and a models mock that would
     // FAIL if hit again (the re-join must not refetch). The catalog
@@ -315,9 +317,9 @@ async fn epoch_loaded_rejoins_rows_without_a_refetch() {
         "precondition: rows joined against an empty index"
     );
 
-    // When the epoch actor lands the index in the cell and publishes
-    // EpochLoaded — the raw display-name key form the real epoch uses.
-    let index = crate::epoch::parse_eci_scores(crate::epoch::SEED_ECI_SCORES)
+    // When the score actor lands the index in the cell and publishes
+    // EciLoaded — the raw display-name key form the real epoch uses.
+    let index = crate::eci::parse_eci_scores(crate::eci::SEED_ECI_SCORES)
         .expect("seed parses")
         .0;
     world
@@ -325,8 +327,8 @@ async fn epoch_loaded_rejoins_rows_without_a_refetch() {
         .update(|d| d.eci = Some(std::sync::Arc::new(index)));
     world
         .harness
-        .publish(jinn_model_market_msg::EpochLoaded {
-            source: jinn_model_market_msg::EpochSource::Seed,
+        .publish(jinn_model_market_msg::EciLoaded {
+            source: jinn_model_market_msg::EciSource::Seed,
             matched: 1,
             total: 1,
         })
@@ -345,7 +347,7 @@ async fn epoch_loaded_rejoins_rows_without_a_refetch() {
     let after = world.data.read();
     assert!(
         after.rows.iter().any(|r| r.eci.is_some()),
-        "EpochLoaded must re-join the retained raw listings"
+        "EciLoaded must re-join the retained raw listings"
     );
 }
 
@@ -456,13 +458,13 @@ async fn refresh_all_drops_every_cache() {
 #[tokio::test]
 async fn one_refresh_publish_reaches_both_market_actors_exactly_once() {
     // Given the market's two actors on one bus — the OpenRouter models
-    // actor and the epoch actor — with both caches seeded on disk.
+    // actor and the score actor — with both caches seeded on disk.
     // The server and the temp dir outlive the setup block: the mock
     // checks read the server's live state, and the dir owns the
     // cache tree the refresh sweeps.
     let mut server = mockito::Server::new_async().await;
     let dir = jinn_testutil::tempdir();
-    let (world, epoch_dir, models_recorder, epoch_recorder, models_mock) = {
+    let (world, score_dir, models_recorder, eci_recorder, models_mock) = {
         let at = jiff::Timestamp::now() - jiff::SignedDuration::from_hours(1);
         crate::market_cache::store(
             &dir.path
@@ -471,24 +473,18 @@ async fn one_refresh_publish_reaches_both_market_actors_exactly_once() {
             &crate::market_cache::stamped(fixture_rows(), at),
         )
         .expect("seed models cache");
-        let world = World::start_with_epoch_actor(&server.url(), dir.path.clone()).await;
-        let epoch_dir = world.epoch_dir.clone();
-        std::fs::create_dir_all(&epoch_dir).expect("seed epoch cache dir");
+        let world = World::start_with_score_actor(&server.url(), dir.path.clone()).await;
+        let score_dir = world.score_dir.clone();
+        std::fs::create_dir_all(&score_dir).expect("seed score cache dir");
         // The recorders watch the halves' OUTPUTS. A recorder is a trouper
         // tap — a declarant — so tapping `RefreshAll` or the chain event
         // would add a second handler and flip the refresh path's route
         // policy inside the test. The outputs are inert: `ModelsLoaded` and
-        // `EpochLoaded` are events, and the tap only observes them.
+        // `EciLoaded` are events, and the tap only observes them.
         let models_recorder = world.models_recorder().await;
-        let epoch_recorder = world.harness.spawn_recorder::<EpochLoaded>().await;
+        let eci_recorder = world.harness.spawn_recorder::<EciLoaded>().await;
         let models_mock = expect_models_once(&mut server).await;
-        (
-            world,
-            epoch_dir,
-            models_recorder,
-            epoch_recorder,
-            models_mock,
-        )
+        (world, score_dir, models_recorder, eci_recorder, models_mock)
     };
 
     // When ONE `RefreshAll` rides the ERASED publish path — the route
@@ -501,18 +497,26 @@ async fn one_refresh_publish_reaches_both_market_actors_exactly_once() {
         closure(&sink);
     }
     let models_loaded = await_recorded(&models_recorder, 1, REFRESH_SETTLE).await;
-    let epoch_loaded = await_recorded(&epoch_recorder, 1, REFRESH_SETTLE).await;
+    let eci_loaded = await_recorded(&eci_recorder, 1, REFRESH_SETTLE).await;
 
     // Then BOTH halves acted on the single publish: the models actor
     // refetched (its cache is gone and the one allowed GET was spent)
-    // and the epoch actor dropped its cache dir.
+    // and the score actor dropped its cache dir.
     assert_eq!(models_loaded.len(), 1, "the models actor refetched");
     assert!(!models_loaded[0].from_cache, "a refresh is not from_cache");
     models_mock.assert_async().await;
-    assert_eq!(epoch_loaded.len(), 1, "the epoch actor refreshed");
+    assert_eq!(eci_loaded.len(), 1, "the score actor refreshed");
+    let dropped = |name: &str| {
+        score_dir
+            .join(name)
+            .expect("subdir join")
+            .as_path()
+            .try_exists()
+            .unwrap_or(false)
+    };
     assert!(
-        !epoch_dir.exists(),
-        "one publish must reach the epoch actor's cache drop too"
+        !dropped("eci") && !dropped("vals"),
+        "one publish must reach the score actor's cache drop too"
     );
     // And one publish is one refresh, not two: neither half ran twice.
     // The absence assertion below is only meaningful once the event stream
@@ -525,16 +529,16 @@ async fn one_refresh_publish_reaches_both_market_actors_exactly_once() {
     )
     .await;
     jinn_testutil::wait::await_settled(
-        &epoch_recorder,
+        &eci_recorder,
         std::time::Duration::from_millis(200),
         std::time::Duration::from_secs(10),
     )
     .await;
     assert!(
-        models_recorder.is_empty() && epoch_recorder.is_empty(),
-        "one publish must deliver one refresh per half, got models: {:?}, epoch: {:?}",
+        models_recorder.is_empty() && eci_recorder.is_empty(),
+        "one publish must deliver one refresh per half, got models: {:?}, eci: {:?}",
         models_recorder.drain(),
-        epoch_recorder.drain(),
+        eci_recorder.drain(),
     );
 }
 
@@ -554,7 +558,7 @@ async fn refresh_all_emits_the_chain_fact_exactly_once() {
     )
     .expect("seed the warm cache");
     let world = World::start(&server.url(), dir.path.clone()).await;
-    // The chain fact's declarant set is the epoch actor's alone in
+    // The chain fact's declarant set is the score actor's alone in
     // production. A tap here makes it two declarants of an EVENT, which
     // still broadcasts to both — the tap observes without changing the
     // chain's delivery.
@@ -619,7 +623,7 @@ fn refresh_route_action_publishes_only_the_refresh_command() {
 
     // Then the action publishes exactly one message, the refresh
     // command. A second message would put two publishes on the wire
-    // with no ordering between them — the chain is the epoch half's
+    // with no ordering between them — the chain is the score half's
     // trigger, not a second publish.
     assert_eq!(result.message_names, vec!["RefreshAll"]);
     assert_eq!(result.messages.len(), 1);
@@ -990,6 +994,161 @@ fn fixture_rows() -> Vec<jinn_model_market_msg::MarketRow> {
         context_length: Some(100_000),
         eci: None,
         eci_ci: None,
+        vals: None,
         is_free: false,
     }]
+}
+
+// ── `O`: the model-page open ─────────────────────────────────────────────
+
+use error_stack::Report;
+use jinn_model_market_msg::OpenModelPage;
+use jinn_session_history_msg::PushChatEntry;
+
+use super::PageOpenError;
+use super::PageOpener;
+use super::model_page_url;
+
+/// An opener scripted to fail — the `xdg-open`-missing shape.
+struct FailingPageOpener;
+
+impl PageOpener for FailingPageOpener {
+    fn open(&self, url: &str) -> Result<(), Report<PageOpenError>> {
+        Err(Report::new(PageOpenError)
+            .attach(format!("no browser opener on this platform for {url}")))
+    }
+
+    fn name(&self) -> &'static str {
+        "failing"
+    }
+}
+
+/// A world whose OpenRouter actor launches pages through a scripted
+/// opener. The fetch caches are unused here — a page open never hits
+/// the network — so the base URL can point at a dead port.
+async fn start_with_opener(
+    opener: std::sync::Arc<dyn PageOpener>,
+) -> (World, jinn_core_types::SessionId) {
+    let cache = jinn_testutil::tempdir();
+    let cache_dir = cache
+        .path
+        .join("market-cache")
+        .expect("tempdir root joins a bare name");
+    let harness = TestHarness::new().await;
+    let deps = harness.actor_deps().await;
+    let api_keys = deps.services.api_keys.clone();
+    let slices = Slices::new();
+    let data = seed_cell(&slices, &market_data_slot(), MarketDataState::default());
+    let ui = seed_cell(&slices, &market_ui_slot(), MarketUiState::default());
+    OpenRouterMarketActor::spawn(
+        harness.system(),
+        OpenRouterMarketActorDeps {
+            deps,
+            data: data.clone(),
+            ui: ui.clone(),
+            base_url: "http://127.0.0.1:9".to_owned(),
+            cache_dir: Some(cache_dir.clone()),
+            opener,
+        },
+    );
+    let world = World {
+        harness,
+        data,
+        ui,
+        base_url: String::new(),
+        api_keys,
+        score_dir: cache_dir.clone(),
+        cache_dir,
+    };
+    let session_id = jinn_core_types::SessionId::new_v5_tag("s-page-open");
+    (world, session_id)
+}
+
+/// `O` against a broken opener reports into the stamped session: one
+/// `PushChatEntry`, an `Error` entry, user-facing prose naming the URL.
+#[rstest::rstest]
+#[tokio::test]
+async fn a_failed_page_open_reports_a_chat_error_into_the_stamped_session() {
+    // Given an actor whose opener always fails, and a page-open command
+    // addressed to a session.
+    let (world, session_id) = start_with_opener(std::sync::Arc::new(FailingPageOpener)).await;
+    let chat = world.harness.spawn_recorder::<PushChatEntry>().await;
+
+    // When the open is published.
+    world
+        .harness
+        .publish(OpenModelPage {
+            model_id: "openrouter/a/small:free".to_owned(),
+            session_id: session_id.clone(),
+        })
+        .await;
+    let pushed = await_recorded(&chat, 1, SETTLE).await;
+
+    // Then exactly one chat entry lands, in the addressed session, an
+    // Error entry carrying the URL and the failure detail.
+    assert_eq!(pushed.len(), 1, "exactly one PushChatEntry, got {pushed:?}");
+    assert_eq!(pushed[0].session_id, session_id);
+    let jinn_core_types::ChatEntryKind::Error(text) = &pushed[0].entry.kind else {
+        panic!(
+            "a failed open reports an Error entry, got {:?}",
+            pushed[0].entry.kind
+        );
+    };
+    assert!(
+        text.contains("https://openrouter.ai/a/small:free"),
+        "the note names the URL, got: {text}"
+    );
+    assert!(
+        text.contains("could not open"),
+        "the note is user-facing prose, got: {text}"
+    );
+}
+
+/// `O` against a working opener reports nothing: the recorder drains
+/// empty — silence is the success contract.
+#[rstest::rstest]
+#[tokio::test]
+async fn a_successful_page_open_reports_nothing() {
+    // Given an actor whose opener succeeds.
+    let (world, session_id) = start_with_opener(std::sync::Arc::new(super::SilentPageOpener)).await;
+    let chat = world.harness.spawn_recorder::<PushChatEntry>().await;
+
+    // When the open is published and the stream settles.
+    world
+        .harness
+        .publish(OpenModelPage {
+            model_id: "openrouter/a/small".to_owned(),
+            session_id,
+        })
+        .await;
+    jinn_testutil::wait::await_settled(&chat, std::time::Duration::from_millis(200), SETTLE).await;
+
+    // Then nothing was pushed.
+    assert!(
+        chat.is_empty(),
+        "a successful open is silent, got: {:?}",
+        chat.drain()
+    );
+}
+
+/// The page URL derives from the listing id: prefix stripped, variant
+/// suffix riding along, prefix-miss falling back to the raw id.
+#[rstest::rstest]
+#[case(
+    "openrouter/deepseek/deepseek-chat:free",
+    "https://openrouter.ai/deepseek/deepseek-chat:free"
+)]
+#[case(
+    "openrouter/openai/gpt-oss-120b",
+    "https://openrouter.ai/openai/gpt-oss-120b"
+)]
+#[case(
+    "deepseek/deepseek-chat",
+    "https://openrouter.ai/deepseek/deepseek-chat"
+)]
+fn model_page_url_strips_the_prefix_and_keeps_the_variant(
+    #[case] model_id: &str,
+    #[case] expected: &str,
+) {
+    assert_eq!(model_page_url(model_id), expected);
 }
