@@ -1,9 +1,9 @@
 //! Every selector the e2e specs use, derived from the wire contract.
 //!
-//! Mirrors `webui/client/src/wire.ts` — the contract's drift tests
-//! already hold wire.ts equal to the Rust contract, and these strings
-//! hold this file equal to wire.ts. A contract rename therefore fails
-//! here as a visibly wrong selector, not as a silently passing one.
+//! The contract's single source is the Rust `contract.rs`; these
+//! strings are the ids the server's page template renders. A contract
+//! rename therefore fails here as a visibly wrong selector, not as a
+//! silently passing one.
 
 /** The sessions-list container id (`wire.SESS​IONS_ID`). */
 export const SESSIONS_ID = "#sessions";

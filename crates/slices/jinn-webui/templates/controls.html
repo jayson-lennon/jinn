@@ -2,10 +2,12 @@
 <div id="{{ spinner_id }}" class="busy-spinner" title="Streaming…"></div>
 {%- endif -%}
 <div id="{{ composer_id }}">
-  <textarea id="{{ input_id }}" placeholder="Message… (Enter to send, Shift+Enter for newline)"></textarea>
+  <textarea id="{{ input_id }}" placeholder="Message… (Enter to send, Shift+Enter for newline)"
+            data-bind:text
+            data-on:key__down="evt.key === 'Enter' && !evt.shiftKey && (evt.preventDefault() || true) && $text.trim().length > 0 && @post('{{ send_path }}', {contentType: 'json'})"></textarea>
   {%- if busy -%}
-  <button class="cancel" {{ action_attr }}="{{ cancel_action }}">{{ cancel_label }}</button>
+  <button class="cancel" {{ action_attr }}="{{ cancel_action }}" data-on:click="@post('{{ cancel_path }}', {contentType: 'json'})">{{ cancel_label }}</button>
   {%- else -%}
-  <button {{ action_attr }}="{{ send_action }}">{{ send_label }}</button>
+  <button {{ action_attr }}="{{ send_action }}" data-on:click="$text.trim().length > 0 && @post('{{ send_path }}', {contentType: 'json'})">{{ send_label }}</button>
   {%- endif %}
 </div>

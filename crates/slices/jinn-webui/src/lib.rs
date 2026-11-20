@@ -28,8 +28,8 @@
 //! Units, by module:
 //!
 //! - [`contract`] — the client/server DOM-and-URL contract: every id,
-//!   attribute, and path the browser client targets, with the
-//!   referential-integrity and parity gates beside it.
+//!   attribute, signal name, and path the browser runtime targets,
+//!   with the referential-integrity gate beside it.
 //! - [`listener`] — the listener actor: bind, dashboard note, serve
 //!   task. The bind is frozen: read once here, never re-read on
 //!   config reload, because a rebind would strand every connected
@@ -47,9 +47,12 @@
 //! - [`transcript`] — the transcript projection and render functions.
 //! - [`fanout`] — the SSE fan-out actor: events in, HTML fragments
 //!   out.
+//! - [`push`] — the push seam: an [`fanout`] envelope becomes one
+//!   Datastar SDK event (the only place the two vocabularies meet).
 //! - [`vendor`] — the embedded, pre-gzipped frontend asset set (the
-//!   compiled client bundle plus any third-party dists).
-//! - [`templates`] — the askama page and fragment templates.
+//!   Datastar browser bundle).
+//! - [`templates`] — the askama page and fragment templates, carrying
+//!   the Datastar attributes that make the page live.
 //!
 //! Like the remote surface there is no authentication; unlike remote,
 //! non-loopback binds are taken as configured — reaching the UI over a
@@ -59,6 +62,7 @@ pub mod contract;
 pub mod delivery;
 pub mod fanout;
 pub mod listener;
+pub mod push;
 pub mod region;
 pub mod regions;
 pub mod server;

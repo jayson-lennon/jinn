@@ -1,19 +1,21 @@
 //! The web client contract — the single source both sides derive from.
 //!
 //! Every element id, data attribute, class hook, and endpoint path the
-//! browser client targets lives here as a `&'static str` constant. The
+//! browser runtime targets lives here as a `&'static str` constant. The
 //! askama templates render these values (threaded through the template
 //! models' `Default` impls), the router registers its routes from them,
-//! and the TypeScript client in `webui/client/src/contract.ts` mirrors
-//! them as literals. [`contract_tests`] holds the two gates that keep
-//! the mirroring honest: a name-and-value parity check against the TS
-//! file, and a referential-integrity check that every DOM-targeting
-//! constant appears in rendered HTML.
+//! and the declarative Datastar attributes in those templates carry the
+//! ids to the browser — there is no client source tree and no mirrored
+//! constants file; the template interpolation is the enforcement (a
+//! renamed constant fails the template at compile time, not a drifted
+//! string match at test time). [`contract_tests`] holds the
+//! referential-integrity gate that every DOM-targeting constant
+//! appears in rendered HTML.
 //!
 //! The SSE event names are **not** duplicated here — they are
-//! [`SseKind::event_name`] in `jinn-webui-msg`, and the client's wire
-//! module mirrors those (the same parity gate covers them through the
-//! wire fixture).
+//! [`SseKind::event_name`] in `jinn-webui-msg`; the stream endpoint
+//! translates envelopes into Datastar events, whose wire names the SDK
+//! owns.
 
 /// The page shell's root — the element a session switch replaces.
 pub const PAGE_ROOT_ID: &str = "page-root";
@@ -171,6 +173,52 @@ pub const DRAWER_OPEN_CLASS: &str = "drawer-open";
 
 /// The menu's action name — the one item's action attribute value.
 pub const ACTION_MENU_SESSIONS: &str = "menu-sessions";
+
+// ── Datastar signal names ───────────────────────────────────────────
+//
+// The client runtime holds view-local state only; these names are the
+// vocabulary the page's attributes and the server's signal patches
+// share. They are contract (a rename breaks pushes and bindings
+// invisibly), so they live beside the DOM constants.
+
+/// The drawer-open toggle (the drawer class rides the page root).
+pub const SIGNAL_DRAWER_OPEN: &str = "drawerOpen";
+/// The menu panel's open toggle.
+pub const SIGNAL_MENU_OPEN: &str = "menuOpen";
+/// The model-picker modal's open toggle.
+pub const SIGNAL_MODAL_OPEN: &str = "modalOpen";
+/// The new-session modal's open toggle.
+pub const SIGNAL_SESSION_NEW_OPEN: &str = "sessionNewOpen";
+/// The model-switch POST's chosen provider id (stamped by the row).
+pub const SIGNAL_PROVIDER_ID: &str = "providerId";
+/// The model-picker filter text.
+pub const SIGNAL_MODEL_FILTER: &str = "modelFilter";
+/// The refresh-models spinner flag (set on click, cleared when the
+/// cache-landed signal lands).
+pub const SIGNAL_MODELS_REFRESHING: &str = "modelsRefreshing";
+/// The model-cache-changed tick — every landing bumps it; the open
+/// modal's effect re-pulls its rows in response.
+pub const SIGNAL_MODELS_TICK: &str = "modelsTick";
+/// The sessions-list tick — every pushed list refresh bumps it; the
+/// list's effect re-pulls with the active filter (pushed lists are
+/// signal-only: the pull remains the renderer).
+pub const SIGNAL_SESSIONS_TICK: &str = "sessionsTick";
+/// The viewed session's id (the page root's data attribute at boot).
+pub const SIGNAL_VIEWED_SESSION: &str = "viewedSession";
+/// The inline rename editor's draft title.
+pub const SIGNAL_TITLE: &str = "title";
+/// Whether the rename editor is open.
+pub const SIGNAL_TITLE_EDITING: &str = "titleEditing";
+/// Whether a rename commit is in flight (Enter/blur double-fire).
+pub const SIGNAL_TITLE_COMMITTING: &str = "titleCommitting";
+/// The composer's draft text.
+pub const SIGNAL_TEXT: &str = "text";
+/// The new-session form's chosen project path.
+pub const SIGNAL_SESSION_NEW_PROJECT: &str = "sessionNewProject";
+/// The new-session form's chosen lifecycle name.
+pub const SIGNAL_SESSION_NEW_LIFECYCLE: &str = "sessionNewLifecycle";
+/// The new-session form's args draft.
+pub const SIGNAL_SESSION_NEW_ARGS: &str = "sessionNewArgs";
 
 /// The drawer scrim — the full-viewport overlay behind the off-canvas
 /// sidebar when the drawer is open. Static shell markup (inert at
@@ -371,6 +419,10 @@ pub const DOM_CONSTANTS: &[&str] = &[
     MENU_SCRIM_ID,
 ];
 
+/// The sessions pull's query parameter (`GET /web/sessions?q=<text>`)
+/// — the list's filter effect builds its re-pull URL with it.
+pub const SESSIONS_FILTER_QUERY_PARAM: &str = "q";
+
 /// The contract's endpoint constants a client can build a URL from.
 /// The serve-and-request gate issues a real HTTP request against each.
 pub const CLIENT_PATHS: &[&str] = &[
@@ -390,13 +442,13 @@ pub const CLIENT_PATHS: &[&str] = &[
     VENDOR_PREFIX,
 ];
 
-/// The subset of [`CLIENT_PATHS`] the **browser client** builds
-/// request URLs from — the mirror set `wire.ts` must carry and the
-/// generated fixture checks. The other paths are server-rendered
-/// (page navigation, the transcript pull the client reaches by URL,
-/// not by string-building): they are contract, but not
+/// The subset of [`CLIENT_PATHS`] the **browser runtime** builds
+/// request URLs from — the vocabulary the e2e selectors spell and the
+/// templates' Datastar attributes interpolate. The other paths are
+/// server-rendered (page navigation, the transcript pull the runtime
+/// reaches by URL, not by string-building): they are contract, but not
 /// client-contract. `MODEL_PICKER_PREFIX` joined when the picker's
-/// filtering moved server-side — the client now builds picker pull
+/// filtering moved server-side — the runtime now builds picker pull
 /// URLs (with the filter query) itself.
 pub const CLIENT_URLS: &[&str] = &[
     SEND_PATH,

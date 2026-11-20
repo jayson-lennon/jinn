@@ -7,7 +7,7 @@
 //! (`transcript-full`, cursor 0) that heals any drift after rewinds,
 //! cancels, or partial-entry edges.
 //!
-//! Client half: `webui/client/src/regions/transcript.ts` — the
+//! Browser half: the `#transcript`-targeted Datastar patches — the
 //! append/replace swaps, the cursor re-base, and the optimistic user
 //! entry (region-owned: it exists solely for this region).
 

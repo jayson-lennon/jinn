@@ -24,7 +24,7 @@
 //! file that owns every action POST); the region trait carries GET
 //! pulls only.
 //!
-//! Client half: `webui/client/src/regions/session_new.ts` — the menu
+//! Browser half: the modal's Datastar bindings (`session_new.html`) — the
 //! item opens the modal, a lifecycle change re-pulls, submit posts
 //! and swaps the answered whole page (the activation navigation).
 

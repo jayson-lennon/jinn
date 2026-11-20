@@ -3,22 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>{{ title }} — jinn</title>
+  <title data-text="$title + ' — jinn'">{{ title }} — jinn</title>
   <script type="module" src="{{ vendor_prefix }}{{ app_js_versioned }}"></script>
   <style>{{ style|safe }}</style>
 </head>
 <body>
-  <div id="{{ page_root_id }}" {{ page_session_attr }}="{{ session_id }}">
+  <div id="{{ page_root_id }}" {{ page_session_attr }}="{{ session_id }}"
+       data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelFilter: '', providerId: '', sessionsTick: 0, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsFilter: '', text: '' }"
+       data-class:drawer-open="$drawerOpen">
   <nav id="sidebar">
     <h2>Sessions</h2>
     <input id="{{ sessions_filter_input_id }}" type="text" placeholder="filter sessions…"
-           autocomplete="off" spellcheck="false">
-    <div id="{{ sessions_id }}">{{ sessions_html|safe }}</div>
+           autocomplete="off" spellcheck="false" data-bind:sessionsFilter>
+    <div id="{{ sessions_id }}"
+         data-effect="$sessionsTick && @get('{{ sessions_route }}' + ($sessionsFilter ? '?q=' + encodeURIComponent($sessionsFilter) : ''), {selector: '#{{ sessions_id }}', openWhenHidden: true})">{{ sessions_html|safe }}</div>
   </nav>
   <main id="main">
     <div id="titlebar">
       <span id="{{ menu_id }}">{{ menu_html|safe }}</span>
-      <span class="t" {% if !session_title_id.is_empty() %}id="{{ session_title_id }}"{% endif %}>{{ title }}</span>
+      <span class="t" {% if !session_title_id.is_empty() %}id="{{ session_title_id }}" data-on:click="$titleEditing = true"{% endif %}>{% if !session_title_id.is_empty() %}<span data-show="!$titleEditing" data-text="$title">{{ title }}</span><input data-show="$titleEditing" data-bind:title data-model-modifiers.trim
+             data-on:key__down="evt.key === 'Enter' && ($titleCommitting || ($title.trim().length > 0 && ($titleCommitting = true) !== undefined && @post('{{ session_page_path }}' + $viewedSession + '/rename', {contentType: 'json'})) !== undefined) || evt.key === 'Escape' && ($title = '{{ title }}', $titleEditing = false) !== undefined && evt.preventDefault()"
+             data-on:blur="$titleCommitting || ($titleEditing = false, $title = '{{ title }}') !== undefined">{% else %}{{ title }}{% endif %}</span>
       {{ status_html|safe }}
     </div>
     <span id="{{ modal_host_id }}"></span>
@@ -28,8 +33,13 @@
     </div>
     <div id="{{ controls_id }}">{{ controls_html|safe }}</div>
   </main>
-  <div id="{{ drawer_scrim_id }}" hidden></div>
-  <div id="{{ menu_scrim_id }}" hidden></div>
+  <div id="{{ drawer_scrim_id }}" data-attr:hidden="$drawerOpen ? null : true" hidden
+       data-on:click="$drawerOpen = false"></div>
+  <div id="{{ menu_scrim_id }}" data-attr:hidden="$menuOpen ? null : true" hidden
+       data-on:click="$menuOpen = false"></div>
   </div>
+  {% if stream_url != "" %}
+  <span data-init="@get('{{ stream_url }}', {openWhenHidden: true, retryMaxCount: Infinity, requestCancellation: 'cleanup'})"></span>
+  {% endif %}
 </body>
 </html>

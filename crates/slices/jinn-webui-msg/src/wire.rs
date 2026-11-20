@@ -2,25 +2,32 @@
 //!
 //! Three families:
 //!
-//! - **Action forms** — what the browser posts: [`SendForm`],
-//!   [`CancelForm`], [`ModelForm`], [`SwitchForm`]. Field-for-field the
-//!   `application/x-www-form-urlencoded` bodies the web client's
-//!   `api.ts` posts; axum's `Form` extractor deserializes them.
+//! - **Action forms** — what an action POST carries: [`SendForm`],
+//!   [`CancelForm`], [`ModelForm`], [`SwitchForm`]. Field-for-field
+//!   the `application/x-www-form-urlencoded` bodies the Rust tests,
+//!   curl, and the e2e bootstrap post; the Datastar browser posts
+//!   JSON signal bodies whose keys are the camelCase aliases each
+//!   field declares, and the server's dual extractor accepts either
+//!   encoding. axum's `Form` extractor (or the dual wrapper)
+//!   deserializes them.
 //! - [`TranscriptQuery`] — the cursor grammar of the transcript pull:
 //!   `?since=N` returns the entries rendered at index `N` and after.
-//! - [`SseEnvelope`] — one SSE push: the event name the client
-//!   dispatches on (mirrored by the TypeScript `wire.ts`), the session
-//!   it belongs to, and the cursor the client should acknowledge (it
-//!   rides the SSE `id:` line and returns as `Last-Event-ID` on
-//!   reconnect).
+//! - [`SseEnvelope`] — one fan-out push envelope: the region kind it
+//!   belongs to, the session it belongs to, and the cursor it
+//!   advances. The push seam translates it into a Datastar SDK event;
+//!   no client dispatches on a name.
 
 use jinn_core_types::SessionId;
 use serde::{Deserialize, Serialize};
 
 /// `POST /web/send` — deliver text into a session.
+///
+/// The camelCase aliases are the Datastar browser's JSON signal keys;
+/// the snake_case fields are the urlencoded contract.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendForm {
     /// The session the text targets.
+    #[serde(alias = "sessionId")]
     pub session_id: String,
     /// The text, delivered verbatim.
     pub text: String,
@@ -30,6 +37,7 @@ pub struct SendForm {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CancelForm {
     /// The session whose turn to cancel.
+    #[serde(alias = "sessionId")]
     pub session_id: String,
 }
 
@@ -37,8 +45,10 @@ pub struct CancelForm {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModelForm {
     /// The session to switch.
+    #[serde(alias = "sessionId")]
     pub session_id: String,
     /// The model id, as a `Single` selection.
+    #[serde(alias = "providerId")]
     pub provider_id: String,
 }
 
@@ -84,17 +94,23 @@ pub struct SessionNewQuery {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModelsRefreshForm {
     /// The session whose button to re-render in the reply.
+    #[serde(alias = "sessionId")]
     pub session_id: String,
 }
 
 /// `POST /web/session/{id}/activate` — activate a session.
 ///
-/// The path carries the session id, so the form body is empty; the
-/// type exists so the handler can accept (and ignore) an
-/// `application/x-www-form-urlencoded` body uniformly with the other
-/// actions.
+/// The path carries the session id. The urlencoded contract posts an
+/// empty body; the Datastar browser posts a signal JSON object, and
+/// a unit struct cannot deserialize from one — so the type carries an
+/// optional session id the JSON path may name (ignored; the path is
+/// authoritative).
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct SwitchForm;
+pub struct SwitchForm {
+    /// The JSON body's optional session echo; the path wins.
+    #[serde(default, alias = "sessionId")]
+    pub session_id: Option<String>,
+}
 
 /// `POST /web/session/{id}/rename` — rename a session.
 ///

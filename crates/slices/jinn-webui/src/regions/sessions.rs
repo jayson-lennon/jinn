@@ -18,7 +18,7 @@
 //! behind a matching child, and strongest-tree-first ranking. One
 //! matching implementation, the TUI's; the webui adds none.
 //!
-//! Client half: `webui/client/src/regions/sessions.ts` — the row
+//! Browser half: the list's Datastar bindings (`page.html` + rows) — the
 //! click delegation and the [`crate::contract::SESSIONS_ID`] swap.
 
 use axum::extract::Query as AxQuery;

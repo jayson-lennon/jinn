@@ -25,7 +25,7 @@
 //! `ProviderSwitch` (`Single` only — alloys are out of scope for the
 //! web) and answers with the re-rendered button.
 //!
-//! Client half: `webui/client/src/regions/model_picker.ts` — the
+//! Browser half: the modal's Datastar bindings (`model_modal.html`) — the
 //! button click opens the modal, filter input re-pulls, refresh posts
 //! and awaits the `models` SSE push, row click switches, Esc or an
 //! outside click closes.
