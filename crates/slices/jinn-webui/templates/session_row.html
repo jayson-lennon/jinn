@@ -1,7 +1,10 @@
-<a class="{{ row_class }} {% if item.active %}active{% endif %} {% if item.is_bot %}bot{% endif %} {% if item.unread %}unread{% endif %}"
+<a class="{{ row_class }} {% if item.active %}active{% endif %} {% if item.is_bot %}bot{% endif %} {% if item.unread %}unread{% endif %} {% if item.working %}{{ working_class }}{% endif %}"
    {{ session_id_attr }}="{{ item.session_id }}"
    data-on:click="@post('{{ session_page_path }}{{ item.session_id }}/activate', {selector: '#{{ page_root_id }}', openWhenHidden: true})"
    style="{% if item.depth > 0 %}padding-left: {{ 14 + item.depth * 16 }}px;{% endif %}">
+  {%- if item.working -%}
+  <span class="{{ working_class }}"></span>
+  {%- endif -%}
   <span class="stitle">{{ item.title }}</span>
   <span class="smeta">{% if item.loaded %}loaded{% else %}archived{% endif %}</span>
 </a>

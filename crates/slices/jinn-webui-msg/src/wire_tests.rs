@@ -163,6 +163,7 @@ fn session_list_row_roundtrips_its_flags() {
         is_bot: false,
         loaded: true,
         unread: false,
+        working: true,
         depth: 0,
     };
 
@@ -175,5 +176,6 @@ fn session_list_row_roundtrips_its_flags() {
     assert!(json.contains("\"loaded\":true"), "{json}");
     assert!(json.contains("\"is_bot\":false"), "{json}");
     assert!(json.contains("\"unread\":false"), "{json}");
+    assert!(json.contains("\"working\":true"), "{json}");
     assert!(json.contains("\"depth\":0"), "{json}");
 }

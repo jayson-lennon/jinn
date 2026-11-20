@@ -201,6 +201,13 @@ pub struct SessionListItem {
     /// finished while the user was viewing another session. Rows
     /// wearing it render marked until their session activates.
     pub unread: bool,
+    /// Whether the session's live phase is working — a turn is in
+    /// flight (streaming, running tools, or cancelling). Rows wearing
+    /// it render the working spinner ahead of the title. Derived from
+    /// the same [`jinn_slices::PhaseView::is_working`] the TUI
+    /// throbber reads, so the two surfaces cannot disagree about busy.
+    /// Archived rows never carry it.
+    pub working: bool,
     /// Tree depth under this row's parent session — 0 for a root, 1
     /// for its subagent children. The webui renders the picker's tree,
     /// so children indent under the session that spawned them.

@@ -337,28 +337,23 @@ impl WebUiFanoutActor {
         }
     }
 
-    /// Marks a session unread — the unseen-settle write — and, when
-    /// the mark is new, refreshes every page's sessions list so the
-    /// yellow border lands without a reload.
+    /// Marks a session unread — the unseen-settle write.
     ///
-    /// `false` (a re-mark of an already-marked session) refreshes
-    /// nothing: the rendered list already carries the border.
-    fn mark_unread(&mut self, session_id: &SessionId) {
-        let transitioned = self
-            .unread_marks
-            .update(|marks| marks.mark(session_id.clone()));
-        if transitioned {
-            self.refresh_all_sessions_lists();
-        }
+    /// Returns whether the mark is **new**: a re-mark of an
+    /// already-marked session writes nothing and reports `false`. The
+    /// caller decides the refresh — the settle path may have a second
+    /// reason (the working flip) to share one fan with.
+    fn mark_unread(&mut self, session_id: &SessionId) -> bool {
+        self.unread_marks
+            .update(|marks| marks.mark(session_id.clone()))
     }
 
-    /// Clears a session's unread mark — activation landed — and,
-    /// when a mark was actually removed, refreshes every page's list.
-    fn clear_unread(&mut self, session_id: &SessionId) {
-        let transitioned = self.unread_marks.update(|marks| marks.clear(session_id));
-        if transitioned {
-            self.refresh_all_sessions_lists();
-        }
+    /// Clears a session's unread mark — activation landed.
+    ///
+    /// Returns whether a mark was actually removed; the caller decides
+    /// the refresh.
+    fn clear_unread(&mut self, session_id: &SessionId) -> bool {
+        self.unread_marks.update(|marks| marks.clear(session_id))
     }
 
     /// Settles a session to idle: flush the partial token buffer FIRST,
@@ -592,10 +587,26 @@ impl WebUiFanoutActor {
     /// The phase-change body, split out of the `MsgHandler` impl so
     /// tests can drive it without fabricating trouper-internal
     /// `MsgCtx` values (the same seam `settle_to_idle` exposes).
+    ///
+    /// The sessions list carries the session's working state as the
+    /// row spinner, so the list must refresh exactly when that state
+    /// **flips** — a `Streaming→Working` turn boundary changes no
+    /// rendered fact and fans nothing, while every turn start and
+    /// settle does. The flip is decided from the event's phases before
+    /// the busy/idle branch (the busy branch early-returns), and the
+    /// settle's refresh is shared with the unread-mark transition
+    /// below so one settling event fans at most one wave.
     pub(crate) fn on_phase_changed(&mut self, msg: &SessionPhaseChanged) {
+        let was_working = msg.old_phase.is_working();
+        let now_working = msg.new_phase.is_working();
+        let working_flipped = was_working != now_working;
+
         // Busy: swap the composer control to cancel immediately.
         if msg.new_phase != PhaseView::Idle {
             self.push_busy_controls(&msg.session_id);
+            if working_flipped {
+                self.refresh_all_sessions_lists();
+            }
             return;
         }
         self.settle_to_idle(&msg.session_id);
@@ -618,8 +629,16 @@ impl WebUiFanoutActor {
                 .map(jinn_kernel::ChatSessionState::origin)
         };
         let is_active = active_session_id_of(&self.state) == msg.session_id;
-        if idle_settle && !is_active && origin != Some(SessionOrigin::Subagent) {
-            self.mark_unread(&msg.session_id);
+        // The mark write runs BEFORE the single refresh decision: a
+        // settling unseen session has two reasons to refresh (the
+        // spinner cleared, the mark landed) and fans one wave carrying
+        // both facts.
+        let marked = idle_settle
+            && !is_active
+            && origin != Some(SessionOrigin::Subagent)
+            && self.mark_unread(&msg.session_id);
+        if working_flipped || marked {
+            self.refresh_all_sessions_lists();
         }
     }
 }
@@ -648,8 +667,13 @@ impl WebUiFanoutActor {
         // active id, and those members are still unviewed — clearing
         // them would erase the exact signal the mark exists for. Only
         // the session that IS the active one at this moment was viewed.
-        if active_session_id_of(&self.state) == msg.session_id {
-            self.clear_unread(&msg.session_id);
+        if active_session_id_of(&self.state) == msg.session_id && self.clear_unread(&msg.session_id)
+        {
+            // The addressed refresh above reaches only the activated
+            // session's stream — every OTHER page's sidebar still
+            // carries the yellow, and only a per-live-session fan
+            // clears it. The transition gate keeps a re-clear quiet.
+            self.refresh_all_sessions_lists();
         }
     }
 }
