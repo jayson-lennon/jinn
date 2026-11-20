@@ -18,7 +18,7 @@
 //! behind a matching child, and strongest-tree-first ranking. One
 //! matching implementation, the TUI's; the webui adds none.
 //!
-//! Client half: `webui/client/src/regions/sessions.ts` — the row
+//! Browser half: the list's Datastar bindings (`page.html` + rows) — the
 //! click delegation and the [`crate::contract::SESSIONS_ID`] swap.
 
 use axum::extract::Query as AxQuery;
@@ -150,9 +150,10 @@ async fn pull_handler(
     AxumState(shared): AxumState<ServerShared>,
     AxQuery(query): AxQuery<SessionsQuery>,
 ) -> Result<Fragment, HandlerError> {
-    Ok(Fragment::new(
-        sessions_fragment(&shared, query.filter_text()).await?,
-    ))
+    Ok(
+        Fragment::new(sessions_fragment(&shared, query.filter_text()).await?)
+            .with_swap("#sessions", "inner"),
+    )
 }
 
 /// The unread marks for the given session map: the shared cell's

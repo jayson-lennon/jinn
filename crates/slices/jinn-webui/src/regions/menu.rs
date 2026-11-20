@@ -10,7 +10,7 @@
 //! server-backed menu items need the home.
 //!
 //! The fragment ships the panel `hidden`; the client half
-//! (`webui/client/src/regions/menu.ts`) toggles visibility, closes on
+//! (the panel's `data-attr:hidden` bindings) toggles visibility, closes on
 //! the item, and toggles the drawer-open class on the page root —
 //! the drawer itself is the sessions region's mobile presentation
 //! (its media query lives in Unit 2's `SIDEBAR_CSS` work). No width
@@ -192,15 +192,16 @@ mod menu_region_tests {
         // Given the menu fragment.
         let html = fragment();
 
-        // Then the item carries the action attribute the client's
-        // delegation reads, spelled from the contract.
+        // Then the item exists with its contract id, and the drawer
+        // toggle rides its click handler (the action-vocabulary part
+        // of the old attribute now lives in the declarative binding).
+        let item = html
+            .split_once(&format!("id=\"{}\"", contract::MENU_ITEM_SESSIONS_ID))
+            .and_then(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag.to_owned()))
+            .expect("the sessions item renders");
         assert!(
-            html.contains(&format!(
-                "{}=\"{}\"",
-                contract::ACTION_DATA_ATTR,
-                contract::ACTION_MENU_SESSIONS
-            )),
-            "the item's action hook is missing: {html}"
+            item.contains("$drawerOpen"),
+            "the item's drawer toggle is missing: {html}"
         );
     }
 

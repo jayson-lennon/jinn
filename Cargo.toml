@@ -374,6 +374,11 @@ error-stack = { version = "0.8", features = ["serde"] }
 # Content hashing for the bundled-resource reconciler (`jinn-install`).
 sha2 = "0.10"
 
+# Datastar: the browser runtime's server-side SDK — typed SSE events
+# (patch-elements / patch-signals / execute-script) with framework
+# integration, replacing every hand-formatted SSE frame.
+datastar = { version = "0.4.1", features = ["axum"] }
+
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

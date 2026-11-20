@@ -11,6 +11,7 @@
     reason = "test assertions need expect/panic to state what went wrong"
 )]
 
+use crate::contract;
 use axum::body::Body;
 use axum::http::Request;
 use axum::http::StatusCode;
@@ -507,10 +508,15 @@ mod reads {
         // When getting the home page.
         let (status, body) = get(&router, "/web").await;
 
-        // Then it renders with the regions the client drives.
+        // Then it renders with the regions the runtime drives, and
+        // the auto-initializing Datastar script tag is present.
         assert_eq!(status, StatusCode::OK);
         assert!(
-            body.contains("type=\"module\""),
+            body.contains(&format!(
+                "src=\"{}{}\"",
+                contract::VENDOR_PREFIX,
+                crate::templates::app_js_versioned_path()
+            )),
             "missing client script: {body}"
         );
         assert!(body.contains("id=\"composer-controls\""));
@@ -960,7 +966,10 @@ mod actions {
             "{body}"
         );
         assert!(
-            !body.contains(crate::contract::MODEL_PICKER_MODAL_ID),
+            !body.contains(&format!(
+                "id=\"{}\"",
+                crate::contract::MODEL_PICKER_MODAL_ID
+            )),
             "the refresh POST must not answer with the modal: {body}"
         );
     }
@@ -1014,15 +1023,11 @@ mod actions {
         // When rendering the session page.
         let (_status, body) = get(&router, &format!("/web/session/{id}")).await;
 
-        // Then the composer offers send, not cancel — buttons name
-        // their action with the contract attribute, and main.ts maps
-        // the action to the endpoint.
+        // Then the composer offers send, not cancel — the send
+        // button's declarative click posts the send endpoint spelled
+        // from the contract.
         assert!(
-            body.contains(&format!(
-                "{}=\"{}\"",
-                crate::contract::ACTION_DATA_ATTR,
-                crate::contract::ACTION_SEND
-            )),
+            body.contains(&format!("@post('{}'", crate::contract::SEND_PATH)),
             "{body}"
         );
         assert!(
@@ -1051,14 +1056,11 @@ mod actions {
         // When rendering the session page.
         let (_status, body) = get(&router, &format!("/web/session/{id}")).await;
 
-        // Then the composer offers cancel, not send — the same
-        // contract-attribute assertion as the idle side.
+        // Then the composer offers cancel, not send — the cancel
+        // button's declarative click posts the cancel endpoint
+        // spelled from the contract.
         assert!(
-            body.contains(&format!(
-                "{}=\"{}\"",
-                crate::contract::ACTION_DATA_ATTR,
-                crate::contract::ACTION_CANCEL
-            )),
+            body.contains(&format!("@post('{}'", crate::contract::CANCEL_PATH)),
             "{body}"
         );
         assert!(
@@ -1296,26 +1298,28 @@ mod stream_catchup {
         );
         drop(guard);
 
-        // When building the catch-up frames from cursor 1.
-        let frames =
-            crate::server::render_catchup_frames(transcript.since(Some(1)), 1, transcript.len());
+        // When building the catch-up events from cursor 1.
+        let events =
+            crate::server::render_catchup_events(transcript.since(Some(1)), 1, transcript.len());
 
-        // Then one entry frame arrives — everything after cursor 1 —
-        // and the trailing frame parks the cursor at the length.
-        let [entry, trailing] = frames.as_slice() else {
+        // Then one entry event arrives — everything after cursor 1 —
+        // and the trailing park advances the resume cursor to the
+        // length while bumping chatTick so the reader's scroll effect
+        // follows the catch-up tail: the entry's `id:` is 2 (cursor
+        // 1 + 1) and the trailing event is the tick signal patch.
+        let [entry, trailing] = events.as_slice() else {
             panic!(
-                "an entry frame and the trailing frame, got {}",
-                frames.len()
+                "an entry event and the trailing event, got {}",
+                events.len()
             )
         };
-        assert_eq!(entry.cursor, 2);
-        assert!(entry.html.contains("third"), "{}", entry.html);
+        assert_eq!(entry.id.as_deref(), Some("2"));
+        let entry_data = entry.data.join("\n");
+        assert!(entry_data.contains("third"), "{entry_data}");
+        assert_eq!(trailing.id.as_deref(), Some("2"));
         assert_eq!(
-            trailing,
-            &crate::server::CatchupFrame {
-                html: String::new(),
-                cursor: 2
-            }
+            trailing.data.join(""),
+            format!("signals {{\"{}\":2}}", crate::contract::SIGNAL_CHAT_TICK)
         );
     }
 
@@ -1333,19 +1337,19 @@ mod stream_catchup {
 
         // When building catch-up from the full cursor.
         let total = transcript.len();
-        let frames = crate::server::render_catchup_frames(transcript.since(Some(1)), 1, total);
+        let events = crate::server::render_catchup_events(transcript.since(Some(1)), 1, total);
 
-        // Then no entry frames arrive, and one empty frame advances the
-        // cursor so the client does not re-pull forever.
-        let [trailing] = frames.as_slice() else {
-            panic!("only the trailing frame, got {}", frames.len())
+        // Then no entry events arrive, and one park event advances the
+        // resume cursor so the client does not re-catch-up forever —
+        // with the chatTick bump (nothing rendered, so a reader at the
+        // bottom stays there; the effect's scroll is a no-op).
+        let [trailing] = events.as_slice() else {
+            panic!("only the trailing event, got {}", events.len())
         };
+        assert_eq!(trailing.id.as_deref(), Some("1"));
         assert_eq!(
-            trailing,
-            &crate::server::CatchupFrame {
-                html: String::new(),
-                cursor: 1
-            }
+            trailing.data.join(""),
+            format!("signals {{\"{}\":1}}", crate::contract::SIGNAL_CHAT_TICK)
         );
     }
 
@@ -1387,9 +1391,10 @@ mod stream_catchup {
         );
         let body = aggregate_body(response.into_body()).await;
 
-        // Then the response is SSE carrying the catch-up entry, the
-        // cursor on the id line, and keepalive comments.
-        assert!(body.contains("event: chat"), "{body}");
+        // Then the response is SSE carrying the catch-up entry as a
+        // patch-elements append (cursor 1 on the id line), and
+        // keepalive comments.
+        assert!(body.contains("event: datastar-patch-elements"), "{body}");
         assert!(body.contains("id: 1"), "{body}");
         assert!(body.contains("hello"), "{body}");
     }
@@ -1498,7 +1503,15 @@ mod whole_flow {
         for (name, (status, body)) in reads {
             assert_eq!(*status, StatusCode::OK, "{name}: {body}");
         }
-        assert!(home.1.contains("type=\"module\""), "home: {}", home.1);
+        assert!(
+            home.1.contains(&format!(
+                "src=\"{}{}\"",
+                contract::VENDOR_PREFIX,
+                crate::templates::app_js_versioned_path()
+            )),
+            "home: {}",
+            home.1
+        );
         assert!(page.1.contains("Trip plan"), "page: {}", page.1);
         assert!(
             sessions.1.contains(&id.to_string()),
@@ -1719,11 +1732,17 @@ mod switch_markup {
         // When activating the second from the web.
         let (status, body) = post_form(&router, &format!("/web/session/{b}/activate"), "").await;
 
-        // Then the response is the whole page for B — the client's
-        // swap consumes it wholesale — and the publish rides the
-        // shared command.
+        // Then the response is the navigation patch sequence for B —
+        // the page root replaced wholesale inside an SSE body — and
+        // the publish rides the shared command.
         assert_eq!(status, StatusCode::OK);
-        assert!(body.starts_with("<!DOCTYPE html>"), "{body}");
+        assert!(
+            body.contains(&format!(
+                "selector #{}\ndata: mode replace",
+                crate::contract::PAGE_ROOT_ID
+            )),
+            "{body}"
+        );
         assert!(body.contains("Second session"), "{body}");
         assert_eq!(audit_count(&audit, "SessionLoadRequested"), 1);
         let _ = a;

@@ -24,7 +24,7 @@
 //! file that owns every action POST); the region trait carries GET
 //! pulls only.
 //!
-//! Client half: `webui/client/src/regions/session_new.ts` — the menu
+//! Browser half: the modal's Datastar bindings (`session_new.html`) — the
 //! item opens the modal, a lifecycle change re-pulls, submit posts
 //! and swaps the answered whole page (the activation navigation).
 
@@ -109,7 +109,10 @@ async fn pull_handler(
     AxQuery(query): AxQuery<SessionNewPullQuery>,
 ) -> Result<crate::server::Fragment, crate::server::HandlerError> {
     let lifecycle = query.lifecycle.unwrap_or_default();
-    form_fragment(shared.config(), &lifecycle).map(crate::server::Fragment::new)
+    form_fragment(shared.config(), &lifecycle).map(|html| {
+        crate::server::Fragment::new(html)
+            .with_swap(crate::contract::SESSION_NEW_MODAL_HOST_SELECTOR, "inner")
+    })
 }
 
 /// One lifecycle's form-facing view: name and its setup template.
@@ -255,6 +258,7 @@ pub const SESSION_NEW_CSS: &str = r#"
 .session-new-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55);
                      display: flex; align-items: flex-start;
                      justify-content: center; padding-top: 10vh; z-index: 50; }
+.session-new-modal[hidden] { display: none; }
 .session-new-modal-inner { background: var(--panel); border: 1px solid var(--border);
                            border-radius: 8px; width: min(520px, 92vw);
                            padding: 16px; display: flex; flex-direction: column; gap: 12px; }

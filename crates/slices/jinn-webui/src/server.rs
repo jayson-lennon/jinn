@@ -17,6 +17,7 @@
 use axum::Form;
 use axum::Json;
 use axum::Router;
+use axum::extract::FromRequest;
 use axum::extract::Path as AxPath;
 use axum::extract::Query as AxQuery;
 use axum::extract::State as AxumState;
@@ -26,13 +27,14 @@ use axum::response::sse::Event as SseEvent;
 use axum::response::sse::KeepAlive;
 use axum::routing::get;
 use axum::routing::post;
+use datastar::consts::ElementPatchMode;
+use datastar::prelude::{ExecuteScript, PatchElements, PatchSignals};
 use futures::StreamExt as _;
 use jinn_core_types::SessionId;
 use jinn_kernel::State;
 use jinn_slices::PhaseView;
 use jinn_slices::bus::BusService;
 use jinn_webui_msg::SseEnvelope;
-use jinn_webui_msg::SseKind;
 use jinn_webui_msg::TranscriptQuery;
 use std::convert::Infallible;
 use std::time::Duration;
@@ -75,27 +77,234 @@ impl axum::response::IntoResponse for Page {
 /// client-side swap into an existing page. Distinct from [`Page`] so a
 /// handler that answers a fragment cannot be confused with one that
 /// answers a page.
+///
+/// A runtime pull that names a swap target (`{selector: '#…'}` in its
+/// Datastar binding) needs the response to say where the markup goes:
+/// [`Fragment::with_swap`] stamps the `Datastar-Selector`/`Datastar-Mode`
+/// headers the browser reads off a `text/html` action response. A plain
+/// [`Fragment::new`] stays header-less (a browser fetch with no selector
+/// of its own drops the markup — the tests read the body directly).
 #[derive(Debug, Clone)]
-pub struct Fragment(String);
+pub struct Fragment {
+    html: String,
+    selector: Option<&'static str>,
+    mode: Option<&'static str>,
+}
 
 impl Fragment {
     /// Wraps rendered fragment HTML.
     #[must_use]
     pub fn new(html: String) -> Self {
-        Self(html)
+        Self {
+            html,
+            selector: None,
+            mode: None,
+        }
+    }
+
+    /// Names the swap target and mode the browser applies this
+    /// fragment with.
+    #[must_use]
+    pub fn with_swap(mut self, selector: &'static str, mode: &'static str) -> Self {
+        self.selector = Some(selector);
+        self.mode = Some(mode);
+        self
     }
 
     /// The wrapped HTML.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.html
     }
 }
 
 impl axum::response::IntoResponse for Fragment {
     fn into_response(self) -> axum::response::Response {
-        axum::response::Html(self.0).into_response()
+        let mut response = axum::response::Html(self.html).into_response();
+        if let (Some(selector), Some(mode)) = (self.selector, self.mode) {
+            let name = axum::http::HeaderName::from_static("datastar-selector");
+            if let (Ok(value), Ok(mode_value)) = (
+                axum::http::HeaderValue::from_str(selector),
+                axum::http::HeaderValue::from_str(mode),
+            ) {
+                response.headers_mut().insert(name, value);
+                response.headers_mut().insert(
+                    axum::http::HeaderName::from_static("datastar-mode"),
+                    mode_value,
+                );
+            }
+        }
+        response
     }
+}
+
+/// An action POST's response: an SSE body of Datastar SDK events.
+///
+/// The browser runtime processes an SSE response from an action POST
+/// exactly like a stream frame, so one response type covers both
+/// shapes. Carrying an optional URL, it is also the navigation
+/// response: when present, the events are followed by an
+/// `execute-script` event pushing that URL into history (the
+/// activate/create path — the client's `pushState` duty, carried as
+/// a typed event instead of hand-framed lines).
+#[derive(Debug, Clone)]
+pub(crate) struct SseAction {
+    events: Vec<datastar::DatastarEvent>,
+    url: Option<String>,
+}
+
+impl SseAction {
+    /// An empty sequence — the fire-and-forget answer (cancel).
+    #[must_use]
+    pub(crate) fn empty() -> Self {
+        Self {
+            events: Vec::new(),
+            url: None,
+        }
+    }
+
+    /// A sequence of patches, no navigation.
+    #[must_use]
+    pub(crate) fn new(events: Vec<datastar::DatastarEvent>) -> Self {
+        Self { events, url: None }
+    }
+
+    /// A navigation: the patches replace the page root, the URL lands
+    /// in the address bar.
+    #[must_use]
+    pub(crate) fn with_url(events: Vec<datastar::DatastarEvent>, url: String) -> Self {
+        Self {
+            events,
+            url: Some(url),
+        }
+    }
+}
+
+impl axum::response::IntoResponse for SseAction {
+    fn into_response(self) -> axum::response::Response {
+        let url = self.url;
+        let mut frames: Vec<Result<SseEvent, Infallible>> = self
+            .events
+            .iter()
+            .map(|event| Ok(event.write_as_axum_sse_event()))
+            .collect();
+        if let Some(url) = url {
+            frames.push(Ok(ExecuteScript::new(format!(
+                "window.history.pushState(null, '', {url:?});"
+            ))
+            .auto_remove(false)
+            .into_datastar_event()
+            .write_as_axum_sse_event()));
+        }
+        Sse::new(futures::stream::iter(frames))
+            .keep_alive(KeepAlive::new().interval(SSE_KEEPALIVE).text("keepalive"))
+            .into_response()
+    }
+}
+
+/// One `patch-signals` event carrying the given signal values.
+fn signal_patch(pairs: &[(&str, serde_json::Value)]) -> datastar::DatastarEvent {
+    let object: serde_json::Map<String, serde_json::Value> = pairs
+        .iter()
+        .map(|(key, value)| ((*key).to_owned(), value.clone()))
+        .collect();
+    PatchSignals::new(serde_json::Value::Object(object).to_string()).into_datastar_event()
+}
+
+/// One `patch-elements` event appending fragment HTML at a selector.
+fn append_patch(html: String) -> datastar::DatastarEvent {
+    PatchElements::new(html).into_datastar_event()
+}
+
+/// One `patch-elements` event replacing a selector's inner HTML —
+/// the morph-safe wrapper swap (focus, caret, and input values
+/// inside the fragment survive via Datastar's signal bindings, and
+/// Idiomorph preserves everything else it can).
+fn element_patch_inner(selector: String, html: String) -> datastar::DatastarEvent {
+    PatchElements::new(html)
+        .selector(selector)
+        .mode(datastar::consts::ElementPatchMode::Inner)
+        .into_datastar_event()
+}
+
+/// The activation/create response's patch sequence: the transient-
+/// overlay reset (drawer, menu, both modals — the classes the old
+/// wholesale page swap used to clear atomically) followed by the new
+/// page shell replacing `#page-root`.
+///
+/// The reset is a signal patch: every overlay's visibility rides a
+/// signal (`data-attr:hidden`, `data-class:drawer-open`), so one
+/// patch closes all four atomically before the root is replaced.
+async fn overlay_reset_patches(
+    shared: &ServerShared,
+    id: &SessionId,
+) -> Result<Vec<datastar::DatastarEvent>, HandlerError> {
+    // The same full render the GET page endpoint serves, so a
+    // navigation response and a fresh load are byte-identical shapes.
+    let view = session_view(shared, id).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(shared, None).await?;
+    let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate {
+        entries: view.transcript.entries.clone(),
+        start: 0,
+    })
+    .map_err(|e| fail(500, e.to_string()))?;
+    let controls_html =
+        crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
+            id.to_string(),
+            view.phase != PhaseView::Idle.as_str(),
+        ))
+        .map_err(|e| fail(500, e.to_string()))?;
+    let model_html = crate::regions::model_picker::status_fragment(shared, &id.to_string())?;
+    let menu_html = crate::regions::menu::menu_fragment();
+    // The root fragment — NOT the full page shell. The runtime morphs
+    // element patches; a document-shaped patch (DOCTYPE + <html>) is
+    // parsed as a whole document and its fight with the live page
+    // leaves the old subtree's stray nodes alive. The root div alone
+    // replaces cleanly (and its data-signals seed resets every
+    // transient overlay signal atomically).
+    let page = crate::templates::render(&crate::templates::PageRootTemplate::session(
+        &id.to_string(),
+        view.transcript.title.clone(),
+        view.transcript.len(),
+        sessions_html,
+        transcript_html,
+        controls_html,
+        model_html,
+        menu_html,
+    ))
+    .map_err(|e| fail(500, e.to_string()))?;
+    Ok(vec![
+        signal_patch(&[
+            (
+                crate::contract::SIGNAL_DRAWER_OPEN,
+                serde_json::Value::Bool(false),
+            ),
+            (
+                crate::contract::SIGNAL_MENU_OPEN,
+                serde_json::Value::Bool(false),
+            ),
+            (
+                crate::contract::SIGNAL_MODAL_OPEN,
+                serde_json::Value::Bool(false),
+            ),
+            (
+                crate::contract::SIGNAL_SESSION_NEW_OPEN,
+                serde_json::Value::Bool(false),
+            ),
+            (
+                crate::contract::SIGNAL_TITLE_EDITING,
+                serde_json::Value::Bool(false),
+            ),
+            (
+                crate::contract::SIGNAL_TEXT,
+                serde_json::Value::String(String::new()),
+            ),
+        ]),
+        PatchElements::new(page)
+            .selector(format!("#{}", crate::contract::PAGE_ROOT_ID))
+            .mode(ElementPatchMode::Replace)
+            .into_datastar_event(),
+    ])
 }
 
 /// The state every handler shares.
@@ -329,7 +538,7 @@ async fn page_session(
     let model_html = crate::regions::model_picker::status_fragment(&shared, &session_id)?;
     let menu_html = crate::regions::menu::menu_fragment();
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
-        session_id.clone(),
+        &session_id,
         view.transcript.title.clone(),
         view.transcript.len(),
         sessions_html,
@@ -423,32 +632,97 @@ pub(crate) async fn transcript_pull(
 
 // ── Actions ─────────────────────────────────────────────────────────
 
-/// `POST /web/send` — deliver text into a live session. Responds with
-/// the re-rendered composer controls; the SSE `controls` event
-/// corrects any race within one batch window.
+/// The dual form extractor: an action POST's body is either the
+/// classic `application/x-www-form-urlencoded` shape (every Rust test,
+/// curl, and the e2e bootstrapping post) or the Datastar browser's
+/// JSON signal body (`{"sessionId": "…", "text": "…"}`). Both decode
+/// into the same wire type; the urlencoded contract is unchanged.
+#[derive(Debug, Clone)]
+pub(crate) struct WebForm<T>(pub T);
+
+impl<S, T> FromRequest<S> for WebForm<T>
+where
+    S: Send + Sync,
+    T: serde::de::DeserializeOwned,
+{
+    type Rejection = HandlerError;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        let content_type = req
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        if content_type.starts_with("application/json") {
+            let Json(value) = Json::<serde_json::Value>::from_request(req, state)
+                .await
+                .map_err(|e| fail(400, format!("malformed signal body: {e}")))?;
+            let parsed = serde_json::from_value(value)
+                .map_err(|e| fail(400, format!("malformed signal body: {e}")))?;
+            Ok(WebForm(parsed))
+        } else {
+            let Form(form) = Form::<T>::from_request(req, state)
+                .await
+                .map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+            Ok(WebForm(form))
+        }
+    }
+}
+
+/// `POST /web/send` — deliver text into a live session.
 ///
-/// The controls render **optimistically busy**: the turn dispatch is
-/// async (the enqueue rides the bus), so a phase read here races it
-/// and usually still sees `Idle` — a `Send` fragment that lands after
-/// the phase-change push and clobbers the cancel button for the
-/// whole stream. An accepted send always turns (or queues behind one
-/// in flight), so busy is the honest answer; a refused send never
-/// renders (the error paths return early), and the settle push
-/// corrects the fragment at the turn's end.
+/// The response is a **SSE sequence of SDK events**, not a fragment:
+/// (1) `PatchSignals` clearing the composer's `$text` — clear-only-on-
+/// success falls out of the transport, because a 400 refusal carries
+/// no events and the draft survives; (2) `PatchElements` appending the
+/// optimistic user entry at `#transcript` — the sent message is
+/// visible within the send round-trip, before the first stream token.
+/// The busy controls fragment is deliberately NOT in the response:
+/// the SSE `controls` push is the controls' single writer (a phase
+/// read here races the actor drain — the shipped stale-controls bug),
+/// and the phase-change push swaps to cancel within one batch window.
 async fn send(
     AxumState(shared): AxumState<ServerShared>,
-    form: Result<Form<jinn_webui_msg::SendForm>, axum::extract::rejection::FormRejection>,
-) -> Result<Fragment, HandlerError> {
-    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    form: Result<WebForm<jinn_webui_msg::SendForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
     crate::delivery::handle_send(shared.state(), shared.bus(), &form.session_id, &form.text)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    let html = crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
-        form.session_id,
-        true,
-    ))
+    // The optimistic entry renders through the same projection the
+    // transcript region uses — identical markup, so the streamed
+    // assistant echo and the settle convergence dedupe it (the e2e
+    // chat spec pins the no-double).
+    let entry = crate::transcript::render_entry(&jinn_core_types::ChatEntry {
+        id: jinn_core_types::ChatEntryId::new(),
+        timing: jinn_core_types::EntryTiming::Instant {
+            at: jiff::Timestamp::now(),
+        },
+        kind: jinn_core_types::ChatEntryKind::User {
+            display: form.text.clone(),
+            expanded: form.text.clone(),
+            attachments: Vec::new(),
+            outcome: jinn_core_types::AttachmentOutcome::default(),
+        },
+        pin_position: None,
+        context_override: jinn_core_types::ContextOverride::default(),
+        context_history: Vec::new(),
+        token_count: None,
+        model_used: None,
+        model_requested: None,
+    });
+    let html = crate::templates::render(&crate::templates::EntryTemplate {
+        entry,
+        index: usize::MAX,
+    })
     .map_err(|e| fail(500, e.to_string()))?;
-    Ok(Fragment::new(html))
+    Ok(SseAction::new(vec![
+        signal_patch(&[(
+            crate::contract::SIGNAL_TEXT,
+            serde_json::Value::String(String::new()),
+        )]),
+        append_patch(html),
+    ]))
 }
 
 /// `POST /web/cancel` — cancel a live turn. The cancel event's phase
@@ -456,18 +730,18 @@ async fn send(
 /// still-busy state until then.
 async fn cancel(
     AxumState(shared): AxumState<ServerShared>,
-    form: Result<Form<jinn_webui_msg::CancelForm>, axum::extract::rejection::FormRejection>,
-) -> Result<Fragment, HandlerError> {
-    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    form: Result<WebForm<jinn_webui_msg::CancelForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
     crate::delivery::handle_cancel(&shared.bus, &form.session_id)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    let html = crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
-        form.session_id,
-        true,
-    ))
-    .map_err(|e| fail(500, e.to_string()))?;
-    Ok(Fragment::new(html))
+    // No fragment rides the response: the cancel is an event (one
+    // press, whole cancel) and the phase-change `controls` push is
+    // the controls fragment's single writer — the shipped
+    // stale-controls bug is exactly a POST response disagreeing with
+    // it.
+    Ok(SseAction::empty())
 }
 
 /// `POST /web/model` — switch a session's model. Responds with the
@@ -477,9 +751,9 @@ async fn cancel(
 /// caused.
 async fn model(
     AxumState(shared): AxumState<ServerShared>,
-    form: Result<Form<jinn_webui_msg::ModelForm>, axum::extract::rejection::FormRejection>,
-) -> Result<Fragment, HandlerError> {
-    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    form: Result<WebForm<jinn_webui_msg::ModelForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
     crate::delivery::handle_model(
         shared.state(),
         shared.provider_cell(),
@@ -491,9 +765,21 @@ async fn model(
     )
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
-    Ok(Fragment::new(
-        crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
-    ))
+    // The titlebar status wrapper swaps in one inner patch (the `.m`
+    // label and the button together — the wrapper exists so a switch
+    // never leaves the label stale); the modal-close is a signal
+    // patch, not an element patch: the modal's visibility is
+    // signal-driven.
+    Ok(SseAction::new(vec![
+        element_patch_inner(
+            format!("#{}", crate::contract::MODEL_STATUS_ID),
+            crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
+        ),
+        signal_patch(&[(
+            crate::contract::SIGNAL_MODAL_OPEN,
+            serde_json::Value::Bool(false),
+        )]),
+    ]))
 }
 
 /// `POST /web/models/refresh` — the modal's refresh button. Publishes
@@ -502,30 +788,40 @@ async fn model(
 /// `models` push). Never blocks on discovery.
 async fn refresh_models(
     AxumState(shared): AxumState<ServerShared>,
-    form: Result<Form<jinn_webui_msg::ModelsRefreshForm>, axum::extract::rejection::FormRejection>,
-) -> Result<Fragment, HandlerError> {
-    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    form: Result<WebForm<jinn_webui_msg::ModelsRefreshForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
     crate::delivery::handle_refresh_models(shared.bus(), &form.session_id)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    Ok(Fragment::new(
+    // Status wrapper now; rows arrive with the discovery fan-out's
+    // `models` push (a signal tick — the open modal's effect re-pulls
+    // its rows). The spinner clears when the tick lands (the
+    // browser's own effect on the tick signal).
+    Ok(SseAction::new(vec![element_patch_inner(
+        format!("#{}", crate::contract::MODEL_STATUS_ID),
         crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
-    ))
+    )]))
 }
 
 /// `POST /web/session/{id}/activate` — switch the active session.
 ///
 /// Publishes `SessionLoadRequested` (the store actor hydrates an
-/// archived session or activates a loaded one) and responds with the
-/// **whole page** for the activated session. The web client replaces
-/// `#page-root` with it and rebinds its stream — the response shape is
-/// [`Page`], not a fragment, which the return type makes unconfusable.
-/// A page the client does not swap (no client, curl) still shows the
-/// activated session's correct URL-renderable state.
+/// archived session or activates a loaded one) and responds with an
+/// **SSE sequence of SDK events**: (1) the transient-overlay reset —
+/// drawer, menu, and both modals close, because the wholesale page
+/// swap this replaces used to reset them atomically and morph
+/// patching would preserve the open classes; (2) a `replace`-grade
+/// patch of `#page-root` with the activated session's whole page
+/// shell. The root's `data-init` span arrives fresh inside the
+/// replacement, so the stream bind re-reads its URL — one connection,
+/// closed and reopened exactly once per navigation.
 async fn activate(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
-) -> Result<Page, HandlerError> {
+    form: Result<WebForm<jinn_webui_msg::SwitchForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(_) = form?;
     crate::delivery::handle_switch(shared.state(), shared.bus(), &session_id)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
@@ -534,9 +830,12 @@ async fn activate(
     parse_session_id(&session_id)?;
     // A page render for the activated session. The load is async (the
     // store actor hydrates it), so a just-archived session may not be
-    // in live state yet; `page_session` falls through to the store and
-    // the SSE `transcript-full` convergence push corrects any lag.
-    page_session(AxumState(shared), AxPath(session_id)).await
+    // in live state yet; the render falls through to the store and
+    // the convergence push corrects any lag.
+    let id = parse_session_id(&session_id)?;
+    let url = session_url(&session_id);
+    let patches = overlay_reset_patches(&shared, &id).await?;
+    Ok(SseAction::with_url(patches, url))
 }
 
 /// `POST /web/session-new` — create a session through the shared
@@ -551,16 +850,19 @@ async fn activate(
 /// an activate POST.
 async fn create_session(
     AxumState(shared): AxumState<ServerShared>,
-    form: Result<Form<jinn_webui_msg::CreateSessionForm>, axum::extract::rejection::FormRejection>,
-) -> Result<Page, HandlerError> {
-    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    form: Result<WebForm<jinn_webui_msg::CreateSessionForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
     let created =
         crate::delivery::handle_create(shared.state(), shared.bus(), shared.config(), &form)
             .map_err(|error| fail(error.status(), error.sentence()))?;
-    // The new session's page — `page_session` renders whichever id it
-    // is handed; the created id is live in state (the shared path set
-    // it active), so no store fall-through is needed.
-    page_session(AxumState(shared), AxPath(created.to_string())).await
+    // The new session's page — the activation response shape, because
+    // creation activates the session instance-wide and one navigation
+    // mechanism serves both. The created id is live in state (the
+    // shared path set it active), so no store fall-through is needed.
+    let url = session_url(&created.to_string());
+    let patches = overlay_reset_patches(&shared, &created).await?;
+    Ok(SseAction::with_url(patches, url))
 }
 
 /// `POST /web/session/{id}/rename` — rename a live session.
@@ -576,9 +878,9 @@ async fn create_session(
 async fn rename(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
-    form: Result<Form<jinn_webui_msg::RenameForm>, axum::extract::rejection::FormRejection>,
-) -> Result<Fragment, HandlerError> {
-    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    form: Result<WebForm<jinn_webui_msg::RenameForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
     crate::delivery::handle_rename(shared.state(), shared.bus(), &session_id, &form.title)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
@@ -597,47 +899,75 @@ async fn rename(
     shared
         .fanout
         .push_sessions_refresh_from(&id, list_html.clone());
-    Ok(Fragment::new(list_html))
+    // The initiating page's sidebar is the response's element patch;
+    // its titlebar text and tab title follow from the two signal
+    // patches (the title span and the document title both bind
+    // `$title`).
+    Ok(SseAction::new(vec![
+        element_patch_inner(format!("#{}", crate::contract::SESSIONS_ID), list_html),
+        signal_patch(&[(
+            crate::contract::SIGNAL_TITLE,
+            serde_json::Value::String(form.title.clone()),
+        )]),
+        signal_patch(&[(
+            crate::contract::SIGNAL_TITLE_COMMITTING,
+            serde_json::Value::Bool(false),
+        )]),
+    ]))
 }
 
 // ── SSE ─────────────────────────────────────────────────────────────
 
-/// `GET /web/stream/{id}` — the live push for one session.
+/// The canonical page URL for one session id — the navigation
+/// response's `pushState` target.
+fn session_url(session_id: &str) -> String {
+    format!("{}{session_id}", crate::contract::SESSION_PAGE_PREFIX)
+}
+
+/// `GET /web/stream/{id}` — the live push for one session, in the
+/// Datastar protocol.
 ///
 /// Order is the correctness contract: **catch-up first, subscribe
 /// second.** The endpoint renders the entries after the client's
-/// `Last-Event-ID` cursor from state and emits them as `chat` events,
-/// then subscribes to the broadcast and filters by the path's session
-/// id — a tab left on an old session never receives another session's
-/// fragments. A fragment published between catch-up and subscribe is
-/// re-delivered by the next `transcript-full` convergence push; the
-/// pull endpoint remains the truth, so no ordering here can lose data
-/// permanently.
+/// cursor from state and emits them as `append` patches at
+/// `#transcript`, then subscribes to the broadcast and filters by the
+/// path's session id — a tab left on an old session never receives
+/// another session's fragments. A fragment published between catch-up
+/// and subscribe is re-delivered by the next `transcript-full`
+/// convergence push; the pull endpoint remains the truth, so no
+/// ordering here can lose data permanently.
 ///
-/// The client dispatches by event name (see `webui/client/src/sse.ts`);
-/// the payload's cursor rides the `id:` line and returns as
-/// `Last-Event-ID` on reconnect.
+/// The cursor comes from the `Last-Event-ID` header (the Datastar
+/// fetch transport replays it on every retry — verified in the bundle)
+/// and falls back to the `?since=` query parameter, which the page's
+/// `data-init` bind carries from the page shell's rendered cursor: a
+/// fresh load must not re-append the entries the page already
+/// rendered. A reconnect keeps its last `id:` and ignores the query.
 async fn stream(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
+    AxQuery(query): AxQuery<StreamQuery>,
     headers: axum::http::HeaderMap,
 ) -> axum::response::Response {
     use axum::response::IntoResponse as _;
     // A malformed id streams nothing; the immediate close is the error
-    // surface (EventSource has no error body).
+    // surface (a browser stream has no error body).
     let Ok(id) = parse_session_id(&session_id) else {
         return Sse::new(futures::stream::empty::<Result<SseEvent, Infallible>>()).into_response();
     };
 
-    // Catch-up: the entries after the client's cursor, rendered under
-    // one guard and dropped before the stream is built. An unknown
-    // session catches up empty — the session may still be loading; the
-    // first `transcript-full` push fills it.
+    // The header wins (a reconnecting client); the query is the fresh
+    // page's rendered cursor; zero is the no-information default.
     let cursor: usize = headers
         .get(axum::http::HeaderName::from_static("last-event-id"))
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse().ok())
+        .or(query.since)
         .unwrap_or(0);
+    // Catch-up: the entries after the client's cursor, rendered under
+    // one guard and dropped before the stream is built. An unknown
+    // session catches up empty — the session may still be loading; the
+    // first `transcript-full` push fills it.
     let catchup = {
         let guard = shared.read_state();
         guard.session.get(&id).map(|session| {
@@ -651,56 +981,75 @@ async fn stream(
             (transcript.since(Some(cursor)).to_vec(), transcript.len())
         })
     };
-    let catchup_frames = catchup.map_or_else(Vec::new, |(entries, total)| {
-        render_catchup_frames(&entries, cursor, total)
+    let catchup_events = catchup.map_or_else(Vec::new, |(entries, total)| {
+        render_catchup_events(&entries, cursor, total)
     });
 
     // Subscribe AFTER the catch-up snapshot: a fragment published in
-    // between re-arrives via the next convergence push.
+    // between re-arrives via the next convergence push. Each stream
+    // counts its own sessions pushes — the tick signal bumps per
+    // connection, never globally.
     let rx = shared.fanout.subscribe();
     let session_filter = id.clone();
-    let live = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(move |result| {
-        futures::future::ready(result.ok().and_then(|envelope: SseEnvelope| {
-            (envelope.session_id == session_filter)
-                .then(|| Ok::<_, Infallible>(sse_event_of(&envelope)))
-        }))
-    });
-    let stream = futures::StreamExt::chain(
-        futures::stream::iter(
-            catchup_frames
-                .into_iter()
-                .map(|frame| Ok::<_, Infallible>(catchup_event(frame))),
-        ),
-        live,
-    );
+    let tick = std::sync::atomic::AtomicU64::new(0);
+    let live = tokio_stream::wrappers::BroadcastStream::new(rx)
+        .filter_map(move |result| {
+            futures::future::ready(result.ok().and_then(|envelope: SseEnvelope| {
+                if envelope.session_id != session_filter {
+                    return None;
+                }
+                let n = tick.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                crate::push::sdk_events_of(&envelope, n).ok()
+            }))
+        })
+        .map(
+            |events| -> futures::stream::Iter<
+                std::vec::IntoIter<Result<axum::response::sse::Event, Infallible>>,
+            > {
+                futures::stream::iter(
+                    events
+                        .into_iter()
+                        .map(|event| Ok(event.write_as_axum_sse_event()))
+                        .collect::<Vec<_>>(),
+                )
+            },
+        );
+    let catchup = futures::stream::iter(catchup_events.into_iter().map(|event| {
+        futures::stream::iter(vec![Ok(event.write_as_axum_sse_event())])
+            as futures::stream::Iter<
+                std::vec::IntoIter<Result<axum::response::sse::Event, Infallible>>,
+            >
+    }));
+    let stream = futures::StreamExt::chain(catchup, live).flatten();
     Sse::new(stream)
         .keep_alive(KeepAlive::new().interval(SSE_KEEPALIVE).text("keepalive"))
         .into_response()
 }
 
-/// Renders the catch-up entries into SSE frames: one `chat` frame per
-/// entry (each advancing the cursor), so a client dropping mid-catchup
-/// resumes exactly where it stopped.
-/// One catch-up frame before SSE wrapping: the entry HTML (empty for
-/// the trailing cursor-advance frame) and the `id:` cursor it parks.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CatchupFrame {
-    /// The entry HTML; empty on the trailing cursor-advance frame.
-    pub html: String,
-    /// The SSE `id:` — the cursor this frame leaves the client at.
-    pub cursor: usize,
+/// The stream endpoint's query: the fresh page's rendered cursor,
+/// carried by the `data-init` bind as `?since=N`. Ignored whenever a
+/// `Last-Event-ID` header is present (a reconnecting client's cursor
+/// is newer information).
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct StreamQuery {
+    /// The rendered-entry cursor the page's inline transcript already
+    /// carries.
+    #[serde(default)]
+    pub since: Option<usize>,
 }
 
-/// Builds the catch-up frames for a reconnect: every entry after
-/// `start` as a data frame, then one empty frame that parks the cursor
-/// at `total` even when the last render failed, so a reconnect does
-/// not re-pull forever.
-pub(crate) fn render_catchup_frames(
+/// Builds the catch-up events for a reconnect: every entry after
+/// `start` as an append patch, then one empty frame that parks the
+/// cursor at `total` even when the last render failed, so a reconnect
+/// does not re-pull forever. The trailing frame carries no HTML —
+/// its `id:` line is its whole payload (the browser's resume
+/// position).
+pub(crate) fn render_catchup_events(
     entries: &[crate::transcript::RenderedEntry],
     start: usize,
     total: usize,
-) -> Vec<CatchupFrame> {
-    let mut frames: Vec<CatchupFrame> = entries
+) -> Vec<datastar::DatastarEvent> {
+    let mut events: Vec<datastar::DatastarEvent> = entries
         .iter()
         .enumerate()
         .filter_map(|(offset, entry)| {
@@ -709,33 +1058,28 @@ pub(crate) fn render_catchup_frames(
                 index: start + offset,
             };
             let html = crate::templates::render(&template).ok()?;
-            Some(CatchupFrame {
-                html,
-                cursor: start + offset + 1,
-            })
+            Some(
+                PatchElements::new(html)
+                    .selector(format!("#{}", crate::contract::TRANSCRIPT_ID))
+                    .mode(datastar::consts::ElementPatchMode::Append)
+                    .id((start + offset + 1).to_string())
+                    .into_datastar_event(),
+            )
         })
         .collect();
-    frames.push(CatchupFrame {
-        html: String::new(),
-        cursor: total.max(start),
-    });
-    frames
-}
-
-fn catchup_event(frame: CatchupFrame) -> SseEvent {
-    SseEvent::default()
-        .event(SseKind::Chat.event_name())
-        .id(frame.cursor.to_string())
-        .data(frame.html)
-}
-
-/// One envelope → one SSE frame: the event name the client dispatches
-/// on, the cursor on the `id:` line, the HTML as data.
-fn sse_event_of(envelope: &SseEnvelope) -> SseEvent {
-    SseEvent::default()
-        .event(envelope.kind.event_name())
-        .id(envelope.cursor.to_string())
-        .data(envelope.html.clone())
+    // The trailing cursor-park + scroll tick: a signal patch whose
+    // `id:` parks the browser's resume cursor at `total` and whose
+    // chatTick bump keys the wrap's scroll effect — a reconnect's
+    // catch-up appends land with the reader following the tail, same
+    // as a live batch.
+    events.push(
+        PatchSignals::new(
+            serde_json::json!({ crate::contract::SIGNAL_CHAT_TICK: total }).to_string(),
+        )
+        .id(total.max(start).to_string())
+        .into_datastar_event(),
+    );
+    events
 }
 
 // ── Vendor + health ─────────────────────────────────────────────────

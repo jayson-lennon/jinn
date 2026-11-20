@@ -25,7 +25,7 @@
 //! `ProviderSwitch` (`Single` only — alloys are out of scope for the
 //! web) and answers with the re-rendered button.
 //!
-//! Client half: `webui/client/src/regions/model_picker.ts` — the
+//! Browser half: the modal's Datastar bindings (`model_modal.html`) — the
 //! button click opens the modal, filter input re-pulls, refresh posts
 //! and awaits the `models` SSE push, row click switches, Esc or an
 //! outside click closes.
@@ -115,11 +115,10 @@ async fn pull_handler(
     AxQuery(query): AxQuery<ModelFilterQuery>,
 ) -> Result<crate::server::Fragment, crate::server::HandlerError> {
     let filter = query.filter.unwrap_or_default();
-    Ok(crate::server::Fragment::new(modal_fragment(
-        &shared,
-        &session_id,
-        &filter,
-    )?))
+    Ok(
+        crate::server::Fragment::new(modal_fragment(&shared, &session_id, &filter)?)
+            .with_swap(crate::contract::MODEL_PICKER_MODAL_HOST_SELECTOR, "inner"),
+    )
 }
 
 /// The session's current model label, read under one short-lived

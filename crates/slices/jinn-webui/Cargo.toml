@@ -41,6 +41,9 @@ jinn-provider-selection-msg = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-provider-config = { workspace = true }
 axum = { version = "0.8" }
+# The Datastar SDK: every server push is one of its typed events; no
+# hand-formatted SSE framing exists in this crate.
+datastar = { workspace = true }
 trouper = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { version = "0.1", features = ["sync"] }
