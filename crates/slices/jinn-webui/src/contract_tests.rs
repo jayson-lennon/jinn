@@ -452,6 +452,57 @@ async fn the_button_fragment_carries_the_button_id_and_the_model_action_name() {
     );
 }
 
+#[rstest::rstest]
+#[tokio::test]
+async fn every_modal_carries_click_away_on_the_overlay_and_escape_on_the_card() {
+    // Given the three modal templates' rendered markup (empty persona
+    // rows — the close handlers' placement is what is under test).
+    let shared = test_shared();
+    let session_id = seed_session(&shared);
+    let persona = crate::regions::persona_picker::modal_fragment(&shared, &session_id, "")
+        .expect("the persona modal renders");
+    let model = crate::regions::model_picker::modal_fragment(&shared, &session_id, "")
+        .expect("the model modal renders");
+    let session_new =
+        crate::regions::session_new::form_fragment(jinn_config::empty_config_layer(), "")
+            .expect("the new-session modal renders");
+
+    // Then each modal's `data-on:click` close handler rides the
+    // OVERLAY element (the `<div id=…>` the `data-attr:hidden` rides)
+    // — a handler on the inner card fires only when the card itself
+    // is clicked, and the backdrop click the user expects never
+    // reaches it. The `data-on:keydown__escape__document` handler
+    // rides the card, where the fragment renders it.
+    for (name, html, overlay_id) in [
+        ("persona", &persona, contract::PERSONA_MODAL_ID),
+        ("model", &model, contract::MODEL_PICKER_MODAL_ID),
+        ("session-new", &session_new, contract::SESSION_NEW_MODAL_ID),
+    ] {
+        let overlay_open = html
+            .split_once(&format!("id=\"{overlay_id}\""))
+            .map(|(_, tail)| tail.split('>').next().unwrap_or(""))
+            .unwrap_or("");
+        assert!(
+            overlay_open.contains("data-on:click=\"evt.target === evt.currentTarget"),
+            "the {name} modal's overlay tag must carry the click-away handler: {html}"
+        );
+        assert!(
+            overlay_open.contains("data-attr:hidden="),
+            "the {name} modal's overlay tag is the visibility owner: {html}"
+        );
+        // And the card never carries the click handler — the card's
+        // own clicks must not close the modal.
+        let card = html
+            .split_once("-inner\"")
+            .map(|(_, tail)| tail.split('>').next().unwrap_or(""))
+            .unwrap_or("");
+        assert!(
+            !card.contains("currentTarget"),
+            "the {name} modal's card must not carry the click-away handler: {html}"
+        );
+    }
+}
+
 /// Renders one row with the contract hooks filled.
 fn render_row(entry: jinn_provider_selection_msg::ProviderPickerEntry, is_active: bool) -> String {
     templates::render(&templates::ModelRowTemplate::from_filtered(

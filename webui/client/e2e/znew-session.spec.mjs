@@ -41,6 +41,23 @@ test("menu opens the new-session modal with project and lifecycle selects", asyn
   await expect(page.locator(sel.SESSION_NEW_ARGS)).toHaveCount(0);
 });
 
+test("clicking the backdrop closes the new-session modal", async ({ page }) => {
+  // Given the new-session modal open.
+  await openSession(page);
+  await page.locator(sel.MENU_BUTTON).click();
+  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
+  const modal = page.locator(sel.SESSION_NEW_MODAL);
+  await expect(modal).toBeVisible();
+
+  // When clicking the dark backdrop outside the card.
+  const box = await modal.boundingBox();
+  await page.mouse.click(box.x + 10, box.y + box.height - 10);
+
+  // Then the modal hides — the click-away handler lives on the
+  // overlay, not the card.
+  await expect(modal).toBeHidden();
+});
+
 test("selecting the parameterized lifecycle re-pulls with the args input", async ({
   page,
 }) => {

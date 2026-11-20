@@ -74,6 +74,22 @@ test("switching from the inner model-name span re-renders the label", async ({
   await expect(page.locator(sel.MODEL_LABEL)).toHaveText(MODEL_ID);
 });
 
+test("clicking the backdrop closes the picker", async ({ page }) => {
+  // Given the model picker open.
+  await openSession(page);
+  await page.locator(sel.PICKER_BUTTON).click();
+  const modal = page.locator(sel.PICKER_MODAL);
+  await expect(modal).toBeVisible();
+
+  // When clicking the dark backdrop outside the card.
+  const box = await modal.boundingBox();
+  await page.mouse.click(box.x + 10, box.y + box.height - 10);
+
+  // Then the picker hides — the click-away handler lives on the
+  // overlay, not the card.
+  await expect(modal).toBeHidden();
+});
+
 test("unavailable rows are inert: no switch action, modal stays open", async ({
   page,
 }) => {

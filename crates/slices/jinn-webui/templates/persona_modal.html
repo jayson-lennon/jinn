@@ -1,5 +1,6 @@
-<div id="{{ modal_id }}" class="persona-modal" data-attr:hidden="$personaModalOpen ? null : true" hidden><div class="persona-modal-inner"
-     data-on:click="evt.target === evt.currentTarget && ($personaModalOpen = false)"
+<div id="{{ modal_id }}" class="persona-modal"
+     data-attr:hidden="$personaModalOpen ? null : true" hidden
+     data-on:click="evt.target === evt.currentTarget && ($personaModalOpen = false)"><div class="persona-modal-inner"
      data-on:keydown__escape__document="$personaModalOpen = false"><div class="persona-modal-head"><input id="{{ filter_id }}" type="text" value="{{ filter }}" autocomplete="off" placeholder="filter personas…"
            data-bind:personafilter></div><div id="{{ rows_id }}"
       data-effect="($personafilter + ' ' + $personaTick).trim() && $personaModalOpen && @get('{{ picker_route }}' + $viewedSession + '?filter=' + encodeURIComponent($personafilter || ''), {selector: '#{{ modal_host_id }}', openWhenHidden: true})"

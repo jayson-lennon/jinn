@@ -127,6 +127,40 @@ test("a block-less persona switch pushes the loud error entry without a reload",
   );
 });
 
+test("clicking the backdrop closes the modal", async ({ page }) => {
+  // Given the persona modal open on a session page.
+  await openSession(page);
+  await page.locator(sel.MENU_BUTTON).click();
+  await page.locator(sel.MENU_ITEM_PERSONA).click();
+  const modal = page.locator(sel.PERSONA_MODAL);
+  await expect(modal).toBeVisible();
+
+  // When clicking the dark backdrop — the overlay itself, outside the
+  // card (offset into the padding band, off the inner card).
+  const box = await modal.boundingBox();
+  await page.mouse.click(box.x + 10, box.y + box.height - 10);
+
+  // Then the modal hides — the click-away handler lives on the
+  // overlay, and a click on the card must not fire it.
+  await expect(modal).toBeHidden();
+});
+
+test("clicking the modal card does not close it", async ({ page }) => {
+  // Given the persona modal open on a session page.
+  await openSession(page);
+  await page.locator(sel.MENU_BUTTON).click();
+  await page.locator(sel.MENU_ITEM_PERSONA).click();
+  const modal = page.locator(sel.PERSONA_MODAL);
+  await expect(modal).toBeVisible();
+
+  // When clicking inside the card's header band (not on a row, not on
+  // the overlay).
+  await page.locator(`#${sel.PERSONA_MODAL.slice(1)} .persona-modal-head`).click();
+
+  // Then the modal stays open.
+  await expect(modal).toBeVisible();
+});
+
 test("the landing page's menu carries no persona item", async ({ page }) => {
   // Given the landing page (nothing viewed).
   await page.goto(`${baseUrl()}/web`);
