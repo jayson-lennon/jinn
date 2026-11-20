@@ -312,14 +312,11 @@ pub const MODEL_PICKER_PREFIX: &str = "/web/model-picker/";
 /// The vendor mount the client's script tag and the asset table use.
 pub const VENDOR_PREFIX: &str = "/vendor/";
 
-/// The client entry module's served filename inside `/vendor/` —
-/// what the page's `<script type="module">` loads. The remaining
-/// modules (`api.js`, `render.js`, `sse.js`, `wire.js`) arrive
-/// through the browser's import graph relative to this entry.
-pub const VENDOR_APP_JS: &str = "main.js";
-
-/// The vendor manifest row (and served path) of the client bundle.
-pub const VENDOR_APP_JS_PATH: &str = "main.js";
+/// The Datastar browser bundle's served filename inside `/vendor/` —
+/// what the page's `<script>` loads. The bundle is committed vendored
+/// bytes (the manifest's one row), not build output: with the
+/// TypeScript client gone, nothing in-repo regenerates it.
+pub const VENDOR_APP_JS: &str = "datastar.js";
 
 /// The contract's DOM-targeting constants: id, attribute, class, and
 /// action names. The referential-integrity gate renders the page and

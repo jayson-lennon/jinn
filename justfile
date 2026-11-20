@@ -594,110 +594,32 @@ gh-pr-close N COMMENT="":
     fi
     gh pr close {{N}} "${args[@]}"
 
-# Webui client (dev-only Node toolchain; SHIPPPING WITH NODE IS BANNED —
-# node_modules is gitignored, cargo never runs Node).
+# Webui (the only recipe with a Node footprint is webui-e2e, dev-only
+# Playwright; cargo never runs Node).
 #
-# The compiled bundle is build output, not source: tsc emits ES modules
-# into resources/vendor, gzip -9 -n compresses them deterministically,
-# the pin script stamps hash-bearing imports and re-pins the manifest
-# rows. Only `vendor-manifest.toml` (the pin record) is tracked; the
-# `*.js.gz` bytes are gitignored and reproducible from the TypeScript
-# sources, so cargo builds of this crate REQUIRE the emit to have run:
-# build.rs fails with directions when the bytes are absent. `just
-# webui-build` is therefore part of building the webui, and merging
-# webui branches never conflicts on binary churn — only on sources.
+# The Datastar browser bundle is committed vendored input, not build
+# output: with the TypeScript client gone, nothing in-repo regenerates
+# it (the canvas vendor precedent). vendor-manifest.toml pins its
+# sha256; cargo's build.rs verifies the bytes against that pin on every
+# compile, so `just webui-build` is a pure verifier — gzip integrity
+# plus a manifest-vs-disk sha256 re-check, no Node, no Python, no
+# network. Nothing here is generated.
 #
-#   webui-install — one-time dev toolchain (npm ci); the rest auto-install
-#   webui-fixture — regenerate wire-fixture.ts from the Rust contract
-#                   (python3 only, no Node — safe before webui-install)
-#   webui-check   — pure type gate, writes nothing (safe to add to lint)
-#   webui-build   — emit ES modules, gzip, re-pin the manifest rows
-#   webui-test    — jsdom-tier client tests (node:test + happy-dom)
-#   webui-verify  — check + build + test: the full pre-ship loop
+#   webui-build   — verify the vendored bundle (gzip + sha256 pin)
 #   webui-smoke   — the headless-chromium test (JINN_WEBUI_SMOKE=1 just webui-smoke)
 #   webui-e2e     — full-stack Playwright e2e (real jinn + sample backend)
 
-# Regenerate the client's contract fixture from the Rust source.
-# Runs before every TypeScript compile: the fixture is generated
-# (gitignored), and `webui-check`/`webui-test` compile the test tier
-# that imports it. Needs only python3 — the one webui step that
-# never requires the Node toolchain.
-webui-fixture:
+# Verify the vendored Datastar bundle against its manifest pin.
+webui-build:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo '==> regenerate contract fixture'
-    python3 scripts/gen-webui-fixture.py \
-        crates/slices/jinn-webui/src/contract.rs \
-        crates/slices/jinn-webui-msg/src/wire.rs \
-        webui/client/src/wire-fixture.ts
-    echo '==> webui-fixture green'
-
-# Install the webui client's dev toolchain (exact-lockfile npm ci).
-webui-install:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo '==> npm ci (webui/client)'
-    npm ci --prefix webui/client
-    echo '==> webui-install green'
-
-# Type-check the webui client (app + tests) without emitting anything.
-webui-check: webui-fixture webui-install
-    #!/usr/bin/env bash
-    set -euo pipefail
-    CLIENT=webui/client
-    echo '==> tsc --noEmit (app)'
-    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT" --noEmit
-    echo '==> tsc --noEmit (tests)'
-    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT/tsconfig.test.json" --noEmit
-    echo '==> webui-check green'
-
-# Emit the client bundle into the vendor tree, gzip, and re-pin sha256s.
-webui-build: webui-install webui-fixture
-    #!/usr/bin/env bash
-    set -euo pipefail
-    CLIENT=webui/client
     VENDOR=crates/slices/jinn-webui/resources/vendor
-
-    # The app type-gate runs again here on purpose: a bad source must
-    # never reach the vendor tree, even when this recipe runs alone.
-    echo '==> tsc --noEmit (app)'
-    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT" --noEmit
-
-    # Emit ES modules straight into the vendor tree.
-    echo '==> tsc emit'
-    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT"
-
-    # Deterministic gzip, in place. -n drops the timestamp/filename
-    # fields so re-emitting the same source yields the same bytes.
-    # Walked, not enumerated: adding a client module (a new region,
-    # possibly in a subdirectory) must not require editing this recipe.
-    # Stale .gz from removed modules are pruned first so the manifest
-    # never keeps a ghost row.
-    echo '==> gzip emitted modules'
-    find "$VENDOR" -name '*.js.gz' -delete
-    find "$VENDOR" -name '*.js' -exec gzip -9 -n -f {} +
-
-    # Re-pin the manifest rows: rewrite the marker-delimited client
-    # section with fresh sha256 pins.
-    echo '==> re-pinning manifest'
-    python3 scripts/pin-webui-client.py "$VENDOR/vendor-manifest.toml" "$VENDOR"
+    echo '==> verify vendored bundle (gzip integrity)'
+    gzip -t "$VENDOR/datastar.js.gz"
+    echo '==> verify vendored bundle (sha256 pin)'
+    echo "ef62c7c7e7738d70b1e599226d209a1f2a526cbb004abcbe1d0d7d5601c074ab  $VENDOR/datastar.js.gz" \
+        | sha256sum -c -
     echo '==> webui-build green'
-
-# Run the webui client's jsdom-tier tests against a scratch emit.
-webui-test: webui-fixture webui-install
-    #!/usr/bin/env bash
-    set -euo pipefail
-    CLIENT=webui/client
-    echo '==> emit to .build (scratch)'
-    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT/tsconfig.test.json"
-    echo '==> node --test (jsdom tier)'
-    node --test "$CLIENT/.build/"
-    echo '==> webui-test green'
-
-# The full webui client loop: type gate, vendor build, jsdom tests.
-webui-verify: webui-check webui-build webui-test
-    #!/usr/bin/env bash
-    echo '==> webui-verify green'
 
 # Run the webui smoke test in a real headless chromium.
 webui-smoke:

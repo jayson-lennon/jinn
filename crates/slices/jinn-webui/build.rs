@@ -7,15 +7,11 @@
 //! verified, gzip-committed dists served with `Content-Encoding: gzip`.
 //! The generated table is the single inventory the server serves from.
 //!
-//! Unlike canvas, this slice's manifest has no hand-vendored rows: every
-//! row names a compiled client module — build output emitted by `just
-//! webui-build` (tsc → deterministic gzip → import-hash stamping →
-//! re-pin) and reproducible from the tracked TypeScript sources. The
-//! manifest is the tracked pin record; the `.gz` bytes it names are
-//! gitignored. A row whose bytes are missing fails the build with the
-//! recipe to run, because cargo never invokes Node — the emit is a
-//! prerequisite of compiling this crate, never something the build
-//! script does itself.
+//! Like canvas, this slice's manifest names committed vendored rows:
+//! the one row is the Datastar browser bundle — vendored input, not
+//! build output, since nothing in-repo regenerates it. A row whose
+//! bytes are missing or whose sha256 disagrees fails the build with
+//! the file to restore; cargo never fetches or builds assets itself.
 
 // A build script's panic is its failure channel: every pin violation must
 // fail the build loudly, not quietly produce a binary serving unverified
@@ -158,9 +154,9 @@ fn embed_asset(
     let file_path = vendor_dir.join(&disk_name);
     let bytes = fs::read(&file_path).unwrap_or_else(|e| {
         panic!(
-            "vendor asset {} missing from disk ({e}) — the client bundle is build \
-             output, not committed: run `just webui-build` to emit it from \
-             webui/client/src, then re-compile",
+            "vendor asset {} missing from disk ({e}) — the vendored bytes are \
+             committed inputs: restore the file named by \
+             resources/vendor/vendor-manifest.toml, then re-compile",
             file_path.display()
         )
     });
