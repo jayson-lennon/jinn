@@ -13,12 +13,29 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { startJinn } from "./harness.mjs";
+import { startJinn, writeScratchPersona } from "./harness.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const BASE_URL_FILE = path.join(here, ".run", "base-url.txt");
 
 const BOOT_MODEL = "sample/sample";
+
+/**
+ * The block-less scratch persona the persona-picker spec pivots on.
+ *
+ * Every shipped persona carries a `<compaction>` block, so the
+ * block-less warning path (switch allowed, loud error entry) would
+ * never be exercised against shipped data alone. Written into the
+ * scratch personas dir before jinn boots — the scan happens at
+ * activation, so a file written after boot is invisible.
+ */
+const BLOCKLESS_PERSONA = `+++
+name = "blockless-e2e"
+description = "scratch persona without a compaction handoff block"
++++
+
+You are the e2e scratch persona. Keep replies to one line.
+`;
 
 /**
  * Activates the boot session's sample model over the web surface.
@@ -50,6 +67,7 @@ async function switchBootModel(baseUrl) {
 
 /** @returns {Promise<void>} Playwright's global-setup contract. */
 export default async function globalSetup() {
+  writeScratchPersona(BLOCKLESS_PERSONA);
   const run = await startJinn();
   const sessionId = await switchBootModel(run.baseUrl);
   fs.mkdirSync(path.dirname(BASE_URL_FILE), { recursive: true });

@@ -172,6 +172,15 @@ pub const MENU_ITEM_NEW_SESSION_ID: &str = "menu-item-new-session";
 /// The new-session menu item's action name.
 pub const ACTION_MENU_NEW_SESSION: &str = "menu-new-session";
 
+/// The menu's persona item — closes the menu and pulls the persona
+/// modal into its host for the viewed session. Rendered only when a
+/// session is viewed: persona binds per-session and the landing page
+/// views nothing (server-omitted, never client-hidden).
+pub const MENU_ITEM_PERSONA_ID: &str = "menu-item-persona";
+
+/// The persona menu item's action name.
+pub const ACTION_MENU_PERSONA: &str = "menu-persona";
+
 /// The new-session form submit's action name.
 pub const ACTION_SESSION_CREATE: &str = "session-create";
 
@@ -306,6 +315,61 @@ pub const SESSION_NEW_EMPTY_ID: &str = "session-new-empty";
 /// is above zero.
 pub const SESSION_NEW_PARAM_COUNT_ATTR: &str = "data-param-count";
 
+// ── Persona modal ───────────────────────────────────────────────────
+
+/// The persona **modal's** host — an empty span sibling to the other
+/// modal hosts in the page shell (the same host-not-container rule:
+/// opening this modal can never destroy the menu item that opened
+/// it). The modal fragment swaps into this host on open and on every
+/// filter re-pull.
+pub const PERSONA_MODAL_HOST_ID: &str = "persona-modal-host";
+
+/// The same host spelled as a CSS selector — the swap-target header
+/// the fragment pulls stamp and the Datastar bindings name.
+pub const PERSONA_MODAL_HOST_SELECTOR: &str = "#persona-modal-host";
+
+/// The persona modal overlay — the server-rendered row list the menu
+/// item opens; present in the page only after the pull renders it in.
+pub const PERSONA_MODAL_ID: &str = "persona-modal";
+
+/// The modal's filter input — each keystroke re-queries the server.
+pub const PERSONA_FILTER_ID: &str = "persona-filter";
+
+/// The modal's row container — the list the filter re-renders into.
+pub const PERSONA_ROWS_ID: &str = "persona-rows";
+
+/// The attribute a persona row carries its name in — the switch POST's
+/// payload field, validated against the rows the modal renders.
+pub const PERSONA_NAME_DATA_ATTR: &str = "data-webui-persona";
+
+/// The attribute the active persona row carries — present only on the
+/// row matching the session's current persona.
+pub const PERSONA_ACTIVE_ATTR: &str = "data-webui-persona-active";
+
+/// The persona modal's open toggle (view-local signal).
+pub const SIGNAL_PERSONA_MODAL_OPEN: &str = "personaModalOpen";
+/// The persona modal's filter text.
+pub const SIGNAL_PERSONA_FILTER: &str = "personafilter";
+
+/// The persona switch POST's action name.
+pub const ACTION_PERSONA: &str = "persona";
+
+/// The persona-picker pull's filter query parameter
+/// (`GET /web/persona-picker/{id}?filter=…`) — the server-side fuzzy
+/// filter over persona name and description; absent or empty renders
+/// every row.
+pub const PERSONA_FILTER_QUERY_PARAM: &str = "filter";
+
+/// Route pattern — the persona-picker fragment pull.
+pub const PERSONA_PICKER_ROUTE: &str = "/web/persona-picker/{id}";
+
+/// The path prefix client code builds persona-picker URLs from.
+pub const PERSONA_PICKER_PREFIX: &str = "/web/persona-picker/";
+
+/// `POST` — switch the viewed session's persona (the same message set
+/// the TUI confirm publishes).
+pub const PERSONA_PATH: &str = "/web/persona";
+
 // ── Endpoints ───────────────────────────────────────────────────────
 
 /// The landing/session page path (the client's entry URL).
@@ -437,6 +501,8 @@ pub const DOM_CONSTANTS: &[&str] = &[
     MENU_PANEL_ID,
     MENU_ITEM_SESSIONS_ID,
     MENU_ITEM_NEW_SESSION_ID,
+    MENU_ITEM_PERSONA_ID,
+    ACTION_MENU_PERSONA,
     SESSION_NEW_MODAL_HOST_ID,
     SESSION_NEW_MODAL_ID,
     SESSION_NEW_PROJECT_SELECT_ID,
@@ -445,6 +511,13 @@ pub const DOM_CONSTANTS: &[&str] = &[
     SESSION_NEW_SUBMIT_ID,
     SESSION_NEW_EMPTY_ID,
     SESSION_NEW_PARAM_COUNT_ATTR,
+    PERSONA_MODAL_HOST_ID,
+    PERSONA_MODAL_ID,
+    PERSONA_FILTER_ID,
+    PERSONA_ROWS_ID,
+    PERSONA_NAME_DATA_ATTR,
+    PERSONA_ACTIVE_ATTR,
+    ACTION_PERSONA,
     ACTION_MENU_SESSIONS,
     ACTION_MENU_NEW_SESSION,
     DRAWER_SCRIM_ID,
@@ -471,6 +544,9 @@ pub const CLIENT_PATHS: &[&str] = &[
     MODEL_FILTER_QUERY_PARAM,
     MODELS_REFRESH_PATH,
     SESSION_NEW_LIFECYCLE_QUERY_PARAM,
+    PERSONA_PICKER_PREFIX,
+    PERSONA_FILTER_QUERY_PARAM,
+    PERSONA_PATH,
     VENDOR_PREFIX,
 ];
 
@@ -491,5 +567,7 @@ pub const CLIENT_URLS: &[&str] = &[
     MODEL_PICKER_PREFIX,
     MODELS_REFRESH_PATH,
     SESSION_CREATE_PATH,
+    PERSONA_PICKER_PREFIX,
+    PERSONA_PATH,
     VENDOR_PREFIX,
 ];

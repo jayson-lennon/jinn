@@ -61,6 +61,11 @@ async fn harness_with(config: jinn_config::ConfigLayer) -> (TestHarness, State, 
             &jinn_provider_selection_msg::provider_state_slot(),
         )
         .expect("the catalog registered the provider slot");
+    // The catalog already registered the personas slot; take the
+    // handle it minted (composition's own access form).
+    let personas_cell = slices
+        .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+        .expect("the catalog registered the personas slot");
     let state = {
         let app = AppState::default();
         app.session.attach_slices(slices.clone());
@@ -84,6 +89,7 @@ async fn harness_with(config: jinn_config::ConfigLayer) -> (TestHarness, State, 
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        personas_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {

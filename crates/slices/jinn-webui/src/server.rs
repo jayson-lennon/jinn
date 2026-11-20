@@ -255,7 +255,7 @@ async fn overlay_reset_patches(
         ))
         .map_err(|e| fail(500, e.to_string()))?;
     let model_html = crate::regions::model_picker::status_fragment(shared, &id.to_string())?;
-    let menu_html = crate::regions::menu::menu_fragment();
+    let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
     // The root fragment — NOT the full page shell. The runtime morphs
     // element patches; a document-shaped patch (DOCTYPE + <html>) is
     // parsed as a whole document and its fight with the live page
@@ -327,6 +327,8 @@ pub struct ServerShared {
     session_store: jinn_session_state::SessionStoreService,
     /// The provider cell, for the model picker.
     provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
+    /// The personas cell, for the persona modal's TUI-parity rows.
+    personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
     /// The provider registry, for the picker's TUI-parity rows (the
     /// shared builder reads it for static providers, aliases, and
     /// availability).
@@ -353,6 +355,7 @@ impl ServerShared {
         bus: BusService,
         session_store: jinn_session_state::SessionStoreService,
         provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
+        personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
         provider_registry: jinn_provider_config::ProviderRegistryService,
         api_keys: jinn_provider_config::ApiKeysService,
         config: jinn_slices::ConfigLayer,
@@ -365,6 +368,7 @@ impl ServerShared {
             bus,
             session_store,
             provider_cell,
+            personas_cell,
             provider_registry,
             api_keys,
             config,
@@ -416,6 +420,13 @@ impl ServerShared {
         &self.provider_cell
     }
 
+    /// The personas cell, for the persona modal's rows and the switch
+    /// POST's validation (the rendered rows are the accepted set).
+    #[must_use]
+    pub(crate) fn personas_cell(&self) -> &jinn_slices::TypedCell<jinn_persona_msg::Personas> {
+        &self.personas_cell
+    }
+
     /// The provider registry, for the picker rows' shared builder.
     #[must_use]
     pub(crate) fn provider_registry(&self) -> &jinn_provider_config::ProviderRegistryService {
@@ -458,6 +469,7 @@ pub fn router(shared: ServerShared) -> Router {
         .route("/web/send", post(send))
         .route("/web/cancel", post(cancel))
         .route("/web/model", post(model))
+        .route(crate::contract::PERSONA_PATH, post(persona))
         .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
         .route("/web/session/{id}/activate", post(activate))
         .route(crate::contract::RENAME_ROUTE, post(rename))
@@ -506,7 +518,9 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
 /// `GET /web` — the landing page: sessions list, no transcript.
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
     let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
-    let menu_html = crate::regions::menu::menu_fragment();
+    // No viewed session on the landing page — the menu renders without
+    // the persona item.
+    let menu_html = crate::regions::menu::menu_fragment("");
     let html = crate::templates::render(&crate::templates::PageTemplate::landing(
         sessions_html,
         menu_html,
@@ -536,7 +550,7 @@ async fn page_session(
         ))
         .map_err(|e| fail(500, e.to_string()))?;
     let model_html = crate::regions::model_picker::status_fragment(&shared, &session_id)?;
-    let menu_html = crate::regions::menu::menu_fragment();
+    let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         &session_id,
         view.transcript.title.clone(),
@@ -780,6 +794,57 @@ async fn model(
             serde_json::Value::Bool(false),
         )]),
     ]))
+}
+
+/// `POST /web/persona` — switch the viewed session's persona. The web
+/// mirror of the TUI persona picker's confirm; the delivery path
+/// validates, applies, and publishes. The response swaps the
+/// re-rendered modal (the active mark moves) and — when the chosen
+/// persona carries no `<compaction>` block — the whole transcript, so
+/// the loud error entry is visible without a reload (the fan-out
+/// handles no chat-entry event; the POST response is the only
+/// correction path). The modal-close rides the same signal patch the
+/// model switch uses.
+async fn persona(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<WebForm<jinn_webui_msg::PersonaForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
+    let blockless = crate::delivery::handle_persona(
+        shared.state(),
+        shared.personas_cell(),
+        shared.bus(),
+        &form.session_id,
+        &form.persona,
+    )
+    .await
+    .map_err(|error| fail(error.status(), error.sentence()))?;
+
+    let mut events = Vec::with_capacity(3);
+    if blockless {
+        // The chosen persona lacks a handoff block: the delivery path
+        // pushed the loud error entry, and the transcript swap is what
+        // makes it visible now (rendered from state that already holds
+        // the entry — the sync-write-then-render ordering).
+        let id = parse_session_id(&form.session_id)?;
+        let transcript_html = {
+            let guard = shared.read_state();
+            crate::regions::transcript::transcript_full_fragment(&id, &guard)
+        };
+        events.push(element_patch_inner(
+            format!("#{}", crate::contract::TRANSCRIPT_ID),
+            transcript_html,
+        ));
+    }
+    events.push(element_patch_inner(
+        format!("#{}", crate::contract::PERSONA_MODAL_ID),
+        crate::regions::persona_picker::modal_fragment(&shared, &form.session_id, "")?,
+    ));
+    events.push(signal_patch(&[(
+        crate::contract::SIGNAL_PERSONA_MODAL_OPEN,
+        serde_json::Value::Bool(false),
+    )]));
+    Ok(SseAction::new(events))
 }
 
 /// `POST /web/models/refresh` — the modal's refresh button. Publishes

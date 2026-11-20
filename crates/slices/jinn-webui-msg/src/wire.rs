@@ -3,13 +3,13 @@
 //! Three families:
 //!
 //! - **Action forms** — what an action POST carries: [`SendForm`],
-//!   [`CancelForm`], [`ModelForm`], [`SwitchForm`]. Field-for-field
-//!   the `application/x-www-form-urlencoded` bodies the Rust tests,
-//!   curl, and the e2e bootstrap post; the Datastar browser posts
-//!   JSON signal bodies whose keys are the camelCase aliases each
-//!   field declares, and the server's dual extractor accepts either
-//!   encoding. axum's `Form` extractor (or the dual wrapper)
-//!   deserializes them.
+//!   [`CancelForm`], [`ModelForm`], [`PersonaForm`], [`SwitchForm`].
+//!   Field-for-field the `application/x-www-form-urlencoded` bodies
+//!   the Rust tests, curl, and the e2e bootstrap post; the Datastar
+//!   browser posts JSON signal bodies whose keys are the camelCase
+//!   aliases each field declares, and the server's dual extractor
+//!   accepts either encoding. axum's `Form` extractor (or the dual
+//!   wrapper) deserializes them.
 //! - [`TranscriptQuery`] — the cursor grammar of the transcript pull:
 //!   `?since=N` returns the entries rendered at index `N` and after.
 //! - [`SseEnvelope`] — one fan-out push envelope: the region kind it
@@ -96,6 +96,17 @@ pub struct ModelsRefreshForm {
     /// The session whose button to re-render in the reply.
     #[serde(alias = "sessionId")]
     pub session_id: String,
+}
+
+/// `POST /web/persona` — switch the viewed session's persona.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PersonaForm {
+    /// The session to switch.
+    #[serde(alias = "sessionId")]
+    pub session_id: String,
+    /// The persona name, exactly as a rendered row carries it.
+    #[serde(alias = "persona")]
+    pub persona: String,
 }
 
 /// `POST /web/session/{id}/activate` — activate a session.

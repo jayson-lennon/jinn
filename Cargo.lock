@@ -4754,6 +4754,7 @@ dependencies = [
  "rstest",
  "serde",
  "trouper",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -6041,6 +6042,7 @@ dependencies = [
  "jinn-core-types",
  "jinn-inference-msg",
  "jinn-kernel",
+ "jinn-persona-msg",
  "jinn-picker",
  "jinn-preferences-config",
  "jinn-provider",
