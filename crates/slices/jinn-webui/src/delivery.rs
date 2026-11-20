@@ -419,7 +419,6 @@ pub async fn handle_persona(
 pub async fn handle_mcp_toggle(
     state: &State,
     config: &jinn_slices::ConfigLayer,
-    mcp_runtime: &jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
     bus: &BusService,
     session_id: &str,
     server: &str,
@@ -432,8 +431,7 @@ pub async fn handle_mcp_toggle(
     // accepted staleness the session-new form shares.)
     let configured = config
         .get::<jinn_preferences_config::schemas::mcp::McpServersConfig>()
-        .map(|servers| servers.0.contains_key(server))
-        .unwrap_or(false);
+        .is_ok_and(|servers| servers.0.contains_key(server));
     if !configured {
         return Err(ActionError::UnknownMcpServer(server.to_owned()));
     }
@@ -461,7 +459,6 @@ pub async fn handle_mcp_toggle(
         }
         enabled
     });
-    let _runtime = mcp_runtime;
 
     bus.publish(jinn_mcp_msg::McpEnablementChanged {
         session_id,

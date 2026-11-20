@@ -46,7 +46,9 @@ use jinn_core_types::SessionId;
 use jinn_kernel::Services;
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_kernel::common::services::bus_service::BusService;
-use jinn_mcp_msg::{McpEnablementChanged, McpRuntimeState, McpRuntimeStored, RestartError, RestartMcpServer};
+use jinn_mcp_msg::{
+    McpEnablementChanged, McpRuntimeState, McpRuntimeStored, RestartError, RestartMcpServer,
+};
 use jinn_mcp_msg::{McpServerLog, McpServerStatus};
 use jinn_preferences_config::schemas::mcp::McpServerConfig;
 use jinn_preferences_config::schemas::mcp::McpServersConfig;
@@ -1730,7 +1732,9 @@ mod status_tests {
     use jinn_kernel::common::app_state::AppState;
     use jinn_kernel::common::bus::HarnessServices;
     use jinn_kernel::common::state::State;
-    use jinn_mcp_msg::{McpConnectionStatus, McpRuntimeState, McpRuntimeStored, McpServerLog, McpServerStatus};
+    use jinn_mcp_msg::{
+        McpConnectionStatus, McpRuntimeState, McpRuntimeStored, McpServerLog, McpServerStatus,
+    };
     use jinn_session_lifecycle_msg::SessionTeardownFinished;
     use jinn_session_msg::{SessionArchived, SessionClosed};
     use jinn_session_store_msg::SessionLoadCompleted;
@@ -2090,8 +2094,7 @@ mod status_tests {
             state.status(&session_id, "excalimate") == Some(McpConnectionStatus::Running)
         })
         .await;
-        let events =
-            await_recorded(&stored, 1, std::time::Duration::from_secs(10)).await;
+        let events = await_recorded(&stored, 1, std::time::Duration::from_secs(10)).await;
         assert!(
             !events.is_empty(),
             "a status write must emit exactly the stored event for the fan-out"

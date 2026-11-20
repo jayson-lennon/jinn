@@ -121,7 +121,10 @@ async fn pull_handler(
 /// The viewed session's enabled MCP set, read under one short-lived
 /// guard (dropped before any await, per the guard discipline).
 #[must_use]
-fn enabled_set(shared: &crate::server::ServerShared, session_id: &str) -> std::collections::BTreeSet<String> {
+fn enabled_set(
+    shared: &crate::server::ServerShared,
+    session_id: &str,
+) -> std::collections::BTreeSet<String> {
     let Some(id) = jinn_core_types::SessionId::try_from_string(session_id) else {
         return std::collections::BTreeSet::new();
     };
@@ -129,8 +132,7 @@ fn enabled_set(shared: &crate::server::ServerShared, session_id: &str) -> std::c
     guard
         .session
         .get(&id)
-        .map(|session| session.enabled_mcp_servers().clone())
-        .unwrap_or_default()
+        .map_or_default(|session| session.enabled_mcp_servers().clone())
 }
 
 /// Builds the TUI-parity rows for one render: the shared builder over
@@ -149,27 +151,24 @@ fn server_rows(shared: &crate::server::ServerShared, session_id: &str) -> Vec<Mc
     let servers: Vec<(String, String)> = shared
         .config()
         .get::<jinn_preferences_config::schemas::mcp::McpServersConfig>()
-        .map(|config| {
+        .map_or_default(|config| {
             config
                 .0
                 .into_iter()
                 .map(|(name, server)| (name, server.description_for_picker()))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let enabled = enabled_set(shared, session_id);
     let statuses: std::collections::BTreeMap<String, jinn_mcp_msg::McpConnectionStatus> = {
         let id = jinn_core_types::SessionId::try_from_string(session_id);
         let runtime = shared.mcp_runtime().read();
-        id.as_ref()
-            .map(|id| {
-                runtime
-                    .effective_statuses(id)
-                    .iter()
-                    .map(|(name, status)| (name.clone(), *status))
-                    .collect()
-            })
-            .unwrap_or_default()
+        id.as_ref().map_or_default(|id| {
+            runtime
+                .effective_statuses(id)
+                .iter()
+                .map(|(name, status)| (name.clone(), *status))
+                .collect()
+        })
     };
     jinn_mcp_msg::build_rows(&servers, &enabled, &statuses)
 }

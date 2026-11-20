@@ -484,8 +484,7 @@ async fn every_modal_carries_click_away_on_the_overlay_and_escape_on_the_card() 
     ] {
         let overlay_open = html
             .split_once(&format!("id=\"{overlay_id}\""))
-            .map(|(_, tail)| tail.split('>').next().unwrap_or(""))
-            .unwrap_or("");
+            .map_or("", |(_, tail)| tail.split('>').next().unwrap_or(""));
         assert!(
             overlay_open.contains("data-on:click=\"evt.target === evt.currentTarget"),
             "the {name} modal's overlay tag must carry the click-away handler: {html}"
@@ -498,8 +497,7 @@ async fn every_modal_carries_click_away_on_the_overlay_and_escape_on_the_card() 
         // own clicks must not close the modal.
         let card = html
             .split_once("-inner\"")
-            .map(|(_, tail)| tail.split('>').next().unwrap_or(""))
-            .unwrap_or("");
+            .map_or("", |(_, tail)| tail.split('>').next().unwrap_or(""));
         assert!(
             !card.contains("currentTarget"),
             "the {name} modal's card must not carry the click-away handler: {html}"

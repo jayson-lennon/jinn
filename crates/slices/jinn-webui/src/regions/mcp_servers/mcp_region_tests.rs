@@ -135,10 +135,13 @@ fn row_fragment(html: &str, server: &str) -> String {
     let start = before
         .rfind("<div")
         .unwrap_or_else(|| panic!("a row div precedes the {server} marker: {html}"));
-    let end = html[start..]
-        .find("</div>")
+    let end = html
+        .get(start..)
+        .and_then(|tail| tail.find("</div>"))
         .unwrap_or_else(|| panic!("the {server} row's fragment closes: {html}"));
-    html[start..start + end + "</div>".len()].to_owned()
+    html.get(start..start + end + "</div>".len())
+        .unwrap_or_else(|| panic!("the {server} row's fragment slices cleanly: {html}"))
+        .to_owned()
 }
 
 #[rstest::rstest]

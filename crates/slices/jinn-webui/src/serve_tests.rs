@@ -982,10 +982,7 @@ async fn an_mcp_status_push_reaches_a_live_stream_as_a_dispatchable_signal_frame
                      data buffer is never dispatched by a browser): {frame:?}"
                 );
                 assert!(
-                    !frame.contains(&format!(
-                        "id=\"{}\"",
-                        crate::contract::MCP_MODAL_ID
-                    )),
+                    !frame.contains(&format!("id=\"{}\"", crate::contract::MCP_MODAL_ID)),
                     "the mcp push is a signal, never HTML rows: {frame:?}"
                 );
                 saw_mcp_with_data = true;

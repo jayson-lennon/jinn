@@ -1434,7 +1434,12 @@ singleton = true
         let fanout = {
             use trouper::system::ActorSystem;
             let system = ActorSystem::new(trouper::system::SystemConfig::production());
-            crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
+            crate::fanout::WebUiFanoutActor::spawn(
+                &system,
+                state.clone(),
+                bus.clone(),
+                unread_marks,
+            )
         };
         let shared = ServerShared::new(
             state.clone(),
@@ -1461,8 +1466,7 @@ singleton = true
             .read()
             .session
             .get(id)
-            .map(|session| session.enabled_mcp_servers().clone())
-            .unwrap_or_default()
+            .map_or_default(|session| session.enabled_mcp_servers().clone())
     }
 
     #[rstest::rstest]
@@ -1520,8 +1524,8 @@ singleton = true
             ))
             .and_then(|(before, _)| {
                 let start = before.rfind("<div")?;
-                let end = unfolded[start..].find("</div>")?;
-                Some(unfolded[start..start + end].to_owned())
+                let end = unfolded.get(start..)?.find("</div>")?;
+                unfolded.get(start..start + end).map(str::to_owned)
             })
             .expect("the echo row renders in the response");
         assert!(

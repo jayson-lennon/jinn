@@ -881,7 +881,6 @@ async fn mcp_toggle(
     crate::delivery::handle_mcp_toggle(
         shared.state(),
         shared.config(),
-        shared.mcp_runtime(),
         shared.bus(),
         &form.session_id,
         &form.server,

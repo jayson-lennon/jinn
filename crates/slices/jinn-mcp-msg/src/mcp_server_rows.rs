@@ -121,8 +121,10 @@ mod tests {
 
         // Then exactly the enabled names carry the mark — matching is
         // exact (the set holds the config's own spelling).
-        let marks: BTreeMap<&str, bool> =
-            rows.iter().map(|row| (row.name.as_str(), row.enabled)).collect();
+        let marks: BTreeMap<&str, bool> = rows
+            .iter()
+            .map(|row| (row.name.as_str(), row.enabled))
+            .collect();
         assert_eq!(
             marks,
             BTreeMap::from([("alpha", true), ("browser", false), ("Weather", true)])
@@ -141,8 +143,10 @@ mod tests {
 
         // Then the named server carries the status and every other row
         // reads `None` (the "not yet reported" state).
-        let statuses_by_name: BTreeMap<&str, Option<McpConnectionStatus>> =
-            rows.iter().map(|row| (row.name.as_str(), row.status)).collect();
+        let statuses_by_name: BTreeMap<&str, Option<McpConnectionStatus>> = rows
+            .iter()
+            .map(|row| (row.name.as_str(), row.status))
+            .collect();
         assert_eq!(
             statuses_by_name,
             BTreeMap::from([
@@ -165,7 +169,10 @@ mod tests {
 
         // Then each row's description is the input pair's, unmodified
         // — the builder does not re-derive the summary.
-        let alpha = rows.iter().find(|row| row.name == "alpha").expect("alpha row");
+        let alpha = rows
+            .iter()
+            .find(|row| row.name == "alpha")
+            .expect("alpha row");
         assert_eq!(alpha.description, "alpha-server");
     }
 }
