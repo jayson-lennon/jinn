@@ -472,16 +472,21 @@ async fn the_active_session_never_marks_on_its_own_settle() {
         jinn_slices::PhaseView::Idle,
     ));
 
-    // Then no mark ever lands and no sessions refresh fires for it —
-    // a settle the user is watching is not news.
+    // Then no mark ever lands — a settle the user is watching is not
+    // news — and every sessions envelope the working flips fan carries
+    // no unread class for it. (The flips themselves DO fan now: the
+    // row spinner is rendered truth for every viewer.)
     assert!(!marks.read().is_marked(&id));
+    let mut any_unread = false;
     while let Ok(envelope) = rx.try_recv() {
-        assert_ne!(
-            envelope.kind,
-            SseKind::Sessions,
-            "no sessions refresh for the viewed session: {envelope:?}"
-        );
+        if envelope.kind == SseKind::Sessions && envelope.html.contains("unread") {
+            any_unread = true;
+        }
     }
+    assert!(
+        !any_unread,
+        "no sessions refresh ever marks the viewed session"
+    );
 }
 
 #[rstest::rstest]
@@ -504,17 +509,18 @@ async fn a_subagent_session_never_marks() {
         jinn_slices::PhaseView::Idle,
     ));
 
-    // Then no mark lands and no sessions refresh was emitted — the
-    // exclusion is decided at set time, and a quiet settle pushes
-    // nothing.
+    // Then no mark lands — the exclusion is decided at set time — and
+    // any sessions envelope the working flip fans carries no unread
+    // class for it. (The flip fans now: the row spinner clears for
+    // every viewer; the mark stays silent.)
     assert!(!marks.read().is_marked(&sub));
-    let mut any_sessions = false;
+    let mut any_unread = false;
     while let Ok(envelope) = rx.try_recv() {
-        if envelope.kind == SseKind::Sessions {
-            any_sessions = true;
+        if envelope.kind == SseKind::Sessions && envelope.html.contains("unread") {
+            any_unread = true;
         }
     }
-    assert!(!any_sessions, "no refresh for a subagent settle");
+    assert!(!any_unread, "no refresh ever marks a subagent settle");
     // Both seeds are live (plus the map's default session) — the
     // exclusion decided nothing about liveness, only about marking.
     let live = state.read().session.sessions().len();
@@ -567,6 +573,174 @@ async fn a_self_settle_from_idle_marks_nothing() {
 
     // Then nothing is marked — there was no work delivered.
     assert!(!marks.read().is_marked(&id));
+}
+
+// ── The working flip: the sessions list refreshes only on it ────────
+
+/// Whether any rendered row's class list carries the working hook —
+/// token-parsed, the way the browser reads `class`.
+fn has_working_row(html: &str) -> bool {
+    html.split("class=\"").skip(1).any(|rest| {
+        rest.split('"')
+            .next()
+            .unwrap_or_default()
+            .split(' ')
+            .any(|part| part == crate::contract::WORKING_CLASS)
+    })
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_working_flip_fans_one_refresh_to_every_live_session() {
+    // Given three live sessions and a subscriber, none active-marked.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let busy = seed_session(&state);
+    let _ = seed_session(&state);
+    let _ = seed_session(&state);
+    let live = state.read().session.sessions().len();
+
+    // When a turn starts (Idle → Streaming — the working flip that a
+    // turn start is). The projection write lands BEFORE the event, the
+    // production order (the ledger's mint writes, then publishes).
+    state
+        .write()
+        .session
+        .get_mut(&busy)
+        .expect("seeded session")
+        .begin_streaming();
+    actor.on_phase_changed(&phase_change(
+        &busy,
+        jinn_slices::PhaseView::Idle,
+        jinn_slices::PhaseView::Streaming,
+    ));
+
+    // Then exactly one addressed sessions envelope per live session
+    // lands, and every copy renders the working class — the list
+    // refresh is the spinner's only live path.
+    let html = last_sessions_html(&mut rx, live);
+    assert!(
+        has_working_row(&html),
+        "the pushed fragment carries the spinner: {html}"
+    );
+    assert!(
+        rx.try_recv().is_err(),
+        "one wave, nothing else: no extra envelopes after the fan"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_streaming_to_working_boundary_fans_nothing() {
+    // Given a live session and a subscriber.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+
+    // When a Streaming → Working tool-loop boundary lands (busy →
+    // busy: no rendered fact changed). The projection write lands
+    // before the event, the production order.
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .begin_sending();
+    actor.on_phase_changed(&phase_change(
+        &id,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Working,
+    ));
+
+    // Then no sessions envelope fans — the composer's busy controls
+    // push is the event's whole visible surface, and it is not a
+    // sessions envelope.
+    let mut any_sessions = false;
+    while let Ok(envelope) = rx.try_recv() {
+        if envelope.kind == SseKind::Sessions {
+            any_sessions = true;
+        }
+    }
+    assert!(
+        !any_sessions,
+        "a busy→busy boundary never refreshes the sessions list"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_settling_unseen_session_fans_one_wave_carrying_both_facts() {
+    // Given two live sessions, Bar active, Foo busy.
+    let (mut actor, mut rx, state, marks) = fixture();
+    let foo = seed_session(&state);
+    let bar = seed_session(&state);
+    assert!(
+        state.write().session.set_active(bar.clone()),
+        "bar activates"
+    );
+    let live = state.read().session.sessions().len();
+
+    // When Foo settles Streaming → Idle — the working flip AND the
+    // unseen-settle mark in one event. The projection write lands
+    // before the event, the production order.
+    state
+        .write()
+        .session
+        .get_mut(&foo)
+        .expect("seeded session")
+        .settle_to_idle();
+    actor.on_phase_changed(&phase_change(
+        &foo,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+
+    // Then exactly `live` sessions envelopes land (the single shared
+    // fan — not one wave for the flip and a second for the mark), and
+    // the fragment carries the mark while carrying no working class
+    // for Foo (the settle cleared it).
+    let html = last_sessions_html(&mut rx, live);
+    assert!(marks.read().is_marked(&foo), "the mark landed");
+    assert!(
+        html.contains("unread"),
+        "the shared fan carries the mark: {html}"
+    );
+    assert!(
+        rx.try_recv().is_err(),
+        "one wave total — flip and mark share it: no extra envelopes"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_watched_settle_still_fans_the_flip_wave() {
+    // Given one live session, active, and a subscriber.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    assert!(state.write().session.set_active(id.clone()), "activates");
+    let live = state.read().session.sessions().len();
+
+    // When the watched session settles Streaming → Idle (no mark —
+    // the user is watching it). The projection write lands before the
+    // event, the production order.
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .settle_to_idle();
+    actor.on_phase_changed(&phase_change(
+        &id,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+
+    // Then the flip still fans one wave — the spinner clearing is a
+    // rendered fact regardless of who was watching.
+    let html = last_sessions_html(&mut rx, live);
+    assert!(
+        !has_working_row(&html),
+        "the settled fragment carries no spinner: {html}"
+    );
+    assert!(rx.try_recv().is_err(), "one wave, nothing else");
 }
 
 // ── The unread mark: cleared on activation ──────────────────────────

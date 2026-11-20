@@ -297,6 +297,7 @@ struct Row {
     session_id: String,
     active: bool,
     unread: bool,
+    working: bool,
 }
 
 /// Parses the fragment into its rows, in render order. Rows are the
@@ -322,6 +323,7 @@ fn rows_in_order(html: &str) -> Vec<Row> {
                 session_id,
                 active: class.split(' ').any(|part| part == "active"),
                 unread: class.split(' ').any(|part| part == "unread"),
+                working: class.split(' ').any(|part| part == contract::WORKING_CLASS),
             }
         })
         .filter(|row| !row.session_id.is_empty())
@@ -837,5 +839,213 @@ async fn a_harness_without_a_registry_renders_no_marks() {
     assert!(
         rows.iter().all(|row| !row.unread),
         "no row renders marked without a registry: {html}"
+    );
+}
+
+// ── The working spinner ─────────────────────────────────────────────
+//
+// The busy condition is `PhaseView::is_working`, seeded through the
+// session's public projection methods (`begin_streaming` → Streaming,
+// `begin_sending` → Working — exactly what the turn ledger's mint and
+// tool-loop edges write; `settle_to_idle` for the idle negative). The
+// display projection has no `Cancelling` writer (the drain lives only
+// in the ledger's derived view), so the third busy phase is proven at
+// the template level: the spinner markup is one unconditional
+// `item.working` branch, so a `Cancelling` row renders the same span
+// `Streaming` does — no phase-specific branch exists to get it wrong.
+
+/// The spinner span inside `id`'s row — the span whose class carries
+/// the working hook. `None` when the row rendered without one (the
+/// idle signal).
+fn spinner_of(html: &str, id: &SessionId) -> Option<String> {
+    let row_id = id.to_string();
+    let spinner_attr = format!("class=\"{}", contract::WORKING_CLASS);
+    html.split("<a ")
+        .skip(1)
+        .filter(|anchor| {
+            anchor.split('>').next().is_some_and(|tag| {
+                tag.contains(&format!("{}=\"{row_id}\"", contract::SESSION_ID_DATA_ATTR))
+            })
+        })
+        .find_map(|anchor| {
+            anchor.split("</a>").next().and_then(|body| {
+                body.split("<span")
+                    .skip(1)
+                    .map(|span| span.split('>').next().unwrap_or_default().to_owned())
+                    .find(|attrs| attrs.contains(&spinner_attr))
+            })
+        })
+}
+
+#[rstest::rstest]
+#[case::streaming(jinn_slices::PhaseView::Streaming)]
+#[case::working(jinn_slices::PhaseView::Working)]
+#[tokio::test]
+async fn a_busy_session_renders_the_working_spinner(
+    #[case] expected_phase: jinn_slices::PhaseView,
+) {
+    // Given two live sessions, one driven into a busy phase through
+    // its public projection method.
+    let (state, shared) = harness(Vec::new());
+    let busy_id = seed_titled(&state, "Busy");
+    let idle_id = seed_titled(&state, "Idle");
+    {
+        let mut guard = state.write();
+        let session = guard.session.get_mut(&busy_id).expect("seeded session");
+        if expected_phase == jinn_slices::PhaseView::Streaming {
+            session.begin_streaming();
+        } else {
+            session.begin_sending();
+        }
+    }
+    assert_eq!(
+        state
+            .read()
+            .session
+            .get(&busy_id)
+            .map(jinn_session_state::ChatSessionState::phase),
+        Some(expected_phase),
+        "the seed landed the phase the projection writer names"
+    );
+
+    // When pulling the merged sessions fragment.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+        .await
+        .expect("sessions pull renders");
+
+    // Then the busy row wears the working class, and the spinner span
+    // sits ahead of the title inside that row.
+    let rows = rows_in_order(&html);
+    assert!(
+        row_for(&rows, &busy_id).working,
+        "the busy row renders working: {html}"
+    );
+    assert!(
+        !row_for(&rows, &idle_id).working,
+        "the idle row renders clean: {html}"
+    );
+    let spinner = spinner_of(&html, &busy_id).expect("the busy row carries a spinner span");
+    assert!(
+        spinner.contains(&format!("class=\"{}", contract::WORKING_CLASS)),
+        "the spinner span carries the working class: {spinner}"
+    );
+    // And the spinner precedes the title.
+    let row_html = html
+        .split(&format!(
+            "{}=\"{}\"",
+            contract::SESSION_ID_DATA_ATTR,
+            busy_id
+        ))
+        .nth(1)
+        .expect("the busy row renders");
+    let spinner_pos = row_html
+        .find(&format!("class=\"{}", contract::WORKING_CLASS))
+        .expect("the spinner renders in the row");
+    let title_pos = row_html
+        .find("stitle")
+        .expect("the title renders in the row");
+    assert!(
+        spinner_pos < title_pos,
+        "the spinner precedes the title: {row_html}"
+    );
+    // And the fragment carries the fill-scoped ink rule alongside the
+    // spinner rule (the CSS travels with the fragment's region sheet).
+    let css = crate::regions::sessions::SIDEBAR_CSS;
+    assert!(
+        css.contains(&format!(
+            ".srow.{} .{}",
+            contract::WORKING_CLASS,
+            contract::WORKING_CLASS
+        )),
+        "the spinner rule exists in the region stylesheet"
+    );
+    assert!(
+        css.contains(&format!(".srow.active .{}", contract::WORKING_CLASS))
+            && css.contains(&format!(".srow.unread .{}", contract::WORKING_CLASS)),
+        "the fill-scoped ink rules exist: {css}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_idle_session_renders_no_spinner() {
+    // Given a live session that streamed and settled back to idle —
+    // the settle path's own projection writer.
+    let (state, shared) = harness(Vec::new());
+    let id = seed_titled(&state, "Settled");
+    {
+        let mut guard = state.write();
+        let session = guard.session.get_mut(&id).expect("seeded session");
+        session.begin_streaming();
+        session.settle_to_idle();
+    }
+
+    // When pulling the fragment.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+        .await
+        .expect("sessions pull renders");
+
+    // Then the row carries no working class and no spinner span — its
+    // absence is the idle signal.
+    let rows = rows_in_order(&html);
+    assert!(!row_for(&rows, &id).working, "{html}");
+    assert!(spinner_of(&html, &id).is_none(), "{html}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_archived_row_never_carries_the_working_class() {
+    // Given an archived summary — the store alone serves its row — and
+    // one live session for contrast.
+    let (state, shared) = harness(vec![archived_summary(SessionId::new(), "Aardvark")]);
+    let live = seed_titled(&state, "Live");
+
+    // When pulling the merged fragment.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+        .await
+        .expect("sessions pull renders");
+
+    // Then no archived row wears the working class — an archived
+    // session has no turn in flight by definition.
+    let rows = rows_in_order(&html);
+    assert!(
+        rows.iter()
+            .filter(|row| row.session_id != live.to_string())
+            .all(|row| !row.working),
+        "archived rows never spin: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn both_render_paths_produce_the_same_working_markup() {
+    // Given one busy live session.
+    let (state, shared) = harness(Vec::new());
+    let id = seed_titled(&state, "Busy");
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .begin_streaming();
+
+    // When rendering through the pull path and the pushed path.
+    let pulled = crate::regions::sessions::sessions_fragment(&shared, None)
+        .await
+        .expect("sessions pull renders");
+    let pushed = {
+        let guard = state.read();
+        crate::regions::sessions::sessions_live_fragment(&guard)
+    };
+
+    // Then both carry the working class on the same row — one row
+    // shape, two render targets.
+    assert!(
+        row_for(&rows_in_order(&pulled), &id).working,
+        "the pull path renders the spinner: {pulled}"
+    );
+    assert!(
+        row_for(&rows_in_order(&pushed), &id).working,
+        "the pushed path renders the spinner: {pushed}"
     );
 }

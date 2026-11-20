@@ -403,6 +403,9 @@ pub struct SessionRowTemplate {
     pub session_page_path: &'static str,
     /// The page-root id — the activate response's swap target.
     pub page_root_id: &'static str,
+    /// The working row's class and its spinner span's class — one
+    /// hook for both, the span living inside the row.
+    pub working_class: &'static str,
 }
 
 impl SessionRowTemplate {
@@ -415,6 +418,7 @@ impl SessionRowTemplate {
             session_id_attr: contract::SESSION_ID_DATA_ATTR,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             page_root_id: contract::PAGE_ROOT_ID,
+            working_class: contract::WORKING_CLASS,
         }
     }
 }
@@ -435,6 +439,8 @@ pub struct SessionsTemplate {
     pub session_page_path: &'static str,
     /// The page-root id, visible to the row include.
     pub page_root_id: &'static str,
+    /// The working row's class, visible to the row include.
+    pub working_class: &'static str,
 }
 
 impl SessionsTemplate {
@@ -447,6 +453,7 @@ impl SessionsTemplate {
             session_id_attr: contract::SESSION_ID_DATA_ATTR,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             page_root_id: contract::PAGE_ROOT_ID,
+            working_class: contract::WORKING_CLASS,
         }
     }
 }

@@ -38,6 +38,30 @@ use crate::server::Fragment;
 use crate::server::HandlerError;
 use crate::server::ServerShared;
 
+/// The working-set for the given session map: whether each live
+/// session's phase is working, read through
+/// [`jinn_slices::PhaseView::is_working`] — the codebase's single busy
+/// definition, the same one the TUI throbber and the composer's
+/// cancel-button branch read. The sessions surface adds no phase
+/// predicate of its own.
+///
+/// No registry attached → no phase can be non-Idle in a state without
+/// the write paths that set it, so the map degrades to all-idle rather
+/// than failing — the same signal-not-correctness rule the unread
+/// marks follow.
+fn working_set_of(
+    guard: &StateReadGuard<'_>,
+) -> Option<std::collections::HashMap<jinn_core_types::SessionId, bool>> {
+    guard.session.slices()?;
+    Some(
+        guard
+            .session
+            .iter()
+            .map(|(id, session)| (id.clone(), session.phase().is_working()))
+            .collect(),
+    )
+}
+
 /// The sessions region.
 pub struct SessionsRegion;
 
@@ -130,6 +154,21 @@ pub const SIDEBAR_CSS: &str = r#"
 .srow.bot .smeta::after { content: " · bot"; color: #d4a72c; }
 .srow.active .smeta::after { color: #14161a; }
 .srow.unread .smeta::after { color: #3d3320; }
+/* The working spinner: the row-level mark that a turn is in flight —
+   streaming, tools, or cancelling, one class for all three (the busy
+   definition is PhaseView::is_working; the web list never re-derives
+   it). Placed after .active/.unread so a working row wearing a fill
+   keeps its fill; the spinner itself carries the accent color the
+   composer's busy spinner uses, then the fill-scoped ink rules give
+   it the fill's dark ink on accent and unread rows — every element
+   placed on a fill sets its own color. */
+.srow.working .working { display: inline-block; width: 10px; height: 10px;
+                          margin-right: 6px; vertical-align: -1px;
+                          border: 2px solid var(--accent); border-top-color: transparent;
+                          border-radius: 50%;
+                          animation: webui-spin .8s linear infinite; }
+.srow.active .working { border-color: #14161a; border-top-color: transparent; }
+.srow.unread .working { border-color: #14161a; border-top-color: transparent; }
 @media (max-width: 767px) {
   #sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: min(80vw, 320px);
              z-index: 40; transform: translateX(-100%); transition: transform .25s ease; }
@@ -182,12 +221,14 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
         .map(|(id, session)| (id.clone(), session.is_bot()))
         .collect();
     let unread_marks = unread_marks_of(guard);
+    let working = working_set_of(guard);
     let rows = picker_rows(
         live_entries(guard),
         &bots,
         None,
         &active_id,
         unread_marks.as_ref(),
+        working.as_ref(),
     );
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .unwrap_or_else(|error| {
@@ -217,7 +258,7 @@ pub async fn sessions_fragment(
     shared: &ServerShared,
     filter: Option<&str>,
 ) -> Result<String, HandlerError> {
-    let (mut entries, mut bots, active_id, unread_marks) = {
+    let (mut entries, mut bots, active_id, unread_marks, working) = {
         let guard = shared.read_state();
         let active_id = guard.session.active_session_id().clone();
         let bots: std::collections::HashMap<jinn_core_types::SessionId, bool> = guard
@@ -226,7 +267,8 @@ pub async fn sessions_fragment(
             .map(|(id, session)| (id.clone(), session.is_bot()))
             .collect();
         let unread_marks = unread_marks_of(&guard);
-        (live_entries(&guard), bots, active_id, unread_marks)
+        let working = working_set_of(&guard);
+        (live_entries(&guard), bots, active_id, unread_marks, working)
     };
 
     // Archived rows: skip ids already live; the merged tree is the one
@@ -236,7 +278,14 @@ pub async fn sessions_fragment(
     if let Ok(summaries) = shared.load_summaries().await {
         append_summaries(&mut entries, &mut bots, summaries);
     }
-    let rows = picker_rows(entries, &bots, filter, &active_id, unread_marks.as_ref());
+    let rows = picker_rows(
+        entries,
+        &bots,
+        filter,
+        &active_id,
+        unread_marks.as_ref(),
+        working.as_ref(),
+    );
 
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .map_err(|e| crate::server::map_render_error(&e))
@@ -321,6 +370,7 @@ fn picker_rows(
     filter: Option<&str>,
     active_id: &jinn_core_types::SessionId,
     unread_marks: Option<&jinn_webui_msg::UnreadSessionMarks>,
+    working: Option<&std::collections::HashMap<jinn_core_types::SessionId, bool>>,
 ) -> Vec<jinn_webui_msg::SessionListItem> {
     let matches_filter = filter.is_some_and(|text| !text.is_empty());
     let visible: Vec<(SessionTreeEntry, usize)> = if matches_filter {
@@ -353,6 +403,13 @@ fn picker_rows(
             unread: unread_marks
                 .as_ref()
                 .is_some_and(|marks| marks.is_marked(&entry.session_id)),
+            // The working flag is live-phase truth: only a session in
+            // state carries it (the working-set is built from the live
+            // map), so an archived row defaults to idle — an archived
+            // session has no turn in flight by definition.
+            working: working
+                .as_ref()
+                .is_some_and(|set| set.get(&entry.session_id).copied().unwrap_or(false)),
             session_id: entry.session_id,
             title: entry.title,
             depth,

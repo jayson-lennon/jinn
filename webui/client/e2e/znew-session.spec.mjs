@@ -5,7 +5,9 @@
 //! alphabetical file order against ONE scratch jinn (serial workers,
 //! shared db), and this spec CREATES a second session — every other
 //! spec's single-boot-session pin (`sessions`, `smoke`) must have
-//! run before it. Nothing may sort after this file.
+//! run before it. Specs asserting a single boot session sort before
+//! session-creating specs: `zspinner.spec.mjs` sorts after this file
+//! and builds on the sessions it creates.
 
 import { expect, test } from "@playwright/test";
 import * as sel from "./selectors.mjs";

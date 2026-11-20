@@ -131,6 +131,13 @@ pub const ACTION_REFRESH_MODELS: &str = "refresh-models";
 /// The class hook every session row carries.
 pub const SESSION_ROW_CLASS: &str = "srow";
 
+/// The working row's class hook, and the class of the spinner span it
+/// renders ahead of the title — one hook for both, the span living
+/// inside the row. Present only while the session's live phase is
+/// working (streaming, tools, cancelling); its absence is the idle
+/// signal.
+pub const WORKING_CLASS: &str = "working";
+
 /// The titlebar's title span — the inline rename editor's host. The
 /// session page renders it with the viewed title; clicking it opens
 /// the editor (the client swaps an input inside the span). Absent
@@ -415,6 +422,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_MODEL,
     ACTION_REFRESH_MODELS,
     SESSION_ROW_CLASS,
+    WORKING_CLASS,
     SESSION_TITLE_ID,
     MODEL_PICKER_BUTTON_ID,
     MODEL_PICKER_MODAL_ID,

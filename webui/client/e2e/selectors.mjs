@@ -11,6 +11,16 @@ export const SESSIONS_ID = "#sessions";
 export const SESSION_ROW = ".srow";
 /** The attribute on each row carrying its session id. */
 export const SESSION_ID_ATTR = "data-session-id";
+/** The working row's class hook and its spinner span
+ * (`wire.WORKING_CLASS`) — the span renders ahead of the title while
+ * the session's live phase is working. */
+export const WORKING_ROW = ".srow.working";
+/** The spinner span inside a working row. */
+export const WORKING_SPINNER = ".srow.working .working";
+/** One session row, addressed by its id attribute — the scratch db
+ * accumulates sessions across the alphabetical run, so specs never
+ * address rows by index or count. */
+export const SESSION_ROW_BY_ID = (id) => `.srow[${SESSION_ID_ATTR}="${id}"]`;
 /** The sidebar filter input id (`wire.SESSIONS_FILTER_INPUT_ID`). */
 export const SESSIONS_FILTER = "#sessions-filter";
 /** The page-root id (`wire.PAGE_ROOT_ID`). */
