@@ -2523,11 +2523,25 @@ mod tools_actions {
         assert_eq!(filter.mode, jinn_core_types::FilterMode::Deny);
         assert_eq!(filter.names, ["bash".to_owned()].into_iter().collect());
 
-        // And the response is the re-rendered modal (the
-        // stale-fragment pattern) with the row marks correct: the
-        // toggled row off, the untouched row on.
+        // And the response is the re-rendered rows (the
+        // stale-fragment pattern, rows-only) with the row marks
+        // correct: the toggled row off, the untouched row on. The
+        // rows-only swap never re-renders the modal skeleton or the
+        // revert stamp — a toggle must not re-execute the stamp's
+        // `data-init` nor nest a second modal inside the open one.
         assert!(
-            body.contains(&format!("id=\"{}\"", crate::contract::TOOLS_MODAL_ID)),
+            body.contains(&format!("id=\"{}\"", crate::contract::TOOLS_ROWS_ID)),
+            "{body}"
+        );
+        assert!(
+            !body.contains(&format!("id=\"{}\"", crate::contract::TOOLS_MODAL_ID)),
+            "{body}"
+        );
+        assert!(
+            !body.contains(&format!(
+                "id=\"{}\"",
+                crate::contract::TOOLS_REVERT_STAMP_ID
+            )),
             "{body}"
         );
         let row = body

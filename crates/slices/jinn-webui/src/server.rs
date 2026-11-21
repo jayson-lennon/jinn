@@ -936,9 +936,14 @@ async fn tools_toggle(
     let WebForm(form) = form?;
     crate::delivery::handle_tools_toggle(shared.state(), &form.session_id, &form.tool)
         .map_err(|error| fail(error.status(), error.sentence()))?;
+    // The response swaps the rows only: the marks update in place, and
+    // the modal skeleton + revert stamp (patched by the open pull,
+    // living outside `#tools-rows`) are never re-rendered — a toggle
+    // must not re-execute the stamp's `data-init` nor nest a second
+    // modal inside the open one.
     Ok(SseAction::new(vec![element_patch_inner(
-        format!("#{}", crate::contract::TOOLS_MODAL_ID),
-        crate::regions::tools::modal_fragment(&shared, &form.session_id)?,
+        format!("#{}", crate::contract::TOOLS_ROWS_ID),
+        crate::regions::tools::rows_fragment(&shared, &form.session_id)?,
     )]))
 }
 

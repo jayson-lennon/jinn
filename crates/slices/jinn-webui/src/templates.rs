@@ -1130,6 +1130,32 @@ impl ToolsRowTemplate {
     }
 }
 
+/// The tools rows container: the toggle responses' swap target. The
+/// modal skeleton and the revert stamp live outside it — a toggle
+/// re-render replaces the marks only, never re-executing the stamp's
+/// `data-init` (the open-time snapshot must survive toggles) and
+/// never nesting a second modal inside the open one.
+#[derive(Template)]
+#[template(path = "tools_rows.html")]
+pub struct ToolsRowsTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+}
+
+impl ToolsRowsTemplate {
+    /// Builds the template: the contract's rows id filled, the rows
+    /// pre-rendered by the region.
+    #[must_use]
+    pub fn with_contract(rows: Vec<String>) -> Self {
+        Self {
+            rows,
+            rows_id: contract::TOOLS_ROWS_ID,
+        }
+    }
+}
+
 /// The tools modal: the overlay with the TUI-parity rows, plus the
 /// revert snapshot's stamp element riding beside it in the same host.
 /// Rendered into the tools modal host by the GET pull — the open pull

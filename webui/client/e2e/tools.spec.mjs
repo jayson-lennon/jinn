@@ -1,0 +1,155 @@
+//! Tools flow — the menu item opens the tools modal seeded from the
+//! registry (provider- and bot-gated, the TUI `<leader>st` seed), a
+//! row click commits immediately (the mark flips without a reload,
+//! deny-over-off-rows), the flip survives a page reload, and Escape
+//! reverts to the open-time state (absence restored as absence).
+//!
+//! Pivots on the `get_time` builtin: present in every run's registry
+//! regardless of MCP state — the scratch jinn accumulates state across
+//! the alphabetical spec run (the MCP spec leaves the echo server
+//! enabled, whose tools join the registry), so specs assert rows by
+//! name, never by count.
+
+import { expect, test } from "@playwright/test";
+import { openSession } from "./nav.mjs";
+import { baseUrl } from "./run.mjs";
+import * as sel from "./selectors.mjs";
+const { TOOLS_SPEC_TOOL: TOOL } = sel;
+
+/** Opens the session page and the tools modal through the menu. */
+async function openToolsModal(page) {
+  await openSession(page);
+  await page.locator(sel.MENU_BUTTON).click();
+  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+  await page.locator(sel.MENU_ITEM_TOOLS).click();
+  const modal = page.locator(sel.TOOLS_MODAL);
+  await expect(modal).toBeVisible();
+  return modal;
+}
+
+/** The session's state for one tool, read from a fresh modal pull. */
+async function toolIsOn(page) {
+  await openToolsModal(page);
+  // The class check runs in browser context: interpolate the constant,
+  // never reference `sel` inside `evaluate`.
+  const offClass = sel.TOOL_ROW_OFF;
+  return page
+    .locator(sel.TOOL_ROW(TOOL))
+    .evaluate((row, off) => !row.classList.contains(off), offClass);
+}
+
+test("the menu item opens the modal seeded with the registry tool as enabled", async ({
+  page,
+}) => {
+  // Given the boot session open and the menu opened.
+  const modal = await openToolsModal(page);
+
+  // Then the modal renders inside its own host span (never the menu's
+  // container), the builtin tool renders as a row, and the row is on —
+  // the scratch config omits `[tools]`, so the session starts
+  // unrestricted.
+  const host = page.locator(sel.TOOLS_MODAL_HOST);
+  await expect(host.locator(sel.TOOLS_MODAL)).toHaveCount(1);
+  const row = page.locator(sel.TOOL_ROW(TOOL));
+  await expect(row).toBeVisible();
+  await expect(row).not.toHaveClass(new RegExp(sel.TOOL_ROW_OFF));
+  await expect(modal.locator(sel.TOOLS_ROWS)).toContainText(TOOL);
+});
+
+test("a row click flips the mark without a reload", async ({ page }) => {
+  // Given the tools modal open with the tool on.
+  await openToolsModal(page);
+  const row = page.locator(sel.TOOL_ROW(TOOL));
+  await expect(row).not.toHaveClass(new RegExp(sel.TOOL_ROW_OFF));
+
+  // When clicking the row — the per-click commit, no staged apply.
+  await row.click();
+
+  // Then the re-rendered modal marks the row off immediately (the
+  // POST response carried the swap): the filter is now a deny filter
+  // over the off-rows, the TUI confirm's semantic applied per click.
+  await expect(page.locator(sel.TOOL_ROW(TOOL))).toHaveClass(
+    new RegExp(sel.TOOL_ROW_OFF),
+  );
+});
+
+test("the flip survives a page reload", async ({ page }) => {
+  // Given the tool withheld by the previous spec (the tier runs
+  // serially against one scratch jinn, so the boot session's filter
+  // persists across specs).
+  const on = await toolIsOn(page);
+  expect(on).toBe(false);
+
+  // When reloading the page and re-opening the modal.
+  await page.reload();
+  await page.locator(sel.MENU_BUTTON).click();
+  await page.locator(sel.MENU_ITEM_TOOLS).click();
+  await expect(page.locator(sel.TOOLS_MODAL)).toBeVisible();
+
+  // Then the re-opened modal still marks the row off — the write went
+  // through the session's live tool filter, which the reload's
+  // hydration restores.
+  await expect(page.locator(sel.TOOL_ROW(TOOL))).toHaveClass(
+    new RegExp(sel.TOOL_ROW_OFF),
+  );
+});
+
+test("dismissal with Escape reverts to the open-time state", async ({
+  page,
+}) => {
+  // Given the modal open on a session whose filter withholds the tool
+  // (the open-time state this spec stamps into the revert signal).
+  await openToolsModal(page);
+  const row = page.locator(sel.TOOL_ROW(TOOL));
+  await expect(row).toHaveClass(new RegExp(sel.TOOL_ROW_OFF));
+
+  // When clicking the row on (a new open-time state of "all on") and
+  // dismissing with Escape.
+  await row.click();
+  await expect(page.locator(sel.TOOL_ROW(TOOL))).not.toHaveClass(
+    new RegExp(sel.TOOL_ROW_OFF),
+  );
+  await page.keyboard.press("Escape");
+
+  // Then the modal closed, and a fresh pull shows the open-time
+  // state restored — the tool off again, absence and mode restored
+  // verbatim from the snapshot the open pull stamped.
+  await expect(page.locator(sel.TOOLS_MODAL)).toBeHidden();
+  await expect(await toolIsOn(page)).toBe(false);
+});
+
+test("a second click-and-dismiss returns to the original state", async ({
+  page,
+}) => {
+  // Given the modal open on the restored session (the tool off — the
+  // open-time state), clicking the row flips it on.
+  await openToolsModal(page);
+  const row = page.locator(sel.TOOL_ROW(TOOL));
+  await expect(row).toHaveClass(new RegExp(sel.TOOL_ROW_OFF));
+  await row.click();
+  await expect(page.locator(sel.TOOL_ROW(TOOL))).not.toHaveClass(
+    new RegExp(sel.TOOL_ROW_OFF),
+  );
+
+  // When dismissing with Escape again.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(sel.TOOLS_MODAL)).toBeHidden();
+
+  // Then the round-trip returns to the start: the tool off, the
+  // session where this spec found it.
+  await expect(await toolIsOn(page)).toBe(false);
+});
+
+test("the landing page's menu carries no tools item", async ({ page }) => {
+  // Given the landing page (nothing viewed).
+  await page.goto(`${baseUrl()}/web`);
+
+  // When opening the hamburger menu.
+  await page.locator(sel.MENU_BUTTON).click();
+  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+
+  // Then the tools item is absent from the markup — the server
+  // omitted it, and the sessions item survives.
+  await expect(page.locator(sel.MENU_ITEM_TOOLS)).toHaveCount(0);
+  await expect(page.locator(sel.MENU_ITEM_SESSIONS)).toBeVisible();
+});

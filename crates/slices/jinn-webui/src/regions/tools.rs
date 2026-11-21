@@ -196,6 +196,36 @@ pub(crate) fn modal_fragment(
     .map_err(|error| crate::server::map_render_error(&error))
 }
 
+/// The rows-only fragment: what a toggle response swaps into
+/// `#tools-rows`. The stamp and the modal skeleton are deliberately
+/// outside this fragment — a toggle re-render must never re-execute
+/// the stamp's `data-init` (it would reset the open-time snapshot the
+/// dismissal needs) nor nest a second `#tools-modal` inside the open
+/// one (an inner patch of the modal's own id would).
+///
+/// # Errors
+///
+/// Returns the render error; the caller maps it to a 500.
+pub(crate) fn rows_fragment(
+    shared: &crate::server::ServerShared,
+    session_id: &str,
+) -> Result<String, crate::server::HandlerError> {
+    let rows = seed(shared, session_id)
+        .rows
+        .into_iter()
+        .map(|row| {
+            crate::templates::render(&crate::templates::ToolsRowTemplate::from_row(row))
+                .unwrap_or_else(|error| {
+                    tracing::warn!(%error, what = "tools-row", "webui template render failed; \
+                         skipping the row");
+                    String::new()
+                })
+        })
+        .collect();
+    crate::templates::render(&crate::templates::ToolsRowsTemplate::with_contract(rows))
+        .map_err(|error| crate::server::map_render_error(&error))
+}
+
 /// The tools region's stylesheet: the modal overlay and the rows. The
 /// modal geometry mirrors the MCP modal's (the same overlay language,
 /// at the same stack level); the rows carry the TUI picker's ✓/✗ mark.
