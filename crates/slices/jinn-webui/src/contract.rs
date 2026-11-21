@@ -491,6 +491,77 @@ pub const TOOLS_TOGGLE_PATH: &str = "/web/tools";
 /// revert snapshot signal carries.
 pub const TOOLS_REVERT_PATH: &str = "/web/tools/revert";
 
+// ── Skills modal ────────────────────────────────────────────────────
+
+/// The menu's Skills item — closes the menu and pulls the skills
+/// modal into its host for the viewed session. Rendered only when a
+/// session is viewed: enablement binds per-session and the landing
+/// page views nothing (server-omitted, never client-hidden), the
+/// persona item's rule.
+pub const MENU_ITEM_SKILLS_ID: &str = "menu-item-skills";
+
+/// The Skills menu item's action name.
+pub const ACTION_MENU_SKILLS: &str = "menu-skills";
+
+/// The skills **modal's** host — an empty span sibling to the other
+/// modal hosts in the page shell (the host-not-container rule: opening
+/// this modal can never destroy the menu item that opened it). The
+/// modal fragment swaps into this host on open and on every tick
+/// re-pull.
+pub const SKILL_MODAL_HOST_ID: &str = "skills-modal-host";
+
+/// The same host spelled as a CSS selector — the swap-target header
+/// the fragment pulls stamp and the Datastar bindings name.
+pub const SKILL_MODAL_HOST_SELECTOR: &str = "#skills-modal-host";
+
+/// The skills modal overlay — the server-rendered row list the menu
+/// item opens; present in the page only after the pull renders it in.
+pub const SKILL_MODAL_ID: &str = "skills-modal";
+
+/// The modal's row container — the list the tick re-pull re-renders.
+pub const SKILL_ROWS_ID: &str = "skills-rows";
+
+/// The attribute a skill row carries its name in — the toggle and
+/// load POSTs' payload field, validated against the session's
+/// discovered set.
+pub const SKILL_NAME_DATA_ATTR: &str = "data-webui-skill";
+
+/// The class hook a skill row's force-load button carries — the click
+/// target the load POST rides, distinct from the row's own toggle
+/// click.
+pub const SKILL_LOAD_CLASS: &str = "skill-row-load";
+
+/// The skills modal's open toggle (view-local signal).
+pub const SIGNAL_SKILLS_OPEN: &str = "skillsOpen";
+
+/// The skills tick — every discovery push bumps it; the open modal's
+/// effect re-pulls its rows in response (the mcpTick pattern). The
+/// payload is the scan's landing timestamp (a signal with an empty
+/// data line never dispatches in the browser).
+pub const SIGNAL_SKILLS_TICK: &str = "skillsTick";
+
+/// The skill row's toggle POST action name.
+pub const ACTION_SKILL_TOGGLE: &str = "skill-toggle";
+
+/// The skill row's force-load POST action name.
+pub const ACTION_SKILL_LOAD: &str = "skill-load";
+
+/// Route pattern — the skills modal fragment pull.
+pub const SKILL_PICKER_ROUTE: &str = "/web/skills/{id}";
+
+/// The path prefix client code builds skills-modal URLs from.
+pub const SKILL_PICKER_PREFIX: &str = "/web/skills/";
+
+/// `POST` — toggle one skill's enablement for the viewed session
+/// (mode-preserving `permit`/`withhold` on the session's filter; the
+/// TUI toggle publishes nothing, and neither does this).
+pub const SKILL_TOGGLE_PATH: &str = "/web/skills/toggle";
+
+/// `POST` — force-load a skill into the viewed session's context
+/// (the TUI `<c-l>` load verbatim: pinned pair, durable auto-enable,
+/// `MarkSessionInteracted`, and the duplicate's transient notice).
+pub const SKILL_LOAD_PATH: &str = "/web/skills/load";
+
 // ── Endpoints ───────────────────────────────────────────────────────
 
 /// The landing/session page path (the client's entry URL).
@@ -578,8 +649,9 @@ pub const VENDOR_PREFIX: &str = "/vendor/";
 
 /// The Datastar browser bundle's served filename inside `/vendor/` —
 /// what the page's `<script>` loads. The bundle is committed vendored
-/// bytes (the manifest's one row), not build output: with the
-/// TypeScript client gone, nothing in-repo regenerates it.
+/// bytes (with the webapp install assets, the manifest and the icon
+/// set), not build output: with the TypeScript client gone, nothing
+/// in-repo regenerates them.
 pub const VENDOR_APP_JS: &str = "datastar.js";
 
 /// The contract's DOM-targeting constants: id, attribute, class, and
@@ -655,6 +727,15 @@ pub const DOM_CONSTANTS: &[&str] = &[
     TOOLS_REVERT_STAMP_ID,
     TOOL_NAME_DATA_ATTR,
     ACTION_TOOLS_TOGGLE,
+    MENU_ITEM_SKILLS_ID,
+    ACTION_MENU_SKILLS,
+    SKILL_MODAL_HOST_ID,
+    SKILL_MODAL_ID,
+    SKILL_ROWS_ID,
+    SKILL_NAME_DATA_ATTR,
+    SKILL_LOAD_CLASS,
+    ACTION_SKILL_TOGGLE,
+    ACTION_SKILL_LOAD,
     DRAWER_SCRIM_ID,
     MENU_SCRIM_ID,
 ];
@@ -687,6 +768,9 @@ pub const CLIENT_PATHS: &[&str] = &[
     TOOLS_PICKER_PREFIX,
     TOOLS_TOGGLE_PATH,
     TOOLS_REVERT_PATH,
+    SKILL_PICKER_PREFIX,
+    SKILL_TOGGLE_PATH,
+    SKILL_LOAD_PATH,
     VENDOR_PREFIX,
 ];
 
@@ -714,5 +798,8 @@ pub const CLIENT_URLS: &[&str] = &[
     TOOLS_PICKER_PREFIX,
     TOOLS_TOGGLE_PATH,
     TOOLS_REVERT_PATH,
+    SKILL_PICKER_PREFIX,
+    SKILL_TOGGLE_PATH,
+    SKILL_LOAD_PATH,
     VENDOR_PREFIX,
 ];

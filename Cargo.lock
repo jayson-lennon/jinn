@@ -6058,6 +6058,7 @@ dependencies = [
  "jinn-session-state",
  "jinn-session-store",
  "jinn-session-store-msg",
+ "jinn-skills-msg",
  "jinn-slices",
  "jinn-testutil",
  "jinn-theme",

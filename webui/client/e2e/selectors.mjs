@@ -141,6 +141,33 @@ export const TOOLS_SPEC_TOOL = "get_time";
  * the persona the warning-path spec pivots on.
  */
 export const BLOCKLESS_PERSONA = "blockless-e2e";
+/** The skills modal overlay id (`wire.SKILL_MODAL_ID`). */
+export const SKILL_MODAL = "#skills-modal";
+/** The skills modal's host span id (`wire.SKILL_MODAL_HOST_ID`). */
+export const SKILL_MODAL_HOST = "#skills-modal-host";
+/** The skills modal's row container id (`wire.SKILL_ROWS_ID`). */
+export const SKILL_ROWS = "#skills-rows";
+/** One skill row, by its skill-name attr (`wire.SKILL_NAME_DATA_ATTR`). */
+export const SKILL_ROW = (name) => `[data-webui-skill="${name}"]`;
+/** The enabled row class hook (the skills modal's TUI-parity mark). */
+export const SKILL_ROW_ENABLED = "skill-row-enabled";
+/** The row's force-load button class hook (`wire.SKILL_LOAD_CLASS`). */
+export const SKILL_LOAD_BUTTON = ".skill-row-load";
+/** The skills menu item id (`wire.MENU_ITEM_SKILLS_ID`). */
+export const MENU_ITEM_SKILLS = "#menu-item-skills";
+/** The toggle POST's endpoint (`wire.SKILL_TOGGLE_PATH`). */
+export const SKILL_TOGGLE_PATH = "/web/skills/toggle";
+/** The load POST's endpoint (`wire.SKILL_LOAD_PATH`). */
+export const SKILL_LOAD_PATH = "/web/skills/load";
+/** The skills modal pull's route prefix (`wire.SKILL_PICKER_PREFIX`). */
+export const SKILL_PICKER_PREFIX = "/web/skills/";
+/**
+ * The scratch skill global-setup stages for the run — the row every
+ * skills spec pivots on (discovered from `<root>/.agents/skills`,
+ * so it renders with no source badge and, on the boot session's
+ * absent filter, enabled).
+ */
+export const SKILL = "e2e-scratch-skill";
 /** The new-session modal overlay id (`wire.SESSION_NEW_MODAL_ID`). */
 export const SESSION_NEW_MODAL = "#session-new-modal";
 /** The new-session modal's host span id (`wire.SESSION_NEW_MODAL_HOST_ID`). */

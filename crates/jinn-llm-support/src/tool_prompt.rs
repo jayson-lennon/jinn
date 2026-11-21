@@ -10,14 +10,15 @@ use std::collections::BTreeMap;
 
 use jinn_core_types::ToolDefinition;
 
-/// The one-line `dump_to_disk` schema property injected into every mirrored
+/// The one-line `dump_to_path` schema property injected into every mirrored
 /// tool definition. Jinn cannot edit an MCP server's schema text, so the
 /// reserved argument is added where jinn mirrors every definition — the one
 /// chokepoint all schemas pass through.
-const DUMP_TO_DISK_PROPERTY: &str = "Optional file path to write this tool's full \
-result to; the in-context response becomes a short pointer + preview.";
+const DUMP_TO_PATH_PROPERTY: &str = "Optional file path to write this tool's full \
+result to; the in-context response becomes a short pointer + preview. Either pass \
+in a path or omit the field entirely — true/false is rejected.";
 
-/// Adds the reserved `dump_to_disk` property to a definition's schema.
+/// Adds the reserved `dump_to_path` property to a definition's schema.
 ///
 /// Applied to *copies* at the mirror points (builtin announce, actor-provided
 /// registration) — the stored definitions are the dispatch source of truth
@@ -33,8 +34,8 @@ pub fn with_reserved_arguments(mut definition: ToolDefinition) -> ToolDefinition
         return definition;
     };
     properties.insert(
-        jinn_core_types::tool_types::DUMP_TO_DISK_ARG.to_owned(),
-        serde_json::json!({ "type": "string", "description": DUMP_TO_DISK_PROPERTY }),
+        jinn_core_types::tool_types::DUMP_TO_PATH_ARG.to_owned(),
+        serde_json::json!({ "type": "string", "description": DUMP_TO_PATH_PROPERTY }),
     );
     definition
 }
@@ -106,10 +107,12 @@ pub fn build_tool_context_block(tools: &BTreeMap<String, ToolDefinition>) -> Opt
 fn reserved_argument_lines() -> [&'static str; 2] {
     [
         "max_duration_secs: per-call timeout override in seconds; 0 disables the timeout.",
-        "dump_to_disk: write the full tool result to this path (relative paths resolve against \
-         the working directory; parent directories are created automatically). The tool response \
-         becomes a pointer to the file plus a short preview — use it for large results (web page \
-         fetches, bulk output) you want to read or grep from disk rather than carry in context.",
+        "dump_to_path: write the full tool result to this path (relative paths resolve against \
+         the working directory; parent directories are created automatically). Either pass in a \
+         path or omit the field entirely — true/false is rejected with a corrective error. The \
+         tool response becomes a pointer to the file plus a short preview — use it for large \
+         results (web page fetches, bulk output) you want to read or grep from disk rather than \
+         carry in context.",
     ]
 }
 
@@ -323,11 +326,16 @@ mod tests {
         let block = build_tool_context_block(&tools).expect("should produce a block");
 
         // Then the reserved-arguments section names both reserved arguments
-        // and their conventions.
+        // and their conventions, including the pass-a-path-or-omit contract.
         assert!(block.contains("Reserved tool-call arguments:"));
         assert!(block.contains("max_duration_secs"));
-        assert!(block.contains("dump_to_disk"));
+        assert!(block.contains("dump_to_path"));
         assert!(block.contains("parent directories are created automatically"));
+        assert!(block.contains("Either pass in a path or omit the field entirely"));
+        assert!(
+            !block.contains("dump_to_disk"),
+            "old spelling must be gone: {block}"
+        );
     }
 
     #[rstest::rstest]
@@ -343,16 +351,22 @@ mod tests {
         // When applying the reserved-argument mapper.
         let mapped = super::with_reserved_arguments(definition);
 
-        // Then the schema carries the dump_to_disk property alongside the
-        // tool's own.
+        // Then the schema carries the dump_to_path property alongside the
+        // tool's own, described as a path with the contract spelled out.
         let properties = mapped.parameters.get("properties").expect("properties");
         let property = properties
-            .get("dump_to_disk")
-            .expect("dump_to_disk property present");
+            .get("dump_to_path")
+            .expect("dump_to_path property present");
         assert_eq!(
             property.get("type").and_then(|t| t.as_str()),
             Some("string")
         );
+        let description = property
+            .get("description")
+            .and_then(|d| d.as_str())
+            .expect("property description");
+        assert!(description.contains("path"), "{description}");
+        assert!(description.contains("omit"), "{description}");
         assert!(properties.get("command").is_some(), "own property kept");
     }
 
@@ -370,7 +384,7 @@ mod tests {
             definition
                 .parameters
                 .get("properties")
-                .and_then(|p| p.get("dump_to_disk"))
+                .and_then(|p| p.get("dump_to_path"))
                 .is_none()
         );
     }
@@ -392,14 +406,14 @@ mod tests {
             mapped_array
                 .parameters
                 .get("properties")
-                .and_then(|p| p.get("dump_to_disk"))
+                .and_then(|p| p.get("dump_to_path"))
                 .is_none()
         );
         assert!(
             mapped_bare
                 .parameters
                 .get("properties")
-                .and_then(|p| p.get("dump_to_disk"))
+                .and_then(|p| p.get("dump_to_path"))
                 .is_none()
         );
     }

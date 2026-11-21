@@ -106,6 +106,7 @@ fn rendered_page() -> String {
         persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
         mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
         tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
+        skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -136,7 +137,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 20] = [
+    let targets: [(&str, &str); 22] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
@@ -158,6 +159,8 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
         ("persona modal host", contract::PERSONA_MODAL_HOST_ID),
         ("menu item mcp", contract::MENU_ITEM_MCP_ID),
         ("mcp modal host", contract::MCP_MODAL_HOST_ID),
+        ("menu item skills", contract::MENU_ITEM_SKILLS_ID),
+        ("skills modal host", contract::SKILL_MODAL_HOST_ID),
         ("drawer scrim", contract::DRAWER_SCRIM_ID),
         ("menu scrim", contract::MENU_SCRIM_ID),
     ];
@@ -170,6 +173,47 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
             page.contains(&format!("id=\"{id}\"")),
             "contract id `{name}` ({id}) is not in the rendered page — the client would \
              target a missing element and silently do nothing"
+        );
+    }
+}
+
+#[rstest::rstest]
+#[test]
+fn the_page_shell_carries_the_webapp_install_links() {
+    // Given the fully rendered page shell.
+    let page = rendered_page();
+
+    // Then the head carries every tag installability reads — the
+    // manifest link, the favicon (the Android shortcut builder's icon
+    // source), the apple-touch icon, and the theme color. Each
+    // referenced asset is a real vendor row, so a renamed file fails
+    // here rather than silently 404ing in a browser.
+    let markers = [
+        format!("{}manifest.webmanifest\"", contract::VENDOR_PREFIX),
+        format!("{}icon-favicon-32.png\"", contract::VENDOR_PREFIX),
+        format!("{}icon-apple-touch-180.png\"", contract::VENDOR_PREFIX),
+    ];
+    for marker in markers {
+        assert!(
+            page.contains(&marker),
+            "the page head must reference {marker}; got: {page}"
+        );
+    }
+    assert!(page.contains("rel=\"manifest\""), "{page}");
+    assert!(page.contains("rel=\"apple-touch-icon\""), "{page}");
+    assert!(page.contains("<meta name=\"theme-color\""), "{page}");
+    // And each referenced path is a vouched vendor row.
+    for path in [
+        "manifest.webmanifest",
+        "icon-favicon-32.png",
+        "icon-apple-touch-180.png",
+        "icon-192.png",
+        "icon-512.png",
+        "icon-maskable-512.png",
+    ] {
+        assert!(
+            crate::vendor::resolve_request(path).is_some(),
+            "the page shell names {path} but no vendor row vouches for it"
         );
     }
 }
@@ -234,6 +278,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
         mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
         tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
+        skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,

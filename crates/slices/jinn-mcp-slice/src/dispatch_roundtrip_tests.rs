@@ -884,11 +884,11 @@ fn fixture_turn() -> jinn_core_types::turn_identity::TurnToken {
     jinn_core_types::turn_identity::TurnToken::from_counter(SEQ.fetch_add(1, Ordering::Relaxed) + 1)
 }
 
-/// An `ExecuteTool` carrying both `dump_to_disk` and a cwd writes the server
+/// An `ExecuteTool` carrying both `dump_to_path` and a cwd writes the server
 /// response to the resolved path and publishes a stubbed result.
 #[rstest::rstest]
 #[tokio::test]
-async fn dump_to_disk_call_writes_file_and_publishes_stub() {
+async fn dump_to_path_call_writes_file_and_publishes_stub() {
     // Given an McpActor wired to the stub server and a test-owned dump dir.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<ToolExecutionCompleted>().await;
@@ -897,11 +897,11 @@ async fn dump_to_disk_call_writes_file_and_publishes_stub() {
     let cwd = dir.path.as_path().to_string_lossy().into_owned();
     let (_services, _actor_path) = spawn_actor_against_stub(&harness, &session_id).await;
 
-    // When calling echo with dump_to_disk naming a file in fresh subdirectories.
+    // When calling echo with dump_to_path naming a file in fresh subdirectories.
     let tool_call = ToolCall {
         id: "tc_dump".into(),
         name: "mcp__stub__echo".into(),
-        arguments: r#"{"message": "dump me", "dump_to_disk": "research/page.md"}"#.to_owned(),
+        arguments: r#"{"message": "dump me", "dump_to_path": "research/page.md"}"#.to_owned(),
     };
     harness
         .publish(ExecuteTool {
@@ -932,22 +932,80 @@ async fn dump_to_disk_call_writes_file_and_publishes_stub() {
     assert_eq!(written, "dump me");
 }
 
-/// An `ExecuteTool` carrying `dump_to_disk` without a cwd skips the dump —
+/// An `ExecuteTool` whose dump_to_path argument spells true fails with the
+/// corrective contract text, and the stub server is never invoked — the
+/// actor rejects the call before parsing arguments or calling the server.
+#[rstest::rstest]
+#[tokio::test]
+async fn corrective_dump_argument_fails_before_the_server_call() {
+    // Given an McpActor wired to the stub server and a completion recorder.
+    let harness = TestHarness::new().await;
+    let recorder = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+    let session_id = SessionId::new();
+    let dir = jinn_testutil::tempdir();
+    let cwd = dir.path.as_path().to_string_lossy().into_owned();
+    let (_services, _actor_path) = spawn_actor_against_stub(&harness, &session_id).await;
+
+    // When calling echo with dump_to_path spelling true.
+    let tool_call = ToolCall {
+        id: "tc_corrective".into(),
+        name: "mcp__stub__echo".into(),
+        arguments: r#"{"message": "never echoed", "dump_to_path": "true"}"#.to_owned(),
+    };
+    harness
+        .publish(ExecuteTool {
+            turn: fixture_turn(),
+            session_id: session_id.clone(),
+            tool_call,
+            dispatched_at: jiff::Timestamp::now(),
+            max_output_lines: None,
+            max_output_bytes: None,
+            cwd: Some(cwd),
+        })
+        .await;
+
+    // Then the published result fails with the corrective text — a failure
+    // message the echo server could never produce — and no file was written.
+    let messages = await_recorded(&recorder, 1, Duration::from_secs(3)).await;
+    assert_eq!(messages.len(), 1, "got: {messages:?}");
+    let result = &messages[0].result;
+    assert!(!result.success, "{result:?}");
+    assert!(
+        result.content.contains("dump_to_path"),
+        "expected the corrective contract text, got: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("omit"),
+        "expected the pass-a-path-or-omit contract, got: {}",
+        result.content
+    );
+    let entries = std::fs::read_dir(dir.path.as_path())
+        .expect("cwd readable")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("cwd entries readable");
+    assert!(
+        entries.is_empty(),
+        "no dump file may be written for a corrective call; got {entries:?}"
+    );
+}
+
+/// An `ExecuteTool` carrying `dump_to_path` without a cwd skips the dump —
 /// the published result is the plain server response, never a wrong path.
 #[rstest::rstest]
 #[tokio::test]
-async fn dump_to_disk_without_cwd_is_skipped() {
+async fn dump_to_path_without_cwd_is_skipped() {
     // Given an McpActor wired to the stub server and no cwd on the command.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<ToolExecutionCompleted>().await;
     let session_id = SessionId::new();
     let (_services, _actor_path) = spawn_actor_against_stub(&harness, &session_id).await;
 
-    // When calling echo with dump_to_disk set.
+    // When calling echo with dump_to_path set.
     let tool_call = ToolCall {
         id: "tc_nodump".into(),
         name: "mcp__stub__echo".into(),
-        arguments: r#"{"message": "kept in context", "dump_to_disk": "page.md"}"#.to_owned(),
+        arguments: r#"{"message": "kept in context", "dump_to_path": "page.md"}"#.to_owned(),
     };
     harness
         .publish(ExecuteTool {

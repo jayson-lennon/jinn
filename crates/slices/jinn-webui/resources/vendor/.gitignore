@@ -1,5 +1,6 @@
-# The Datastar browser bundle is committed vendored input, not build
-# output: with the TypeScript client gone, nothing in-repo regenerates
-# it (the canvas vendor precedent). vendor-manifest.toml pins its
-# sha256; build.rs verifies the bytes against that pin before any code
-# compiles. Nothing here is generated.
+# The Datastar browser bundle and the webapp icon set are committed
+# vendored input, not build output: with the TypeScript client gone,
+# nothing in-repo regenerates them (the canvas vendor precedent).
+# vendor-manifest.toml pins every row's sha256; build.rs verifies the
+# bytes against that pin before any code compiles. Nothing here is
+# generated.

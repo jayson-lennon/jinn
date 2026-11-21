@@ -258,6 +258,43 @@ async fn a_runtime_stored_event_pushes_one_mcp_status_signal_per_live_session() 
 
 #[rstest::rstest]
 #[tokio::test]
+async fn a_skills_loaded_event_pushes_one_skills_signal_per_live_session() {
+    // Given a default session plus one seeded one, and a subscriber.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let first = seed_session(&state);
+    let live = state.read().session.sessions().len();
+
+    // When a skills-loaded event lands (the scan actor emitted it
+    // strictly after writing the session's ephemeral set — the
+    // ordering contract the push correctness rides).
+    actor.push_skills_changed(jiff::Timestamp::now());
+
+    // Then each live session receives exactly ONE envelope: the
+    // `skills` SIGNAL (cursor 0; its data line carries the scan's
+    // landing timestamp — a NON-EMPTY data line is the dispatch
+    // contract) and no transcript push rides it (a discovery scan
+    // touches no transcript entry), and no HTML rows ride any push
+    // (the pull endpoint remains the renderer).
+    let mut seen = std::collections::HashSet::new();
+    while let Ok(envelope) = rx.try_recv() {
+        match envelope.kind {
+            SseKind::Skills => {
+                assert!(
+                    !envelope.html.is_empty(),
+                    "the skills push carries a dispatchable data line: {envelope:?}"
+                );
+                assert_eq!(envelope.cursor, 0);
+                seen.insert(envelope.session_id.clone());
+            }
+            other => panic!("only skills pushes land: {other:?}"),
+        }
+    }
+    assert_eq!(seen.len(), live, "one push per session: {seen:?}");
+    assert!(seen.contains(&first), "{seen:?}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn the_handle_pushes_a_sessions_refresh_from_outside_the_actor() {
     // Given a live session whose title a web rename just changed, and
     // a subscriber to the actor's broadcast channel.

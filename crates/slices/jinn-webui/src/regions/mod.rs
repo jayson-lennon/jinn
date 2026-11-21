@@ -16,5 +16,6 @@ pub mod model_picker;
 pub mod persona_picker;
 pub mod session_new;
 pub mod sessions;
+pub mod skills;
 pub mod tools;
 pub mod transcript;

@@ -74,6 +74,10 @@ pub enum ActionError {
     /// restores whatever filter it snapshotted); only garbage is
     /// refused.
     UnknownToolRevert,
+    /// The requested skill name names no skill in the session's
+    /// discovered set (the rendered rows are the accepted set, the
+    /// same precedent).
+    UnknownSkill(String),
     /// The request named no configured `[[project.entry]]` (or the
     /// request carried none at all).
     UnknownProject(String),
@@ -114,6 +118,7 @@ impl ActionError {
             | Self::UnknownMcpServer(_)
             | Self::UnknownTool(_)
             | Self::UnknownToolRevert
+            | Self::UnknownSkill(_)
             | Self::UnknownProject(_)
             | Self::BadProjectPath(_)
             | Self::UnknownLifecycle(_)
@@ -150,6 +155,9 @@ impl ActionError {
             }
             Self::UnknownToolRevert => {
                 "revert snapshot is neither null nor a parseable tool filter".to_owned()
+            }
+            Self::UnknownSkill(name) => {
+                format!("skill {name:?} is not in the session's discovered skills")
             }
             Self::UnknownProject(project) => {
                 format!("project {project:?} is not a configured [[project.entry]]")
@@ -900,5 +908,192 @@ pub async fn handle_rename(
         PersistSession { session_id }
     };
     bus.publish(command).await;
+    Ok(())
+}
+
+/// Handles one `POST /web/skills/toggle` — the skills modal's row
+/// click.
+///
+/// The web mirror of the TUI picker's toggle, resolved through the
+/// filter the session actually holds: the name is validated against
+/// the session's discovered set (the modal's rows are built from it —
+/// the rendered-rows-are-the-accepted-set precedent), then
+/// `NameFilter::permit` / `withhold` is applied to the current
+/// filter, preserving its mode. An absent filter materializes as the
+/// inherited empty deny (the TUI `enable_durably` materialization),
+/// so the first toggle on a fresh session writes a present filter
+/// carrying exactly that one decision. Publishes nothing: skill
+/// enablement has no runtime counterpart — the TUI confirm publishes
+/// nothing, and the skill gate reads the session filter live. No
+/// `PersistSession` rides along: the web adds no persistence beyond
+/// the TUI toggle, which performs none.
+///
+/// A skill already loaded into context toggles nothing: its body is
+/// pinned in history until it is unpinned and pruned, so a withheld
+/// marker would promise an unload that never happens — the TUI's
+/// loaded-skill toggle no-op, verbatim, and silent like the TUI's.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] when the session id is malformed, no live
+/// session carries it, or the skill name names nothing in the
+/// session's discovered set (the rendered rows are the accepted set).
+pub fn handle_skill_toggle(
+    state: &State,
+    session_id: &str,
+    skill: &str,
+) -> Result<(), ActionError> {
+    let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+
+    {
+        let guard = state.read();
+        let Some(session) = guard.session.get(&session_id) else {
+            return Err(ActionError::UnknownSession(session_id));
+        };
+        if !session
+            .discovered_skills()
+            .iter()
+            .any(|candidate| candidate.name == skill)
+        {
+            return Err(ActionError::UnknownSkill(skill.to_owned()));
+        }
+        if session.loaded_skills().contains(skill) {
+            return Ok(());
+        }
+    }
+
+    // Mode-preserving toggle arithmetic on the live filter, written
+    // synchronously (the stale-fragment rule: the POST's response
+    // fragment re-renders from state that already holds the flip).
+    state.with_session(|view| {
+        let session = view.session.map().get_or_create(&session_id);
+        let enabled = session.is_skill_enabled(skill);
+        let mut filter = session
+            .skill_filter()
+            .cloned()
+            .unwrap_or_else(jinn_core_types::NameFilter::inherited);
+        if enabled {
+            filter.withhold(skill);
+        } else {
+            filter.permit(skill);
+        }
+        session.set_skill_filter(Some(filter));
+    });
+
+    // TUI parity: the toggle publishes nothing — the sync write is the
+    // whole behavior, so this handler is synchronous (no bridge, no
+    // await).
+    Ok(())
+}
+
+/// Handles one `POST /web/skills/load` — the skills modal's
+/// force-load button.
+///
+/// The web mirror of the TUI picker's `<c-l>` load, verbatim: the
+/// pinned `skill` tool-call/result pair appends to the session's
+/// history (the body wrapped `<skill name="…" location="…">…</skill>`,
+/// the tool result pinned relative), a disabled skill is enabled
+/// durably through the filter first (the TUI `enable_durably`
+/// semantics — a session with no filter materializes one so the
+/// permit can be carried), and [`MarkSessionInteracted`] is the only
+/// publish. An already-loaded skill appends no pair; it appends the
+/// same transient notice the TUI emits ("Skill 'x' is already
+/// loaded") instead — one load semantic across surfaces.
+///
+/// The session-state write happens synchronously before the publish
+/// (the stale-fragment rule): the POST's response re-renders modal and
+/// transcript from state that already holds the pinned pair.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] when the session id is malformed, no live
+/// session carries it, or the skill name names nothing in the
+/// session's discovered set.
+pub async fn handle_skill_load(
+    state: &State,
+    bus: &BusService,
+    session_id: &str,
+    skill: &str,
+) -> Result<(), ActionError> {
+    use jinn_core_types::ChatEntry;
+    use jinn_core_types::ChatEntryId;
+    use jinn_core_types::PinPosition;
+    use jinn_core_types::ToolResultStatus;
+
+    let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+
+    // Snapshot what the load needs under one short guard: the
+    // discovered skill's body and path (resolved from the session's
+    // set — what makes project-local skills loadable), its enablement,
+    // and the loaded set. Dropped before any await (guard discipline).
+    let (discovered, enabled, loaded) = {
+        let guard = state.read();
+        let Some(session) = guard.session.get(&session_id) else {
+            return Err(ActionError::UnknownSession(session_id));
+        };
+        let found = session
+            .discovered_skills()
+            .iter()
+            .find(|candidate| candidate.name == skill)
+            .cloned()
+            .ok_or_else(|| ActionError::UnknownSkill(skill.to_owned()))?;
+        let enabled = session.is_skill_enabled(skill);
+        let loaded = session.loaded_skills();
+        (found, enabled, loaded)
+    };
+
+    // Already loaded: the transient notice instead of a duplicate pair
+    // — the TUI's exact branch, byte-identical text.
+    if loaded.contains(skill) {
+        state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(&session_id)
+                .push_entry(ChatEntry::transient(format!(
+                    "Skill '{skill}' is already loaded"
+                )));
+        });
+        return Ok(());
+    }
+
+    // Disabled: enable durably before pinning — the name leaves the
+    // filter, so neither a later toggle round-trip nor anything reading
+    // the filter can re-withhold a skill the user just loaded. An
+    // absent filter materializes a present one: permitting a name is a
+    // configuration change.
+    if !enabled {
+        state.with_session(|view| {
+            let session = view.session.map().get_or_create(&session_id);
+            let mut filter = session
+                .skill_filter()
+                .cloned()
+                .unwrap_or_else(jinn_core_types::NameFilter::inherited);
+            filter.permit(skill);
+            session.set_skill_filter(Some(filter));
+        });
+    }
+
+    // The TUI `<c-l>` pin, verbatim: tool call, then the wrapped body
+    // as a pinned success tool result sharing the call's id.
+    let xml = format!(
+        "<skill name=\"{}\" location=\"{}\">\n{}\n</skill>",
+        discovered.name, discovered.file_path, discovered.body
+    );
+    let arguments = serde_json::json!({ "name": discovered.name }).to_string();
+    let tool_call_id = ChatEntryId::new().to_string();
+    state.with_session(|view| {
+        let session = view.session.map().get_or_create(&session_id);
+        session.push_entry(ChatEntry::tool_call(
+            tool_call_id.clone(),
+            "skill",
+            arguments,
+        ));
+        let mut result =
+            ChatEntry::tool_result(tool_call_id, "skill", xml, ToolResultStatus::Success);
+        result.pin_position = Some(PinPosition::Relative);
+        session.push_entry(result);
+    });
+
+    bus.publish(MarkSessionInteracted { session_id }).await;
     Ok(())
 }

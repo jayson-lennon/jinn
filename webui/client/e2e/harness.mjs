@@ -112,6 +112,9 @@ export function probePort() {
 /** Staged scratch persona body — written into the run's personas dir. */
 let stagedPersona;
 
+/** Staged scratch skill body — written into the run's skills dir. */
+let stagedSkill;
+
 /**
  * Stages one scratch persona `.md` for the run's personas dir.
  *
@@ -126,6 +129,25 @@ let stagedPersona;
  */
 export function writeScratchPersona(content) {
   stagedPersona = content;
+}
+
+/**
+ * Stages one scratch `SKILL.md` for the run's skills dir.
+ *
+ * MUST run before {@linkcode startJinn} for the same reason the
+ * persona is: discovery scans at activation. {@linkcode writeScratch}
+ * lands it at `<root>/.agents/skills/<name>/SKILL.md` — under
+ * `JINN_PATHS_ROOT`, `AppPaths::new_in` sets `home_dir` to the root,
+ * so the global skills dir is `<root>/.agents/skills` (NOT under
+ * `config/jinn/`, where the staged persona lives).
+ *
+ * @param {string} name the skill's frontmatter `name` — it must match
+ *   the parent directory.
+ * @param {string} content the full SKILL.md body (frontmatter +
+ *   markdown).
+ */
+export function writeScratchSkill(name, content) {
+  stagedSkill = { name, content };
 }
 
 /**
@@ -150,6 +172,11 @@ export function writeScratch(root, port) {
     const personasDir = path.join(configDir, "personas");
     fs.mkdirSync(personasDir, { recursive: true });
     fs.writeFileSync(path.join(personasDir, "blockless-e2e.md"), stagedPersona);
+  }
+  if (stagedSkill !== undefined) {
+    const skillsDir = path.join(root, ".agents", "skills", stagedSkill.name);
+    fs.mkdirSync(skillsDir, { recursive: true });
+    fs.writeFileSync(path.join(skillsDir, "SKILL.md"), stagedSkill.content);
   }
 }
 

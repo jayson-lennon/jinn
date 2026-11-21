@@ -128,6 +128,46 @@ pub struct McpToggleForm {
     pub server: String,
 }
 
+/// `POST /web/skills/toggle` — toggle one skill's enablement for a
+/// session.
+///
+/// The POST names the skill only; the desired state is derived
+/// server-side from the session's current skill filter (a mode-
+/// preserving `permit`/`withhold`, mirroring the TUI picker's toggle),
+/// so the wire never carries a desired-state field that could
+/// disagree with the filter the server actually holds. The response is
+/// the re-rendered modal fragment, so the row's mark is correct the
+/// moment the response lands. Publishes nothing: skill enablement has
+/// no runtime counterpart — the gate reads the session filter live.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct SkillToggleForm {
+    /// The session whose skill filter to toggle.
+    #[serde(alias = "sessionId")]
+    pub session_id: String,
+    /// The skill name, exactly as a rendered row carries it (the
+    /// frontmatter `name`).
+    pub skill: String,
+}
+
+/// `POST /web/skills/load` — force-load a skill into a session's
+/// context.
+///
+/// The web mirror of the TUI picker's `<c-l>`: a pinned `skill`
+/// tool-call/result pair appends to the session's history, a disabled
+/// skill is enabled durably through the filter first, and an
+/// already-loaded skill appends the same transient notice the TUI
+/// emits instead of a duplicate pair. `MarkSessionInteracted` is the
+/// only publish.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct SkillLoadForm {
+    /// The session whose context to load the skill into.
+    #[serde(alias = "sessionId")]
+    pub session_id: String,
+    /// The skill name, exactly as a rendered row carries it (the
+    /// frontmatter `name`).
+    pub skill: String,
+}
+
 /// `POST /web/session/{id}/activate` — activate a session.
 ///
 /// The path carries the session id. The urlencoded contract posts an
@@ -271,6 +311,15 @@ pub enum SseKind {
     /// strictly after each cell write), never the raw status events —
     /// those have two publishers against one cell writer.
     McpStatus,
+    /// Signal that a skills discovery scan reported — the skills
+    /// modal's rows. The envelope is a signal only: an open modal
+    /// re-pulls its rows from the modal's GET route, which remains
+    /// the correctness dependency. Subscribed from `SkillsLoaded`
+    /// (the discovery worker's event, broadcast after each scan),
+    /// so a modal opened before a slow scan finishes fills itself
+    /// without a reload — discovery lands async after the modal can
+    /// be opened.
+    Skills,
     /// Full transcript replace — the convergence push after a turn
     /// settles (or anything else invalidates the incremental cursor).
     TranscriptFull,
@@ -286,6 +335,7 @@ impl SseKind {
             Self::Sessions => "sessions",
             Self::Models => "models",
             Self::McpStatus => "mcp-status",
+            Self::Skills => "skills",
             Self::TranscriptFull => "transcript-full",
         }
     }
@@ -315,7 +365,7 @@ pub struct SseEnvelope {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
 
-    use super::{McpToggleForm, SseKind, TranscriptQuery};
+    use super::{McpToggleForm, SkillLoadForm, SkillToggleForm, SseKind, TranscriptQuery};
 
     #[rstest::rstest]
     #[test]
@@ -362,6 +412,7 @@ mod tests {
     #[case(SseKind::Sessions, "sessions")]
     #[case(SseKind::Models, "models")]
     #[case(SseKind::McpStatus, "mcp-status")]
+    #[case(SseKind::Skills, "skills")]
     #[case(SseKind::TranscriptFull, "transcript-full")]
     fn sse_kind_names_its_event(#[case] kind: SseKind, #[case] expected: &str) {
         assert_eq!(kind.event_name(), expected);
@@ -384,5 +435,32 @@ mod tests {
         assert_eq!(camel, snake);
         assert_eq!(camel.session_id, "abc");
         assert_eq!(camel.server, "excalimate");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn skill_forms_deserialize_snake_and_camel_session_keys() {
+        // Given the urlencoded shape the browser posts (camelCase
+        // alias) and the shape curl/tests post (snake_case field), for
+        // both the toggle and the load form.
+        let toggle_camel: SkillToggleForm =
+            serde_json::from_str("{\"sessionId\":\"abc\",\"skill\":\"rust-programming\"}")
+                .expect("toggle camelCase parses");
+        let toggle_snake: SkillToggleForm =
+            serde_json::from_str("{\"session_id\":\"abc\",\"skill\":\"rust-programming\"}")
+                .expect("toggle snake_case parses");
+        let load_camel: SkillLoadForm =
+            serde_json::from_str("{\"sessionId\":\"abc\",\"skill\":\"rust-programming\"}")
+                .expect("load camelCase parses");
+        let load_snake: SkillLoadForm =
+            serde_json::from_str("{\"session_id\":\"abc\",\"skill\":\"rust-programming\"}")
+                .expect("load snake_case parses");
+
+        // Then both encodings land in the same form for each — the
+        // dual extractor accepts either body shape.
+        assert_eq!(toggle_camel, toggle_snake);
+        assert_eq!(toggle_camel.skill, "rust-programming");
+        assert_eq!(load_camel, load_snake);
+        assert_eq!(load_camel.session_id, "abc");
     }
 }

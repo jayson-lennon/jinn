@@ -142,13 +142,13 @@ mod menu_region_tests {
 
     #[rstest::rstest]
     #[test]
-    fn the_fragment_carries_the_button_and_the_five_items() {
+    fn the_fragment_carries_the_button_and_the_six_items() {
         // Given the session-page menu fragment.
         let html = fragment();
 
         // Then it renders the hamburger button, the hidden panel, and
-        // all five items — the new-session item, the persona item, the
-        // MCP item and the tools item (a session is viewed), and the
+        // all six items — the new-session item, the persona item, the
+        // MCP, tools and skills items (a session is viewed), and the
         // sessions item — the region's whole page presence.
         assert!(
             html.contains(&format!("id=\"{}\"", contract::MENU_BUTTON_ID)),
@@ -178,8 +178,12 @@ mod menu_region_tests {
             html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_TOOLS_ID)),
             "the Tools item is missing: {html}"
         );
+        assert!(
+            html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_SKILLS_ID)),
+            "the Skills item is missing: {html}"
+        );
         let items = html.matches("menu-item").count();
-        assert_eq!(items, 5, "the panel lists all five items: {html}");
+        assert_eq!(items, 6, "the panel lists all six items: {html}");
         assert!(
             html.contains("Sessions"),
             "the item labels Sessions: {html}"
@@ -285,7 +289,39 @@ mod menu_region_tests {
 
     #[rstest::rstest]
     #[test]
-    fn the_landing_menu_omits_the_persona_mcp_and_tools_items_entirely() {
+    fn the_skills_item_pulls_into_the_skills_modal_host_with_the_viewed_session() {
+        // Given the session-page menu fragment.
+        let html = fragment();
+
+        // Then the skills item's pull targets the skills route for the
+        // viewed session and swaps into the skills modal's own host
+        // span — never the menu's container (the host-not-container
+        // rule) — and opens the modal's signal so the pulled overlay
+        // renders visible.
+        let item = html
+            .split_once(&format!("id=\"{}\"", contract::MENU_ITEM_SKILLS_ID))
+            .and_then(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag.to_owned()))
+            .expect("the skills item renders");
+        assert!(
+            item.contains(&format!(
+                "{}00000000-0000-0000-0000-000000000001",
+                contract::SKILL_PICKER_PREFIX
+            )),
+            "the pull names the viewed session: {item}"
+        );
+        assert!(
+            item.contains(contract::SKILL_MODAL_HOST_SELECTOR),
+            "the pull swaps into the skills modal host: {item}"
+        );
+        assert!(
+            item.contains(&format!("${} = true", contract::SIGNAL_SKILLS_OPEN)),
+            "the click opens the modal signal: {item}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_landing_menu_omits_the_persona_mcp_tools_and_skills_items_entirely() {
         // Given the landing fragment (no viewed session).
         let html = landing_fragment();
 
@@ -316,6 +352,14 @@ mod menu_region_tests {
         assert!(
             !html.contains(contract::TOOLS_PICKER_PREFIX),
             "the landing menu spells no tools URL: {html}"
+        );
+        assert!(
+            !html.contains(contract::MENU_ITEM_SKILLS_ID),
+            "the landing menu carries no skills item: {html}"
+        );
+        assert!(
+            !html.contains(contract::SKILL_PICKER_PREFIX),
+            "the landing menu spells no skills URL: {html}"
         );
         // And the other two items still render.
         assert!(
