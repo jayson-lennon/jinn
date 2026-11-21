@@ -70,11 +70,12 @@ test-one FILTER:
 build-tests-windows:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Exes land in target/x86_64-pc-windows-msvc/debug/deps/ - one per
-    # crate, hash-suffixed. Rebuilds leave stale-hash copies behind, so the
-    # exact fresh set is also written to win-test-suites.txt (via cargo's
-    # JSON message stream, which names each test executable) for the VM's
-    # run-windows-tests.ps1 to read. The exes are CRT-static, so the VM
+    # Test exes are cross-built and their exact fresh set written to
+    # win-test-suites.txt via cargo's JSON message stream, which names each
+    # test executable. With current cargo the exes land per-package under
+    # debug/build/<crate>/<hash>/out/; rebuilds leave stale-hash copies
+    # behind, so the manifest - not any directory listing - is what the
+    # VM's run-windows-tests.ps1 reads. The exes are CRT-static, so the VM
     # needs nothing installed: run them from the same cwd the Linux side
     # uses.
     if ! command -v cargo-xwin >/dev/null 2>&1; then
@@ -96,24 +97,23 @@ build-tests-windows:
         | sort -u > /tmp/win-test-suites.candidate
     # A fully cached run re-emits no artifact messages, so an empty candidate
     # means nothing compiled: keep a previous manifest if one exists, else
-    # fall back to the deps glob. Entries are repo-relative POSIX paths
-    # (target/x86_64-pc-windows-msvc/debug/deps/<crate>-<hash>.exe) — the
-    # VM's run-windows-tests.ps1 anchors on the target/ prefix, never on the
-    # build host's filesystem layout.
+    # fall back to a scan of the whole debug tree. Entries are repo-relative
+    # POSIX paths anchored on target/ — the VM's run-windows-tests.ps1
+    # anchors on that prefix too, never on the build host's filesystem
+    # layout.
     if [ -s /tmp/win-test-suites.candidate ]; then
         mv /tmp/win-test-suites.candidate win-test-suites.txt
     elif [ ! -f win-test-suites.txt ]; then
-        (cd target/x86_64-pc-windows-msvc/debug/deps && ls -1 *.exe) \
+        find target/x86_64-pc-windows-msvc/debug -type f -name '*.exe' \
             | grep -E -- '-[0-9a-f]+\.exe$' \
-            | sed 's|^|target/x86_64-pc-windows-msvc/debug/deps/|' \
+            | LC_ALL=C sort -u \
             > win-test-suites.txt
     else
         rm -f /tmp/win-test-suites.candidate
         echo "==> nothing recompiled; win-test-suites.txt kept from the previous build"
     fi
-    echo "==> Windows test exes in target/x86_64-pc-windows-msvc/debug/deps/:"
-    echo "    (exact suite list: win-test-suites.txt)"
-    ls -1 target/x86_64-pc-windows-msvc/debug/deps/*.exe | sed 's/^/    /'
+    echo "==> Windows test exes cross-built (exact suite list: win-test-suites.txt)"
+    wc -l < win-test-suites.txt | sed 's/^/    /' | sed 's/$/ suite(s)/'
 
 # Fast compile check of the whole workspace (no codegen).
 check:

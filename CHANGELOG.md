@@ -3,6 +3,12 @@
 ## (development)
 
 - (webui) Keystrokes no longer erroneously close modals.
+- Remove `#generate-persona` prompt.
+
+## 2026-11-21 v1.26.1
+
+- `#goal` prompt saves the contract to disk instead of as a chat response.
+- Example `bind` key added to `remote` in default `jinn.toml`.
 
 ## 2026-11-20 v1.26.0
 
