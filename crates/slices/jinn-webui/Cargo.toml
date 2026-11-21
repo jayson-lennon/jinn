@@ -47,6 +47,12 @@ jinn-persona-msg = { workspace = true }
 # toggle publishes that crate's `McpEnablementChanged`. Contract crate
 # only: never the MCP implementation slice.
 jinn-mcp-msg = { workspace = true }
+# The skills modal's rows are built from `jinn-skills-msg::Skill` (the
+# same data the TUI picker seeds from, carried by the session's
+# discovered set) — contract crate only: never the skills
+# implementation slice. The load path publishes the session slice's
+# `MarkSessionInteracted`, already a dependency above.
+jinn-skills-msg = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-provider-config = { workspace = true }
 axum = { version = "0.8" }

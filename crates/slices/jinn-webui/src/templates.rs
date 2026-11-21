@@ -142,6 +142,9 @@ pub struct PageTemplate {
     /// The MCP modal's host id — the fourth empty span sibling (the
     /// same host-not-container rule).
     pub mcp_modal_host_id: &'static str,
+    /// The skills modal's host id — the fifth empty span sibling (the
+    /// same host-not-container rule).
+    pub skills_modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -201,6 +204,7 @@ impl PageTemplate {
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
             mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+            skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -251,6 +255,7 @@ impl PageTemplate {
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
             mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+            skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -308,6 +313,8 @@ pub struct PageRootTemplate {
     pub persona_modal_host_id: &'static str,
     /// The MCP modal's host id.
     pub mcp_modal_host_id: &'static str,
+    /// The skills modal's host id.
+    pub skills_modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -366,6 +373,7 @@ impl PageRootTemplate {
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
             mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+            skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -577,6 +585,15 @@ pub struct MenuTemplate {
     pub mcp_picker_url: String,
     /// The MCP modal host's CSS selector — the pull's swap target.
     pub mcp_modal_host_selector: &'static str,
+    /// The skills item's id ("Skills"); rendered only when a session
+    /// is viewed (enablement binds per-session — the persona item's
+    /// rule).
+    pub menu_item_skills_id: &'static str,
+    /// The skills pull's URL prefix — the skills item's `@get` target
+    /// is `<prefix><viewed session id>`.
+    pub skills_picker_url: String,
+    /// The skills modal host's CSS selector — the pull's swap target.
+    pub skills_modal_host_selector: &'static str,
 }
 
 impl MenuTemplate {
@@ -604,6 +621,9 @@ impl MenuTemplate {
             menu_item_mcp_id: contract::MENU_ITEM_MCP_ID,
             mcp_picker_url: format!("{}{viewed_session}", contract::MCP_PICKER_PREFIX),
             mcp_modal_host_selector: contract::MCP_MODAL_HOST_SELECTOR,
+            menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
+            skills_picker_url: format!("{}{viewed_session}", contract::SKILL_PICKER_PREFIX),
+            skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
         }
     }
 }
@@ -1072,6 +1092,111 @@ impl McpModalTemplate {
             rows_id: contract::MCP_ROWS_ID,
             modal_host_id: contract::MCP_MODAL_HOST_ID,
             picker_route: contract::MCP_PICKER_PREFIX,
+        }
+    }
+}
+
+/// One skill row of the skills modal: the discovered [`Skill`][skill]
+/// stamped with the contract hooks the toggle and load POSTs need,
+/// plus the enablement mark, source badge, and loaded state the TUI
+/// picker's row vocabulary mirrors. Built from the msg-crate `Skill`
+/// plus session accessors — never the TUI's `SkillEntry` (that carries
+/// the theme and feeds ratatui line rendering).
+///
+/// [skill]: jinn_skills_msg::Skill
+#[derive(Template)]
+#[template(path = "skill_row.html")]
+pub struct SkillRowTemplate {
+    /// The discovered skill's data.
+    pub skill: jinn_skills_msg::Skill,
+    /// Whether the skill passes the session's current filter — the
+    /// enabled mark (● vs ○, the TUI marker vocabulary).
+    pub enabled: bool,
+    /// The source badge's class suffix (`project`/`global`); global
+    /// skills render no badge, the TUI badge rule.
+    pub source_class: &'static str,
+    /// The source badge's label; empty for global skills.
+    pub source_label: &'static str,
+    /// Whether the row renders a source badge — global skills render
+    /// none (the TUI badge rule), project skills badge.
+    pub has_source_badge: bool,
+    /// The attribute a row names its skill with — the toggle and load
+    /// POSTs' payload field.
+    pub skill_attr: &'static str,
+    /// The attribute a row names its action with.
+    pub action_attr: &'static str,
+    /// The toggle action's contract name — the row's own click.
+    pub toggle_action: &'static str,
+    /// The toggle POST's endpoint.
+    pub toggle_path: &'static str,
+    /// The force-load action's contract name — the row's `+` button.
+    pub load_action: &'static str,
+    /// The load POST's endpoint.
+    pub load_path: &'static str,
+    /// The force-load button's class hook.
+    pub load_class: &'static str,
+}
+
+impl SkillRowTemplate {
+    /// Builds the template from the discovered skill and the session's
+    /// enablement read: the source badge follows the TUI badge rule
+    /// (project-scoped skills badge, global skills do not).
+    #[must_use]
+    pub fn from_skill(skill: jinn_skills_msg::Skill, enabled: bool) -> Self {
+        let (source_class, source_label, has_source_badge) = match &skill.source {
+            jinn_skills_msg::SkillSource::Project { .. } => ("project", "project", true),
+            jinn_skills_msg::SkillSource::Global => ("global", "", false),
+        };
+        Self {
+            skill,
+            enabled,
+            source_class,
+            source_label,
+            has_source_badge,
+            skill_attr: contract::SKILL_NAME_DATA_ATTR,
+            action_attr: contract::ACTION_DATA_ATTR,
+            toggle_action: contract::ACTION_SKILL_TOGGLE,
+            toggle_path: contract::SKILL_TOGGLE_PATH,
+            load_action: contract::ACTION_SKILL_LOAD,
+            load_path: contract::SKILL_LOAD_PATH,
+            load_class: contract::SKILL_LOAD_CLASS,
+        }
+    }
+}
+
+/// The skills modal: the overlay with the unfiltered TUI-parity rows.
+/// Rendered into the skills modal host by the GET pull; the client
+/// toggles its visibility, and the `skillsTick` effect re-pulls the
+/// rows when a discovery scan reports (the mcpTick pattern —
+/// discovery lands async after the modal can be opened). The rows
+/// arrive pre-rendered (each [`SkillRowTemplate`] renders first —
+/// the shape the MCP modal's rows use).
+#[derive(Template)]
+#[template(path = "skill_modal.html")]
+pub struct SkillModalTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The modal overlay's id.
+    pub modal_id: &'static str,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+    /// The modal host span's id — the pull's swap target.
+    pub modal_host_id: &'static str,
+    /// The skills pull's route prefix — the tick effect's `@get`
+    /// target.
+    pub picker_route: &'static str,
+}
+
+impl SkillModalTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(rows: Vec<String>) -> Self {
+        Self {
+            rows,
+            modal_id: contract::SKILL_MODAL_ID,
+            rows_id: contract::SKILL_ROWS_ID,
+            modal_host_id: contract::SKILL_MODAL_HOST_ID,
+            picker_route: contract::SKILL_PICKER_PREFIX,
         }
     }
 }

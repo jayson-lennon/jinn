@@ -21,8 +21,8 @@ pub use unread::UnreadSessionMarks;
 pub use unread::webui_unread_slot;
 pub use wire::{
     CancelForm, CreateSessionForm, McpToggleForm, ModelForm, ModelsRefreshForm, PersonaForm,
-    RenameForm, SendForm, SessionListItem, SessionNewQuery, SessionsQuery, SseEnvelope, SseKind,
-    SwitchForm, TranscriptQuery,
+    RenameForm, SendForm, SessionListItem, SessionNewQuery, SessionsQuery, SkillLoadForm,
+    SkillToggleForm, SseEnvelope, SseKind, SwitchForm, TranscriptQuery,
 };
 
 #[cfg(test)]

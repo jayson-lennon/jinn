@@ -105,6 +105,7 @@ fn rendered_page() -> String {
         session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
         persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
         mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+        skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -135,7 +136,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 20] = [
+    let targets: [(&str, &str); 22] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
@@ -157,6 +158,8 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
         ("persona modal host", contract::PERSONA_MODAL_HOST_ID),
         ("menu item mcp", contract::MENU_ITEM_MCP_ID),
         ("mcp modal host", contract::MCP_MODAL_HOST_ID),
+        ("menu item skills", contract::MENU_ITEM_SKILLS_ID),
+        ("skills modal host", contract::SKILL_MODAL_HOST_ID),
         ("drawer scrim", contract::DRAWER_SCRIM_ID),
         ("menu scrim", contract::MENU_SCRIM_ID),
     ];
@@ -273,6 +276,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
         persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
         mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+        skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
