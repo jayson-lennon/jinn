@@ -599,6 +599,38 @@ impl WebUiFanoutActor {
         }
     }
 
+    /// Signals every open tools modal that MCP connections changed —
+    /// one `tools` push per live session, the `push_skills_changed`
+    /// shape verbatim.
+    ///
+    /// The `tools` envelope is a **signal, not rows**: the MCP
+    /// coordinator wrote its runtime cell, and the tools rows pull
+    /// renders it — the fan-out renders no rows here, the same
+    /// pull-remains-the-renderer rule every modal follows. The client
+    /// answers the push by re-pulling the **rows fragment** only (the
+    /// revert stamp lives in the modal skeleton the re-pull never
+    /// touches, so the open-time snapshot survives mid-open ticks).
+    /// The data line carries the write timestamp: a signal with an
+    /// empty data line never dispatches in the browser.
+    pub(crate) fn push_tools_changed(&mut self, stored_at: jiff::Timestamp) {
+        let ids: Vec<SessionId> = self
+            .state
+            .read()
+            .session
+            .sessions()
+            .keys()
+            .cloned()
+            .collect();
+        for session_id in ids {
+            self.broadcast(SseEnvelope {
+                kind: SseKind::Tools,
+                session_id,
+                cursor: 0,
+                html: stored_at.to_string(),
+            });
+        }
+    }
+
     /// A browser-created session landed: refresh the sessions list.
     /// Synchronous work only; `async` is the `MsgHandler::handle`
     /// signature's shape, dropped here.
@@ -799,6 +831,14 @@ impl MsgHandler<jinn_mcp_msg::McpRuntimeStored> for WebUiFanoutActor {
         // timestamp rides the push so the frame dispatches (a signal
         // with an empty data line never fires).
         self.push_mcp_status_changed(msg.stored_at);
+        // The same write moved the session's connection set, which is
+        // the only thing that moves a tools list (the registry,
+        // provider, and bot gates are static per session) — so the
+        // open tools modals re-pull their rows too. One handler, two
+        // signal kinds; both remain signals, the pull routes remain
+        // the renderers. The tools re-pull swaps the rows fragment
+        // only, so the revert stamp's data-init never re-runs mid-open.
+        self.push_tools_changed(msg.stored_at);
     }
 }
 

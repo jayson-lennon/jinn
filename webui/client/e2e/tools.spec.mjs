@@ -140,6 +140,57 @@ test("a second click-and-dismiss returns to the original state", async ({
   await expect(await toolIsOn(page)).toBe(false);
 });
 
+test("an MCP connection change re-fills the open modal's rows without a reload", async ({
+  page,
+}) => {
+  // Given the tools modal open on the boot session, with the scratch
+  // echo server's tools absent (the MCP spec left the server disabled)
+  // and the page's identity captured so a reload would be detectable.
+  const modal = await openToolsModal(page);
+  const sessionId = await page
+    .locator(sel.PAGE_ROOT)
+    .getAttribute(sel.PAGE_SESSION_ATTR);
+  await expect(page.locator(sel.TOOL_ROW("mcp__echo__echo"))).toHaveCount(0);
+
+  // When the same session's echo server is enabled from outside the
+  // modal — a POST straight at the MCP toggle route, which is what the
+  // MCP modal's own row click sends. The coordinator then spawns the
+  // connection, writes its runtime cell, and emits the stored event
+  // the fan-out turns into the `tools` signal.
+  const response = await page.request.post(
+    `${baseUrl()}${sel.MCP_TOGGLE_PATH}`,
+    {
+      form: { sessionId, server: sel.MCP_SERVER },
+      headers: { accept: "*/*" },
+    },
+  );
+  expect(response.ok()).toBe(true);
+
+  // Then the open modal gains the newly connected server's row in
+  // place, with no navigation at all: the `toolsTick` signal fired the
+  // skeleton's effect, which re-pulled the rows route and swapped
+  // `#tools-rows` only — the session page is still the one the spec
+  // opened, and the revert stamp was never re-rendered.
+  await expect(modal.locator(sel.TOOL_ROW("mcp__echo__echo"))).toBeVisible({
+    timeout: 15_000,
+  });
+  expect(
+    await page.locator(sel.PAGE_ROOT).getAttribute(sel.PAGE_SESSION_ATTR),
+  ).toBe(sessionId);
+
+  // Cleanup: leave the server disabled again, the state the MCP spec
+  // ends in and the tools spec found.
+  const disable = await page.request.post(
+    `${baseUrl()}${sel.MCP_TOGGLE_PATH}`,
+    {
+      form: { sessionId, server: sel.MCP_SERVER },
+      headers: { accept: "*/*" },
+    },
+  );
+  expect(disable.ok()).toBe(true);
+  await page.keyboard.press("Escape");
+});
+
 test("the landing page's menu carries no tools item", async ({ page }) => {
   // Given the landing page (nothing viewed).
   await page.goto(`${baseUrl()}/web`);

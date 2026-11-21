@@ -473,6 +473,14 @@ pub const SIGNAL_TOOLS_OPEN: &str = "toolsOpen";
 /// modal.
 pub const SIGNAL_TOOLS_REVERT: &str = "toolsRevert";
 
+/// The tools tick — every MCP runtime push bumps it; the open modal's
+/// effect re-pulls its **rows fragment** in response (the mcpTick
+/// pattern). The payload is the write's timestamp (a signal with an
+/// empty data line never dispatches in the browser). The rows-only
+/// retarget is the revert guarantee: the stamp's `data-init` lives in
+/// the modal skeleton the tick never re-renders.
+pub const SIGNAL_TOOLS_TICK: &str = "toolsTick";
+
 /// The tools toggle POST's action name.
 pub const ACTION_TOOLS_TOGGLE: &str = "tools-toggle";
 
@@ -490,6 +498,18 @@ pub const TOOLS_TOGGLE_PATH: &str = "/web/tools";
 /// `POST` — dismiss the tools modal: restore the open-time filter the
 /// revert snapshot signal carries.
 pub const TOOLS_REVERT_PATH: &str = "/web/tools/revert";
+
+/// Route pattern — the tools **rows fragment** pull. The `toolsTick`
+/// effect's re-pull target: it swaps `#tools-rows` only, so the revert
+/// stamp in the modal skeleton never re-initializes mid-open.
+pub const TOOLS_ROWS_ROUTE: &str = "/web/tools/rows/{id}";
+
+/// The path prefix the tick effect builds tools-rows URLs from.
+pub const TOOLS_ROWS_PREFIX: &str = "/web/tools/rows/";
+
+/// The rows container spelled as a CSS selector — the tick re-pull's
+/// swap target (never the modal host: the stamp must not re-init).
+pub const TOOLS_ROWS_SELECTOR: &str = "#tools-rows";
 
 // ── Skills modal ────────────────────────────────────────────────────
 
@@ -768,6 +788,8 @@ pub const CLIENT_PATHS: &[&str] = &[
     TOOLS_PICKER_PREFIX,
     TOOLS_TOGGLE_PATH,
     TOOLS_REVERT_PATH,
+    TOOLS_ROWS_PREFIX,
+    TOOLS_ROWS_SELECTOR,
     SKILL_PICKER_PREFIX,
     SKILL_TOGGLE_PATH,
     SKILL_LOAD_PATH,
@@ -798,6 +820,8 @@ pub const CLIENT_URLS: &[&str] = &[
     TOOLS_PICKER_PREFIX,
     TOOLS_TOGGLE_PATH,
     TOOLS_REVERT_PATH,
+    TOOLS_ROWS_PREFIX,
+    TOOLS_ROWS_SELECTOR,
     SKILL_PICKER_PREFIX,
     SKILL_TOGGLE_PATH,
     SKILL_LOAD_PATH,

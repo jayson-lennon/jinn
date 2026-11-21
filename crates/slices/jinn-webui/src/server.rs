@@ -490,6 +490,10 @@ pub fn router(shared: ServerShared) -> Router {
         .route(crate::contract::MCP_TOGGLE_PATH, post(mcp_toggle))
         .route(crate::contract::TOOLS_TOGGLE_PATH, post(tools_toggle))
         .route(crate::contract::TOOLS_REVERT_PATH, post(tools_revert))
+        .route(
+            crate::contract::TOOLS_ROWS_ROUTE,
+            get(crate::regions::tools::rows_pull_handler),
+        )
         .route(crate::contract::SKILL_TOGGLE_PATH, post(skill_toggle))
         .route(crate::contract::SKILL_LOAD_PATH, post(skill_load))
         .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
@@ -942,11 +946,18 @@ async fn tools_toggle(
     // the modal skeleton + revert stamp (patched by the open pull,
     // living outside `#tools-rows`) are never re-rendered — a toggle
     // must not re-execute the stamp's `data-init` nor nest a second
-    // modal inside the open one.
-    Ok(SseAction::new(vec![element_patch_inner(
-        format!("#{}", crate::contract::TOOLS_ROWS_ID),
-        crate::regions::tools::rows_fragment(&shared, &form.session_id)?,
-    )]))
+    // modal inside the open one. The fragment carries the rows
+    // container itself, so the patch replaces it (an inner patch would
+    // nest a second `#tools-rows`).
+    Ok(SseAction::new(vec![
+        PatchElements::new(crate::regions::tools::rows_fragment(
+            &shared,
+            &form.session_id,
+        )?)
+        .selector(crate::contract::TOOLS_ROWS_SELECTOR.to_owned())
+        .mode(ElementPatchMode::Replace)
+        .into_datastar_event(),
+    ]))
 }
 
 /// `POST /web/tools/revert` — dismiss the tools modal: restore the

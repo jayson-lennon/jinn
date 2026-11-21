@@ -1191,6 +1191,12 @@ impl ToolsRowsTemplate {
 /// title-editing handler's boolean-guard shape): the pulled modal
 /// element persists hidden after close, and an unguarded document
 /// escape would re-post a stale snapshot over newer TUI-side changes.
+///
+/// The tick effect lives on this skeleton (an element the rows-only
+/// re-pull never re-renders): when a `tools` push bumps `$toolsTick`,
+/// the open modal re-pulls the **rows route**, swapping `#tools-rows`
+/// only — the stamp's `data-init` never re-runs mid-open, so the
+/// open-time snapshot survives.
 #[derive(Template)]
 #[template(path = "tools_modal.html")]
 pub struct ToolsModalTemplate {
@@ -1208,6 +1214,12 @@ pub struct ToolsModalTemplate {
     pub revert_snapshot: String,
     /// The revert POST's endpoint — the dismissal handlers' target.
     pub revert_path: &'static str,
+    /// The rows-fragment pull's URL prefix — the tick effect's `@get`
+    /// target is `<prefix><viewed session id>`.
+    pub rows_url: String,
+    /// The rows container's CSS selector — the tick re-pull's swap
+    /// target (never the modal host: the stamp must not re-init).
+    pub rows_selector: &'static str,
 }
 
 impl ToolsModalTemplate {
@@ -1218,6 +1230,7 @@ impl ToolsModalTemplate {
     pub fn with_contract(
         rows: Vec<String>,
         snapshot: Option<&jinn_core_types::NameFilter>,
+        viewed_session: &str,
     ) -> Self {
         let revert_snapshot = snapshot.map_or_else(
             || "null".to_owned(),
@@ -1237,6 +1250,8 @@ impl ToolsModalTemplate {
             revert_stamp_id: contract::TOOLS_REVERT_STAMP_ID,
             revert_snapshot,
             revert_path: contract::TOOLS_REVERT_PATH,
+            rows_url: format!("{}{viewed_session}", contract::TOOLS_ROWS_PREFIX),
+            rows_selector: contract::TOOLS_ROWS_SELECTOR,
         }
     }
 }

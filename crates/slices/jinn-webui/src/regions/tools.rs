@@ -1,12 +1,13 @@
 //! The tools region — the hamburger menu's Tools item and its modal,
 //! the web mirror of the TUI `<leader>st` picker.
 //!
-//! Parts declared: GET pull route only — no SSE event (tool lists
-//! change only with MCP connections, and the toggle/revert POST
-//! responses are the modal's whole correction story), no settle
-//! render, and no page fill (`container_id` is `None`: the modal
-//! swaps into its own host span, the host-not-container rule every
-//! modal follows).
+//! Parts declared: a GET pull route plus the signal-only `tools` SSE
+//! kind, no settle render, and no page fill (`container_id` is
+//! `None`: the modal swaps into its own host span, the host-not-
+//! container rule every modal follows). The open pull renders the
+//! whole modal; a `toolsTick` re-pull (one per MCP runtime write)
+//! fetches the **rows route** and swaps `#tools-rows` only, so the
+//! revert stamp never re-initializes mid-open.
 //!
 //! The rows are TUI-parity by construction: built by the shared seed
 //! vocabulary ([`jinn_tools_msg::modal_rows`]) over the viewed
@@ -52,15 +53,17 @@ impl WebRegion for ToolsRegion {
         RegionParts {
             settle_render: false,
             pull_route: true,
-            sse_event: false,
+            sse_event: true,
             page_fill: false,
         }
     }
 
     fn event_kinds(&self) -> &'static [jinn_webui_msg::SseKind] {
-        // Pull + POST responses are the modal's only correction paths:
-        // no SSE kind exists for tools.
-        &[]
+        // The `tools` signal: MCP connection changes re-pull the open
+        // modal's rows. Signal only — the rows route remains the
+        // renderer, and the re-pull swaps the rows fragment only so
+        // the revert stamp never re-initializes mid-open.
+        &[jinn_webui_msg::SseKind::Tools]
     }
 
     fn pull(&self) -> Option<RegionPull> {
@@ -114,6 +117,28 @@ async fn pull_handler(
     Ok(
         crate::server::Fragment::new(modal_fragment(&shared, &session_id)?)
             .with_swap(crate::contract::TOOLS_MODAL_HOST_SELECTOR, "inner"),
+    )
+}
+
+/// `GET /web/tools/{id}/rows` — the tick effect's re-pull target. It
+/// answers with the **rows fragment only**, swapping `#tools-rows`
+/// inside the open modal: the skeleton and the revert stamp are never
+/// re-rendered, so the stamp's `data-init` never re-runs mid-open and
+/// the open-time snapshot the dismissal restores survives.
+///
+/// # Errors
+///
+/// Returns the render error; the caller maps it to a 500.
+pub(crate) async fn rows_pull_handler(
+    AxumState(shared): AxumState<crate::server::ServerShared>,
+    AxPath(session_id): AxPath<String>,
+) -> Result<crate::server::Fragment, crate::server::HandlerError> {
+    // The fragment carries its own rows container, so the swap
+    // replaces that element rather than its inner HTML — an inner swap
+    // would nest a second `#tools-rows` inside the open one.
+    Ok(
+        crate::server::Fragment::new(rows_fragment(&shared, &session_id)?)
+            .with_swap(crate::contract::TOOLS_ROWS_SELECTOR, "outer"),
     )
 }
 
@@ -192,6 +217,7 @@ pub(crate) fn modal_fragment(
     crate::templates::render(&crate::templates::ToolsModalTemplate::with_contract(
         rows,
         seed.tool_filter.as_ref(),
+        session_id,
     ))
     .map_err(|error| crate::server::map_render_error(&error))
 }

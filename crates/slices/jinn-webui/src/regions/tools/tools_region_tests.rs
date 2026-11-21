@@ -163,19 +163,19 @@ fn row_fragment(html: &str, tool: &str) -> String {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn the_region_conforms_with_only_the_pull_route_declared() {
+async fn the_region_conforms_with_the_pull_route_and_the_tools_signal_declared() {
     // Given the tools region.
     let region = ToolsRegion;
 
-    // Then the conformance gate finds nothing — a pull route with no
-    // SSE kind, no settle pass, and no page-shell container is the
-    // honest declaration: pull + POST responses are the modal's only
-    // correction paths.
+    // Then the conformance gate finds nothing — a pull route plus the
+    // signal-only `tools` kind is the honest declaration: the rows
+    // route renders everything, and the SSE surface is one signal
+    // whose re-pull swaps rows only.
     let gaps = crate::region::check_region(&region);
     assert!(gaps.is_empty(), "the tools region must conform: {gaps:?}");
     assert_eq!(region.id(), "tools");
     assert_eq!(region.container_id(), None);
-    assert_eq!(region.event_kinds(), []);
+    assert_eq!(region.event_kinds(), [jinn_webui_msg::SseKind::Tools]);
 }
 
 #[rstest::rstest]

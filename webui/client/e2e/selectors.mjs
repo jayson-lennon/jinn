@@ -124,6 +124,8 @@ export const TOOL_ROW = (name) => `[data-webui-tool="${name}"]`;
 /** The off-row class (`tools-row-off`) — a row the session's live
  * filter withholds. */
 export const TOOL_ROW_OFF = "tools-row-off";
+/** The tools modal's rows-only pull prefix (`wire.TOOLS_ROWS_PREFIX`). */
+export const TOOLS_ROWS_PREFIX = "/web/tools/rows/";
 /** The toggle POST's endpoint (`wire.TOOLS_TOGGLE_PATH`). */
 export const TOOLS_TOGGLE_PATH = "/web/tools";
 /** The revert POST's endpoint (`wire.TOOLS_REVERT_PATH`). */

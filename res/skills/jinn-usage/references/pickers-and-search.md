@@ -70,6 +70,12 @@ highlights:
   opened, absence included. The item does not render on the landing
   page (nothing is viewed there), and there is no filter box or
   context-cost figure on the web surface — those stay TUI-only.
+  Rows update live while the modal is open: when an MCP server
+  connects or disconnects for the session, the server pushes a signal
+  and the open modal re-fetches its rows in place (the same
+  signal-and-repull pattern the MCP and skills modals use). Only the
+  rows are replaced — the revert snapshot survives, so dismissing
+  after a live update still restores the filter held at open.
 - **Skill**: `<c-l>` loads the highlighted skill's body into context as a
   pinned tool-result pair. The picker stays open so you can load several, and
   loading auto-enables a disabled skill. `<c-u>`/`<c-d>` scroll the markdown

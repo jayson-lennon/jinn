@@ -3422,6 +3422,135 @@ mod tools_actions {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn the_rows_pull_serves_the_rows_fragment_alone() {
+        // Given a live session with a seeded registry and a deny
+        // filter.
+        let (state, _audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash", "edit"]);
+        state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(&id)
+                .set_tool_filter(Some(jinn_core_types::NameFilter::deny(["edit".to_owned()])));
+        });
+
+        // When the tick effect's re-pull hits the rows route.
+        let (status, body) = get(
+            &router,
+            &format!("{}{id}", crate::contract::TOOLS_ROWS_PREFIX),
+        )
+        .await;
+
+        // Then the body is the rows fragment only: both rows render
+        // with their marks, and neither the modal id nor the revert
+        // stamp ride it — a mid-open re-pull cannot re-execute the
+        // stamp's `data-init` and reset the open-time snapshot.
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains(&format!("id=\"{}\"", crate::contract::TOOLS_ROWS_ID)),
+            "{body}"
+        );
+        assert!(
+            body.contains(&format!(
+                "{}=\"bash\"",
+                crate::contract::TOOL_NAME_DATA_ATTR
+            )),
+            "{body}"
+        );
+        assert!(
+            body.contains(&format!(
+                "{}=\"edit\"",
+                crate::contract::TOOL_NAME_DATA_ATTR
+            )),
+            "{body}"
+        );
+        assert!(
+            !body.contains(&format!("id=\"{}\"", crate::contract::TOOLS_MODAL_ID)),
+            "the skeleton is not re-rendered: {body}"
+        );
+        assert!(
+            !body.contains(&format!(
+                "id=\"{}\"",
+                crate::contract::TOOLS_REVERT_STAMP_ID
+            )),
+            "the stamp is not re-rendered: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_rows_pull_swaps_the_rows_container_only() {
+        // Given a live session.
+        let (state, _audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash"]);
+
+        // When the rows route answers.
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("{}{id}", crate::contract::TOOLS_ROWS_PREFIX))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("response");
+
+        // Then it names the rows container as its swap target and
+        // REPLACES that element — the fragment carries its own
+        // `#tools-rows`, so an inner swap would nest a duplicate.
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("datastar-selector")
+                .and_then(|value| value.to_str().ok()),
+            Some(crate::contract::TOOLS_ROWS_SELECTOR),
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("datastar-mode")
+                .and_then(|value| value.to_str().ok()),
+            Some("outer"),
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_modal_pull_carries_the_tick_effect_against_the_rows_route() {
+        // Given a live session.
+        let (state, _audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash"]);
+
+        // When pulling the modal.
+        let (status, body) = get(
+            &router,
+            &format!("{}{id}", crate::contract::TOOLS_PICKER_PREFIX),
+        )
+        .await;
+
+        // Then the skeleton carries the tick effect, its `@get` target
+        // is the rows route for the viewed session, and its selector
+        // is the rows container — the signal's re-pull can only touch
+        // the rows.
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("data-effect="), "{body}");
+        assert!(
+            body.contains(&format!("{}{id}", crate::contract::TOOLS_ROWS_PREFIX)),
+            "the effect targets the rows route: {body}"
+        );
+        assert!(
+            body.contains(crate::contract::TOOLS_ROWS_SELECTOR),
+            "the effect swaps the rows container: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn the_pull_for_a_session_without_a_registry_renders_zero_rows() {
         // Given a live session and an empty registry.
         let (state, _audit, router) = harness_with_cells();

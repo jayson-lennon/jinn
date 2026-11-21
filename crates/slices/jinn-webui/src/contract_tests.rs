@@ -682,6 +682,8 @@ fn every_sse_kind_maps_to_a_datastar_transport() {
         jinn_webui_msg::SseKind::Sessions,
         jinn_webui_msg::SseKind::Models,
         jinn_webui_msg::SseKind::McpStatus,
+        jinn_webui_msg::SseKind::Skills,
+        jinn_webui_msg::SseKind::Tools,
         jinn_webui_msg::SseKind::TranscriptFull,
     ];
 

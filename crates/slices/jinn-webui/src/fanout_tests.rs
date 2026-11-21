@@ -258,6 +258,86 @@ async fn a_runtime_stored_event_pushes_one_mcp_status_signal_per_live_session() 
 
 #[rstest::rstest]
 #[tokio::test]
+async fn a_runtime_stored_event_pushes_one_tools_signal_per_live_session() {
+    // Given a default session plus one seeded one, and a subscriber.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let first = seed_session(&state);
+    let live = state.read().session.sessions().len();
+
+    // When the runtime-stored handler's tools push lands (the same
+    // handler emits it beside the mcp-status push: the connection set
+    // moved, and connection change is the only thing that moves a
+    // tools list).
+    let stored_at = jiff::Timestamp::now();
+    actor.push_tools_changed(stored_at);
+
+    // Then each live session receives exactly ONE envelope: the
+    // `tools` SIGNAL (cursor 0; its data line carries the write
+    // timestamp — a NON-EMPTY data line is the dispatch contract) and
+    // no transcript or HTML-rows push rides it — the client answers
+    // the signal by re-pulling the rows route, which remains the
+    // renderer.
+    let mut seen = std::collections::HashSet::new();
+    while let Ok(envelope) = rx.try_recv() {
+        match envelope.kind {
+            SseKind::Tools => {
+                assert_eq!(
+                    envelope.html,
+                    stored_at.to_string(),
+                    "the tools push carries the write timestamp as its data line \
+                     (empty data never dispatches in a browser): {envelope:?}"
+                );
+                assert_eq!(envelope.cursor, 0);
+                seen.insert(envelope.session_id.clone());
+            }
+            other => panic!("only tools pushes land: {other:?}"),
+        }
+    }
+    assert_eq!(seen.len(), live, "one push per session: {seen:?}");
+    assert!(seen.contains(&first), "{seen:?}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_stored_event_yields_both_the_mcp_and_tools_signals_per_session() {
+    // Given the fixture actor with both push helpers fired — the
+    // handler's whole body (the `MsgCtx` the real handler takes is
+    // trouper-internal, so the coupling these two calls model is what
+    // the test pins: one stored event, both signals, nothing else).
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let first = seed_session(&state);
+    let live = state.read().session.sessions().len();
+    let stored_at = jiff::Timestamp::now();
+    actor.push_mcp_status_changed(stored_at);
+    actor.push_tools_changed(stored_at);
+
+    // Then each live session receives exactly two envelopes — one
+    // `mcp-status` and one `tools`, both signals with dispatchable
+    // data lines carrying the same write timestamp — and nothing else
+    // (no transcript, no HTML rows).
+    let mut mcp = 0;
+    let mut tools = 0;
+    let mut sessions = std::collections::HashSet::new();
+    while let Ok(envelope) = rx.try_recv() {
+        sessions.insert(envelope.session_id.clone());
+        match envelope.kind {
+            SseKind::McpStatus => mcp += 1,
+            SseKind::Tools => tools += 1,
+            other => panic!("only the two signal kinds land: {other:?}"),
+        }
+        assert!(
+            !envelope.html.is_empty(),
+            "dispatchable data line: {envelope:?}"
+        );
+        assert_eq!(envelope.cursor, 0);
+    }
+    assert_eq!(mcp, live, "one mcp-status push per session");
+    assert_eq!(tools, live, "one tools push per session");
+    assert!(sessions.contains(&first), "the seeded session was served");
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn a_skills_loaded_event_pushes_one_skills_signal_per_live_session() {
     // Given a default session plus one seeded one, and a subscriber.
     let (mut actor, mut rx, state, _marks) = fixture();
