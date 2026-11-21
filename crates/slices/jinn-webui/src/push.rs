@@ -17,14 +17,16 @@
 //! | Sessions        | PatchSignals   | `sessionsTick` bump   | —      |
 //! | Models          | PatchSignals   | `modelsTick` stamp    | —      |
 //! | McpStatus       | PatchSignals   | `mcpTick` stamp       | —      |
+//! | Skills          | PatchSignals   | `skillsTick` stamp    | —      |
 //!
-//! Sessions, Models, and McpStatus pushes are **signals, not HTML**:
-//! the pushed list is a signal to the page's own effect, which
+//! Sessions, Models, McpStatus, and Skills pushes are **signals, not
+//! HTML**: the pushed list is a signal to the page's own effect, which
 //! re-pulls the fragment with its active filter — the pull endpoint
 //! remains the renderer (the filtered-list trap: an unfiltered pushed
-//! list would un-filter the sidebar under the user's eyes). Models and
-//! McpStatus keep the write timestamp as the payload (non-empty by
-//! construction — the dispatch contract), sessions bumps a counter.
+//! list would un-filter the sidebar under the user's eyes). Models,
+//! McpStatus, and Skills keep the write timestamp as the payload
+//! (non-empty by construction — the dispatch contract), sessions bumps
+//! a counter.
 //!
 //! No `id:` line rides any of these events: the browser keeps the
 //! last received `id` across events, and convergence pushes stamped
@@ -143,6 +145,12 @@ pub(crate) fn sdk_events_of(
         SseKind::McpStatus => Ok(vec![
             PatchSignals::new(
                 serde_json::json!({ contract::SIGNAL_MCP_TICK: envelope.html }).to_string(),
+            )
+            .into_datastar_event(),
+        ]),
+        SseKind::Skills => Ok(vec![
+            PatchSignals::new(
+                serde_json::json!({ contract::SIGNAL_SKILLS_TICK: envelope.html }).to_string(),
             )
             .into_datastar_event(),
         ]),
@@ -323,6 +331,32 @@ mod tests {
             events.first().expect("the controls patch").event,
             datastar::consts::EventType::PatchElements
         );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn skills_pushes_stamp_the_timestamp_into_the_tick_signal() {
+        // Given a skills-changed envelope whose payload is the scan's
+        // landing timestamp (non-empty — the dispatch contract).
+        let event = sdk_events_of(&envelope(SseKind::Skills, "2026-01-01T00:00:00Z", 0), 0)
+            .expect("a skills push translates")
+            .remove(0);
+
+        // Then the event is a signal patch carrying the timestamp, and
+        // no HTML rides it (the pull remains the renderer).
+        let datastar::DatastarEvent {
+            event: kind, data, ..
+        } = event;
+        assert_eq!(kind, datastar::consts::EventType::PatchSignals);
+        let joined = data.join("\n");
+        assert!(
+            joined.replace(' ', "").contains(&format!(
+                "\"{}\":\"2026-01-01T00:00:00Z\"",
+                contract::SIGNAL_SKILLS_TICK
+            )),
+            "{joined}"
+        );
+        assert!(!joined.contains("<"), "{joined}");
     }
 
     #[rstest::rstest]
