@@ -242,6 +242,8 @@ fn content_type_for(path: &str) -> &'static str {
         "js" | "mjs" => "text/javascript; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "html" => "text/html; charset=utf-8",
+        "json" | "webmanifest" => "application/manifest+json",
+        "png" => "image/png",
         _ => "application/octet-stream",
     }
 }

@@ -4,10 +4,11 @@
 //! `resources/vendor/vendor-manifest.toml`, which pins each file's
 //! sha256; the build fails when a row and its bytes disagree, so the
 //! inventory a binary serves is always the inventory the manifest
-//! vouches for. The manifest's one row is the Datastar browser bundle
-//! — committed vendored bytes (nothing in-repo regenerates them), not
-//! build output. The stylesheet travels inside the templates module
-//! as a `&str` constant.
+//! vouches for. The rows are the Datastar browser bundle plus the
+//! webapp install assets (the manifest and the icon set) — committed
+//! vendored bytes (nothing in-repo regenerates them), not build
+//! output. The stylesheet travels inside the templates module as a
+//! `&str` constant.
 
 // The complete vendor inventory, generated at build time (the
 // generated file carries its own docs).

@@ -3,12 +3,47 @@
 # The pin gate: build.rs verifies every row's sha256 against the bytes
 # on disk before embedding, and asserts gzip rows carry actual gzip
 # bytes (1f 8b). This file is the tracked pin record, and the bytes it
-# names are tracked too — the Datastar browser bundle is committed
-# vendored input (nothing in-repo regenerates it; the canvas vendor
-# precedent), so hand-editing a row means re-pinning its sha256 by
-# hand. There is no recipe that rewrites this file.
+# names are tracked too — the Datastar browser bundle and the webapp
+# icon set are committed vendored input (nothing in-repo regenerates
+# them; the canvas vendor precedent), so hand-editing a row means
+# re-pinning its sha256 by hand. There is no recipe that rewrites this
+# file.
 
 [[assets]]
 served = "datastar.js"
 sha256 = "ef62c7c7e7738d70b1e599226d209a1f2a526cbb004abcbe1d0d7d5601c074ab"
 encoding = "gzip"
+
+# Webapp install assets: the manifest the page shell links and the
+# icons it names. Identity-encoded — PNG and JSON do not want gzip.
+# Regenerating an icon (or the manifest) means re-pinning its sha256.
+
+[[assets]]
+served = "manifest.webmanifest"
+sha256 = "fad0f242350aa197b857457bcf85e0f31681a12412549c967615afb59d9cd7fb"
+encoding = "identity"
+
+[[assets]]
+served = "icon-192.png"
+sha256 = "b81db93ff9084463d5574795ea5547c78e46c36b138f84934d5c5416010c07d1"
+encoding = "identity"
+
+[[assets]]
+served = "icon-512.png"
+sha256 = "e32d175534c3fcf7b9d5a5b74ea5f99fee52c2ba7d3c0c36d43f8b153aa983f0"
+encoding = "identity"
+
+[[assets]]
+served = "icon-maskable-512.png"
+sha256 = "d46c9c731b705c854fbf178625275294ba807199fbf7da46fd29f38e06bdf213"
+encoding = "identity"
+
+[[assets]]
+served = "icon-apple-touch-180.png"
+sha256 = "47ccc3095a8c21e25f10e8e9a5eba592cb79a29daccc5a5f4c7c130b029357b7"
+encoding = "identity"
+
+[[assets]]
+served = "icon-favicon-32.png"
+sha256 = "a33d1392db343d86494349839d72b3aa60f2354f185d5d247663b0427f93a4d4"
+encoding = "identity"
