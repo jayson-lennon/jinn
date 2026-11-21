@@ -139,6 +139,7 @@ fn the_registry_ids_are_unique_and_mirror_the_client_modules() {
         "persona-picker",
         "session-new",
         "sessions",
+        "skills",
         "transcript",
     ];
     assert_eq!(sorted, expected, "the registry ids are fixed vocabulary");

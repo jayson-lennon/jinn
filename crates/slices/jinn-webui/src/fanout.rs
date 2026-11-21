@@ -217,6 +217,12 @@ impl WebUiFanoutActor {
             // writer). A broadcast-legal Event; the handler pushes a
             // signal only, the pull remains the renderer.
             .handles::<jinn_mcp_msg::McpRuntimeStored>()
+            // Skills discovery landed (the scan actor emits this after
+            // writing the session's ephemeral set). A broadcast-legal
+            // Event; the handler pushes the `skillsTick` signal only —
+            // open skills modals re-pull their rows from the GET route,
+            // which remains the renderer.
+            .handles::<jinn_skills_msg::SkillsLoaded>()
             // A browser-created session must reach every connected
             // page's sidebar without a reload (the creation POST's
             // response reaches only the creating page), and the async
@@ -563,6 +569,36 @@ impl WebUiFanoutActor {
         }
     }
 
+    /// Signals every open skills modal that a discovery scan landed —
+    /// one `skills` push per live session, the `push_mcp_status_changed`
+    /// shape verbatim.
+    ///
+    /// The `skills` envelope is a **signal, not rows**: discovery
+    /// writes the session's ephemeral set, and the pull endpoint
+    /// renders it — the fan-out renders no rows here, the same
+    /// pull-remains-the-renderer rule every modal follows. The data
+    /// line carries the scan's landing timestamp: an SSE frame whose
+    /// data buffer is empty is discarded by the browser (never
+    /// dispatched), so the signal must hold bytes to land.
+    pub(crate) fn push_skills_changed(&mut self, loaded_at: jiff::Timestamp) {
+        let ids: Vec<SessionId> = self
+            .state
+            .read()
+            .session
+            .sessions()
+            .keys()
+            .cloned()
+            .collect();
+        for session_id in ids {
+            self.broadcast(SseEnvelope {
+                kind: SseKind::Skills,
+                session_id,
+                cursor: 0,
+                html: loaded_at.to_string(),
+            });
+        }
+    }
+
     /// A browser-created session landed: refresh the sessions list.
     /// Synchronous work only; `async` is the `MsgHandler::handle`
     /// signature's shape, dropped here.
@@ -763,6 +799,22 @@ impl MsgHandler<jinn_mcp_msg::McpRuntimeStored> for WebUiFanoutActor {
         // timestamp rides the push so the frame dispatches (a signal
         // with an empty data line never fires).
         self.push_mcp_status_changed(msg.stored_at);
+    }
+}
+
+impl MsgHandler<jinn_skills_msg::SkillsLoaded> for WebUiFanoutActor {
+    async fn handle(&mut self, msg: &jinn_skills_msg::SkillsLoaded, _ctx: &mut MsgCtx<'_>) {
+        // Discovery wrote the session's ephemeral discovered-skills
+        // set (the scan actor emits this strictly after the write), so
+        // a pull now renders the fresh rows. Signal every page; open
+        // skills modals re-pull their rows — discovery lands async
+        // after the modal can be opened, and the pull route remains
+        // the correctness dependency. A failed scan still bumps the
+        // tick (empty rows are a legal render); the timestamp rides
+        // the push so the frame dispatches.
+        let loaded_at = jiff::Timestamp::now();
+        let _ = &msg.error;
+        self.push_skills_changed(loaded_at);
     }
 }
 
