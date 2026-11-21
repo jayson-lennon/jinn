@@ -43,10 +43,9 @@ use jinn_slices::cell::TypedCell;
 use jinn_slices::route::{
     ActionCtx, ActionFn, BindSite, EditIntent, InputHook, RouteOutcome, RouteRow, ScopeSignal,
 };
-use jinn_tools_msg::{ToolPickerState, tool_picker_scope};
+use jinn_tools_msg::{ToolPickerState, bot_sees_tool, tool_picker_scope};
 
 use crate::tool_picker_actions;
-use jinn_bot_msg::is_bot_tool_definition;
 
 /// The picker's cell — the single home for everything it shows.
 type ToolPickerCell = TypedCell<ToolPickerState>;
@@ -334,26 +333,6 @@ fn seed_from_session(state: &jinn_kernel::AppState) -> Seed {
         tool_filter: active_session.tool_filter().cloned(),
         theme,
     }
-}
-
-/// Whether a session with the given bot facts is offered tool definition
-/// `def`.
-///
-/// Shared by the picker and the prompt assembler's rule: a non-bot sees
-/// none of the bot-only tools; a bot sees `conclude` always and
-/// `notify_parent` only when it has a parent.
-fn bot_sees_tool(
-    is_bot: bool,
-    bot_has_parent: bool,
-    def: &jinn_core_types::tool_types::ToolDefinition,
-) -> bool {
-    if !is_bot {
-        return !is_bot_tool_definition(def);
-    }
-    if !is_bot_tool_definition(def) {
-        return true;
-    }
-    bot_has_parent || def.name == "conclude"
 }
 
 /// Enter: commit the toggled rows as a deny filter and close.

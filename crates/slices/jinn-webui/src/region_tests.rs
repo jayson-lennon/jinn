@@ -140,6 +140,7 @@ fn the_registry_ids_are_unique_and_mirror_the_client_modules() {
         "session-new",
         "sessions",
         "skills",
+        "tools",
         "transcript",
     ];
     assert_eq!(sorted, expected, "the registry ids are fixed vocabulary");

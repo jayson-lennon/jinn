@@ -22,6 +22,7 @@ pub mod tool_picker_scope;
 pub mod tool_picker_state;
 pub mod tool_registry;
 pub mod truncation;
+pub mod web_tool_rows;
 
 pub use command::*;
 pub use dump::*;
@@ -43,6 +44,7 @@ pub use tool_picker_state::{
 };
 pub use tool_registry::*;
 pub use truncation::*;
+pub use web_tool_rows::{WebToolRow, bot_sees_tool, committed_tool_filter, modal_rows};
 
 #[cfg(test)]
 mod tests;

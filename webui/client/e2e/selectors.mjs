@@ -77,6 +77,8 @@ export const MENU_ITEM_NEW_SESSION = "#menu-item-new-session";
 export const MENU_ITEM_PERSONA = "#menu-item-persona";
 /** The menu's MCP item id (`wire.MENU_ITEM_MCP_ID`). */
 export const MENU_ITEM_MCP = "#menu-item-mcp";
+/** The menu's tools item id (`wire.MENU_ITEM_TOOLS_ID`). */
+export const MENU_ITEM_TOOLS = "#menu-item-tools";
 /** The MCP modal overlay id (`wire.MCP_MODAL_ID`). */
 export const MCP_MODAL = "#mcp-modal";
 /** The MCP modal's host span id (`wire.MCP_MODAL_HOST_ID`). */
@@ -111,6 +113,31 @@ export const PERSONA_ROW = (name) => `[data-webui-persona="${name}"]`;
 export const PERSONA_PATH = "/web/persona";
 /** The persona-picker pull's route prefix (`wire.PERSONA_PICKER_PREFIX`). */
 export const PERSONA_PICKER_PREFIX = "/web/persona-picker/";
+/** The tools modal overlay id (`wire.TOOLS_MODAL_ID`). */
+export const TOOLS_MODAL = "#tools-modal";
+/** The tools modal's host span id (`wire.TOOLS_MODAL_HOST_ID`). */
+export const TOOLS_MODAL_HOST = "#tools-modal-host";
+/** The tools modal's row container id (`wire.TOOLS_ROWS_ID`). */
+export const TOOLS_ROWS = "#tools-rows";
+/** One tool row, by its tool-name attr (`wire.TOOL_NAME_DATA_ATTR`). */
+export const TOOL_ROW = (name) => `[data-webui-tool="${name}"]`;
+/** The off-row class (`tools-row-off`) — a row the session's live
+ * filter withholds. */
+export const TOOL_ROW_OFF = "tools-row-off";
+/** The tools modal's rows-only pull prefix (`wire.TOOLS_ROWS_PREFIX`). */
+export const TOOLS_ROWS_PREFIX = "/web/tools/rows/";
+/** The toggle POST's endpoint (`wire.TOOLS_TOGGLE_PATH`). */
+export const TOOLS_TOGGLE_PATH = "/web/tools";
+/** The revert POST's endpoint (`wire.TOOLS_REVERT_PATH`). */
+export const TOOLS_REVERT_PATH = "/web/tools/revert";
+/** The tools-picker pull's route prefix (`wire.TOOLS_PICKER_PREFIX`). */
+export const TOOLS_PICKER_PREFIX = "/web/tools/";
+/**
+ * The one builtin tool the tools spec pivots on — present in every
+ * run's registry regardless of MCP state (the scratch run may carry
+ * echo-server tools from the MCP spec running earlier).
+ */
+export const TOOLS_SPEC_TOOL = "get_time";
 /**
  * The block-less scratch persona global-setup stages for the run —
  * the persona the warning-path spec pivots on.

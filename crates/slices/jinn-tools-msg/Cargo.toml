@@ -7,6 +7,7 @@ edition.workspace = true
 jinn-config = { workspace = true }
 marked-path = { workspace = true }
 jinn-core-types = { workspace = true }
+jinn-bot-msg = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-selection-widget = { workspace = true }
 jinn-slices = { workspace = true }
@@ -19,6 +20,7 @@ serde_json = { workspace = true }
 jiff = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
+unicode-segmentation = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

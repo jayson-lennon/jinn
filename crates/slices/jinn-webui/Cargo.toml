@@ -47,6 +47,11 @@ jinn-persona-msg = { workspace = true }
 # toggle publishes that crate's `McpEnablementChanged`. Contract crate
 # only: never the MCP implementation slice.
 jinn-mcp-msg = { workspace = true }
+# The tools modal's rows come from the shared seed vocabulary in the
+# tools msg crate — the same provider and bot gates and the same sort
+# the TUI picker seeds from (`modal_rows`), never a web-private copy.
+# Contract crate only: never the tools implementation slice.
+jinn-tools-msg = { workspace = true }
 # The skills modal's rows are built from `jinn-skills-msg::Skill` (the
 # same data the TUI picker seeds from, carried by the session's
 # discovered set) — contract crate only: never the skills

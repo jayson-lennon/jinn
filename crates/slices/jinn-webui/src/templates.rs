@@ -142,7 +142,10 @@ pub struct PageTemplate {
     /// The MCP modal's host id — the fourth empty span sibling (the
     /// same host-not-container rule).
     pub mcp_modal_host_id: &'static str,
-    /// The skills modal's host id — the fifth empty span sibling (the
+    /// The tools modal's host id — the fifth empty span sibling (the
+    /// same host-not-container rule).
+    pub tools_modal_host_id: &'static str,
+    /// The skills modal's host id — the sixth empty span sibling (the
     /// same host-not-container rule).
     pub skills_modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
@@ -204,6 +207,7 @@ impl PageTemplate {
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
             mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+            tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
             skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
@@ -255,6 +259,7 @@ impl PageTemplate {
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
             mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+            tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
             skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
@@ -313,6 +318,8 @@ pub struct PageRootTemplate {
     pub persona_modal_host_id: &'static str,
     /// The MCP modal's host id.
     pub mcp_modal_host_id: &'static str,
+    /// The tools modal's host id.
+    pub tools_modal_host_id: &'static str,
     /// The skills modal's host id.
     pub skills_modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
@@ -373,6 +380,7 @@ impl PageRootTemplate {
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
             mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+            tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
             skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
@@ -585,6 +593,15 @@ pub struct MenuTemplate {
     pub mcp_picker_url: String,
     /// The MCP modal host's CSS selector — the pull's swap target.
     pub mcp_modal_host_selector: &'static str,
+    /// The tools item's id ("Tools"); rendered only when a session is
+    /// viewed (the tool filter binds per-session — the persona item's
+    /// rule).
+    pub menu_item_tools_id: &'static str,
+    /// The tools pull's URL prefix — the tools item's `@get` target is
+    /// `<prefix><viewed session id>`.
+    pub tools_picker_url: String,
+    /// The tools modal host's CSS selector — the pull's swap target.
+    pub tools_modal_host_selector: &'static str,
     /// The skills item's id ("Skills"); rendered only when a session
     /// is viewed (enablement binds per-session — the persona item's
     /// rule).
@@ -621,6 +638,9 @@ impl MenuTemplate {
             menu_item_mcp_id: contract::MENU_ITEM_MCP_ID,
             mcp_picker_url: format!("{}{viewed_session}", contract::MCP_PICKER_PREFIX),
             mcp_modal_host_selector: contract::MCP_MODAL_HOST_SELECTOR,
+            menu_item_tools_id: contract::MENU_ITEM_TOOLS_ID,
+            tools_picker_url: format!("{}{viewed_session}", contract::TOOLS_PICKER_PREFIX),
+            tools_modal_host_selector: contract::TOOLS_MODAL_HOST_SELECTOR,
             menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
             skills_picker_url: format!("{}{viewed_session}", contract::SKILL_PICKER_PREFIX),
             skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
@@ -1092,6 +1112,146 @@ impl McpModalTemplate {
             rows_id: contract::MCP_ROWS_ID,
             modal_host_id: contract::MCP_MODAL_HOST_ID,
             picker_route: contract::MCP_PICKER_PREFIX,
+        }
+    }
+}
+
+/// One row of the tools modal: the TUI picker's ✓/✗ enablement mark
+/// rendered as HTML. The row is a plain render over the shared
+/// vocabulary's [`jinn_tools_msg::WebToolRow`] — no badge, no status:
+/// the tool list has no runtime half to report on.
+#[derive(Template)]
+#[template(path = "tools_row.html")]
+pub struct ToolsRowTemplate {
+    /// The shared vocabulary's row data.
+    pub row: jinn_tools_msg::WebToolRow,
+    /// The attribute a row names its tool with — the toggle POST's
+    /// payload field.
+    pub tool_attr: &'static str,
+    /// The attribute a row names its action with.
+    pub action_attr: &'static str,
+    /// The toggle action's contract name.
+    pub toggle_action: &'static str,
+    /// The toggle POST's endpoint.
+    pub toggle_path: &'static str,
+}
+
+impl ToolsRowTemplate {
+    /// Builds the template from a shared-vocabulary row.
+    #[must_use]
+    pub fn from_row(row: jinn_tools_msg::WebToolRow) -> Self {
+        Self {
+            row,
+            tool_attr: contract::TOOL_NAME_DATA_ATTR,
+            action_attr: contract::ACTION_DATA_ATTR,
+            toggle_action: contract::ACTION_TOOLS_TOGGLE,
+            toggle_path: contract::TOOLS_TOGGLE_PATH,
+        }
+    }
+}
+
+/// The tools rows container: the toggle responses' swap target. The
+/// modal skeleton and the revert stamp live outside it — a toggle
+/// re-render replaces the marks only, never re-executing the stamp's
+/// `data-init` (the open-time snapshot must survive toggles) and
+/// never nesting a second modal inside the open one.
+#[derive(Template)]
+#[template(path = "tools_rows.html")]
+pub struct ToolsRowsTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+}
+
+impl ToolsRowsTemplate {
+    /// Builds the template: the contract's rows id filled, the rows
+    /// pre-rendered by the region.
+    #[must_use]
+    pub fn with_contract(rows: Vec<String>) -> Self {
+        Self {
+            rows,
+            rows_id: contract::TOOLS_ROWS_ID,
+        }
+    }
+}
+
+/// The tools modal: the overlay with the TUI-parity rows, plus the
+/// revert snapshot's stamp element riding beside it in the same host.
+/// Rendered into the tools modal host by the GET pull — the open pull
+/// is also the snapshot's only writer (the stamp's `data-init` patches
+/// the signal once per open; a re-open morphs the same-id stamp and
+/// re-runs it). The toggle POST answers with this same fragment, whose
+/// stamp is deliberately identical to the open pull's — morphing an
+/// unchanged attribute re-runs nothing, and a changed snapshot must
+/// never overwrite the open-time one, so the stamp carries the
+/// open-time value on every render that produces it.
+///
+/// The dismissal expressions are guarded by `$toolsOpen` (the
+/// title-editing handler's boolean-guard shape): the pulled modal
+/// element persists hidden after close, and an unguarded document
+/// escape would re-post a stale snapshot over newer TUI-side changes.
+///
+/// The tick effect lives on this skeleton (an element the rows-only
+/// re-pull never re-renders): when a `tools` push bumps `$toolsTick`,
+/// the open modal re-pulls the **rows route**, swapping `#tools-rows`
+/// only — the stamp's `data-init` never re-runs mid-open, so the
+/// open-time snapshot survives.
+#[derive(Template)]
+#[template(path = "tools_modal.html")]
+pub struct ToolsModalTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The modal overlay's id.
+    pub modal_id: &'static str,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+    /// The revert snapshot's stamp element id.
+    pub revert_stamp_id: &'static str,
+    /// The open-time snapshot as a JSON literal — the stamp's
+    /// `data-init` patches it into the signal verbatim (`null` when
+    /// the session held no filter).
+    pub revert_snapshot: String,
+    /// The revert POST's endpoint — the dismissal handlers' target.
+    pub revert_path: &'static str,
+    /// The rows-fragment pull's URL prefix — the tick effect's `@get`
+    /// target is `<prefix><viewed session id>`.
+    pub rows_url: String,
+    /// The rows container's CSS selector — the tick re-pull's swap
+    /// target (never the modal host: the stamp must not re-init).
+    pub rows_selector: &'static str,
+}
+
+impl ToolsModalTemplate {
+    /// Builds the template: the contract hooks filled and the snapshot
+    /// serialized through [`NameFilter`]'s own serde (mode and absence
+    /// included — the wire form the revert restores verbatim).
+    #[must_use]
+    pub fn with_contract(
+        rows: Vec<String>,
+        snapshot: Option<&jinn_core_types::NameFilter>,
+        viewed_session: &str,
+    ) -> Self {
+        let revert_snapshot = snapshot.map_or_else(
+            || "null".to_owned(),
+            |filter| {
+                serde_json::to_string(filter)
+                    // A filter is a map and a set of plain strings; a
+                    // serialization failure is unreachable. Rendering
+                    // `null` degrades to "no revert on dismiss" — the
+                    // safe side of the failure.
+                    .map_or_else(|_| "null".to_owned(), |json| format!("'{json}'"))
+            },
+        );
+        Self {
+            rows,
+            modal_id: contract::TOOLS_MODAL_ID,
+            rows_id: contract::TOOLS_ROWS_ID,
+            revert_stamp_id: contract::TOOLS_REVERT_STAMP_ID,
+            revert_snapshot,
+            revert_path: contract::TOOLS_REVERT_PATH,
+            rows_url: format!("{}{viewed_session}", contract::TOOLS_ROWS_PREFIX),
+            rows_selector: contract::TOOLS_ROWS_SELECTOR,
         }
     }
 }

@@ -320,6 +320,17 @@ pub enum SseKind {
     /// without a reload — discovery lands async after the modal can
     /// be opened.
     Skills,
+    /// Signal that MCP connections changed — the tools modal's rows,
+    /// whose MCP-served tools appear and disappear with the session's
+    /// connections. The envelope is a signal only: an open modal
+    /// re-pulls its **rows fragment** (never the modal skeleton — the
+    /// revert stamp's `data-init` must not re-run mid-open, or the
+    /// open-time snapshot the dismiss-revert restores would reset).
+    /// Subscribed from `McpRuntimeStored`, the same stored event the
+    /// MCP modal's signal rides: connection change is the only thing
+    /// that moves a tools list (the registry, provider, and bot gates
+    /// are static per session).
+    Tools,
     /// Full transcript replace — the convergence push after a turn
     /// settles (or anything else invalidates the incremental cursor).
     TranscriptFull,
@@ -336,6 +347,7 @@ impl SseKind {
             Self::Models => "models",
             Self::McpStatus => "mcp-status",
             Self::Skills => "skills",
+            Self::Tools => "tools",
             Self::TranscriptFull => "transcript-full",
         }
     }
@@ -413,6 +425,7 @@ mod tests {
     #[case(SseKind::Models, "models")]
     #[case(SseKind::McpStatus, "mcp-status")]
     #[case(SseKind::Skills, "skills")]
+    #[case(SseKind::Tools, "tools")]
     #[case(SseKind::TranscriptFull, "transcript-full")]
     fn sse_kind_names_its_event(#[case] kind: SseKind, #[case] expected: &str) {
         assert_eq!(kind.event_name(), expected);

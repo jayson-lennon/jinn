@@ -199,18 +199,19 @@ test("the hamburger slides in the panel with its scrim and one Sessions item", a
   await page.locator(sel.MENU_BUTTON).click();
 
   // Then the panel slid in from the left over its scrim, carrying
-  // exactly five items — new-session, persona, MCP and skills (a
-  // session is viewed), sessions — per-session items between the
+  // exactly six items — new-session, persona, MCP, tools and skills
+  // (a session is viewed), sessions — per-session items between the
   // shared ones.
   await expectMenuPanelOnCanvas(page);
   await expect(page.locator(sel.MENU_SCRIM)).toBeVisible();
   const items = page.locator(`${sel.MENU_PANEL} button`);
-  await expect(items).toHaveCount(5);
+  await expect(items).toHaveCount(6);
   await expect(items.nth(0)).toHaveText("New session");
   await expect(items.nth(1)).toHaveText("Persona");
   await expect(items.nth(2)).toHaveText("MCP servers");
-  await expect(items.nth(3)).toHaveText("Skills");
-  await expect(items.nth(4)).toHaveText("Sessions");
+  await expect(items.nth(3)).toHaveText("Tools");
+  await expect(items.nth(4)).toHaveText("Skills");
+  await expect(items.nth(5)).toHaveText("Sessions");
 });
 
 test("the Sessions item closes the menu and opens the drawer", async ({

@@ -55,6 +55,27 @@ highlights:
 - **Tool / Skill**: `<Tab>` toggles the highlighted entry on/off for this
   session. Toggles are per-session and persist for the session; the
   `tool_filter` / `skill_filter` defaults in `jinn.toml` stay as written.
+- **Tool, in the web UI**: the browser surface mirrors the tool picker's
+  seed and commit. Open the hamburger menu (top-left `☰`) on a session
+  page and pick **Tools**. The modal lists the registry's tools for the
+  viewed session — provider-gated (tools the current provider cannot run
+  are absent), bot-gated (`conclude` always for a bot, `notify_parent`
+  only with a parent), sorted by name — each row showing its name, the
+  description's first sentence, and an on/off mark read from the
+  session's live `tool_filter`. Clicking a row commits immediately for
+  the viewed session: the filter becomes a deny filter over the off-rows with the
+  clicked tool flipped (the TUI `<enter>` confirm's semantic, applied per
+  click — no staging, no confirm). Dismissing with `Esc` or an overlay
+  click **reverts** to the filter the session held when the modal
+  opened, absence included. The item does not render on the landing
+  page (nothing is viewed there), and there is no filter box or
+  context-cost figure on the web surface — those stay TUI-only.
+  Rows update live while the modal is open: when an MCP server
+  connects or disconnects for the session, the server pushes a signal
+  and the open modal re-fetches its rows in place (the same
+  signal-and-repull pattern the MCP and skills modals use). Only the
+  rows are replaced — the revert snapshot survives, so dismissing
+  after a live update still restores the filter held at open.
 - **Skill**: `<c-l>` loads the highlighted skill's body into context as a
   pinned tool-result pair. The picker stays open so you can load several, and
   loading auto-enables a disabled skill. `<c-u>`/`<c-d>` scroll the markdown

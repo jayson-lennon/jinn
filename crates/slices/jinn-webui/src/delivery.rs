@@ -24,6 +24,7 @@
 
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::ModelSelection;
+use jinn_core_types::NameFilter;
 use jinn_core_types::SessionId;
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::State;
@@ -63,6 +64,16 @@ pub enum ActionError {
     /// server (the rendered rows are the accepted set, the same
     /// precedent).
     UnknownMcpServer(String),
+    /// The requested tool name names no row the tools modal renders
+    /// for that session (the rendered rows are the accepted set, the
+    /// same precedent).
+    UnknownTool(String),
+    /// The revert POST carried a snapshot the server cannot accept —
+    /// not `null`, not a parseable `NameFilter`. A well-formed
+    /// snapshot of any shape is applied verbatim (the TUI escape
+    /// restores whatever filter it snapshotted); only garbage is
+    /// refused.
+    UnknownToolRevert,
     /// The requested skill name names no skill in the session's
     /// discovered set (the rendered rows are the accepted set, the
     /// same precedent).
@@ -105,6 +116,8 @@ impl ActionError {
             | Self::UnknownModel(_)
             | Self::UnknownPersona(_)
             | Self::UnknownMcpServer(_)
+            | Self::UnknownTool(_)
+            | Self::UnknownToolRevert
             | Self::UnknownSkill(_)
             | Self::UnknownProject(_)
             | Self::BadProjectPath(_)
@@ -136,6 +149,12 @@ impl ActionError {
             }
             Self::UnknownMcpServer(name) => {
                 format!("server {name:?} is not a configured [mcp.<name>] server")
+            }
+            Self::UnknownTool(name) => {
+                format!("tool {name:?} is not in the rendered tools rows")
+            }
+            Self::UnknownToolRevert => {
+                "revert snapshot is neither null nor a parseable tool filter".to_owned()
             }
             Self::UnknownSkill(name) => {
                 format!("skill {name:?} is not in the session's discovered skills")
@@ -473,6 +492,153 @@ pub async fn handle_mcp_toggle(
         enabled: desired,
     })
     .await;
+    Ok(())
+}
+
+/// Handles one `POST /web/tools` — the tools modal's row click.
+///
+/// The web mirror of the TUI `<leader>st` picker's confirm, applied
+/// per click: validates the session id and the tool name against the
+/// rows the modal renders for that session (the shared seed is the
+/// accepted set — provider gate, bot gate, the whole vocabulary), then
+/// commits the TUI confirm's semantic to the post-click row state: the
+/// session's tool filter becomes a **deny** filter over the names of
+/// every row the modal would render as disabled after the flip —
+/// never a delta, never an allow-mode write, and an allow-mode session
+/// is demoted to its withheld names exactly as the TUI confirm
+/// demotes one. The desired state is derived server-side from the
+/// state the server actually holds; the wire never carries a
+/// desired-state field. The write is synchronous BEFORE the response
+/// (the stale-fragment rule; the POST answers with the re-rendered
+/// modal, whose marks show the new state).
+///
+/// No `PersistSession` rides along: the TUI picker path publishes
+/// none, and the web adds no persistence behavior beyond the TUI's.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] when the session id is malformed, no live
+/// session carries it, or the tool name names no row the modal renders
+/// (the rendered rows are the accepted set). A refusal writes nothing.
+pub fn handle_tools_toggle(state: &State, session_id: &str, tool: &str) -> Result<(), ActionError> {
+    let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+
+    // The rendered rows are the accepted set: derive them through the
+    // same seed vocabulary the modal renders from, so a name outside
+    // the modal was never rendered and is refused with nothing written.
+    let rows = {
+        let guard = state.read();
+        let Some(session) = guard.session.get(&session_id) else {
+            return Err(ActionError::UnknownSession(session_id));
+        };
+        let provider_name = session.model_selection().provider_name().to_owned();
+        let is_bot = session.is_bot();
+        let bot_has_parent = session.parent_session().is_some();
+        let tool_filter = session.tool_filter().cloned();
+        let definitions: Vec<jinn_core_types::ToolDefinition> = guard
+            .tool_registry()
+            .map_or_default(|registry| registry.read().tools_for_session(&session_id));
+        jinn_tools_msg::modal_rows(
+            &definitions,
+            &provider_name,
+            is_bot,
+            bot_has_parent,
+            tool_filter.as_ref(),
+        )
+    };
+    let clicked = rows
+        .iter()
+        .find(|row| row.name == tool)
+        .ok_or_else(|| ActionError::UnknownTool(tool.to_owned()))?;
+
+    // The TUI confirm's semantic applied to the post-click row state:
+    // every row off after the flip lands in the deny list. The write
+    // goes through `set_tool_filter` — the one writer of record the
+    // TUI picker and the capabilities tools also reach — synchronously,
+    // before the response renders.
+    let committed = jinn_tools_msg::committed_tool_filter(&toggled_rows(&rows, clicked));
+    state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_tool_filter(Some(committed));
+    });
+    Ok(())
+}
+
+/// The rows as they read after `clicked` is flipped — the pure
+/// post-click state the commit derives from.
+fn toggled_rows(
+    rows: &[jinn_tools_msg::WebToolRow],
+    clicked: &jinn_tools_msg::WebToolRow,
+) -> Vec<jinn_tools_msg::WebToolRow> {
+    rows.iter()
+        .map(|row| {
+            if row.name == clicked.name {
+                jinn_tools_msg::WebToolRow {
+                    enabled: !row.enabled,
+                    ..row.clone()
+                }
+            } else {
+                row.clone()
+            }
+        })
+        .collect()
+}
+
+/// Handles one `POST /web/tools/revert` — the tools modal's dismissal.
+///
+/// The web mirror of the TUI picker's escape: restore the filter the
+/// session held when the modal was opened. The snapshot rides the
+/// request as the JSON `NameFilter` string the open pull stamped (or
+/// JSON `null` for absence), and is restored **verbatim** — mode and
+/// absence included, so a `None` filter round-trips to `None` and an
+/// allow filter comes back whole rather than demoted. The revert path,
+/// never the confirm path.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] when the session id is malformed, no live
+/// session carries it, or the snapshot is neither `null` nor a
+/// parseable `NameFilter` (a refusal writes nothing — a half-applied
+/// revert would leave the session holding neither the open-time nor
+/// the committed state).
+pub fn handle_tools_revert(
+    state: &State,
+    session_id: &str,
+    snapshot: Option<&str>,
+) -> Result<(), ActionError> {
+    let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+
+    // The snapshot is whatever the open pull stamped: a JSON `NameFilter`
+    // string, or the literal absence marker. Anything else is a wire
+    // bug, and writing half of it would corrupt the filter — refuse.
+    let restored = match snapshot {
+        None | Some("null") => None,
+        Some(json) => Some(
+            serde_json::from_str::<NameFilter>(json)
+                // The parse error is wire-form detail the refusal
+                // sentence doesn't carry; the source stays unnamed.
+                .map_err(|_wire_form| ActionError::UnknownToolRevert)?,
+        ),
+    };
+
+    {
+        let guard = state.read();
+        if !guard.session.contains(&session_id) {
+            return Err(ActionError::UnknownSession(session_id));
+        }
+    }
+
+    // Restore verbatim, synchronously before the response — the same
+    // stale-fragment rule the toggle keeps. `get_or_create` because a
+    // session may be live in the store but not yet hydrated in memory.
+    state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_tool_filter(restored);
+    });
     Ok(())
 }
 

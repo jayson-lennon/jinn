@@ -142,13 +142,13 @@ mod menu_region_tests {
 
     #[rstest::rstest]
     #[test]
-    fn the_fragment_carries_the_button_and_the_five_items() {
+    fn the_fragment_carries_the_button_and_the_six_items() {
         // Given the session-page menu fragment.
         let html = fragment();
 
         // Then it renders the hamburger button, the hidden panel, and
-        // all five items — the new-session item, the persona item, the
-        // MCP item and the skills item (a session is viewed), and the
+        // all six items — the new-session item, the persona item, the
+        // MCP, tools and skills items (a session is viewed), and the
         // sessions item — the region's whole page presence.
         assert!(
             html.contains(&format!("id=\"{}\"", contract::MENU_BUTTON_ID)),
@@ -175,11 +175,15 @@ mod menu_region_tests {
             "the MCP item is missing: {html}"
         );
         assert!(
+            html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_TOOLS_ID)),
+            "the Tools item is missing: {html}"
+        );
+        assert!(
             html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_SKILLS_ID)),
             "the Skills item is missing: {html}"
         );
         let items = html.matches("menu-item").count();
-        assert_eq!(items, 5, "the panel lists all five items: {html}");
+        assert_eq!(items, 6, "the panel lists all six items: {html}");
         assert!(
             html.contains("Sessions"),
             "the item labels Sessions: {html}"
@@ -253,6 +257,38 @@ mod menu_region_tests {
 
     #[rstest::rstest]
     #[test]
+    fn the_tools_item_pulls_into_the_tools_modal_host_with_the_viewed_session() {
+        // Given the session-page menu fragment.
+        let html = fragment();
+
+        // Then the tools item's pull targets the tools route for the
+        // viewed session and swaps into the tools modal's own host
+        // span — never the menu's container (the host-not-container
+        // rule) — and opens the modal's signal so the pulled overlay
+        // renders visible.
+        let item = html
+            .split_once(&format!("id=\"{}\"", contract::MENU_ITEM_TOOLS_ID))
+            .and_then(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag.to_owned()))
+            .expect("the tools item renders");
+        assert!(
+            item.contains(&format!(
+                "{}00000000-0000-0000-0000-000000000001",
+                contract::TOOLS_PICKER_PREFIX
+            )),
+            "the pull names the viewed session: {item}"
+        );
+        assert!(
+            item.contains(contract::TOOLS_MODAL_HOST_SELECTOR),
+            "the pull swaps into the tools modal host: {item}"
+        );
+        assert!(
+            item.contains(&format!("${} = true", contract::SIGNAL_TOOLS_OPEN)),
+            "the click opens the modal signal: {item}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
     fn the_skills_item_pulls_into_the_skills_modal_host_with_the_viewed_session() {
         // Given the session-page menu fragment.
         let html = fragment();
@@ -285,14 +321,14 @@ mod menu_region_tests {
 
     #[rstest::rstest]
     #[test]
-    fn the_landing_menu_omits_the_persona_and_mcp_items_entirely() {
+    fn the_landing_menu_omits_the_persona_mcp_tools_and_skills_items_entirely() {
         // Given the landing fragment (no viewed session).
         let html = landing_fragment();
 
         // Then the per-session items are absent from the markup — the
         // server omits them, rather than shipping hidden controls the
-        // runtime must know to disable (persona and MCP enablement
-        // both bind per-session).
+        // runtime must know to disable (persona, MCP enablement, and
+        // the tool filter all bind per-session).
         assert!(
             !html.contains(contract::MENU_ITEM_PERSONA_ID),
             "the landing menu carries no persona item: {html}"
@@ -308,6 +344,14 @@ mod menu_region_tests {
         assert!(
             !html.contains(contract::MCP_PICKER_PREFIX),
             "the landing menu spells no MCP URL: {html}"
+        );
+        assert!(
+            !html.contains(contract::MENU_ITEM_TOOLS_ID),
+            "the landing menu carries no tools item: {html}"
+        );
+        assert!(
+            !html.contains(contract::TOOLS_PICKER_PREFIX),
+            "the landing menu spells no tools URL: {html}"
         );
         assert!(
             !html.contains(contract::MENU_ITEM_SKILLS_ID),

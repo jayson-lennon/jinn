@@ -105,6 +105,7 @@ fn rendered_page() -> String {
         session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
         persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
         mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+        tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
         skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
@@ -276,6 +277,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
         persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
         mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+        tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
         skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
@@ -680,6 +682,8 @@ fn every_sse_kind_maps_to_a_datastar_transport() {
         jinn_webui_msg::SseKind::Sessions,
         jinn_webui_msg::SseKind::Models,
         jinn_webui_msg::SseKind::McpStatus,
+        jinn_webui_msg::SseKind::Skills,
+        jinn_webui_msg::SseKind::Tools,
         jinn_webui_msg::SseKind::TranscriptFull,
     ];
 

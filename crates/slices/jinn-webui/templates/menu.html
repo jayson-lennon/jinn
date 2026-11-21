@@ -10,6 +10,8 @@
             data-on:click="$menuOpen = false; $personaModalOpen = true; @get('{{ persona_picker_url }}', {selector: '{{ persona_modal_host_selector }}', openWhenHidden: true})">Persona</button>
     <button id="{{ menu_item_mcp_id }}"
             data-on:click="$menuOpen = false; $mcpOpen = true; @get('{{ mcp_picker_url }}', {selector: '{{ mcp_modal_host_selector }}', openWhenHidden: true})">MCP servers</button>
+    <button id="{{ menu_item_tools_id }}"
+            data-on:click="$menuOpen = false; $toolsOpen = true; @get('{{ tools_picker_url }}', {selector: '{{ tools_modal_host_selector }}', openWhenHidden: true})">Tools</button>
     <button id="{{ menu_item_skills_id }}"
             data-on:click="$menuOpen = false; $skillsOpen = true; @get('{{ skills_picker_url }}', {selector: '{{ skills_modal_host_selector }}', openWhenHidden: true})">Skills</button>
     {% endif %}
