@@ -13,7 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { startJinn, writeScratchPersona } from "./harness.mjs";
+import { startJinn, writeScratchPersona, writeScratchSkill } from "./harness.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const BASE_URL_FILE = path.join(here, ".run", "base-url.txt");
@@ -35,6 +35,27 @@ description = "scratch persona without a compaction handoff block"
 +++
 
 You are the e2e scratch persona. Keep replies to one line.
+`;
+
+/**
+ * The scratch skill the skills spec pivots on.
+ *
+ * Discovered from `<root>/.agents/skills/` (the global skills dir —
+ * under `JINN_PATHS_ROOT` the root IS the home). Written before jinn
+ * boots for the same reason the persona is: discovery scans at
+ * activation, so a file written after boot is invisible. Valid
+ * frontmatter required — the scanner parses `name` (which must match
+ * the parent directory) and `description`.
+ */
+const SKILL = "e2e-scratch-skill";
+const SKILL_BODY = `---
+name: ${SKILL}
+description: scratch skill for the skills modal flow
+---
+
+# e2e scratch skill
+
+Say the magic word: e2e-scratch-skill-body-marker.
 `;
 
 /**
@@ -68,6 +89,7 @@ async function switchBootModel(baseUrl) {
 /** @returns {Promise<void>} Playwright's global-setup contract. */
 export default async function globalSetup() {
   writeScratchPersona(BLOCKLESS_PERSONA);
+  writeScratchSkill(SKILL, SKILL_BODY);
   const run = await startJinn();
   const sessionId = await switchBootModel(run.baseUrl);
   fs.mkdirSync(path.dirname(BASE_URL_FILE), { recursive: true });
