@@ -488,6 +488,8 @@ pub fn router(shared: ServerShared) -> Router {
         .route("/web/model", post(model))
         .route(crate::contract::PERSONA_PATH, post(persona))
         .route(crate::contract::MCP_TOGGLE_PATH, post(mcp_toggle))
+        .route(crate::contract::TOOLS_TOGGLE_PATH, post(tools_toggle))
+        .route(crate::contract::TOOLS_REVERT_PATH, post(tools_revert))
         .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
         .route("/web/session/{id}/activate", post(activate))
         .route(crate::contract::RENAME_ROUTE, post(rename))
@@ -891,6 +893,71 @@ async fn mcp_toggle(
         format!("#{}", crate::contract::MCP_MODAL_ID),
         crate::regions::mcp_servers::modal_fragment(&shared, &form.session_id)?,
     )]))
+}
+
+/// The tools modal's wire shapes — request/response are region-local
+/// (the contract bars touching `jinn-webui-msg` for a region feature),
+/// dual-extracted through [`WebForm`] like every action POST.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ToolsToggleForm {
+    /// The session whose tool filter to commit against.
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    /// The tool name, exactly as a rendered row carries it.
+    tool: String,
+}
+
+/// The revert POST's body: the open-time snapshot the dismissal posts
+/// back. `snapshot` is the JSON `NameFilter` string the open pull
+/// stamped (or JSON `null` for absence); `None` covers a urlencoded
+/// body that omits the field entirely, which reads the same as `null`.
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+struct ToolsRevertForm {
+    /// The session whose tool filter to restore.
+    #[serde(default, alias = "sessionId")]
+    session_id: String,
+    /// The open-time snapshot, verbatim.
+    #[serde(default)]
+    snapshot: Option<String>,
+}
+
+/// `POST /web/tools` — toggle one tool's enablement for the viewed
+/// session. The web mirror of the TUI picker's confirm applied per
+/// click: the delivery path validates the tool against the rendered
+/// rows, derives the deny filter over the post-click off-rows, and
+/// writes it synchronously. The response swaps the re-rendered modal —
+/// the row marks are correct the moment the response lands, so the
+/// modal stays open. No publication rides the write (the TUI picker
+/// publishes none).
+async fn tools_toggle(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<WebForm<ToolsToggleForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
+    crate::delivery::handle_tools_toggle(shared.state(), &form.session_id, &form.tool)
+        .map_err(|error| fail(error.status(), error.sentence()))?;
+    Ok(SseAction::new(vec![element_patch_inner(
+        format!("#{}", crate::contract::TOOLS_MODAL_ID),
+        crate::regions::tools::modal_fragment(&shared, &form.session_id)?,
+    )]))
+}
+
+/// `POST /web/tools/revert` — dismiss the tools modal: restore the
+/// open-time filter the snapshot names, verbatim (absence included).
+/// The response carries no patch: the modal is closing, and the rows'
+/// next open renders from the restored state.
+async fn tools_revert(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<WebForm<ToolsRevertForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
+    crate::delivery::handle_tools_revert(
+        shared.state(),
+        &form.session_id,
+        form.snapshot.as_deref(),
+    )
+    .map_err(|error| fail(error.status(), error.sentence()))?;
+    Ok(SseAction::empty())
 }
 
 /// `POST /web/models/refresh` — the modal's refresh button. Publishes

@@ -2391,3 +2391,547 @@ mod switch_markup {
         flipper.await.expect("the flipper task joins");
     }
 }
+
+mod tools_actions {
+    use super::*;
+
+    /// The tools actions harness: the catalog-registered cell registry
+    /// (so `AppState::tool_registry` resolves — the pull and the
+    /// toggle both read the registry through the shared `State`), a
+    /// recording bus, and the router over it. Returns the state (for
+    /// seeding and readback), a recording bus (the tools POSTs publish
+    /// nothing, so its audit must stay empty), and the router.
+    fn harness_with_cells() -> (State, BusAudit, axum::Router) {
+        let slices = Slices::new();
+        jinn_cell_catalog::register_all_cells(&slices);
+        let provider_cell = slices
+            .reader::<jinn_provider_selection_msg::ProviderCell>(
+                &jinn_provider_selection_msg::provider_state_slot(),
+            )
+            .expect("the catalog registered the provider slot");
+        let personas_cell = slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("the catalog registered the personas slot");
+        let mcp_runtime_cell = slices
+            .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
+            .expect("the catalog registered the MCP runtime slot");
+        let unread_marks = slices
+            .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+            .expect("the catalog registered the unread slot");
+        let state = {
+            let app = AppState::default();
+            app.frontend.attach_slices(slices.clone());
+            app.session.attach_slices(slices.clone());
+            State::new(app)
+        };
+        let (bus, audit) = BusService::new_recording();
+        let fanout = {
+            use trouper::system::ActorSystem;
+            let system = ActorSystem::new(trouper::system::SystemConfig::production());
+            crate::fanout::WebUiFanoutActor::spawn(
+                &system,
+                state.clone(),
+                bus.clone(),
+                unread_marks,
+            )
+        };
+        let shared = ServerShared::new(
+            state.clone(),
+            bus,
+            jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
+                jinn_kernel::common::services::test_services::FakeSessionStore,
+            )),
+            provider_cell,
+            personas_cell,
+            mcp_runtime_cell,
+            jinn_provider_config::ProviderRegistryService::new(harness_registry()),
+            jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+            jinn_config::empty_config_layer().clone(),
+            fanout,
+            8387,
+            "test".to_owned(),
+        );
+        (state, audit, router(shared))
+    }
+
+    /// Registers `names` as global tool definitions in the registry
+    /// cell (the seeded registry shape the TUI picker tests use).
+    fn seed_registry(state: &State, names: &[&str]) {
+        let cell = state
+            .read()
+            .tool_registry()
+            .expect("the tools registry cell resolves");
+        cell.update(|registry| {
+            for name in names {
+                registry.global.insert(
+                    (*name).to_owned(),
+                    jinn_core_types::ToolDefinition {
+                        name: (*name).to_owned(),
+                        description: format!("{name} description"),
+                        parameters: serde_json::json!({ "type": "object" }),
+                        prompt_snippet: None,
+                        prompt_guidelines: vec![],
+                        server_tool_type: None,
+                    },
+                );
+            }
+        });
+    }
+
+    /// Reads the session's tool filter back from state.
+    fn filter_of(state: &State, id: &SessionId) -> Option<jinn_core_types::NameFilter> {
+        state
+            .read()
+            .session
+            .get(id)
+            .and_then(|session| session.tool_filter().cloned())
+    }
+
+    /// The toggle POST's urlencoded body: the session and the clicked
+    /// tool, nothing else.
+    fn toggle_body(id: &SessionId, tool: &str) -> String {
+        format!("sessionId={id}&tool={tool}")
+    }
+
+    /// The revert POST's urlencoded body: the session and the raw
+    /// snapshot string (absence posts `null`).
+    fn revert_body(id: &SessionId, snapshot: &str) -> String {
+        format!("sessionId={id}&snapshot={snapshot}")
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_toggle_commits_a_deny_filter_over_the_post_click_off_rows() {
+        // Given a live session with two tools and no filter.
+        let (state, _audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash", "edit"]);
+
+        // When toggling `bash` off.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            &toggle_body(&id, "bash"),
+        )
+        .await;
+
+        // Then the ack is OK, and the session's filter is a deny filter
+        // withholding exactly the post-click off-rows — the TUI
+        // confirm's semantic, committed server-side.
+        assert_eq!(status, StatusCode::OK);
+        let filter = filter_of(&state, &id).expect("the toggle committed a filter");
+        assert_eq!(filter.mode, jinn_core_types::FilterMode::Deny);
+        assert_eq!(filter.names, ["bash".to_owned()].into_iter().collect());
+
+        // And the response is the re-rendered modal (the
+        // stale-fragment pattern) with the row marks correct: the
+        // toggled row off, the untouched row on.
+        assert!(
+            body.contains(&format!("id=\"{}\"", crate::contract::TOOLS_MODAL_ID)),
+            "{body}"
+        );
+        let row = body
+            .split_once(&format!(
+                "{}=\"bash\"",
+                crate::contract::TOOL_NAME_DATA_ATTR
+            ))
+            .and_then(|(before, _)| {
+                let start = before.rfind("<div")?;
+                let end = body.get(start..)?.find("</div>")?;
+                body.get(start..start + end).map(str::to_owned)
+            })
+            .expect("the bash row renders in the response");
+        assert!(
+            row.contains("tools-row-off"),
+            "the toggled row renders off: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_toggle_publishes_nothing() {
+        // Given a live session with tools.
+        let (state, audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash"]);
+
+        // When toggling `bash` off.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            &toggle_body(&id, "bash"),
+        )
+        .await;
+
+        // Then the ack is OK and the bus stays empty — the TUI picker
+        // publishes nothing, and the web adds no persistence behavior
+        // beyond the TUI's (no PersistSession on this path).
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_second_toggle_adds_the_row_to_the_deny_list() {
+        // Given a session already carrying the one-toggle deny filter.
+        let (state, _audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash", "edit"]);
+        let _ = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            &toggle_body(&id, "bash"),
+        )
+        .await;
+
+        // When toggling `edit` off too.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            &toggle_body(&id, "edit"),
+        )
+        .await;
+
+        // Then both withheld names ride the deny filter — the modal's
+        // off-rows after the second click.
+        assert_eq!(status, StatusCode::OK);
+        let filter = filter_of(&state, &id).expect("the deny filter survives");
+        assert_eq!(
+            filter.names,
+            ["bash".to_owned(), "edit".to_owned()].into_iter().collect()
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn toggling_an_off_row_back_on_empties_the_deny_list() {
+        // Given a session whose `bash` row is off.
+        let (state, _audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash", "edit"]);
+        let _ = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            &toggle_body(&id, "bash"),
+        )
+        .await;
+
+        // When toggling `bash` back on.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            &toggle_body(&id, "bash"),
+        )
+        .await;
+
+        // Then the deny filter withholds nothing — an empty deny list,
+        // the whole-registry equivalent (never absence), matching the
+        // TUI confirm's derivation.
+        assert_eq!(status, StatusCode::OK);
+        let filter = filter_of(&state, &id).expect("the deny filter survives");
+        assert_eq!(filter.mode, jinn_core_types::FilterMode::Deny);
+        assert_eq!(filter.names.len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_toggle_names_a_tool_the_modal_never_renders_is_refused_without_writing() {
+        // Given a live session with tools and no filter.
+        let (state, audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash"]);
+
+        // When posting a tool name outside the rendered rows.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            &toggle_body(&id, "nonexistent"),
+        )
+        .await;
+
+        // Then the refusal is 400 and the bus stays empty.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+
+        // And the session's filter is still absent — a refusal writes
+        // nothing.
+        assert!(filter_of(&state, &id).is_none());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_toggle_names_an_unknown_session_is_refused() {
+        // Given the tools-seeded harness.
+        let (_state, audit, router) = harness_with_cells();
+
+        // When posting a toggle whose session id no live session
+        // carries.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            &toggle_body(&SessionId::new(), "bash"),
+        )
+        .await;
+
+        // Then the refusal is 404 and nothing published.
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_toggle_with_a_malformed_session_id_is_refused() {
+        // Given the tools-seeded harness.
+        let (_state, audit, router) = harness_with_cells();
+
+        // When posting a toggle whose session id is not a UUID.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            "sessionId=not-a-uuid&tool=bash",
+        )
+        .await;
+
+        // Then the refusal is 400 and nothing published.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_revert_restores_the_open_time_filter_verbatim() {
+        // Given a session whose open-time filter denied `bash`, which
+        // a toggle then re-enabled (the deny list emptied).
+        let (state, audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash", "edit"]);
+        let open_time = jinn_core_types::NameFilter::deny(["bash".to_owned()]);
+        state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(&id)
+                .set_tool_filter(Some(open_time.clone()));
+        });
+        let _ = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            &toggle_body(&id, "bash"),
+        )
+        .await;
+
+        // When the dismissal posts the open-time snapshot.
+        let snapshot = serde_json::to_string(&open_time).expect("the snapshot serializes");
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::TOOLS_REVERT_PATH,
+            &revert_body(&id, &snapshot),
+        )
+        .await;
+
+        // Then the session holds the open-time filter again — mode and
+        // names, verbatim — and nothing published.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(filter_of(&state, &id), Some(open_time));
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_revert_restores_absence_when_the_session_opened_with_none() {
+        // Given a session that opened the modal with no filter and a
+        // toggle then committed one.
+        let (state, _audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash"]);
+        let _ = post_form(
+            &router,
+            crate::contract::TOOLS_TOGGLE_PATH,
+            &toggle_body(&id, "bash"),
+        )
+        .await;
+        assert!(filter_of(&state, &id).is_some(), "the toggle committed");
+
+        // When the dismissal posts the null snapshot.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::TOOLS_REVERT_PATH,
+            &revert_body(&id, "null"),
+        )
+        .await;
+
+        // Then absence is restored as absence — `None` filter back to
+        // `None`, not an empty filter of any mode.
+        assert_eq!(status, StatusCode::OK);
+        assert!(filter_of(&state, &id).is_none());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_revert_carrying_garbage_is_refused_without_writing() {
+        // Given a session holding a filter.
+        let (state, audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        let before = jinn_core_types::NameFilter::deny(["bash".to_owned()]);
+        state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(&id)
+                .set_tool_filter(Some(before.clone()));
+        });
+
+        // When posting a snapshot that is neither null nor a parseable
+        // filter.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::TOOLS_REVERT_PATH,
+            &revert_body(&id, "not-a-filter"),
+        )
+        .await;
+
+        // Then the refusal is 400, the bus stays empty, and the
+        // session still holds the pre-revert filter — a refusal writes
+        // nothing.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+        assert_eq!(filter_of(&state, &id), Some(before));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_pull_serves_the_tui_parity_modal_for_the_viewed_session() {
+        // Given a live session with a seeded registry and a live
+        // deny filter.
+        let (state, _audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+        seed_registry(&state, &["bash", "edit", "Grep"]);
+        state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(&id)
+                .set_tool_filter(Some(jinn_core_types::NameFilter::deny(["Grep".to_owned()])));
+        });
+
+        // When pulling the tools modal for that session.
+        let (status, body) = get(
+            &router,
+            &format!("{}{id}", crate::contract::TOOLS_PICKER_PREFIX),
+        )
+        .await;
+
+        // Then the modal renders as a fragment with the row set in the
+        // shared order, the withheld row off, the others on, and the
+        // revert stamp carrying the open-time filter's JSON.
+        assert_eq!(status, StatusCode::OK);
+        assert!(!body.contains("<!DOCTYPE html>"), "{body}");
+        assert!(
+            body.contains(&format!("id=\"{}\"", crate::contract::TOOLS_MODAL_ID)),
+            "{body}"
+        );
+        let bash = body
+            .find(&format!(
+                "{}=\"bash\"",
+                crate::contract::TOOL_NAME_DATA_ATTR
+            ))
+            .expect("the bash row renders");
+        let edit = body
+            .find(&format!(
+                "{}=\"edit\"",
+                crate::contract::TOOL_NAME_DATA_ATTR
+            ))
+            .expect("the edit row renders");
+        let grep = body
+            .find(&format!(
+                "{}=\"Grep\"",
+                crate::contract::TOOL_NAME_DATA_ATTR
+            ))
+            .expect("the Grep row renders");
+        assert!(bash < edit && edit < grep, "shared order: {body}");
+        let grep_row = body
+            .split_once(&format!(
+                "{}=\"Grep\"",
+                crate::contract::TOOL_NAME_DATA_ATTR
+            ))
+            .and_then(|(before, _)| {
+                let start = before.rfind("<div")?;
+                let end = body.get(start..)?.find("</div>")?;
+                body.get(start..start + end).map(str::to_owned)
+            })
+            .expect("the Grep row slices");
+        assert!(
+            grep_row.contains("tools-row-off"),
+            "the withheld row renders off: {body}"
+        );
+        // The stamp is a quoted HTML attribute: the JSON's quotes
+        // render as their entity escapes; the assertion decodes them
+        // the way the browser does before parsing the attribute.
+        let json = serde_json::to_string(&jinn_core_types::NameFilter::deny(["Grep".to_owned()]))
+            .expect("the filter serializes");
+        let decoded = body.replace("&#39;", "'").replace("&#34;", "\"");
+        assert!(
+            decoded.contains(&format!("data-init=\"$toolsRevert = '{json}'\"")),
+            "the stamp carries the open-time filter: {decoded}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_pull_for_a_session_without_a_registry_renders_zero_rows() {
+        // Given a live session and an empty registry.
+        let (state, _audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+
+        // When pulling the tools modal.
+        let (status, body) = get(
+            &router,
+            &format!("{}{id}", crate::contract::TOOLS_PICKER_PREFIX),
+        )
+        .await;
+
+        // Then the modal shell renders with zero rows and no error —
+        // the pull degrades, never fails.
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains(&format!("id=\"{}\"", crate::contract::TOOLS_ROWS_ID)),
+            "{body}"
+        );
+        assert!(
+            !body.contains(&format!("{}=", crate::contract::TOOL_NAME_DATA_ATTR)),
+            "no rows render: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_session_page_carries_the_menu_item_and_host_and_the_landing_carries_neither() {
+        // Given a live session.
+        let (state, _audit, router) = harness_with_cells();
+        let id = seed_session(&state);
+
+        // When loading the session page and the landing page.
+        let (page_status, page) = get(&router, &format!("/web/session/{id}")).await;
+        let (landing_status, landing) = get(&router, "/web").await;
+
+        // Then the session page carries the Tools item and the modal
+        // host span, and the landing page carries neither — the menu
+        // gating the recorded persona-item rule holds for the new
+        // surface.
+        assert_eq!(page_status, StatusCode::OK);
+        assert_eq!(landing_status, StatusCode::OK);
+        assert!(
+            page.contains(&format!("id=\"{}\"", crate::contract::MENU_ITEM_TOOLS_ID)),
+            "{page}"
+        );
+        assert!(
+            page.contains(&format!("id=\"{}\"", crate::contract::TOOLS_MODAL_HOST_ID)),
+            "{page}"
+        );
+        assert!(
+            !landing.contains(&format!("id=\"{}\"", crate::contract::MENU_ITEM_TOOLS_ID)),
+            "{landing}"
+        );
+        // The modal host span itself is page-shell chrome and renders on
+        // every page — the persona and MCP hosts ride the same way. The
+        // gated surface is the menu item: without it nothing pulls into
+        // the span or opens the modal, so the landing's span stays inert.
+    }
+}

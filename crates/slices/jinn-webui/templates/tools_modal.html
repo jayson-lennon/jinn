@@ -1,0 +1,5 @@
+<span id="{{ revert_stamp_id }}" data-init="$toolsRevert = {{ revert_snapshot }}"></span><div id="{{ modal_id }}" class="tools-modal"
+     data-attr:hidden="$toolsOpen ? null : true" hidden
+     data-on:click="evt.target === evt.currentTarget && ($toolsOpen && @post('{{ revert_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, snapshot: $toolsRevert}}) !== undefined, $toolsOpen = false, $toolsRevert = null) !== undefined"><div class="tools-modal-inner"
+     data-on:keydown__escape__document="$toolsOpen && ($toolsOpen && @post('{{ revert_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, snapshot: $toolsRevert}}) !== undefined, $toolsOpen = false, $toolsRevert = null) !== undefined"><div class="tools-modal-head">Tools</div><div id="{{ rows_id }}"
+    >{% for row in rows %}{{ row|safe }}{% endfor %}</div></div></div>

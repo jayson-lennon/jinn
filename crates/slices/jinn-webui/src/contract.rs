@@ -424,6 +424,73 @@ pub const MCP_PICKER_PREFIX: &str = "/web/mcp-servers/";
 /// (the same message the TUI confirm publishes, the full desired set).
 pub const MCP_TOGGLE_PATH: &str = "/web/mcp";
 
+// ── Tools modal ─────────────────────────────────────────────────────
+
+/// The menu's tools item — closes the menu and pulls the tools modal
+/// into its host for the viewed session. Rendered only when a session
+/// is viewed: the tool filter binds per-session and the landing page
+/// views nothing (server-omitted, never client-hidden), the persona
+/// item's rule.
+pub const MENU_ITEM_TOOLS_ID: &str = "menu-item-tools";
+
+/// The tools **modal's** host — an empty span sibling to the other
+/// modal hosts in the page shell (the host-not-container rule: opening
+/// this modal can never destroy the menu item that opened it). The
+/// modal fragment swaps into this host on open; the revert snapshot's
+/// stamp element rides beside the modal inside the same host, so a
+/// toggle's modal patch can never touch it.
+pub const TOOLS_MODAL_HOST_ID: &str = "tools-modal-host";
+
+/// The same host spelled as a CSS selector — the swap-target header
+/// the fragment pull stamps and the Datastar bindings name.
+pub const TOOLS_MODAL_HOST_SELECTOR: &str = "#tools-modal-host";
+
+/// The tools modal overlay — the server-rendered row list the menu
+/// item opens; present in the page only after the pull renders it in.
+pub const TOOLS_MODAL_ID: &str = "tools-modal";
+
+/// The modal's row container — the list the toggle POST re-renders.
+pub const TOOLS_ROWS_ID: &str = "tools-rows";
+
+/// The revert snapshot's stamp element — the sibling span the open
+/// pull renders inside the modal host, whose `data-init` patches the
+/// revert signal once per open. Carrying an id is what makes a re-open
+/// morph **update** the stamp (and re-run its `data-init`) instead of
+/// stacking a second one beside it.
+pub const TOOLS_REVERT_STAMP_ID: &str = "tools-revert-stamp";
+
+/// The attribute a tools row carries its tool name in — the toggle
+/// POST's payload field, validated against the rows the modal renders.
+pub const TOOL_NAME_DATA_ATTR: &str = "data-webui-tool";
+
+/// The tools modal's open toggle (view-local signal).
+pub const SIGNAL_TOOLS_OPEN: &str = "toolsOpen";
+
+/// The open-time tool filter snapshot — a JSON `NameFilter` string the
+/// open pull's stamp patches in, the dismissal posts back, and the
+/// revert restores verbatim (absence rides as `null`). Toggle
+/// re-renders never touch it: the stamp lives outside the swapped
+/// modal.
+pub const SIGNAL_TOOLS_REVERT: &str = "toolsRevert";
+
+/// The tools toggle POST's action name.
+pub const ACTION_TOOLS_TOGGLE: &str = "tools-toggle";
+
+/// Route pattern — the tools modal fragment pull.
+pub const TOOLS_PICKER_ROUTE: &str = "/web/tools/{id}";
+
+/// The path prefix the menu item builds tools-modal URLs from.
+pub const TOOLS_PICKER_PREFIX: &str = "/web/tools/";
+
+/// `POST` — toggle one tool's enablement for the viewed session (the
+/// TUI confirm's semantic applied per click: the filter becomes a deny
+/// filter over the modal's off-rows with the clicked tool flipped).
+pub const TOOLS_TOGGLE_PATH: &str = "/web/tools";
+
+/// `POST` — dismiss the tools modal: restore the open-time filter the
+/// revert snapshot signal carries.
+pub const TOOLS_REVERT_PATH: &str = "/web/tools/revert";
+
 // ── Endpoints ───────────────────────────────────────────────────────
 
 /// The landing/session page path (the client's entry URL).
@@ -581,6 +648,13 @@ pub const DOM_CONSTANTS: &[&str] = &[
     MCP_ROWS_ID,
     MCP_SERVER_DATA_ATTR,
     ACTION_MCP_TOGGLE,
+    MENU_ITEM_TOOLS_ID,
+    TOOLS_MODAL_HOST_ID,
+    TOOLS_MODAL_ID,
+    TOOLS_ROWS_ID,
+    TOOLS_REVERT_STAMP_ID,
+    TOOL_NAME_DATA_ATTR,
+    ACTION_TOOLS_TOGGLE,
     DRAWER_SCRIM_ID,
     MENU_SCRIM_ID,
 ];
@@ -610,6 +684,9 @@ pub const CLIENT_PATHS: &[&str] = &[
     PERSONA_PATH,
     MCP_PICKER_PREFIX,
     MCP_TOGGLE_PATH,
+    TOOLS_PICKER_PREFIX,
+    TOOLS_TOGGLE_PATH,
+    TOOLS_REVERT_PATH,
     VENDOR_PREFIX,
 ];
 
@@ -634,5 +711,8 @@ pub const CLIENT_URLS: &[&str] = &[
     PERSONA_PATH,
     MCP_PICKER_PREFIX,
     MCP_TOGGLE_PATH,
+    TOOLS_PICKER_PREFIX,
+    TOOLS_TOGGLE_PATH,
+    TOOLS_REVERT_PATH,
     VENDOR_PREFIX,
 ];
