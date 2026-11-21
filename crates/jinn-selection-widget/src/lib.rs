@@ -17,6 +17,8 @@ pub mod preview_widget;
 pub mod state;
 #[cfg(test)]
 mod state_tests;
+#[cfg(test)]
+mod run_split_tests;
 pub mod tree_item;
 pub mod tree_state;
 #[cfg(test)]
@@ -36,7 +38,7 @@ pub use preview_widget::{
     HORIZONTAL_LIST_ROWS, LIST_FRACTION, PreviewPaneReport, PreviewSelectionWidget,
     VERTICAL_SPLIT_MIN_WIDTH,
 };
-pub use state::{FilteredMatch, SelectionState, fuzzy_filter};
+pub use state::{FilteredMatch, SelectionState, TextRun, fuzzy_filter, split_matched_runs};
 pub use tree_item::TreeItem;
 pub use tree_state::{TreePickerState, VisibleEntry};
 pub use tree_widget::TreePickerWidget;
