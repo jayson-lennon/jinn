@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- Remove `#generate-persona` prompt.
+
 ## 2026-11-21 v1.26.1
 
 - `#goal` prompt saves the contract to disk instead of as a chat response.

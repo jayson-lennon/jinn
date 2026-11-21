@@ -23,10 +23,11 @@
 #     inside CreateProcess blocks the thread and no userland timer fires,
 #     so the kill has to live outside the suite.
 #   - Runs the exact suite list `just build-tests-windows` writes to
-#     win-test-suites.txt (rebuilds leave stale-hash exes in deps\; the
-#     manifest names only the fresh ones). Falls back to the deps glob
-#     (every hash-suffixed exe; no name-based dedupe - two crates can ship
-#     identically-named test targets) if the manifest is absent.
+#     win-test-suites.txt (rebuilds leave stale-hash exes in the debug
+#     tree; the manifest names only the fresh ones). Falls back to a
+#     debug-tree scan (every hash-suffixed exe; no name-based dedupe - two
+#     crates can ship identically-named test targets) if the manifest is
+#     absent.
 #   - Sets CARGO_BIN_EXE_jinn to the cross-built jinn.exe so the
 #     bin-integration suites (install_cli, overgraph_serve, cli_log_file_path)
 #     can spawn the binary; a value you set beforehand wins.
@@ -51,7 +52,7 @@ $ErrorActionPreference = 'Stop'
 # Stamp every run with the script text's version: over a VBoxSF share the
 # guest can serve a stale cached copy of this file, and a confusing run is
 # unreadable without knowing WHICH text executed. Bump on every edit.
-$ScriptVersion = '2026-11-13.2 close-stdin-write-end'
+$ScriptVersion = '2026-11-21.1 cargo-emitted-layout'
 
 # --- Resolve the repo root and escape any UNC location -----------------------
 #
@@ -79,9 +80,14 @@ if ($repo -like '\\*') {
     Write-Host "Mapped $share -> $repo"
 }
 
-$depsDir = Join-Path $repo 'target\x86_64-pc-windows-msvc\debug\deps'
-if (-not (Test-Path $depsDir)) {
-    Write-Error "No deps dir at '$depsDir' - run 'just build-tests-windows' on the Linux side first."
+# With current cargo, cross-built test exes live per-package under
+# build\<crate>\<hash>\out\ (plus the jinn binary and example exes at the
+# debug root); there is no flat deps\ directory. Suite locations come from
+# win-test-suites.txt, so the script needs no layout assumption - only the
+# manifest-absent fallback has to scan the tree.
+$debugDir = Join-Path $repo 'target\x86_64-pc-windows-msvc\debug'
+if (-not (Test-Path $debugDir)) {
+    Write-Error "No debug tree at '$debugDir' - run 'just build-tests-windows' on the Linux side first."
 }
 
 # --- The jinn binary for bin-integration suites ------------------------------
@@ -109,11 +115,11 @@ if (Test-Path -LiteralPath $manifest) {
 $suites = @()
 if ($manifestLines.Count -gt 0) {
     # Entries are repo-relative POSIX paths (target/x86_64-pc-windows-msvc/
-    # debug/deps/<crate>-<hash>.exe), written by the same build that produced
-    # the exes - trust them: no per-entry existence probe (the flakiest
-    # operation across a freshly-mapped VBoxSF drive). A missing exe fails
-    # loudly when run instead of being silently skipped. Keep only test
-    # harnesses (hash-suffixed).
+    # debug/build/<crate>/<hash>/out/<crate>-<hash>.exe), written by the
+    # same build that produced the exes - trust them: no per-entry
+    # existence probe (the flakiest operation across a freshly-mapped
+    # VBoxSF drive). A missing exe fails loudly when run instead of being
+    # silently skipped. Keep only test harnesses (hash-suffixed).
     #
     # Self-heal an absolute-POSIX manifest left by an older producer: anchor
     # on the last 'target/' boundary and keep everything from there on.
@@ -132,7 +138,7 @@ if ($manifestLines.Count -gt 0) {
         Sort-Object)
 } else {
     if (Test-Path -LiteralPath $manifest) {
-        Write-Warning 'win-test-suites.txt exists but read back empty; falling back to the deps glob.'
+        Write-Warning 'win-test-suites.txt exists but read back empty; falling back to a debug-tree scan.'
     }
     # No -Filter here: wildcard enumeration is unreliable across network
     # providers (VBoxSF); filter in the pipeline instead. Every hash-suffixed
@@ -141,8 +147,8 @@ if ($manifestLines.Count -gt 0) {
     # and a name-based dedupe would silently skip a real suite. A stale exe
     # from an earlier build just re-runs; the manifest path is the precise
     # one, this is the fallback.
-    $all = @(Get-ChildItem -LiteralPath $depsDir -ErrorAction SilentlyContinue)
-    Write-Host "Suite source: deps glob ($(@($all).Count) entries visible)"
+    $all = @(Get-ChildItem -LiteralPath $debugDir -Recurse -File -ErrorAction SilentlyContinue)
+    Write-Host "Suite source: debug-tree scan ($(@($all).Count) entries visible)"
     $suites = @($all |
         Where-Object { $_.Extension -eq '.exe' -and $_.Name -match $hashSuffix } |
         ForEach-Object { $_.FullName } |
@@ -168,9 +174,9 @@ if (-not $suites) {
     } else {
         $diag += "  win-test-suites.txt: absent (did 'just build-tests-windows' run on this checkout?)"
     }
-    $plain = @(Get-ChildItem -LiteralPath $depsDir -ErrorAction SilentlyContinue)
-    $diag += "  deps entries visible: $(@($plain).Count)"
-    $diag += "  deps .exe entries visible: $(@($plain | Where-Object Extension -eq '.exe').Count)"
+    $plain = @(Get-ChildItem -LiteralPath $debugDir -Recurse -File -ErrorAction SilentlyContinue)
+    $diag += "  debug-tree entries visible: $(@($plain).Count)"
+    $diag += "  debug-tree hash-suffixed .exe entries visible: $(@($plain | Where-Object { $_.Extension -eq '.exe' -and $_.Name -match $hashSuffix }).Count)"
     Write-Error ($diag -join "`n")
 }
 
