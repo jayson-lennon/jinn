@@ -5,6 +5,8 @@
 - Add minimal webui.
 - Add Vals index to OpenRouter model market popup.
 - The OpenRouter model page (web) can now be opened from the model market window using `O`.
+- `dump_to_disk` tool parameter renamed to `dump_to_path`
+  - Providing `true` or `false` to `dump_to_path` will result in a tool call error.
 
 ## 2026-11-15 v1.25.0
 
