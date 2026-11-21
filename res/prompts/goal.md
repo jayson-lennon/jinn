@@ -154,8 +154,8 @@ Deleting an entry is always safe; a reader that needs it will find it. A record 
 
 ## Templates
 
-| Pattern     | Form                                                                           | Example                                                                                                                                                                            |
-| ----------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pattern     | Form                                                                             | Example                                                                                                                                                                              |
+| ----------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | State       | `[Scope] currently [does X / is Y]. BECAUSE: <why>.`                             | "(TUI) The TUI's first screen at startup is the chat screen. BECAUSE: startup always resumes or creates a session, so no landing screen is needed."                                  |
 | Persistence | `[Scope] persists [what] to [where]. BECAUSE: <why>.`                            | "(sessions) Sessions persist to SQLite. BECAUSE: one embedded file, no server, transactional."                                                                                       |
 | Flow        | `[Input/event] is handled by [actor/subsystem], which [action]. BECAUSE: <why>.` | "(tools) File edits route through the `edit` tool, which requires a unique match or `replace_all`. BECAUSE: a non-unique match must fail loudly, not edit an arbitrary occurrence."  |
@@ -405,17 +405,17 @@ ritual it does not need. Choose each element because this task calls for it:
   **The default disposition is that all runs are autonomous unless stated otherwise.**
 - **Environment and the done-gate.** State what the implementer loads and what
   _completion_ means, as a gate — not as steps:
-    - **Skills.** Name any skills the implementer must load at start, derived
-      from the task's domain (a Rust task names the project's Rust skill, if
-      one exists).
-    - **The done-gate.** Completion requires the project's `test` and `lint`
-      roles (resolved from its `AGENTS.md`; skip only if the project defines
-      none) to pass with **zero errors and zero warnings** — including
-      pre-existing warnings in files the change touched. Warnings are not
-      observations; they are unmet completion conditions. _Do not signal
-      completion while any warning stands._ A gate that cannot be met
-      (pre-existing failures) is a finding to surface in the report, never a
-      license to complete dirty.
+  - **Skills.** Name any skills the implementer must load at start, derived
+    from the task's domain (a Rust task names the project's Rust skill, if
+    one exists).
+  - **The done-gate.** Completion requires the project's `test` and `lint`
+    roles (resolved from its `AGENTS.md`; skip only if the project defines
+    none) to pass with **zero errors and zero warnings** — including
+    pre-existing warnings in files the change touched. Warnings are not
+    observations; they are unmet completion conditions. _Do not signal
+    completion while any warning stands._ A gate that cannot be met
+    (pre-existing failures) is a finding to surface in the report, never a
+    license to complete dirty.
 
 **Surface a protocol choice in the dialectic when it changes what the work
 looks like.** Cadence and checkpoint placement are not clerical: in a mass
@@ -505,7 +505,7 @@ something unreachable, say so and ask what to do instead.
     - If you do not have enough information, go back to (1).
     - **DO NOT** propose if questions remain outstanding.
     - **DO NOT** fold assumptions into the contract. Ask first.
-    - Present it as a _regular chat response_.
+    - **Save the contract using the `save_plan` tool**.
     - See OUTPUT FORMAT below for how to format the Task Contract
 
 ## Output Format - Task Contract
