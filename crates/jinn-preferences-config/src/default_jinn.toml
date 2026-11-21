@@ -302,6 +302,7 @@ noise_reduction = true
 # >
 # > The bind must be a loopback address — the control surface has no
 # > authentication, so it never listens on an exposed interface.
+# bind = "127.0.0.1:0"
 
 # ###########################################################################
 # Web UI
