@@ -1,5 +1,10 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## 2026-11-21 v1.26.1
+
+- `#goal` prompt saves the contract to disk instead of as a chat response.
+- Example `bind` key added to `remote` in default `jinn.toml`.
+
 ## 2026-11-20 v1.26.0
 
 - Add minimal webui.
