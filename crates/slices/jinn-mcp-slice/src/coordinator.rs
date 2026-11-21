@@ -446,20 +446,39 @@ impl McpCoordinatorActor {
     /// process down.
     async fn kill_one(&self, key: &SpawnKey) {
         let path = self.spawned.lock().remove(key);
-        if let Some(path) = path {
+        if let Some(path) = &path {
             // With this actor gone, maybe no actor for the server is left:
             // the entry-hash row describes what the (now possibly absent)
             // process ran under, so it goes with the last one.
             if !self.has_running_actor(&key.1) {
                 self.forget_entry_hash(&key.1);
             }
-            self.system.stop(&path).await;
+            self.system.stop(path).await;
             tracing::info!(
                 server = %key.1,
                 session_id = %key.0,
                 "MCP lifecycle: stopped McpActor"
             );
         }
+        // The killed connection's runtime data comes out of the cell
+        // with it — unconditionally, even when the actor had already
+        // died and only the map entry remained (a failed spawn leaves
+        // exactly that). Otherwise the cell keeps saying `running` for
+        // a server the session just disabled, and every row surface
+        // (web modal, inspector preview) renders a connection that no
+        // longer exists. Session close wipes the whole session bucket
+        // right after its own kill-all; this per-server clear is the
+        // disable-toggle path, where the bucket stays.
+        let (session_id, server) = (&key.0, &key.1);
+        self.runtime
+            .update(|runtime| runtime.clear_server(session_id, server));
+        // Strictly after the cell write lands — same contract as the
+        // status handler's emit (the webui fan-out's push trigger; a
+        // re-pull after this push reads the cleared cell).
+        self.publish(McpRuntimeStored {
+            stored_at: jiff::Timestamp::now(),
+        })
+        .await;
     }
 
     /// Kills every `McpActor` for a session (used on close/archive/teardown).
@@ -828,6 +847,25 @@ impl MsgHandler<McpServerStatus> for McpCoordinatorActor {
         let singleton = configured_servers(&self.deps.services)
             .into_iter()
             .any(|(name, config)| name == msg.server && config.singleton);
+        // A report from an actor the coordinator has already stopped is
+        // the actor's own teardown `Dead`, and writing it would resurrect
+        // the status the kill just cleared — the disable-toggle race: the
+        // stop handshake publishes `Dead` on the bus, and because the
+        // publish rides the same inbox the kill runs on, it lands here
+        // only after `kill_one` has removed the map entry and wiped the
+        // cell. The spawned map (singleton map for singletons) is the
+        // authoritative "this connection is wanted" set; a report from
+        // outside it is dropped.
+        let wanted = if singleton {
+            self.singleton_spawned.lock().contains_key(&msg.server)
+        } else {
+            self.spawned
+                .lock()
+                .contains_key(&(msg.session_id.clone(), msg.server.clone()))
+        };
+        if !wanted {
+            return;
+        }
         self.runtime.update(|runtime| {
             if singleton {
                 runtime.set_singleton_status(&msg.server, msg.status);
@@ -883,7 +921,7 @@ mod lifecycle_tests {
     use jinn_core_types::SessionId;
     use jinn_kernel::common::actor_deps::ActorDeps;
     use jinn_kernel::common::bus::HarnessServices;
-    use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
+    use jinn_mcp_msg::{McpConnectionStatus, McpRuntimeStored, McpServerStatus};
     use jinn_preferences_config::schemas::mcp::McpServerConfig;
     use jinn_preferences_config::schemas::mcp::McpServersConfig;
     use jinn_testutil::bus_harness::{TestHarness, await_recorded};
@@ -895,7 +933,7 @@ mod lifecycle_tests {
 
     /// A configured MCP server whose command will never spawn successfully,
     /// so the spawned `McpActor` publishes Starting then Dead (never Running).
-    fn unrunnable_server() -> McpServerConfig {
+    pub(super) fn unrunnable_server() -> McpServerConfig {
         McpServerConfig {
             command: Some("/this/command/does/not/exist".to_owned()),
             args: vec![],
@@ -915,7 +953,7 @@ mod lifecycle_tests {
         }
     }
 
-    async fn spawn_lifecycle(
+    pub(super) async fn spawn_lifecycle(
         harness: &TestHarness,
         servers: &[(&str, McpServerConfig)],
     ) -> (
@@ -952,7 +990,7 @@ mod lifecycle_tests {
         (path, services, state)
     }
 
-    fn single_enabled(server: &str) -> BTreeSet<String> {
+    pub(super) fn single_enabled(server: &str) -> BTreeSet<String> {
         let mut s = BTreeSet::new();
         s.insert(server.to_owned());
         s
@@ -1050,6 +1088,78 @@ mod lifecycle_tests {
         )
         .await;
         // (The observable behavior is clean teardown; a panic would surface here.)
+    }
+
+    /// Disabling a server clears its runtime-cell status and emits the
+    /// stored event — the kill path is a cell mutation the row surfaces
+    /// must re-render.
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn disabling_clears_the_stale_status_and_stores_a_runtime_event() {
+        // Given a lifecycle actor with one configured server, a session
+        // that enabled it, and the cell holding the connection's last
+        // `Running` report (seeded directly — the report a real spawn
+        // would have produced).
+        let harness = TestHarness::new().await;
+        let stored = harness.spawn_recorder::<McpRuntimeStored>().await;
+        let statuses = harness.spawn_recorder::<McpServerStatus>().await;
+        let (_actor, services, _state) =
+            spawn_lifecycle(&harness, &[("unrunnable", unrunnable_server())]).await;
+        let session_id = SessionId::new();
+        let runtime = crate::activate_runtime(&services.slices);
+        harness
+            .publish(McpEnablementChanged {
+                session_id: session_id.clone(),
+                enabled: single_enabled("unrunnable"),
+            })
+            .await;
+        // The failed spawn's Starting + Dead reports race the next step —
+        // a late Dead would re-write the cell after the kill's clear and
+        // break the assertion for the wrong reason. Let the status stream
+        // quiesce before pinning the cell.
+        jinn_testutil::wait::await_settled(
+            &statuses,
+            std::time::Duration::from_millis(150),
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        // Pin the cell to the state that outlives a kill in the buggy
+        // shape: a `Running` report.
+        runtime.update(|state| {
+            state.set_status(&session_id, "unrunnable", McpConnectionStatus::Running);
+        });
+        stored.drain();
+
+        // When disabling the server (the reconcile kill path).
+        harness
+            .publish(McpEnablementChanged {
+                session_id: session_id.clone(),
+                enabled: BTreeSet::new(),
+            })
+            .await;
+        // Let the kill path (and any straggler status report) settle
+        // before reading the cell.
+        jinn_testutil::wait::await_settled(
+            &statuses,
+            std::time::Duration::from_millis(150),
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+
+        // Then the killed server's status comes out of the cell —
+        // the kill path's own clear, so no row surface can render
+        // the dead connection's last report as `running` — and the
+        // clear emits the stored event the fan-out pushes on (a
+        // re-pull after this push reads the cleared cell).
+        jinn_testutil::wait::await_cell(&runtime, std::time::Duration::from_secs(10), |state| {
+            state.status(&session_id, "unrunnable").is_none()
+        })
+        .await;
+        let events = await_recorded(&stored, 1, std::time::Duration::from_secs(10)).await;
+        assert!(
+            !events.is_empty(),
+            "the kill path's cell clear must emit the stored event"
+        );
     }
 
     /// Disabling a server tears down its actor: re-enabling afterwards must
@@ -1733,7 +1843,8 @@ mod status_tests {
     use jinn_kernel::common::bus::HarnessServices;
     use jinn_kernel::common::state::State;
     use jinn_mcp_msg::{
-        McpConnectionStatus, McpRuntimeState, McpRuntimeStored, McpServerLog, McpServerStatus,
+        McpConnectionStatus, McpEnablementChanged, McpRuntimeState, McpRuntimeStored, McpServerLog,
+        McpServerStatus,
     };
     use jinn_session_lifecycle_msg::SessionTeardownFinished;
     use jinn_session_msg::{SessionArchived, SessionClosed};
@@ -1742,6 +1853,7 @@ mod status_tests {
     use jinn_testutil::bus_harness::{TestHarness, await_recorded};
 
     use super::McpCoordinatorActor;
+    use super::lifecycle_tests::{single_enabled, spawn_lifecycle, unrunnable_server};
     use crate::coordinator::McpCoordinatorActorDeps;
 
     /// Spawns a coordinator with a dedicated MCP runtime cell.
@@ -1773,6 +1885,36 @@ mod status_tests {
         )
         .await;
         (runtime, session_id, path, services)
+    }
+
+    /// A coordinator plus a session whose spawn map holds `excalimate`.
+    ///
+    /// Status reports are only written for keys the enable path has
+    /// registered (the teardown-`Dead` gate), so a test that simulates an
+    /// actor's report must first take the real enable path: seed the
+    /// server, enable it, and let the failed spawn's own reports settle.
+    /// The failed spawn leaves the map entry in place (nothing removes it
+    /// on death), which is exactly the state a live actor's report rides.
+    async fn spawn_with_wanted_server(
+        harness: &TestHarness,
+    ) -> (TypedCell<McpRuntimeState>, SessionId, jinn_kernel::Services) {
+        let (actor, services, _state) =
+            spawn_lifecycle(harness, &[("excalimate", unrunnable_server())]).await;
+        let session_id = SessionId::new();
+        harness
+            .publish(McpEnablementChanged {
+                session_id: session_id.clone(),
+                enabled: single_enabled("excalimate"),
+            })
+            .await;
+        let runtime = crate::activate_runtime(&services.slices);
+        jinn_testutil::wait::await_inbox_drained(
+            &services.trouper_system,
+            &actor,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        (runtime, session_id, services)
     }
 
     fn status_of(
@@ -1924,9 +2066,10 @@ mod status_tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn dead_status_is_written_to_runtime_cell() {
-        // Given a coordinator with a seeded session.
+        // Given a coordinator whose spawn map holds the server (the real
+        // enable path registers the key a status report must carry).
         let harness = TestHarness::new().await;
-        let (runtime, session_id, _actor, _services) = spawn_with_session(&harness).await;
+        let (runtime, session_id, _services) = spawn_with_wanted_server(&harness).await;
 
         // When publishing a Dead status for one server.
         harness
@@ -1952,9 +2095,9 @@ mod status_tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn running_status_is_written_to_runtime_cell() {
-        // Given a coordinator with a seeded session.
+        // Given a coordinator whose spawn map holds the server.
         let harness = TestHarness::new().await;
-        let (runtime, session_id, _actor, _services) = spawn_with_session(&harness).await;
+        let (runtime, session_id, _services) = spawn_with_wanted_server(&harness).await;
 
         // When publishing a Running status for one server.
         harness
@@ -1980,9 +2123,10 @@ mod status_tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn status_for_one_session_is_not_visible_in_another() {
-        // Given a coordinator with two seeded sessions.
+        // Given a coordinator whose spawn map holds the server for one
+        // session, and a second session that never enabled it.
         let harness = TestHarness::new().await;
-        let (runtime, session_a, _actor, _services) = spawn_with_session(&harness).await;
+        let (runtime, session_a, _services) = spawn_with_wanted_server(&harness).await;
         let session_b = SessionId::new();
 
         // When publishing a Running status for session A only.
@@ -2068,15 +2212,13 @@ mod status_tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn a_status_write_stores_a_runtime_event_strictly_after_the_write() {
-        // Given a coordinator whose runtime cell holds no status, and a
-        // recorder tapped into the stored-event schema.
+        // Given a coordinator whose spawn map holds the server, a runtime
+        // cell holding the spawn's own last report, and a recorder tapped
+        // into the stored-event schema.
         let harness = TestHarness::new().await;
         let stored = harness.spawn_recorder::<McpRuntimeStored>().await;
-        let (runtime, session_id, _actor, _services) = spawn_with_session(&harness).await;
-        {
-            let read = runtime.read();
-            assert_eq!(read.status(&session_id, "excalimate"), None);
-        }
+        let (runtime, session_id, _services) = spawn_with_wanted_server(&harness).await;
+        stored.drain();
 
         // When publishing a status transition.
         harness

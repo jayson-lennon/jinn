@@ -1011,23 +1011,24 @@ pub struct McpRowTemplate {
     pub toggle_action: &'static str,
     /// The toggle POST's endpoint.
     pub toggle_path: &'static str,
-    /// The status badge's class suffix (`starting`/`running`/`dead`).
+    /// The status badge's class suffix (`off`/`starting`/`running`/`dead`
+    /// — the shared badge's label verbatim).
     pub status_class: &'static str,
     /// The status badge's label.
     pub status_label: &'static str,
 }
 
 impl McpRowTemplate {
-    /// Builds the template from a shared-builder row: the status
-    /// derivation is the TUI's (`ServerRowState::derive`), applied
-    /// once here at render.
+    /// Builds the template from a shared-builder row: the badge is the
+    /// msg crate's shared derivation — enablement first (a disabled
+    /// server reads `off` even when the runtime cell still holds the
+    /// killed connection's last report), then the connection status
+    /// with no-report rendered as `starting`.
     #[must_use]
     pub fn from_row(row: jinn_mcp_msg::McpServerRow) -> Self {
-        let (status_class, status_label) = match row.status {
-            Some(jinn_mcp_msg::McpConnectionStatus::Running) => ("running", "running"),
-            Some(jinn_mcp_msg::McpConnectionStatus::Dead) => ("dead", "dead"),
-            None | Some(jinn_mcp_msg::McpConnectionStatus::Starting) => ("starting", "starting"),
-        };
+        let badge = jinn_mcp_msg::McpRowBadge::derive(row.enabled, row.status);
+        let status_label = badge.label();
+        let status_class = status_label;
         Self {
             row,
             server_attr: contract::MCP_SERVER_DATA_ATTR,

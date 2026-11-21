@@ -223,6 +223,7 @@ pub const MCP_CSS: &str = r#"
 .mcp-row .mcp-row-status.mcp-status-running { color: var(--accent);
                                               border-color: var(--accent); }
 .mcp-row .mcp-row-status.mcp-status-starting { color: var(--muted); }
+.mcp-row .mcp-row-status.mcp-status-off { color: var(--muted); opacity: .7; }
 .mcp-row .mcp-row-status.mcp-status-dead { color: #e5534b;
                                            border-color: #e5534b; }
 .mcp-row.mcp-row-enabled .mcp-row-name { font-weight: 600; }

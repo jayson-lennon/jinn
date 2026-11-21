@@ -19,6 +19,61 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::McpConnectionStatus;
 
+/// The display state of one server's status badge — the shared
+/// derivation both surfaces render from.
+///
+/// The rule this type encodes is the whole point of the type: a
+/// **disabled** server is `Off` no matter what the runtime cell still
+/// holds. The cell is a status *history* — it keeps the last report a
+/// connection made, and a disable's kill lands asynchronously after
+/// the enablement flip — so reading it unfiltered shows a killed
+/// connection as `running`. Enablement is the user's stated truth and
+/// it is synchronous; the cell is the connection's reported truth and
+/// it lags. `Off` wins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpRowBadge {
+    /// Disabled for the viewed session — no connection wanted.
+    Off,
+    /// Enabled and coming up (or explicitly reporting `Starting`).
+    Starting,
+    /// Enabled, live connection, tools registered.
+    Running,
+    /// Enabled; the connection failed or was torn down.
+    Dead,
+}
+
+impl McpRowBadge {
+    /// Derives the badge from the row's enablement mark and the
+    /// runtime cell's status for this server.
+    ///
+    /// The single derivation every surface shares: the TUI picker's
+    /// preview badge and the web modal's status label both call this,
+    /// so a stale cell report can never render as a running connection
+    /// the session does not want.
+    #[must_use]
+    pub fn derive(enabled: bool, status: Option<McpConnectionStatus>) -> Self {
+        if !enabled {
+            return Self::Off;
+        }
+        match status {
+            None | Some(McpConnectionStatus::Starting) => Self::Starting,
+            Some(McpConnectionStatus::Running) => Self::Running,
+            Some(McpConnectionStatus::Dead) => Self::Dead,
+        }
+    }
+
+    /// The lowercase badge label both surfaces render verbatim.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Starting => "starting",
+            Self::Running => "running",
+            Self::Dead => "dead",
+        }
+    }
+}
+
 /// One configured MCP server as both surfaces render it.
 ///
 /// Presentation-free: the name, the launch summary, the viewed
@@ -38,6 +93,10 @@ pub struct McpServerRow {
     /// The live connection status the runtime cell reports for this
     /// session's view. `None` when the server has not reported (or is
     /// disabled and has never run).
+    ///
+    /// Render through [`McpRowBadge::derive`], never raw: a disabled
+    /// row must show `off` even when the cell still holds the killed
+    /// connection's last report.
     pub status: Option<McpConnectionStatus>,
 }
 
@@ -174,5 +233,39 @@ mod tests {
             .find(|row| row.name == "alpha")
             .expect("alpha row");
         assert_eq!(alpha.description, "alpha-server");
+    }
+
+    #[rstest::rstest]
+    #[case(false, None, McpRowBadge::Off)]
+    #[case(false, Some(McpConnectionStatus::Starting), McpRowBadge::Off)]
+    #[case(false, Some(McpConnectionStatus::Running), McpRowBadge::Off)]
+    #[case(false, Some(McpConnectionStatus::Dead), McpRowBadge::Off)]
+    #[case(true, None, McpRowBadge::Starting)]
+    #[case(true, Some(McpConnectionStatus::Starting), McpRowBadge::Starting)]
+    #[case(true, Some(McpConnectionStatus::Running), McpRowBadge::Running)]
+    #[case(true, Some(McpConnectionStatus::Dead), McpRowBadge::Dead)]
+    fn badge_derive_disabled_overrides_any_cell_report(
+        #[case] enabled: bool,
+        #[case] status: Option<McpConnectionStatus>,
+        #[case] expected: McpRowBadge,
+    ) {
+        // Given every combination of enablement and cell status.
+        // When deriving the badge.
+        // Then a disabled row is Off regardless of the stale report,
+        // and an enabled row follows the connection's report with
+        // no-report rendered as starting.
+        assert_eq!(McpRowBadge::derive(enabled, status), expected);
+    }
+
+    #[rstest::rstest]
+    #[case(McpRowBadge::Off, "off")]
+    #[case(McpRowBadge::Starting, "starting")]
+    #[case(McpRowBadge::Running, "running")]
+    #[case(McpRowBadge::Dead, "dead")]
+    fn badge_labels_are_lowercase_words(#[case] badge: McpRowBadge, #[case] label: &str) {
+        // Given each badge state.
+        // When reading its label.
+        // Then the label is the lowercase word both surfaces render.
+        assert_eq!(badge.label(), label);
     }
 }

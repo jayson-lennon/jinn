@@ -88,6 +88,7 @@ export const MCP_ROW = (name) => `[data-webui-server="${name}"]`;
 /** The enabled row class (`wire.MCP_ROW_ENABLED_CLASS`). */
 export const MCP_ROW_ENABLED = "mcp-row-enabled";
 /** The status-badge class hooks (`wire.MCP_STATUS_*`). */
+export const MCP_BADGE_OFF = "mcp-status-off";
 export const MCP_BADGE_STARTING = "mcp-status-starting";
 export const MCP_BADGE_RUNNING = "mcp-status-running";
 /** The toggle POST's endpoint (`wire.MCP_TOGGLE_PATH`). */

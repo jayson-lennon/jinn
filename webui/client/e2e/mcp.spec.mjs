@@ -34,16 +34,14 @@ test("the menu item opens the modal listing the configured server as disabled", 
 
   // Then the modal renders inside its own host span (never the menu's
   // container) and the scratch server renders as one disabled row
-  // whose badge starts at `starting` — the enabled-but-unreported
-  // state; the boot session enables nothing.
+  // whose badge reads `off` — a disabled server is not coming up, so
+  // `starting` would lie about it; the boot session enables nothing.
   const host = page.locator(sel.MCP_MODAL_HOST);
   await expect(host.locator(sel.MCP_MODAL)).toHaveCount(1);
   const row = page.locator(sel.MCP_ROW(MCP_SERVER));
   await expect(row).toBeVisible();
   await expect(row).not.toHaveClass(new RegExp(sel.MCP_ROW_ENABLED));
-  await expect(
-    row.locator(`.${sel.MCP_BADGE_STARTING}`),
-  ).toBeVisible();
+  await expect(row.locator(`.${sel.MCP_BADGE_OFF}`)).toBeVisible();
   await expect(modal.locator(sel.MCP_ROWS)).toContainText(MCP_SERVER);
 });
 

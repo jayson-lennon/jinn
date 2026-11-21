@@ -242,6 +242,58 @@ async fn an_enabled_server_without_a_reported_status_shows_starting() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn a_disabled_server_shows_off() {
+    // Given a session with nothing enabled (the never-toggled state).
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+
+    // When rendering the modal.
+    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+
+    // Then every row's badge reads `off` — a disabled server is not
+    // coming up, so `starting` would lie about it.
+    let zeta_row = row_fragment(&html, "zeta");
+    assert!(
+        zeta_row.contains("mcp-status-off"),
+        "the disabled badge reads off: {html}"
+    );
+    assert_eq!(
+        html.matches("mcp-status-starting").count(),
+        0,
+        "no disabled row reads starting: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_disabled_server_with_a_stale_cell_report_still_shows_off() {
+    // Given `alpha` disabled but the runtime cell still holding the
+    // killed connection's last `Running` report (the disable's kill
+    // clears it asynchronously; before that lands the cell lags).
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    shared.mcp_runtime().update(|runtime| {
+        runtime.set_status(&id, "alpha", jinn_mcp_msg::McpConnectionStatus::Running);
+    });
+
+    // When rendering the modal.
+    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+
+    // Then the row reads `off` — enablement is the stated truth and it
+    // is synchronous; the cell's stale report never overrules it.
+    let alpha_row = row_fragment(&html, "alpha");
+    assert!(
+        alpha_row.contains("mcp-status-off"),
+        "the stale-reported disabled badge reads off: {html}"
+    );
+    assert!(
+        !alpha_row.contains("mcp-status-running"),
+        "the stale report must not read running: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn a_singletons_badge_reads_the_effective_projection() {
     // Given a session with NO per-session status for the singleton,
     // but the runtime cell's singleton bucket holding `Running`.
