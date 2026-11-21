@@ -1,6 +1,6 @@
-//! Per-call tool-result dumping — the reserved `dump_to_disk` argument.
+//! Per-call tool-result dumping — the reserved `dump_to_path` argument.
 //!
-//! A tool call that carries a `dump_to_disk` path argument has its successful
+//! A tool call that carries a `dump_to_path` path argument has its successful
 //! text result written to that path and replaced in-context by a small stub:
 //! a pointer to the file plus a short head preview. The model keeps triage
 //! information; the full text lives on disk where it can be `read` or
@@ -8,7 +8,9 @@
 //!
 //! The argument is a *reserved* argument name, peeked from the call's JSON
 //! the same way `max_duration_secs` is — no per-tool code, no configuration.
-//! [`apply_dump`] is the single interception point shared by both producer
+//! Its contract is *either pass in a path or omit the field entirely*;
+//! [`classify_dump_argument`] sorts each call into dump / absent / corrective
+//! and [`apply_dump`] is the single interception point shared by both producer
 //! paths (the builtin dispatch task and the MCP actor), applied after the
 //! tool finishes and before the result enters context.
 //!
@@ -27,7 +29,7 @@ use marked_path::{Absolute, MarkedPathAccess as _, MarkedPathBuf};
 ///
 /// Defined in the layer-0 vocabulary (`jinn-core-types`) and re-exported
 /// here, where the peeking and applying happen.
-pub use jinn_core_types::tool_types::DUMP_TO_DISK_ARG;
+pub use jinn_core_types::tool_types::DUMP_TO_PATH_ARG;
 
 /// Maximum bytes of the original carried into the in-context stub preview.
 pub const DUMP_PREVIEW_BYTES: usize = 2048;
@@ -41,19 +43,56 @@ pub enum DumpApplied {
     NotApplied,
 }
 
-/// Peek the reserved dump path from a tool call's JSON arguments.
+/// What a tool call's reserved dump argument asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DumpDecision {
+    /// The argument names a real path — dump the result there.
+    Dump(String),
+    /// The argument is absent or carries no meaningful value — no dump.
+    Absent,
+    /// The argument names true/false instead of a path — the boolean-flag
+    /// misreading. The caller rejects the call with [`DUMP_CORRECTION`]
+    /// before the tool executes.
+    Corrective,
+}
+
+/// The corrective failure text a tool call receives when its dump argument
+/// carries a true/false spelling. Names the field's contract — *pass in a
+/// path or omit the field entirely* — so the model can correct on the retry.
+pub const DUMP_CORRECTION: &str = "dump_to_path takes a file path or must be omitted \
+entirely — true/false is not accepted. Pass a path to write the full result to disk \
+(relative paths resolve against the working directory), or omit the field to keep the \
+full result in context.";
+
+/// Sort a tool call's reserved dump argument into a [`DumpDecision`].
 ///
 /// Mirrors the reserved-`max_duration_secs` peek: a malformed arguments
-/// string or a missing argument yields `None`, and the caller proceeds
-/// exactly as if the feature did not exist.
+/// string, a missing argument, a non-string value (including the JSON
+/// booleans `true`/`false`, which already fall out of `as_str`), or a
+/// blank string all yield [`DumpDecision::Absent`] — the caller proceeds
+/// exactly as if the feature did not exist. Only the *string* spellings
+/// `true`/`false` (case-insensitive, surrounding whitespace tolerated)
+/// yield [`DumpDecision::Corrective`]: that is the observed boolean-flag
+/// misreading, and a file named `false` is never the model's intent.
+/// Any other string is [`DumpDecision::Dump`], carrying the untrimmed
+/// original spelling — path resolution semantics are unchanged.
 #[must_use]
-pub fn extract_dump_path(arguments: &str) -> Option<String> {
+pub fn classify_dump_argument(arguments: &str) -> DumpDecision {
     let value: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
-    value
-        .get(DUMP_TO_DISK_ARG)
-        .and_then(serde_json::Value::as_str)
-        .filter(|path| !path.is_empty())
-        .map(ToOwned::to_owned)
+    let Some(raw) = value.get(DUMP_TO_PATH_ARG) else {
+        return DumpDecision::Absent;
+    };
+    let Some(text) = raw.as_str() else {
+        return DumpDecision::Absent;
+    };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return DumpDecision::Absent;
+    }
+    if trimmed.eq_ignore_ascii_case("true") || trimmed.eq_ignore_ascii_case("false") {
+        return DumpDecision::Corrective;
+    }
+    DumpDecision::Dump(text.to_owned())
 }
 
 /// Apply a per-call dump to a finished tool result, in place.
@@ -152,7 +191,7 @@ fn write_original(target: &MarkedPathBuf<Absolute>, original: &str) -> DumpAppli
         tracing::warn!(
             %error,
             parent = %parent.display(),
-            "dump_to_disk: could not create parent directory; result left in context"
+            "dump_to_path: could not create parent directory; result left in context"
         );
         return DumpApplied::NotApplied;
     }
@@ -160,7 +199,7 @@ fn write_original(target: &MarkedPathBuf<Absolute>, original: &str) -> DumpAppli
         tracing::warn!(
             %error,
             path = %target.display(),
-            "dump_to_disk: could not write dump file; result left in context"
+            "dump_to_path: could not write dump file; result left in context"
         );
         return DumpApplied::NotApplied;
     }
@@ -448,60 +487,128 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn extract_dump_path_reads_the_reserved_argument() {
-        // Given call arguments carrying dump_to_disk among other fields.
-        let arguments = r#"{"url":"https://example.com","dump_to_disk":"research/page.md"}"#;
+    fn classify_dump_argument_reads_the_reserved_argument() {
+        // Given call arguments carrying dump_to_path among other fields.
+        let arguments = r#"{"url":"https://example.com","dump_to_path":"research/page.md"}"#;
 
-        // When extracting.
-        let path = extract_dump_path(arguments);
+        // When classifying.
+        let decision = classify_dump_argument(arguments);
 
         // Then the dump path comes back.
-        assert_eq!(path.as_deref(), Some("research/page.md"));
+        assert_eq!(decision, DumpDecision::Dump("research/page.md".to_owned()));
     }
 
     #[rstest::rstest]
-    fn extract_dump_path_missing_returns_none() {
+    fn classify_dump_argument_missing_returns_absent() {
         // Given call arguments without the reserved argument.
         let arguments = r#"{"url":"https://example.com"}"#;
 
-        // When extracting.
-        let path = extract_dump_path(arguments);
+        // When classifying.
+        let decision = classify_dump_argument(arguments);
 
-        // Then there is no dump path.
-        assert_eq!(path, None);
+        // Then the field is absent.
+        assert_eq!(decision, DumpDecision::Absent);
     }
 
     #[rstest::rstest]
-    fn extract_dump_path_empty_string_is_not_a_path() {
-        // Given an empty dump_to_disk value.
-        let arguments = r#"{"dump_to_disk":""}"#;
+    fn classify_dump_argument_empty_string_is_not_a_path() {
+        // Given an empty dump_to_path value.
+        let arguments = r#"{"dump_to_path":""}"#;
 
-        // When extracting.
-        let path = extract_dump_path(arguments);
+        // When classifying.
+        let decision = classify_dump_argument(arguments);
 
         // Then it is treated as absent.
-        assert_eq!(path, None);
+        assert_eq!(decision, DumpDecision::Absent);
     }
 
     #[rstest::rstest]
-    fn extract_dump_path_non_string_is_ignored() {
-        // Given a non-string dump_to_disk value.
-        let arguments = r#"{"dump_to_disk":42}"#;
+    fn classify_dump_argument_non_string_is_ignored() {
+        // Given a non-string dump_to_path value.
+        let arguments = r#"{"dump_to_path":42}"#;
 
-        // When extracting.
-        let path = extract_dump_path(arguments);
+        // When classifying.
+        let decision = classify_dump_argument(arguments);
 
         // Then it is ignored.
-        assert_eq!(path, None);
+        assert_eq!(decision, DumpDecision::Absent);
     }
 
     #[rstest::rstest]
-    fn extract_dump_path_malformed_json_yields_none() {
+    fn classify_dump_argument_malformed_json_yields_absent() {
         // Given an arguments string that is not valid JSON.
-        // When extracting.
-        let path = extract_dump_path("not json");
+        // When classifying.
+        let decision = classify_dump_argument("not json");
 
-        // Then there is no dump path and no panic.
-        assert_eq!(path, None);
+        // Then the field is absent and there is no panic.
+        assert_eq!(decision, DumpDecision::Absent);
+    }
+
+    #[rstest::rstest]
+    #[case("false")]
+    #[case("true")]
+    #[case("False")]
+    #[case("TRUE")]
+    #[case("  false  ")]
+    fn classify_dump_argument_flags_boolean_spellings_as_corrective(#[case] value: &str) {
+        // Given a dump_to_path value spelling true/false as a string.
+        let arguments = format!(r#"{{"dump_to_path":"{value}"}}"#);
+
+        // When classifying.
+        let decision = classify_dump_argument(&arguments);
+
+        // Then the call is corrective, not a path named true or false.
+        assert_eq!(decision, DumpDecision::Corrective);
+    }
+
+    #[rstest::rstest]
+    fn classify_dump_argument_json_boolean_false_is_absent_not_corrective() {
+        // Given a JSON boolean false (not the string spelling).
+        let arguments = r#"{"dump_to_path":false}"#;
+
+        // When classifying.
+        let decision = classify_dump_argument(arguments);
+
+        // Then it is absent — non-string values never carry a path, and the
+        // corrective message is reserved for the string misreading.
+        assert_eq!(decision, DumpDecision::Absent);
+    }
+
+    #[rstest::rstest]
+    fn classify_dump_argument_whitespace_only_is_absent() {
+        // Given a whitespace-only dump_to_path value.
+        let arguments = r#"{"dump_to_path":"   "}"#;
+
+        // When classifying.
+        let decision = classify_dump_argument(arguments);
+
+        // Then it is treated as absent.
+        assert_eq!(decision, DumpDecision::Absent);
+    }
+
+    #[rstest::rstest]
+    fn classify_dump_argument_keeps_the_untrimmed_original_for_dump() {
+        // Given a real path with surrounding whitespace.
+        let arguments = r#"{"dump_to_path":" out/page.md "}"#;
+
+        // When classifying.
+        let decision = classify_dump_argument(arguments);
+
+        // Then the path comes back untrimmed — trim only served the
+        // boolean check, and path resolution semantics are unchanged.
+        assert_eq!(decision, DumpDecision::Dump(" out/page.md ".to_owned()));
+    }
+
+    #[rstest::rstest]
+    fn dump_correction_names_the_pass_a_path_or_omit_contract() {
+        // Given the corrective message constant.
+        // When reading it.
+        let message = DUMP_CORRECTION;
+
+        // Then it names the field, the path alternative, and the omit
+        // alternative — the three words the model needs to correct.
+        assert!(message.contains("dump_to_path"), "{message}");
+        assert!(message.contains("path"), "{message}");
+        assert!(message.contains("omit"), "{message}");
     }
 }

@@ -73,7 +73,7 @@ pub struct ExecuteTool {
     #[serde(default)]
     pub max_output_bytes: Option<usize>,
     /// The session's working directory, carried so the provider actor can
-    /// resolve the reserved `dump_to_disk` path the same way the builtin
+    /// resolve the reserved `dump_to_path` path the same way the builtin
     /// path would. `None` in tests and stragglers — a dump without a cwd is
     /// skipped, never guessed.
     #[serde(default)]
