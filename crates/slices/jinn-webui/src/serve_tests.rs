@@ -786,6 +786,79 @@ async fn the_unversioned_client_url_still_serves_but_must_revalidate() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn webapp_install_assets_serve_identity_with_their_own_content_types() {
+    // Given a live server and the install assets the page shell links.
+    let (base, _seeded) = harness(None).await;
+    let http = client();
+    let assets = [
+        ("manifest.webmanifest", "application/manifest+json"),
+        ("icon-192.png", "image/png"),
+        ("icon-512.png", "image/png"),
+        ("icon-maskable-512.png", "image/png"),
+        ("icon-apple-touch-180.png", "image/png"),
+        ("icon-favicon-32.png", "image/png"),
+    ];
+
+    for (path, content_type) in assets {
+        // When getting each install asset from /vendor.
+        let response = http
+            .get(format!("{base}/vendor/{path}"))
+            .send()
+            .await
+            .expect("the asset request completes");
+
+        // Then each serves 200 under its own type with no
+        // Content-Encoding — an identity row is raw bytes, and a
+        // spurious gzip header would make the browser try to inflate
+        // a PNG or the JSON manifest.
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some(content_type),
+            "{path} must declare {content_type}"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("content-encoding")
+                .and_then(|v| v.to_str().ok()),
+            Some("identity"),
+            "{path} is an identity row — the header names identity, no gzip"
+        );
+    }
+
+    // And the webmanifest parses as the JSON object a browser reads
+    // installability from.
+    let manifest: serde_json::Value = serde_json::from_str(
+        &http
+            .get(format!("{base}/vendor/manifest.webmanifest"))
+            .send()
+            .await
+            .expect("manifest reads")
+            .text()
+            .await
+            .expect("manifest body"),
+    )
+    .expect("the webmanifest must be valid JSON");
+    assert_eq!(
+        manifest
+            .get("start_url")
+            .and_then(serde_json::Value::as_str),
+        Some("/web"),
+        "the manifest's start_url must be the sessions landing page"
+    );
+    assert_eq!(
+        manifest.get("display").and_then(serde_json::Value::as_str),
+        Some("standalone"),
+        "the manifest must request a standalone display"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn an_unknown_vendor_path_is_a_404_over_the_wire() {
     // Given a live server.
     let (base, _seeded) = harness(None).await;
