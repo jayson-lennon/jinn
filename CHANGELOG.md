@@ -2,6 +2,7 @@
 
 ## (development)
 
+- (webui) Keystrokes no longer erroneously close modals.
 - Remove `#generate-persona` prompt.
 
 ## 2026-11-21 v1.26.1

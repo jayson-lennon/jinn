@@ -1,7 +1,7 @@
 <div id="{{ modal_id }}" class="model-picker-modal" data-attr:hidden="$modalOpen ? null : true" hidden
      data-on:click="evt.target === evt.currentTarget && ($modalOpen = false)"><div class="model-picker-modal-inner"
      data-effect="$modelsTick && ($modelsRefreshing = false)"
-     data-on:keydown__escape__document="$modalOpen = false"><div class="model-picker-modal-head"><input id="{{ filter_id }}" type="text" value="{{ filter }}" autocomplete="off" placeholder="filter models…"
+     data-on:keydown__document="evt.key === 'Escape' && ($modalOpen = false)"><div class="model-picker-modal-head"><input id="{{ filter_id }}" type="text" value="{{ filter }}" autocomplete="off" placeholder="filter models…"
            data-bind:modelfilter><button id="{{ refresh_id }}"
         data-attr:disabled="$modelsRefreshing ? '' : null"
         data-attr:aria-busy="$modelsRefreshing ? 'true' : null"
