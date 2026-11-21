@@ -370,6 +370,60 @@ pub const PERSONA_PICKER_PREFIX: &str = "/web/persona-picker/";
 /// the TUI confirm publishes).
 pub const PERSONA_PATH: &str = "/web/persona";
 
+// ── MCP servers modal ───────────────────────────────────────────────
+
+/// The menu's MCP servers item — closes the menu and pulls the MCP
+/// modal into its host for the viewed session. Rendered only when a
+/// session is viewed: enablement binds per-session and the landing
+/// page views nothing (server-omitted, never client-hidden), the
+/// persona item's rule.
+pub const MENU_ITEM_MCP_ID: &str = "menu-item-mcp";
+
+/// The MCP menu item's action name.
+pub const ACTION_MENU_MCP: &str = "menu-mcp";
+
+/// The MCP **modal's** host — an empty span sibling to the other modal
+/// hosts in the page shell (the host-not-container rule: opening this
+/// modal can never destroy the menu item that opened it). The modal
+/// fragment swaps into this host on open and on every tick re-pull.
+pub const MCP_MODAL_HOST_ID: &str = "mcp-modal-host";
+
+/// The same host spelled as a CSS selector — the swap-target header
+/// the fragment pulls stamp and the Datastar bindings name.
+pub const MCP_MODAL_HOST_SELECTOR: &str = "#mcp-modal-host";
+
+/// The MCP modal overlay — the server-rendered row list the menu item
+/// opens; present in the page only after the pull renders it in.
+pub const MCP_MODAL_ID: &str = "mcp-modal";
+
+/// The modal's row container — the list the tick re-pull re-renders.
+pub const MCP_ROWS_ID: &str = "mcp-rows";
+
+/// The attribute an MCP row carries its server name in — the toggle
+/// POST's payload field, validated against the `[mcp.<name>]` set the
+/// server holds.
+pub const MCP_SERVER_DATA_ATTR: &str = "data-webui-server";
+
+/// The MCP modal's open toggle (view-local signal).
+pub const SIGNAL_MCP_OPEN: &str = "mcpOpen";
+
+/// The MCP-status tick — every runtime push bumps it; the open modal's
+/// effect re-pulls its rows in response (the modelsTick pattern).
+pub const SIGNAL_MCP_TICK: &str = "mcpTick";
+
+/// The MCP toggle POST's action name.
+pub const ACTION_MCP_TOGGLE: &str = "mcp-toggle";
+
+/// Route pattern — the MCP servers modal fragment pull.
+pub const MCP_PICKER_ROUTE: &str = "/web/mcp-servers/{id}";
+
+/// The path prefix client code builds MCP-modal URLs from.
+pub const MCP_PICKER_PREFIX: &str = "/web/mcp-servers/";
+
+/// `POST` — toggle one MCP server's enablement for the viewed session
+/// (the same message the TUI confirm publishes, the full desired set).
+pub const MCP_TOGGLE_PATH: &str = "/web/mcp";
+
 // ── Endpoints ───────────────────────────────────────────────────────
 
 /// The landing/session page path (the client's entry URL).
@@ -521,6 +575,13 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_PERSONA,
     ACTION_MENU_SESSIONS,
     ACTION_MENU_NEW_SESSION,
+    MENU_ITEM_MCP_ID,
+    ACTION_MENU_MCP,
+    MCP_MODAL_HOST_ID,
+    MCP_MODAL_ID,
+    MCP_ROWS_ID,
+    MCP_SERVER_DATA_ATTR,
+    ACTION_MCP_TOGGLE,
     DRAWER_SCRIM_ID,
     MENU_SCRIM_ID,
 ];
@@ -548,6 +609,8 @@ pub const CLIENT_PATHS: &[&str] = &[
     PERSONA_PICKER_PREFIX,
     PERSONA_FILTER_QUERY_PARAM,
     PERSONA_PATH,
+    MCP_PICKER_PREFIX,
+    MCP_TOGGLE_PATH,
     VENDOR_PREFIX,
 ];
 
@@ -570,5 +633,7 @@ pub const CLIENT_URLS: &[&str] = &[
     SESSION_CREATE_PATH,
     PERSONA_PICKER_PREFIX,
     PERSONA_PATH,
+    MCP_PICKER_PREFIX,
+    MCP_TOGGLE_PATH,
     VENDOR_PREFIX,
 ];

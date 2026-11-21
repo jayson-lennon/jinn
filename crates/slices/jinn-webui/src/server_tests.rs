@@ -45,6 +45,12 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
             jinn_persona_msg::Personas::default(),
         )
         .expect("the personas cell registers once per harness");
+    let mcp_runtime_cell = slices
+        .register(
+            jinn_mcp_msg::mcp_runtime_slot(),
+            jinn_mcp_msg::McpRuntimeState::default(),
+        )
+        .expect("the MCP runtime cell registers once");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -70,6 +76,7 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
         )),
         provider_cell,
         personas_cell,
+        mcp_runtime_cell,
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         jinn_config::empty_config_layer().clone(),
@@ -278,6 +285,10 @@ async fn harness_with_store_actor() -> (State, BusAudit, Slices, axum::Router) {
             .slices
             .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
             .expect("the cell catalog registers the personas slot"),
+        actor_services
+            .slices
+            .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
+            .expect("the cell catalog registers the MCP runtime slot"),
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         jinn_config::empty_config_layer().clone(),
@@ -491,6 +502,12 @@ fn harness_with_archived_row_and_receiver() -> (
             jinn_persona_msg::Personas::default(),
         )
         .expect("the personas cell registers once per harness");
+    let mcp_runtime_cell = slices
+        .register(
+            jinn_mcp_msg::mcp_runtime_slot(),
+            jinn_mcp_msg::McpRuntimeState::default(),
+        )
+        .expect("the MCP runtime cell registers once");
     let (bus, audit) = BusService::new_recording();
     let (fanout, rx) =
         crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone(), unread_marks_for(&slices));
@@ -503,6 +520,7 @@ fn harness_with_archived_row_and_receiver() -> (
         ))),
         provider_cell,
         personas_cell,
+        mcp_runtime_cell,
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         jinn_config::empty_config_layer().clone(),
@@ -1359,6 +1377,258 @@ mod persona_actions {
 
         // Then the request is refused as a client error and nothing is
         // published.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+    }
+}
+
+mod mcp_actions {
+    use super::*;
+
+    /// The MCP section the toggle tests seed: one normal server and
+    /// one singleton.
+    const MCP_DOC: &str = r#"
+[mcp.echo]
+command = "echo-bin"
+
+[mcp.shared]
+command = "shared-bin"
+singleton = true
+"#;
+
+    /// The harness over an MCP-seeded config layer: the same shape as
+    /// [`harness`], but the shared state's config snapshot carries the
+    /// `[mcp.*]` section (the toggle's accepted set).
+    fn harness_with_config(doc: &str) -> (State, BusAudit, axum::Router) {
+        let slices = Slices::new();
+        let provider_cell = slices
+            .register(
+                jinn_provider_selection_msg::provider_state_slot(),
+                jinn_provider_selection_msg::ProviderCell::default(),
+            )
+            .expect("the provider cell registers once per harness");
+        let personas_cell = slices
+            .register(
+                jinn_persona_msg::personas_slot(),
+                jinn_persona_msg::Personas::default(),
+            )
+            .expect("the personas cell registers once per harness");
+        let mcp_runtime_cell = slices
+            .register(
+                jinn_mcp_msg::mcp_runtime_slot(),
+                jinn_mcp_msg::McpRuntimeState::default(),
+            )
+            .expect("the MCP runtime cell registers once");
+        let unread_marks = slices
+            .register(
+                jinn_webui_msg::webui_unread_slot(),
+                jinn_webui_msg::UnreadSessionMarks::default(),
+            )
+            .expect("the unread-mark cell registers once per harness");
+        let state = {
+            let app = AppState::default();
+            app.session.attach_slices(slices.clone());
+            State::new(app)
+        };
+        let (bus, audit) = BusService::new_recording();
+        let fanout = {
+            use trouper::system::ActorSystem;
+            let system = ActorSystem::new(trouper::system::SystemConfig::production());
+            crate::fanout::WebUiFanoutActor::spawn(
+                &system,
+                state.clone(),
+                bus.clone(),
+                unread_marks,
+            )
+        };
+        let shared = ServerShared::new(
+            state.clone(),
+            bus,
+            jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
+                jinn_kernel::common::services::test_services::FakeSessionStore,
+            )),
+            provider_cell,
+            personas_cell,
+            mcp_runtime_cell,
+            jinn_provider_config::ProviderRegistryService::new(harness_registry()),
+            jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+            jinn_config::testutil::config_layer(doc),
+            fanout,
+            8387,
+            "test".to_owned(),
+        );
+        (state, audit, router(shared))
+    }
+
+    /// Reads the session's enabled set back from state.
+    fn enabled_of(state: &State, id: &SessionId) -> std::collections::BTreeSet<String> {
+        state
+            .read()
+            .session
+            .get(id)
+            .map_or_default(|session| session.enabled_mcp_servers().clone())
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn mcp_toggle_enables_publishes_the_full_set_and_writes_state_first() {
+        // Given a live session with no servers enabled and a config
+        // seeding two servers.
+        let (state, audit, router) = harness_with_config(MCP_DOC);
+        let id = seed_session(&state);
+
+        // When posting a toggle naming `echo`.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::MCP_TOGGLE_PATH,
+            &format!("session_id={id}&server=echo"),
+        )
+        .await;
+
+        // Then the ack is OK, state already holds the enabled set (the
+        // write happened synchronously, before the publish), and the
+        // bus names exactly one McpEnablementChanged carrying the FULL
+        // desired set — the documented contract, never a delta.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            enabled_of(&state, &id),
+            ["echo".to_owned()].into_iter().collect()
+        );
+        let published = audit.of_type::<jinn_mcp_msg::McpEnablementChanged>();
+        let [message] = published.as_slice() else {
+            panic!(
+                "exactly one McpEnablementChanged was published, got {}",
+                published.len()
+            )
+        };
+        assert_eq!(message.session_id, id);
+        assert_eq!(
+            message.enabled,
+            ["echo".to_owned()].into_iter().collect(),
+            "the published set is the full desired set"
+        );
+        // And the response is the re-rendered modal with the enabled
+        // mark on the echo row (the stale-fragment pattern). The SSE
+        // frames line-fold the markup, so the body is unfolded first
+        // (every `data:` continuation line rejoined) and the row's own
+        // div-to-</div> fragment is the probed slice.
+        assert!(
+            body.contains(&format!("id=\"{}\"", crate::contract::MCP_MODAL_ID)),
+            "{body}"
+        );
+        let unfolded = body.replace("data: elements ", "");
+        let row = unfolded
+            .split_once(&format!(
+                "{}=\"echo\"",
+                crate::contract::MCP_SERVER_DATA_ATTR
+            ))
+            .and_then(|(before, _)| {
+                let start = before.rfind("<div")?;
+                let end = unfolded.get(start..)?.find("</div>")?;
+                unfolded.get(start..start + end).map(str::to_owned)
+            })
+            .expect("the echo row renders in the response");
+        assert!(
+            row.contains("mcp-row-enabled"),
+            "the echo row is the enabled one: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_second_toggle_disables_and_publishes_the_emptied_set() {
+        // Given a live session with `echo` already enabled.
+        let (state, audit, router) = harness_with_config(MCP_DOC);
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .set_enabled_mcp_servers(["echo".to_owned()].into_iter().collect());
+
+        // When posting a toggle naming `echo` again.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::MCP_TOGGLE_PATH,
+            &format!("session_id={id}&server=echo"),
+        )
+        .await;
+
+        // Then the ack is OK, state holds the emptied set, and the one
+        // published message carries it in full.
+        assert_eq!(status, StatusCode::OK);
+        assert!(enabled_of(&state, &id).is_empty());
+        let published = audit.of_type::<jinn_mcp_msg::McpEnablementChanged>();
+        let [message] = published.as_slice() else {
+            panic!(
+                "exactly one McpEnablementChanged was published, got {}",
+                published.len()
+            )
+        };
+        assert!(message.enabled.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn mcp_toggle_refuses_an_unconfigured_server_without_mutating() {
+        // Given a live session and the MCP-seeded config.
+        let (state, audit, router) = harness_with_config(MCP_DOC);
+        let id = seed_session(&state);
+
+        // When posting a toggle naming a server no `[mcp.<name>]`
+        // section defines.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::MCP_TOGGLE_PATH,
+            &format!("session_id={id}&server=never-configured"),
+        )
+        .await;
+
+        // Then it refuses with 400, no message rides the bus, and the
+        // session's enabled set is untouched.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("never-configured"), "{body}");
+        assert_eq!(audit.names().len(), 0);
+        assert!(enabled_of(&state, &id).is_empty());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn mcp_toggle_refuses_an_unknown_session_id() {
+        // Given the MCP-seeded config and no live session.
+        let (_state, audit, router) = harness_with_config(MCP_DOC);
+        let ghost = SessionId::new();
+
+        // When posting a toggle for it.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::MCP_TOGGLE_PATH,
+            &format!("session_id={ghost}&server=echo"),
+        )
+        .await;
+
+        // Then it refuses with 404 and publishes nothing.
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.contains("no live session"), "{body}");
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn mcp_toggle_refuses_a_malformed_session_id() {
+        // Given the MCP-seeded config.
+        let (_state, audit, router) = harness_with_config(MCP_DOC);
+
+        // When posting a toggle whose session id is not a UUID.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::MCP_TOGGLE_PATH,
+            "session_id=not-a-uuid&server=echo",
+        )
+        .await;
+
+        // Then it refuses with 400 and publishes nothing.
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(audit.names().len(), 0);
     }

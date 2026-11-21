@@ -120,6 +120,22 @@ impl FanoutHandle {
             html: stored_at.to_string(),
         });
     }
+
+    /// Broadcasts the post-status-write MCP signal from **outside**
+    /// the actor — the serve-tier wire test's seam, addressed like the
+    /// actor's own push (per live session). The data line carries the
+    /// write timestamp: an SSE frame whose data buffer is empty is
+    /// discarded by the browser (never dispatched), so the signal must
+    /// hold bytes to land.
+    #[cfg(test)]
+    pub(crate) fn push_mcp_status_from(&self, session_id: &SessionId, stored_at: jiff::Timestamp) {
+        let _ = self.tx.send(SseEnvelope {
+            kind: SseKind::McpStatus,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html: stored_at.to_string(),
+        });
+    }
 }
 
 /// The fan-out actor: events to fragments.
@@ -195,6 +211,12 @@ impl WebUiFanoutActor {
             .handles::<SessionArchived>()
             .handles::<SessionLibraryMembershipChanged>()
             .handles::<ModelCacheStored>()
+            // The MCP runtime cell changed: the coordinator emits this
+            // stored event strictly after each status write (never the
+            // raw status events — two publishers against one cell
+            // writer). A broadcast-legal Event; the handler pushes a
+            // signal only, the pull remains the renderer.
+            .handles::<jinn_mcp_msg::McpRuntimeStored>()
             // A browser-created session must reach every connected
             // page's sidebar without a reload (the creation POST's
             // response reaches only the creating page), and the async
@@ -509,6 +531,38 @@ impl WebUiFanoutActor {
         }
     }
 
+    /// Signals every open MCP modal that the runtime cell's status
+    /// projection changed — one `mcp-status` push per live session,
+    /// addressed so each session-filtered stream receives it (the
+    /// `push_models_changed` shape, without the transcript envelope:
+    /// a status transition touches no transcript entry).
+    ///
+    /// The `mcp-status` envelope is a **signal, not rows**: the
+    /// fan-out holds no MCP cell or config handle, so it cannot render
+    /// TUI-parity rows; the client answers the push by re-pulling the
+    /// modal's GET route. Rows always arrive by pull — the pull
+    /// endpoint remains the correctness dependency. The data line
+    /// carries the write timestamp for the same dispatch rule the
+    /// models push documents (an empty data buffer never fires).
+    pub(crate) fn push_mcp_status_changed(&mut self, stored_at: jiff::Timestamp) {
+        let ids: Vec<SessionId> = self
+            .state
+            .read()
+            .session
+            .sessions()
+            .keys()
+            .cloned()
+            .collect();
+        for session_id in ids {
+            self.broadcast(SseEnvelope {
+                kind: SseKind::McpStatus,
+                session_id,
+                cursor: 0,
+                html: stored_at.to_string(),
+            });
+        }
+    }
+
     /// A browser-created session landed: refresh the sessions list.
     /// Synchronous work only; `async` is the `MsgHandler::handle`
     /// signature's shape, dropped here.
@@ -698,6 +752,17 @@ impl MsgHandler<ModelCacheStored> for WebUiFanoutActor {
         // event's timestamp rides the push so the frame dispatches
         // (a signal with an empty data line never fires).
         self.push_models_changed(msg.stored_at);
+    }
+}
+
+impl MsgHandler<jinn_mcp_msg::McpRuntimeStored> for WebUiFanoutActor {
+    async fn handle(&mut self, msg: &jinn_mcp_msg::McpRuntimeStored, _ctx: &mut MsgCtx<'_>) {
+        // The coordinator emitted this strictly after its runtime-cell
+        // write, so the cell now holds the new status. Signal every
+        // page; open MCP modals re-pull their rows. The event's
+        // timestamp rides the push so the frame dispatches (a signal
+        // with an empty data line never fires).
+        self.push_mcp_status_changed(msg.stored_at);
     }
 }
 

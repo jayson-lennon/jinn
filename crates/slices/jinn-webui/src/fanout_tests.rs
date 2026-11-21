@@ -218,6 +218,46 @@ async fn a_cache_stored_event_pushes_one_models_signal_and_one_transcript_per_li
 
 #[rstest::rstest]
 #[tokio::test]
+async fn a_runtime_stored_event_pushes_one_mcp_status_signal_per_live_session() {
+    // Given a default session plus one seeded one, and a subscriber.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let first = seed_session(&state);
+    let live = state.read().session.sessions().len();
+
+    // When a runtime-stored event lands (the coordinator emitted it
+    // strictly after its cell write — the ordering contract the push
+    // correctness rides).
+    let stored_at = jiff::Timestamp::now();
+    actor.push_mcp_status_changed(stored_at);
+
+    // Then each live session receives exactly ONE envelope: the
+    // `mcp-status` SIGNAL (cursor 0; its data line carries the write
+    // timestamp — a NON-EMPTY data line is the dispatch contract) and
+    // no transcript push rides it (a status transition touches no
+    // transcript entry), and no HTML rows ride any push (the pull
+    // endpoint remains the renderer).
+    let mut seen = std::collections::HashSet::new();
+    while let Ok(envelope) = rx.try_recv() {
+        match envelope.kind {
+            SseKind::McpStatus => {
+                assert_eq!(
+                    envelope.html,
+                    stored_at.to_string(),
+                    "the mcp push carries the write timestamp as its data line \
+                     (empty data never dispatches in a browser): {envelope:?}"
+                );
+                assert_eq!(envelope.cursor, 0);
+                seen.insert(envelope.session_id.clone());
+            }
+            other => panic!("only mcp-status pushes land: {other:?}"),
+        }
+    }
+    assert_eq!(seen.len(), live, "one push per session: {seen:?}");
+    assert!(seen.contains(&first), "{seen:?}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn the_handle_pushes_a_sessions_refresh_from_outside_the_actor() {
     // Given a live session whose title a web rename just changed, and
     // a subscriber to the actor's broadcast channel.

@@ -167,6 +167,18 @@ pub async fn activate(
         .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
         .expect("the cell catalog registers the personas slot before any slice activates");
 
+    // The MCP runtime cell, for the MCP modal's status projection. A
+    // read handle only — the cell's writer is the MCP coordinator; the
+    // web never writes it.
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: a missing MCP runtime slot is a broken boot order and must abort launch, not continue degraded"
+    )]
+    let mcp_runtime_cell = host
+        .slices()
+        .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
+        .expect("the cell catalog registers the MCP runtime slot before any slice activates");
+
     // The unread-mark cell. Its write handle goes to the fan-out and
     // nowhere else: the fan-out actor is the mark's only writer (set
     // on an unseen settle, cleared when the session activates); the
@@ -193,6 +205,7 @@ pub async fn activate(
             session_store,
             provider_cell,
             personas_cell,
+            mcp_runtime_cell,
             provider_registry: services.provider_registry.clone(),
             api_keys: services.api_keys.clone(),
             config: config.clone(),

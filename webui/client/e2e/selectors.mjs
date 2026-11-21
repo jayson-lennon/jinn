@@ -75,6 +75,28 @@ export const MENU_ITEM_SESSIONS = "#menu-item-sessions";
 export const MENU_ITEM_NEW_SESSION = "#menu-item-new-session";
 /** The menu's persona item id (`wire.MENU_ITEM_PERSONA_ID`). */
 export const MENU_ITEM_PERSONA = "#menu-item-persona";
+/** The menu's MCP item id (`wire.MENU_ITEM_MCP_ID`). */
+export const MENU_ITEM_MCP = "#menu-item-mcp";
+/** The MCP modal overlay id (`wire.MCP_MODAL_ID`). */
+export const MCP_MODAL = "#mcp-modal";
+/** The MCP modal's host span id (`wire.MCP_MODAL_HOST_ID`). */
+export const MCP_MODAL_HOST = "#mcp-modal-host";
+/** The MCP modal's row container id (`wire.MCP_ROWS_ID`). */
+export const MCP_ROWS = "#mcp-rows";
+/** One MCP server row, by its server-name attr (`wire.MCP_SERVER_DATA_ATTR`). */
+export const MCP_ROW = (name) => `[data-webui-server="${name}"]`;
+/** The enabled row class (`wire.MCP_ROW_ENABLED_CLASS`). */
+export const MCP_ROW_ENABLED = "mcp-row-enabled";
+/** The status-badge class hooks (`wire.MCP_STATUS_*`). */
+export const MCP_BADGE_OFF = "mcp-status-off";
+export const MCP_BADGE_STARTING = "mcp-status-starting";
+export const MCP_BADGE_RUNNING = "mcp-status-running";
+/** The toggle POST's endpoint (`wire.MCP_TOGGLE_PATH`). */
+export const MCP_TOGGLE_PATH = "/web/mcp";
+/** The MCP modal pull's route prefix (`wire.MCP_PICKER_PREFIX`). */
+export const MCP_PICKER_PREFIX = "/web/mcp-servers/";
+/** The one scratch MCP server the tier's jinn.toml configures. */
+export const MCP_SERVER = "echo";
 /** The persona modal overlay id (`wire.PERSONA_MODAL_ID`). */
 export const PERSONA_MODAL = "#persona-modal";
 /** The persona modal's host span id (`wire.PERSONA_MODAL_HOST_ID`). */

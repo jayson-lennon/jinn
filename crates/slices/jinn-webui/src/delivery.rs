@@ -59,6 +59,10 @@ pub enum ActionError {
     /// renders (the rendered rows are the accepted set, the
     /// model-switch precedent).
     UnknownPersona(String),
+    /// The requested server name names no configured `[mcp.<name>]`
+    /// server (the rendered rows are the accepted set, the same
+    /// precedent).
+    UnknownMcpServer(String),
     /// The request named no configured `[[project.entry]]` (or the
     /// request carried none at all).
     UnknownProject(String),
@@ -96,6 +100,7 @@ impl ActionError {
             | Self::BotTarget(_)
             | Self::UnknownModel(_)
             | Self::UnknownPersona(_)
+            | Self::UnknownMcpServer(_)
             | Self::UnknownProject(_)
             | Self::BadProjectPath(_)
             | Self::UnknownLifecycle(_)
@@ -123,6 +128,9 @@ impl ActionError {
             Self::UnknownModel(id) => format!("model {id} is not in the available model rows"),
             Self::UnknownPersona(name) => {
                 format!("persona {name:?} is not in the rendered persona rows")
+            }
+            Self::UnknownMcpServer(name) => {
+                format!("server {name:?} is not a configured [mcp.<name>] server")
             }
             Self::UnknownProject(project) => {
                 format!("project {project:?} is not a configured [[project.entry]]")
@@ -385,6 +393,79 @@ pub async fn handle_persona(
     .await;
     bus.publish(MarkSessionInteracted { session_id }).await;
     Ok(blockless)
+}
+
+/// Handles one `POST /web/mcp` — the MCP modal's row click.
+///
+/// The web mirror of the TUI inspector's toggle: validates the
+/// session id and the server name against the `[mcp.<name>]` config
+/// section, XORs the server into/out of the session's enabled set
+/// (the desired state is derived server-side from the set the server
+/// actually holds — the wire never carries a desired-state field),
+/// writes the session state synchronously BEFORE the publish (the
+/// `handle_model` ordering: the POST's response fragment renders from
+/// state that already holds the toggled set), and publishes the
+/// existing [`jinn_mcp_msg::McpEnablementChanged`] carrying the **full
+/// desired set** — its documented contract, never a delta. No
+/// `PersistSession` rides along: the web adds no persistence behavior
+/// beyond what the TUI confirm performs, and the TUI toggle performs
+/// none.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] when the session id is malformed, no live
+/// session carries it, or the server name names nothing in the
+/// `[mcp.<name>]` section (the rendered rows are the accepted set).
+pub async fn handle_mcp_toggle(
+    state: &State,
+    config: &jinn_slices::ConfigLayer,
+    bus: &BusService,
+    session_id: &str,
+    server: &str,
+) -> Result<(), ActionError> {
+    let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+
+    // The configured set is the accepted set: the modal's rows are
+    // built from this section, so a name outside it was never
+    // rendered. (The config snapshot may lag a jinn.toml reload — the
+    // accepted staleness the session-new form shares.)
+    let configured = config
+        .get::<jinn_preferences_config::schemas::mcp::McpServersConfig>()
+        .is_ok_and(|servers| servers.0.contains_key(server));
+    if !configured {
+        return Err(ActionError::UnknownMcpServer(server.to_owned()));
+    }
+
+    {
+        let guard = state.read();
+        if !guard.session.contains(&session_id) {
+            return Err(ActionError::UnknownSession(session_id));
+        }
+    }
+
+    // Derive the full desired set and write it synchronously, BEFORE
+    // the publish — the stale-fragment rule. The cell handle rides the
+    // signature so the webui's cell wiring stays honest (the modal
+    // renders from it); the toggle itself rides session state, the
+    // enablement surface's one writer of record.
+    let desired = state.with_session(|view| {
+        let session = view.session.map().get_or_create(&session_id);
+        let mut enabled = session.enabled_mcp_servers().clone();
+        if enabled.remove(server) {
+            session.set_enabled_mcp_servers(enabled.clone());
+        } else {
+            enabled.insert(server.to_owned());
+            session.set_enabled_mcp_servers(enabled.clone());
+        }
+        enabled
+    });
+
+    bus.publish(jinn_mcp_msg::McpEnablementChanged {
+        session_id,
+        enabled: desired,
+    })
+    .await;
+    Ok(())
 }
 
 /// Handles one `POST /web/models/refresh` — the modal's refresh button.

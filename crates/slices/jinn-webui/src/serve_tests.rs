@@ -72,6 +72,12 @@ async fn harness_seeded_with_fanout(
             jinn_persona_msg::Personas::default(),
         )
         .expect("the personas cell registers once per harness");
+    let mcp_runtime_cell = slices
+        .register(
+            jinn_mcp_msg::mcp_runtime_slot(),
+            jinn_mcp_msg::McpRuntimeState::default(),
+        )
+        .expect("the MCP runtime cell registers once");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -122,6 +128,7 @@ async fn harness_seeded_with_fanout(
             )),
             provider_cell,
             personas_cell,
+            mcp_runtime_cell,
             jinn_provider_config::ProviderRegistryService::new(registry),
             jinn_provider_config::ApiKeysService::new(api_keys),
             jinn_config::empty_config_layer().clone(),
@@ -1000,5 +1007,66 @@ async fn a_models_push_reaches_a_live_stream_as_a_dispatchable_frame_with_data()
     assert!(
         saw_models_with_data,
         "a models frame with a non-empty data line arrived within the deadline"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_mcp_status_push_reaches_a_live_stream_as_a_dispatchable_signal_frame() {
+    // Given a live server holding a session and an open SSE stream.
+    let (base, seeded, harness_fanout) = harness_with_fanout(Some("Mcp push wire")).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    let mut stream = http
+        .get(format!("{base}{}{id}", crate::contract::STREAM_PREFIX))
+        .header("accept", "text/event-stream")
+        .send()
+        .await
+        .expect("the stream opens");
+    assert_eq!(stream.status(), 200);
+
+    // When the fan-out's broadcast channel carries an mcp-status
+    // envelope whose data line holds the runtime-write timestamp — the
+    // shape the post-status-write publish produces (the wire e2e for
+    // the signal-only push: what a browser receives, byte-level).
+    let stored_at = jiff::Timestamp::now();
+    harness_fanout.push_mcp_status_from(&id, stored_at);
+
+    // Then the stream yields a `patch-signals` frame whose data line
+    // carries the mcpTick signal (the open modal's re-pull effect) and
+    // never any HTML rows — the pull endpoint remains the renderer.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut saw_mcp_with_data = false;
+    while std::time::Instant::now() < deadline {
+        let Some(chunk) = stream.chunk().await.expect("stream chunk reads") else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&chunk);
+        for frame in text.split("\n\n") {
+            if frame.contains("event: datastar-patch-signals")
+                && frame.contains(crate::contract::SIGNAL_MCP_TICK)
+            {
+                assert!(
+                    frame.lines().any(|line| line
+                        .strip_prefix("data:")
+                        .is_some_and(|data| !data.trim().is_empty())),
+                    "the mcp frame must carry a data line with bytes (an empty \
+                     data buffer is never dispatched by a browser): {frame:?}"
+                );
+                assert!(
+                    !frame.contains(&format!("id=\"{}\"", crate::contract::MCP_MODAL_ID)),
+                    "the mcp push is a signal, never HTML rows: {frame:?}"
+                );
+                saw_mcp_with_data = true;
+            }
+        }
+        if saw_mcp_with_data {
+            break;
+        }
+    }
+    assert!(
+        saw_mcp_with_data,
+        "an mcp-status frame with a non-empty data line arrived within the deadline"
     );
 }

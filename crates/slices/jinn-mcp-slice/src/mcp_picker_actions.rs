@@ -38,29 +38,30 @@ type List = jinn_mcp_msg::McpPickerState;
 /// Builds the inspector's rows from the configured servers and the session's
 /// enabled set.
 ///
-/// Entries are marked enabled per the session's `enabled_mcp_servers` and
-/// sorted case-insensitively by name. Live status, stderr, and tools start
-/// empty; the render pass fills them for the highlighted server. Loading
-/// never touches the filesystem.
+/// Delegates to the shared builder in `jinn-mcp-msg`
+/// ([`jinn_mcp_msg::build_rows`]) — the same builder the web modal
+/// consumes, so the two surfaces cannot drift in order or enabled
+/// marks — and lifts the rows into theme-carrying entries. Entries are
+/// marked enabled per the session's `enabled_mcp_servers` and sorted
+/// case-insensitively by name (the shared builder's key, which the
+/// picker tests pin). Live status, stderr, and tools start empty; the
+/// render pass fills them for the highlighted server. Loading never
+/// touches the filesystem.
 #[must_use]
 pub fn build_entries(
     servers: &[(String, String)],
     enabled: &BTreeSet<String>,
     theme: &jinn_theme::Theme,
 ) -> Vec<McpServerEntry> {
-    let mut entries: Vec<McpServerEntry> = servers
-        .iter()
-        .map(|(name, description)| {
-            McpServerEntry::new(
-                name.clone(),
-                description.clone(),
-                enabled.contains(name),
-                theme.clone(),
-            )
+    jinn_mcp_msg::build_rows(servers, enabled, &std::collections::BTreeMap::new())
+        .into_iter()
+        .map(|row| {
+            let mut entry =
+                McpServerEntry::new(row.name, row.description, row.enabled, theme.clone());
+            entry.status = row.status;
+            entry
         })
-        .collect();
-    entries.sort_by_key(|e| e.name.to_lowercase());
-    entries
+        .collect()
 }
 
 /// Wraps entries for the selection widget, with the inspector's row, filter,

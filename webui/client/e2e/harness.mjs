@@ -27,6 +27,8 @@ const RUN_FILE = path.join(RUN_DIR, "run.json");
 const REPO_ROOT = path.resolve(here, "..", "..", "..");
 /** The debug binary the recipe builds before the suite runs. */
 const BIN_PATH = path.join(REPO_ROOT, "target", "debug", "jinn");
+/** The scratch luau script the `[mcp.echo]` entry serves. */
+const MCP_ECHO_SCRIPT = path.join(here, "mcp-echo-tool.lua");
 /** Where the scratch roots are created. */
 const TMP_BASE = path.join(os.tmpdir(), "jinn-webui-e2e");
 
@@ -62,6 +64,11 @@ models = ["phantom"]
 /**
  * Builds the scratch jinn.toml body — the bind is the only knob the
  * tier turns; the port is probed so the config can name it.
+ *
+ * The `[mcp.echo]` entry points at the repo's debug binary serving the
+ * scratch echo tool over stdio (`jinn luau serve`, network-free), so
+ * the MCP modal has a real server whose coordinator can reach
+ * `running` — the connection respawns per click on the session page.
  */
 function jinnTomlFor(port) {
   return `version = 1
@@ -77,6 +84,10 @@ path = "~/e2e-scratch"
 [[session_lifecycle.script]]
 name = "echo-setup"
 setup_command = "echo $1"
+
+[mcp.echo]
+command = "${BIN_PATH}"
+args = ["luau", "serve", "${MCP_ECHO_SCRIPT}"]
 `;
 }
 
