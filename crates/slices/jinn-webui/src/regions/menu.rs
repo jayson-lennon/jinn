@@ -142,14 +142,14 @@ mod menu_region_tests {
 
     #[rstest::rstest]
     #[test]
-    fn the_fragment_carries_the_button_and_the_three_items() {
+    fn the_fragment_carries_the_button_and_the_four_items() {
         // Given the session-page menu fragment.
         let html = fragment();
 
         // Then it renders the hamburger button, the hidden panel, and
-        // all three items — the new-session item, the persona item
-        // (a session is viewed), and the sessions item — the region's
-        // whole page presence.
+        // all four items — the new-session item, the persona item and
+        // the MCP item (a session is viewed), and the sessions item —
+        // the region's whole page presence.
         assert!(
             html.contains(&format!("id=\"{}\"", contract::MENU_BUTTON_ID)),
             "the hamburger button is missing: {html}"
@@ -170,8 +170,12 @@ mod menu_region_tests {
             html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_PERSONA_ID)),
             "the Persona item is missing: {html}"
         );
+        assert!(
+            html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_MCP_ID)),
+            "the MCP item is missing: {html}"
+        );
         let items = html.matches("menu-item").count();
-        assert_eq!(items, 3, "the panel lists all three items: {html}");
+        assert_eq!(items, 4, "the panel lists all four items: {html}");
         assert!(
             html.contains("Sessions"),
             "the item labels Sessions: {html}"
@@ -213,13 +217,46 @@ mod menu_region_tests {
 
     #[rstest::rstest]
     #[test]
-    fn the_landing_menu_omits_the_persona_item_entirely() {
+    fn the_mcp_item_pulls_into_the_mcp_modal_host_with_the_viewed_session() {
+        // Given the session-page menu fragment.
+        let html = fragment();
+
+        // Then the MCP item's pull targets the mcp-servers route for
+        // the viewed session and swaps into the MCP modal's own host
+        // span — never the menu's container (the host-not-container
+        // rule) — and opens the modal's signal so the pulled overlay
+        // renders visible.
+        let item = html
+            .split_once(&format!("id=\"{}\"", contract::MENU_ITEM_MCP_ID))
+            .and_then(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag.to_owned()))
+            .expect("the MCP item renders");
+        assert!(
+            item.contains(&format!(
+                "{}00000000-0000-0000-0000-000000000001",
+                contract::MCP_PICKER_PREFIX
+            )),
+            "the pull names the viewed session: {item}"
+        );
+        assert!(
+            item.contains(contract::MCP_MODAL_HOST_SELECTOR),
+            "the pull swaps into the MCP modal host: {item}"
+        );
+        assert!(
+            item.contains(&format!("${} = true", contract::SIGNAL_MCP_OPEN)),
+            "the click opens the modal signal: {item}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_landing_menu_omits_the_persona_and_mcp_items_entirely() {
         // Given the landing fragment (no viewed session).
         let html = landing_fragment();
 
-        // Then the persona item is absent from the markup — the server
-        // omits it, rather than shipping a hidden control the runtime
-        // must know to disable.
+        // Then the per-session items are absent from the markup — the
+        // server omits them, rather than shipping hidden controls the
+        // runtime must know to disable (persona and MCP enablement
+        // both bind per-session).
         assert!(
             !html.contains(contract::MENU_ITEM_PERSONA_ID),
             "the landing menu carries no persona item: {html}"
@@ -227,6 +264,14 @@ mod menu_region_tests {
         assert!(
             !html.contains(contract::PERSONA_PICKER_PREFIX),
             "the landing menu spells no persona URL: {html}"
+        );
+        assert!(
+            !html.contains(contract::MENU_ITEM_MCP_ID),
+            "the landing menu carries no MCP item: {html}"
+        );
+        assert!(
+            !html.contains(contract::MCP_PICKER_PREFIX),
+            "the landing menu spells no MCP URL: {html}"
         );
         // And the other two items still render.
         assert!(

@@ -100,7 +100,7 @@ impl std::ops::Deref for McpServersConfig {
 /// server when the reload event lands; a deleted entry leaves an
 /// already-running connection alone until session end.
 ///
-/// Declared in `jinn.toml` under `[mcp.server.<name>]` — the table name IS
+/// Declared in `jinn.toml` under `[mcp.<name>]` — the table name IS
 /// the server's identity (the per-session enablement identifier stored in
 /// `SessionCore::enabled_mcp_servers` and the tool-namespace segment
 /// `mcp__<name>__<tool>`); there is no `name` field to drift out of sync

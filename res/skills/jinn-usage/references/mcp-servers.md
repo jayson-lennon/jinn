@@ -223,6 +223,19 @@ dead. A dead server's captured stderr explains why; view it in the picker's
 preview. The agent can also restart a dead server itself via its built-in
 `restart_mcp_server` tool.
 
+### The web UI's MCP servers view
+
+The browser UI (the `[webui]` surface) mirrors enablement and status: open
+the hamburger menu (top-left `☰`) and pick **MCP servers**. The modal lists
+every server declared in `[mcp.<name>]` — name, launch summary, an
+enabled mark, and a live status badge (`starting` / `running` / `dead`);
+the badges update on their own while the modal is open. Clicking a row
+applies the toggle immediately for the viewed session — no staging, no
+confirm (unlike the TUI's `<Tab>` + `<enter>` flow); enabling spawns the
+connection, disabling kills it. Staging, previews, restarts, and per-server
+detail panes stay TUI-only, and the modal does not render for the landing
+page (no session viewed).
+
 ## Tools in context
 
 Enabled servers register their tools for the session automatically

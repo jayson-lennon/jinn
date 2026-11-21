@@ -131,6 +131,45 @@ pub struct McpServerLog {
 
 impl BusMessage for McpServerLog {}
 
+/// The MCP runtime cell's status projection was written.
+///
+/// Emitted by the coordinator **strictly after** every runtime-cell
+/// status write (`McpServerStatus` handling — per-session and
+/// singleton alike). This is the push trigger the webui fan-out
+/// subscribes, deliberately a distinct schema, never a re-subscription
+/// of the raw status facts:
+///
+/// `McpServerStatus` is an Event with **two** publishers (the
+/// connection actors and the coordinator) and **one** cell writer
+/// (the coordinator's handlers), so a push riding the raw event could
+/// land before the cell holds the transition — and the client's
+/// re-pull would read stale rows with no correction coming. The
+/// stored event is emitted only where the write happens, which closes
+/// exactly the race [`jinn_provider_selection_msg::ModelCacheStored`]
+/// was created to close for the model cache.
+///
+/// The payload carries one thing: `stored_at`, the write's timestamp,
+/// stamped by the emitter strictly after the cell write. It is
+/// provenance, not content — every consumer still renders by reading
+/// the cell (or re-pulling the fragment built from it), never from
+/// the event. The webui fan-out stamps it into its `mcp-status` SSE
+/// envelope's data line: an SSE event with an empty data buffer is
+/// discarded by the browser per the WHATWG stream spec (the frame
+/// never dispatches), so the signal must carry bytes to arrive.
+///
+/// Deliberately **not** emitted beside stderr writes
+/// (`McpServerLog`): the web modal renders no stderr, so a push on
+/// log writes would be noise with no rendering consumer.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
+#[schema(description = "The MCP runtime cell's status projection was written.")]
+pub struct McpRuntimeStored {
+    /// When the status write landed in the runtime cell. Read
+    /// provenance for signal-only consumers; never a data source.
+    pub stored_at: jiff::Timestamp,
+}
+
+impl BusMessage for McpRuntimeStored {}
+
 /// Kernel-side seam to the MCP coordinator actor.
 ///
 /// The coordinator actor type is private to the `jinn-mcp-slice` crate; the

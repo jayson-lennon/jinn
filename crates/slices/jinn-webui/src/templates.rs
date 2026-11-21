@@ -139,6 +139,9 @@ pub struct PageTemplate {
     /// The persona modal's host id — the third empty span sibling
     /// (the same host-not-container rule).
     pub persona_modal_host_id: &'static str,
+    /// The MCP modal's host id — the fourth empty span sibling (the
+    /// same host-not-container rule).
+    pub mcp_modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -197,6 +200,7 @@ impl PageTemplate {
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
+            mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -246,6 +250,7 @@ impl PageTemplate {
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
+            mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -301,6 +306,8 @@ pub struct PageRootTemplate {
     pub session_new_host_id: &'static str,
     /// The persona modal's host id.
     pub persona_modal_host_id: &'static str,
+    /// The MCP modal's host id.
+    pub mcp_modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -358,6 +365,7 @@ impl PageRootTemplate {
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
+            mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -560,6 +568,15 @@ pub struct MenuTemplate {
     pub persona_picker_url: String,
     /// The persona modal host's CSS selector — the pull's swap target.
     pub persona_modal_host_selector: &'static str,
+    /// The MCP item's id ("MCP servers"); rendered only when a session
+    /// is viewed (enablement binds per-session — the persona item's
+    /// rule).
+    pub menu_item_mcp_id: &'static str,
+    /// The MCP pull's URL prefix — the MCP item's `@get` target is
+    /// `<prefix><viewed session id>`.
+    pub mcp_picker_url: String,
+    /// The MCP modal host's CSS selector — the pull's swap target.
+    pub mcp_modal_host_selector: &'static str,
 }
 
 impl MenuTemplate {
@@ -584,6 +601,9 @@ impl MenuTemplate {
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
             persona_picker_url: format!("{}{viewed_session}", contract::PERSONA_PICKER_PREFIX),
             persona_modal_host_selector: contract::PERSONA_MODAL_HOST_SELECTOR,
+            menu_item_mcp_id: contract::MENU_ITEM_MCP_ID,
+            mcp_picker_url: format!("{}{viewed_session}", contract::MCP_PICKER_PREFIX),
+            mcp_modal_host_selector: contract::MCP_MODAL_HOST_SELECTOR,
         }
     }
 }
@@ -966,6 +986,92 @@ impl PersonaModalTemplate {
             rows_id: contract::PERSONA_ROWS_ID,
             modal_host_id: contract::PERSONA_MODAL_HOST_ID,
             picker_route: contract::PERSONA_PICKER_PREFIX,
+        }
+    }
+}
+
+/// One MCP server row of the MCP servers modal: the shared row
+/// builder's output (the TUI inspector consumes the same builder)
+/// plus the contract hooks the toggle POST needs. The status badge's
+/// class and label derive from the row's connection status — the
+/// TUI's `ServerRowState::derive` semantics verbatim (`None`/starting
+/// → "starting", running → "running", dead → "dead"), never
+/// re-derived here.
+#[derive(Template)]
+#[template(path = "mcp_row.html")]
+pub struct McpRowTemplate {
+    /// The shared builder's row data.
+    pub row: jinn_mcp_msg::McpServerRow,
+    /// The attribute a row names its server with — the toggle POST's
+    /// payload field.
+    pub server_attr: &'static str,
+    /// The attribute a row names its action with.
+    pub action_attr: &'static str,
+    /// The toggle action's contract name.
+    pub toggle_action: &'static str,
+    /// The toggle POST's endpoint.
+    pub toggle_path: &'static str,
+    /// The status badge's class suffix (`off`/`starting`/`running`/`dead`
+    /// — the shared badge's label verbatim).
+    pub status_class: &'static str,
+    /// The status badge's label.
+    pub status_label: &'static str,
+}
+
+impl McpRowTemplate {
+    /// Builds the template from a shared-builder row: the badge is the
+    /// msg crate's shared derivation — enablement first (a disabled
+    /// server reads `off` even when the runtime cell still holds the
+    /// killed connection's last report), then the connection status
+    /// with no-report rendered as `starting`.
+    #[must_use]
+    pub fn from_row(row: jinn_mcp_msg::McpServerRow) -> Self {
+        let badge = jinn_mcp_msg::McpRowBadge::derive(row.enabled, row.status);
+        let status_label = badge.label();
+        let status_class = status_label;
+        Self {
+            row,
+            server_attr: contract::MCP_SERVER_DATA_ATTR,
+            action_attr: contract::ACTION_DATA_ATTR,
+            toggle_action: contract::ACTION_MCP_TOGGLE,
+            toggle_path: contract::MCP_TOGGLE_PATH,
+            status_class,
+            status_label,
+        }
+    }
+}
+
+/// The MCP modal: the overlay with the unfiltered TUI-parity rows.
+/// Rendered into the MCP modal host by the GET pull; the client
+/// toggles its visibility, and the `mcpTick` effect re-pulls the rows
+/// when the coordinator's stored event lands (the modelsTick
+/// pattern). The rows arrive pre-rendered (each [`McpRowTemplate`]
+/// renders first — the shape the persona modal's rows use).
+#[derive(Template)]
+#[template(path = "mcp_modal.html")]
+pub struct McpModalTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The modal overlay's id.
+    pub modal_id: &'static str,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+    /// The modal host span's id — the pull's swap target.
+    pub modal_host_id: &'static str,
+    /// The MCP pull's route prefix — the tick effect's `@get` target.
+    pub picker_route: &'static str,
+}
+
+impl McpModalTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(rows: Vec<String>) -> Self {
+        Self {
+            rows,
+            modal_id: contract::MCP_MODAL_ID,
+            rows_id: contract::MCP_ROWS_ID,
+            modal_host_id: contract::MCP_MODAL_HOST_ID,
+            picker_route: contract::MCP_PICKER_PREFIX,
         }
     }
 }

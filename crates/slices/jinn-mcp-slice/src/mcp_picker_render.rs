@@ -182,16 +182,19 @@ fn tools_preview(entry: &McpServerEntry) -> Vec<Line<'static>> {
 }
 
 /// One styled line: `Status: running` colored by the live state.
+///
+/// The badge is the msg crate's shared derivation: a disabled server
+/// reads `off` no matter what the runtime cell still holds — a disable's
+/// kill lands asynchronously, and without the enablement-first rule the
+/// preview would show `running` for a connection the session just
+/// stopped wanting.
 fn status_badge_line(entry: &McpServerEntry) -> Line<'static> {
-    let (label, color) = match entry.status {
-        None => ("disabled", entry.theme.muted_text),
-        Some(jinn_mcp_msg::McpConnectionStatus::Starting) => {
-            ("starting", ratatui::style::Color::Yellow)
-        }
-        Some(jinn_mcp_msg::McpConnectionStatus::Running) => {
-            ("running", ratatui::style::Color::Green)
-        }
-        Some(jinn_mcp_msg::McpConnectionStatus::Dead) => ("dead", ratatui::style::Color::Red),
+    let badge = jinn_mcp_msg::McpRowBadge::derive(entry.enabled, entry.status);
+    let (label, color) = match badge {
+        jinn_mcp_msg::McpRowBadge::Off => ("off", entry.theme.muted_text),
+        jinn_mcp_msg::McpRowBadge::Starting => ("starting", ratatui::style::Color::Yellow),
+        jinn_mcp_msg::McpRowBadge::Running => ("running", ratatui::style::Color::Green),
+        jinn_mcp_msg::McpRowBadge::Dead => ("dead", ratatui::style::Color::Red),
     };
     Line::from(vec![
         Span::styled(

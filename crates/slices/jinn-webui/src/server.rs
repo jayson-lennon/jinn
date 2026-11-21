@@ -292,6 +292,10 @@ async fn overlay_reset_patches(
                 serde_json::Value::Bool(false),
             ),
             (
+                crate::contract::SIGNAL_MCP_OPEN,
+                serde_json::Value::Bool(false),
+            ),
+            (
                 crate::contract::SIGNAL_TITLE_EDITING,
                 serde_json::Value::Bool(false),
             ),
@@ -329,6 +333,10 @@ pub struct ServerShared {
     provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
     /// The personas cell, for the persona modal's TUI-parity rows.
     personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
+    /// The MCP runtime cell, for the MCP modal's TUI-parity rows (the
+    /// effective status projection — read-only: the cell's writer is
+    /// the MCP coordinator, never the web).
+    mcp_runtime: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
     /// The provider registry, for the picker's TUI-parity rows (the
     /// shared builder reads it for static providers, aliases, and
     /// availability).
@@ -356,6 +364,7 @@ impl ServerShared {
         session_store: jinn_session_state::SessionStoreService,
         provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
         personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
+        mcp_runtime: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
         provider_registry: jinn_provider_config::ProviderRegistryService,
         api_keys: jinn_provider_config::ApiKeysService,
         config: jinn_slices::ConfigLayer,
@@ -369,6 +378,7 @@ impl ServerShared {
             session_store,
             provider_cell,
             personas_cell,
+            mcp_runtime,
             provider_registry,
             api_keys,
             config,
@@ -427,6 +437,13 @@ impl ServerShared {
         &self.personas_cell
     }
 
+    /// The MCP runtime cell, for the MCP modal's status projection
+    /// (read-only — the coordinator is the cell's only writer).
+    #[must_use]
+    pub(crate) fn mcp_runtime(&self) -> &jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState> {
+        &self.mcp_runtime
+    }
+
     /// The provider registry, for the picker rows' shared builder.
     #[must_use]
     pub(crate) fn provider_registry(&self) -> &jinn_provider_config::ProviderRegistryService {
@@ -470,6 +487,7 @@ pub fn router(shared: ServerShared) -> Router {
         .route("/web/cancel", post(cancel))
         .route("/web/model", post(model))
         .route(crate::contract::PERSONA_PATH, post(persona))
+        .route(crate::contract::MCP_TOGGLE_PATH, post(mcp_toggle))
         .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
         .route("/web/session/{id}/activate", post(activate))
         .route(crate::contract::RENAME_ROUTE, post(rename))
@@ -845,6 +863,34 @@ async fn persona(
         serde_json::Value::Bool(false),
     )]));
     Ok(SseAction::new(events))
+}
+
+/// `POST /web/mcp` — toggle one MCP server's enablement for the
+/// viewed session. The web mirror of the TUI inspector's toggle:
+/// the delivery path validates, applies the XOR synchronously, and
+/// publishes `McpEnablementChanged` (the full desired set — never a
+/// delta). The response swaps the re-rendered modal — the row's mark
+/// and badge are correct the moment the response lands, so the modal
+/// stays open (per-click immediacy; there is no staged apply to
+/// confirm).
+async fn mcp_toggle(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<WebForm<jinn_webui_msg::McpToggleForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
+    crate::delivery::handle_mcp_toggle(
+        shared.state(),
+        shared.config(),
+        shared.bus(),
+        &form.session_id,
+        &form.server,
+    )
+    .await
+    .map_err(|error| fail(error.status(), error.sentence()))?;
+    Ok(SseAction::new(vec![element_patch_inner(
+        format!("#{}", crate::contract::MCP_MODAL_ID),
+        crate::regions::mcp_servers::modal_fragment(&shared, &form.session_id)?,
+    )]))
 }
 
 /// `POST /web/models/refresh` — the modal's refresh button. Publishes

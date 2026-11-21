@@ -235,6 +235,12 @@ fn harness_with<T>(
             jinn_persona_msg::Personas::default(),
         )
         .expect("the personas cell registers once per harness");
+    let mcp_runtime_cell = slices
+        .register(
+            jinn_mcp_msg::mcp_runtime_slot(),
+            jinn_mcp_msg::McpRuntimeState::default(),
+        )
+        .expect("the MCP runtime cell registers once");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -260,6 +266,7 @@ fn harness_with<T>(
         jinn_session_state::SessionStoreService::new(Arc::new(SeededSummaryStore::with(summaries))),
         provider_cell,
         personas_cell,
+        mcp_runtime_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
@@ -805,6 +812,12 @@ async fn a_harness_without_a_registry_renders_no_marks() {
             jinn_persona_msg::Personas::default(),
         )
         .expect("the personas cell registers once per harness");
+    let mcp_runtime_cell = slices
+        .register(
+            jinn_mcp_msg::mcp_runtime_slot(),
+            jinn_mcp_msg::McpRuntimeState::default(),
+        )
+        .expect("the MCP runtime cell registers once");
     let (bus, _audit) = BusService::new_recording();
     let fanout = {
         use trouper::system::ActorSystem;
@@ -823,6 +836,7 @@ async fn a_harness_without_a_registry_renders_no_marks() {
         jinn_session_state::SessionStoreService::new(Arc::new(SeededSummaryStore::default())),
         provider_cell,
         personas_cell,
+        mcp_runtime_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
