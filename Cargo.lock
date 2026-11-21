@@ -5889,6 +5889,7 @@ name = "jinn-tools-msg"
 version = "1.25.0"
 dependencies = [
  "jiff",
+ "jinn-bot-msg",
  "jinn-config",
  "jinn-core-types",
  "jinn-picker",

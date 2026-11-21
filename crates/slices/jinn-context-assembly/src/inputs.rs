@@ -1,28 +1,10 @@
 //! State capture for the stateless context-assembly service.
 
-use jinn_bot_msg::is_bot_tool_definition;
 use jinn_context_assembly_msg::AssemblyInputs;
 use jinn_core_types::{DEFAULT_PERSONA_NAME, SessionId};
 use jinn_kernel::common::app_state::AppState;
 use jinn_session_state::AssemblySessionProjection;
-
-/// Whether `session` is offered the tool definition `def`.
-///
-/// A non-bot sees none of the bot-only tools. A bot sees `conclude`
-/// always — recording a conclusion needs no parent — and `notify_parent`
-/// only when it has one to notify.
-fn bot_sees_tool(
-    session: &AssemblySessionProjection,
-    def: &jinn_core_types::tool_types::ToolDefinition,
-) -> bool {
-    if !session.is_bot {
-        return !is_bot_tool_definition(def);
-    }
-    if !is_bot_tool_definition(def) {
-        return true;
-    }
-    session.bot_has_parent || def.name == "conclude"
-}
+use jinn_tools_msg::bot_sees_tool;
 
 /// Builds a coherent assembly request from the current application state.
 ///
@@ -57,12 +39,13 @@ pub fn build_assembly_inputs(
     // never sees them offered rather than being offered and refused.
     // Of the bot tools, a parentless bot sees `conclude` only —
     // `notify_parent` has no parent to wake, and offering it would be
-    // offering a call that can only fail.
+    // offering a call that can only fail. The gate's single definition
+    // lives in `jinn-tools-msg`.
     let tools = state
         .tool_registry()
         .map_or_default(|cell| cell.read().tools_for_session(session_id))
         .into_iter()
-        .filter(|def| bot_sees_tool(&session, def))
+        .filter(|def| bot_sees_tool(session.is_bot, session.bot_has_parent, def))
         .collect();
 
     AssemblyInputs {
