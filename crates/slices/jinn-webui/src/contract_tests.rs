@@ -62,11 +62,8 @@ fn row(session_id: jinn_core_types::SessionId, title: &str, active: bool) -> Ses
 /// `GET /web/session/{id}` serves.
 fn rendered_page() -> String {
     let sessions = sessions_fragment_of(&[]);
-    let transcript = templates::render(&templates::TranscriptTemplate {
-        entries: Vec::new(),
-        start: 0,
-    })
-    .expect("an empty transcript renders");
+    let transcript = templates::render(&templates::TranscriptTemplate::new(Vec::new(), 0))
+        .expect("an empty transcript renders");
     let controls = templates::render(&templates::ControlsTemplate::with_contract(
         "00000000-0000-0000-0000-000000000000".to_owned(),
         false,
@@ -677,7 +674,7 @@ fn every_sse_kind_maps_to_a_datastar_transport() {
     // Given every SSE kind the server can push (derived from the
     // enum, not a hand-maintained list).
     let kinds = [
-        jinn_webui_msg::SseKind::Chat,
+        jinn_webui_msg::SseKind::Streaming,
         jinn_webui_msg::SseKind::Controls,
         jinn_webui_msg::SseKind::Sessions,
         jinn_webui_msg::SseKind::Models,
