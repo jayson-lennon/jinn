@@ -1634,6 +1634,527 @@ singleton = true
     }
 }
 
+mod skill_actions {
+    use super::*;
+
+    /// Writes `skills` into a session's ephemeral discovered set (the
+    /// state write the scan actor's handling performs) — the toggle
+    /// and load handlers' accepted set.
+    fn discover(state: &State, id: &SessionId, names: &[&str]) {
+        let dir = jinn_testutil::tempdir();
+        let skills = names
+            .iter()
+            .map(|name| jinn_skills_msg::Skill {
+                name: (*name).to_owned(),
+                description: format!("{name} description"),
+                body: format!("{name} body"),
+                file_path: dir
+                    .path
+                    .join_all([name, "SKILL.md"])
+                    .expect("typed parent joins bare names"),
+                base_dir: dir
+                    .path
+                    .join(name)
+                    .expect("typed parent joins a bare name"),
+                source: jinn_skills_msg::SkillSource::Global,
+            })
+            .collect();
+        state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(id)
+                .set_discovered_skills(skills);
+        });
+    }
+
+    /// Reads the session's skill filter back from state.
+    fn filter_of(state: &State, id: &SessionId) -> Option<jinn_core_types::NameFilter> {
+        state
+            .read()
+            .session
+            .get(id)
+            .map_or_default(|session| session.skill_filter().cloned())
+    }
+
+    /// Slices one row's div-to-`</div>` fragment out of unfolded SSE
+    /// markup (the mcp row-slice pattern).
+    fn row_of(unfolded: &str, skill: &str) -> String {
+        let marker = format!("{}=\"{skill}\"", crate::contract::SKILL_NAME_DATA_ATTR);
+        let (before, _after) = unfolded
+            .split_once(&marker)
+            .unwrap_or_else(|| panic!("a row renders for {skill}: {unfolded}"));
+        let start = before
+            .rfind("<div")
+            .unwrap_or_else(|| panic!("a row div precedes the {skill} marker"));
+        let end = unfolded
+            .get(start..)
+            .and_then(|tail| tail.find("</div>"))
+            .unwrap_or_else(|| panic!("the {skill} row closes"));
+        unfolded
+            .get(start..start + end + "</div>".len())
+            .unwrap_or_else(|| panic!("the {skill} row slices cleanly"))
+            .to_owned()
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_toggle_withholds_and_publishes_nothing() {
+        // Given a live session with two discovered skills and no
+        // filter (the boot state).
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        discover(&state, &id, &["alpha", "beta"]);
+
+        // When posting a toggle naming `alpha`.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::SKILL_TOGGLE_PATH,
+            &format!("session_id={id}&skill=alpha"),
+        )
+        .await;
+
+        // Then the ack is OK, the filter now exists and withholds
+        // exactly `alpha` (deny mode — the materialized inherited
+        // filter with the one decision carried), and the bus records
+        // NO publish (TUI parity: the toggle publishes nothing).
+        assert_eq!(status, StatusCode::OK);
+        let filter = filter_of(&state, &id).expect("a filter materializes");
+        assert_eq!(filter.mode, jinn_core_types::FilterMode::Deny);
+        assert_eq!(
+            filter.names,
+            ["alpha".to_owned()].into_iter().collect::<std::collections::BTreeSet<_>>()
+        );
+        assert!(!state.read().session.get(&id).map_or(false, |session| session
+            .is_skill_enabled("alpha")));
+        assert_eq!(audit.names().len(), 0);
+        // And the response is the re-rendered modal with the flip on
+        // the alpha row (the stale-fragment pattern).
+        assert!(
+            body.contains(&format!("id=\"{}\"", crate::contract::SKILL_MODAL_ID)),
+            "{body}"
+        );
+        let unfolded = body.replace("data: elements ", "");
+        let row = row_of(&unfolded, "alpha");
+        assert!(
+            !row.contains("skill-row-enabled"),
+            "the toggled-off row renders hollow: {row}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_toggle_permits_back_preserving_the_deny_mode() {
+        // Given a live session whose filter withholds `alpha` (a
+        // previous toggle).
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        discover(&state, &id, &["alpha", "beta"]);
+        state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(&id)
+                .set_skill_filter(Some(jinn_core_types::NameFilter::deny([
+                    "alpha".to_owned(),
+                ])));
+        });
+
+        // When posting a toggle naming `alpha` again.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::SKILL_TOGGLE_PATH,
+            &format!("session_id={id}&skill=alpha"),
+        )
+        .await;
+
+        // Then the ack is OK and the same deny filter now names
+        // nothing — the name left the deny list, the mode survived.
+        assert_eq!(status, StatusCode::OK);
+        let filter = filter_of(&state, &id).expect("the filter survives");
+        assert_eq!(filter.mode, jinn_core_types::FilterMode::Deny);
+        assert_eq!(filter.names.len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_toggle_preserves_an_allow_mode_filter() {
+        // Given a live session under an allow filter permitting only
+        // `alpha` (a bot-frozen session, the mode the deny-clobber
+        // would demote).
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        discover(&state, &id, &["alpha", "beta"]);
+        state.with_session(|view| {
+            view.session.map().get_or_create(&id).set_skill_filter(Some(
+                jinn_core_types::NameFilter {
+                    mode: jinn_core_types::FilterMode::Allow,
+                    names: ["alpha".to_owned()].into_iter().collect(),
+                },
+            ));
+        });
+
+        // When toggling `beta` (withheld by the allow list) to permit
+        // it.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::SKILL_TOGGLE_PATH,
+            &format!("session_id={id}&skill=beta"),
+        )
+        .await;
+
+        // Then the filter is STILL allow mode and now permits both
+        // names — permit added `beta` instead of rewriting the filter
+        // as deny(disabled), which would have withheld everything
+        // else the allow list was permitting.
+        assert_eq!(status, StatusCode::OK);
+        let filter = filter_of(&state, &id).expect("the filter survives");
+        assert_eq!(filter.mode, jinn_core_types::FilterMode::Allow);
+        assert_eq!(
+            filter.names,
+            ["alpha".to_owned(), "beta".to_owned()]
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        // And the allow-listed skill the click did not touch is
+        // untouched in state.
+        assert!(state.read().session.get(&id).map_or(false, |session| session
+            .is_skill_enabled("alpha")));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_toggle_on_a_loaded_skill_is_a_silent_no_op() {
+        // Given a live session with one discovered skill whose body is
+        // pinned in history (the loaded state).
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        discover(&state, &id, &["pinned"]);
+        state.with_session(|view| {
+            let session = view.session.map().get_or_create(&id);
+            let call = jinn_core_types::ChatEntry::tool_call(
+                "call-1",
+                "skill",
+                "{\"name\":\"pinned\"}",
+            );
+            let mut result = jinn_core_types::ChatEntry::tool_result(
+                "call-1",
+                "skill",
+                "<skill name=\"pinned\" location=\"/tmp/pinned/SKILL.md\">\npinned body\n</skill>",
+                jinn_core_types::ToolResultStatus::Success,
+            );
+            result.pin_position = Some(jinn_core_types::PinPosition::Relative);
+            session.push_entry(call);
+            session.push_entry(result);
+        });
+
+        // When posting a toggle naming `pinned`.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::SKILL_TOGGLE_PATH,
+            &format!("session_id={id}&skill=pinned"),
+        )
+        .await;
+
+        // Then the ack is OK but NOTHING changes: no filter
+        // materializes (the absent filter stays absent — the TUI
+        // no-op, verbatim) and nothing publishes.
+        assert_eq!(status, StatusCode::OK);
+        assert!(filter_of(&state, &id).is_none());
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_toggle_refuses_a_skill_outside_the_discovered_set() {
+        // Given a live session with one discovered skill.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        discover(&state, &id, &["real"]);
+
+        // When posting a toggle naming a skill that was never
+        // rendered.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::SKILL_TOGGLE_PATH,
+            &format!("session_id={id}&skill=ghost"),
+        )
+        .await;
+
+        // Then it refuses with 400 and publishes nothing, and no
+        // filter materializes.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("discovered skills"), "{body}");
+        assert!(filter_of(&state, &id).is_none());
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_toggle_refuses_an_unknown_session() {
+        // Given no live session carrying the ghost id.
+        let (_state, audit, _slices, router) = harness();
+        let ghost = SessionId::new();
+
+        // When posting a toggle for it.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::SKILL_TOGGLE_PATH,
+            &format!("session_id={ghost}&skill=alpha"),
+        )
+        .await;
+
+        // Then it refuses with 404 and publishes nothing.
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_toggle_refuses_a_malformed_session_id() {
+        // Given the default harness.
+        let (_state, audit, _slices, router) = harness();
+
+        // When posting a toggle whose session id is not a UUID.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::SKILL_TOGGLE_PATH,
+            "session_id=not-a-uuid&skill=alpha",
+        )
+        .await;
+
+        // Then it refuses with 400 and publishes nothing.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_load_pins_the_wrapped_pair_and_publishes_interacted() {
+        // Given a live session with one discovered, enabled skill.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        discover(&state, &id, &["alpha"]);
+
+        // When posting a load naming `alpha`.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::SKILL_LOAD_PATH,
+            &format!("session_id={id}&skill=alpha"),
+        )
+        .await;
+
+        // Then the ack is OK, history holds exactly the pinned pair —
+        // the tool call naming the `skill` tool and the success result
+        // carrying the wrapped body, pinned relative — and the bus
+        // names exactly one MarkSessionInteracted (the only publish).
+        assert_eq!(status, StatusCode::OK);
+        let (call_name, result_content, pinned) = state
+            .read()
+            .session
+            .get(&id)
+            .map_or_else(Default::default, |session| {
+                let history = session.history();
+                let call_name = history.iter().rev().find_map(|entry| match &entry.kind {
+                    jinn_core_types::ChatEntryKind::ToolCall { name, .. } => Some(name.clone()),
+                    _ => None,
+                });
+                let result_content = history.iter().rev().find_map(|entry| match &entry.kind {
+                    jinn_core_types::ChatEntryKind::ToolResult { content, .. } => {
+                        Some(content.clone())
+                    }
+                    _ => None,
+                });
+                let pinned = history
+                    .iter()
+                    .filter(|entry| entry.is_pinned())
+                    .count();
+                (call_name, result_content, pinned)
+            });
+        assert_eq!(call_name.as_deref(), Some("skill"));
+        assert!(
+            result_content
+                .as_deref()
+                .is_some_and(|content| content.contains("<skill name=\"alpha\" location=\"")),
+            "the body rides wrapped: {result_content:?}"
+        );
+        assert!(pinned >= 1, "the result is pinned");
+        let published = audit.of_type::<jinn_session_msg::MarkSessionInteracted>();
+        let [message] = published.as_slice() else {
+            panic!(
+                "exactly one MarkSessionInteracted was published, got {}",
+                published.len()
+            )
+        };
+        assert_eq!(message.session_id, id);
+        // And the response swaps both the re-rendered modal and the
+        // transcript — the pinned pair lands without a reload. The
+        // transcript fragment carries entries only (its container id is
+        // the patch selector, not markup), so the swap is probed by
+        // selector.
+        assert!(
+            body.contains(&format!("id=\"{}\"", crate::contract::SKILL_MODAL_ID)),
+            "{body}"
+        );
+        assert!(
+            body.contains(&format!(
+                "selector #{}",
+                crate::contract::TRANSCRIPT_ID
+            )),
+            "{body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_load_auto_enables_a_disabled_skill_durably() {
+        // Given a live session with `beta` discovered but withheld by
+        // a deny filter.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        discover(&state, &id, &["beta"]);
+        state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(&id)
+                .set_skill_filter(Some(jinn_core_types::NameFilter::deny([
+                    "beta".to_owned(),
+                ])));
+        });
+
+        // When posting a load naming `beta`.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::SKILL_LOAD_PATH,
+            &format!("session_id={id}&skill=beta"),
+        )
+        .await;
+
+        // Then the ack is OK, the pair pinned, and the filter now
+        // permits `beta` (the name left the deny list — the durable
+        // auto-enable), with the interaction mark published.
+        assert_eq!(status, StatusCode::OK);
+        assert!(state.read().session.get(&id).map_or(false, |session| session
+            .is_skill_enabled("beta")));
+        let filter = filter_of(&state, &id).expect("the filter survives");
+        assert_eq!(filter.names.len(), 0);
+        assert_eq!(audit.of_type::<jinn_session_msg::MarkSessionInteracted>().len(), 1);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_load_on_a_loaded_skill_appends_the_notice_instead_of_a_pair() {
+        // Given a live session where `alpha` is already loaded (a
+        // prior load).
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        discover(&state, &id, &["alpha"]);
+        post_form(
+            &router,
+            crate::contract::SKILL_LOAD_PATH,
+            &format!("session_id={id}&skill=alpha"),
+        )
+        .await;
+        let pairs_before = state.read().session.get(&id).map_or(0, |session| {
+            session
+                .history()
+                .iter()
+                .filter(|entry| {
+                    matches!(
+                        &entry.kind,
+                        jinn_core_types::ChatEntryKind::ToolCall { name, .. } if name == "skill"
+                    )
+                })
+                .count()
+        });
+
+        // When posting a load naming `alpha` again.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::SKILL_LOAD_PATH,
+            &format!("session_id={id}&skill=alpha"),
+        )
+        .await;
+
+        // Then the ack is OK, NO second pair appended, the TUI's
+        // transient notice appended instead, and no second interaction
+        // mark published (the TUI's duplicate branch publishes
+        // nothing).
+        assert_eq!(status, StatusCode::OK);
+        let (pairs_after, notice) = state
+            .read()
+            .session
+            .get(&id)
+            .map_or_else(Default::default, |session| {
+                let history = session.history();
+                let pairs = history
+                    .iter()
+                    .filter(|entry| {
+                        matches!(
+                            &entry.kind,
+                            jinn_core_types::ChatEntryKind::ToolCall { name, .. } if name == "skill"
+                        )
+                    })
+                    .count();
+                let notice = history.iter().any(|entry| {
+                    matches!(&entry.kind, jinn_core_types::ChatEntryKind::Transient(text)
+                        if text == "Skill 'alpha' is already loaded")
+                });
+                (pairs, notice)
+            });
+        assert_eq!(pairs_after, pairs_before);
+        assert!(notice, "the duplicate notice appends");
+        assert_eq!(audit.of_type::<jinn_session_msg::MarkSessionInteracted>().len(), 1);
+        // And the response re-renders the transcript, where the notice
+        // is visible (askama escapes the apostrophe).
+        let unfolded = body.replace("data: elements ", "");
+        assert!(
+            unfolded.contains("Skill &#39;alpha&#39; is already loaded"),
+            "the notice renders into the transcript swap: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_load_refuses_a_skill_outside_the_discovered_set() {
+        // Given a live session with one discovered skill.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        discover(&state, &id, &["real"]);
+
+        // When posting a load naming a skill that was never rendered.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::SKILL_LOAD_PATH,
+            &format!("session_id={id}&skill=ghost"),
+        )
+        .await;
+
+        // Then it refuses with 400, appends nothing, and publishes
+        // nothing.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn skill_load_refuses_an_unknown_session() {
+        // Given no live session carrying the ghost id.
+        let (_state, audit, _slices, router) = harness();
+        let ghost = SessionId::new();
+
+        // When posting a load for it.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::SKILL_LOAD_PATH,
+            &format!("session_id={ghost}&skill=alpha"),
+        )
+        .await;
+
+        // Then it refuses with 404 and publishes nothing.
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(audit.names().len(), 0);
+    }
+}
+
 mod rename_actions {
     use super::*;
 

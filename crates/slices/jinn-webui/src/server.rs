@@ -488,6 +488,8 @@ pub fn router(shared: ServerShared) -> Router {
         .route("/web/model", post(model))
         .route(crate::contract::PERSONA_PATH, post(persona))
         .route(crate::contract::MCP_TOGGLE_PATH, post(mcp_toggle))
+        .route(crate::contract::SKILL_TOGGLE_PATH, post(skill_toggle))
+        .route(crate::contract::SKILL_LOAD_PATH, post(skill_load))
         .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
         .route("/web/session/{id}/activate", post(activate))
         .route(crate::contract::RENAME_ROUTE, post(rename))
@@ -891,6 +893,75 @@ async fn mcp_toggle(
         format!("#{}", crate::contract::MCP_MODAL_ID),
         crate::regions::mcp_servers::modal_fragment(&shared, &form.session_id)?,
     )]))
+}
+
+/// `POST /web/skills/toggle` — toggle one skill's enablement for the
+/// viewed session. The web mirror of the TUI picker's toggle: the
+/// delivery path validates the name against the session's discovered
+/// set, applies the mode-preserving `permit`/`withhold` to the
+/// session's skill filter synchronously, and publishes nothing (the
+/// TUI toggle publishes nothing — the skill gate reads the filter
+/// live). A loaded skill toggles nothing (the TUI no-op). The
+/// response swaps the re-rendered modal — the row's mark is correct
+/// the moment the response lands, so the modal stays open (per-click
+/// immediacy).
+async fn skill_toggle(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<WebForm<jinn_webui_msg::SkillToggleForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
+    crate::delivery::handle_skill_toggle(
+        shared.state(),
+        shared.bus(),
+        &form.session_id,
+        &form.skill,
+    )
+    .await
+    .map_err(|error| fail(error.status(), error.sentence()))?;
+    Ok(SseAction::new(vec![element_patch_inner(
+        format!("#{}", crate::contract::SKILL_MODAL_ID),
+        crate::regions::skills::modal_fragment(&shared, &form.session_id)?,
+    )]))
+}
+
+/// `POST /web/skills/load` — force-load a skill into the viewed
+/// session's context. The web mirror of the TUI picker's `<c-l>`: the
+/// delivery path pins the tool-call/result pair, auto-enables durably
+/// when disabled, and publishes `MarkSessionInteracted` (the only
+/// publish; an already-loaded skill appends the transient notice
+/// instead of a pair). The response swaps the re-rendered modal AND
+/// the transcript — the pinned pair (or the duplicate's notice) is
+/// visible without a reload (the persona-switch POST precedent: the
+/// fan-out handles no chat-entry event, so the POST response is the
+/// only correction path).
+async fn skill_load(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<WebForm<jinn_webui_msg::SkillLoadForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
+    crate::delivery::handle_skill_load(
+        shared.state(),
+        shared.bus(),
+        &form.session_id,
+        &form.skill,
+    )
+    .await
+    .map_err(|error| fail(error.status(), error.sentence()))?;
+    let id = parse_session_id(&form.session_id)?;
+    let transcript_html = {
+        let guard = shared.read_state();
+        crate::regions::transcript::transcript_full_fragment(&id, &guard)
+    };
+    Ok(SseAction::new(vec![
+        element_patch_inner(
+            format!("#{}", crate::contract::SKILL_MODAL_ID),
+            crate::regions::skills::modal_fragment(&shared, &form.session_id)?,
+        ),
+        element_patch_inner(
+            format!("#{}", crate::contract::TRANSCRIPT_ID),
+            transcript_html,
+        ),
+    ]))
 }
 
 /// `POST /web/models/refresh` — the modal's refresh button. Publishes
