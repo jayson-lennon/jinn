@@ -28,18 +28,22 @@ pub enum TruncatedBy {
     /// The byte limit was exceeded.
     Bytes,
     /// The output was written to a file requested by the caller
-    /// (`dump_to_disk`) and replaced in-context by a pointer stub.
+    /// (`dump_to_path`) and replaced in-context by a pointer stub.
     DumpedToDisk,
 }
 
 /// The reserved tool-call argument that opts a single call into having its
 /// result written to disk and replaced in-context by a pointer stub.
 ///
+/// The field's contract is *either pass in a path or omit the field entirely*:
+/// a true/false value (the boolean-flag misreading) is rejected with a
+/// corrective result instead of being treated as a path.
+///
 /// Lives in the layer-0 vocabulary because three layers name it: the tools
 /// family peeks it from call arguments, the provider-facing vocabulary
 /// injects it into every mirrored tool schema, and the dump helper applies
 /// it on both producer paths.
-pub const DUMP_TO_DISK_ARG: &str = "dump_to_disk";
+pub const DUMP_TO_PATH_ARG: &str = "dump_to_path";
 
 /// Metadata about a truncation operation on tool output.
 ///

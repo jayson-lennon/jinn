@@ -32,7 +32,9 @@ use jinn_kernel::common::services::bus_service::BusService;
 use jinn_kernel::common::state::State;
 use jinn_mcp_msg::McpConnectionStatus;
 use jinn_session_msg::SessionClosed;
-use jinn_tools_msg::dump::{DUMP_PREVIEW_BYTES, apply_dump, extract_dump_path};
+use jinn_tools_msg::dump::{
+    DUMP_CORRECTION, DUMP_PREVIEW_BYTES, DumpDecision, apply_dump, classify_dump_argument,
+};
 use jinn_tools_msg::{CancelToolBatch, ExecuteTool, ExecuteToolBatch, RegisterTools};
 use jinn_tools_msg::{
     ProviderVisibilityChanged, ToolExecutionCompleted, ToolsRegistered, ToolsUnregistered,
@@ -988,6 +990,30 @@ impl ToolOrchestratorActor {
         tokio::spawn(async move {
             use futures::FutureExt as _;
             use std::panic::AssertUnwindSafe;
+            // The corrective gate runs on both builtin paths (this one and
+            // the managed wrapper below): a true/false dump argument must
+            // fail the call before the tool executes, whichever path it
+            // arrives on.
+            if let DumpDecision::Corrective = classify_dump_argument(&tool_call.arguments) {
+                let result = ToolResult {
+                    tool_call_id: call_id.clone(),
+                    name: call_name.clone(),
+                    content: DUMP_CORRECTION.to_owned(),
+                    success: false,
+                    full_content: None,
+                    truncation: None,
+                    pin_position: None,
+                    attachments: Vec::new(),
+                };
+                bus.publish(ToolExecutionCompleted {
+                    session_id,
+                    result,
+                    turn,
+                    synthesized: false,
+                })
+                .await;
+                return;
+            }
             let inner: BoxedToolFuture = if self_managed_timeout {
                 execute_fn(tool_call, tool_ctx)
             } else {
@@ -1039,7 +1065,7 @@ impl ToolOrchestratorActor {
                 // Read the same truncation limits builtins use so MCP results
                 // are bounded identically. `build_tool_context` does the same
                 // read for the builtin path. The cwd rides too so the MCP
-                // actor can resolve the reserved `dump_to_disk` path.
+                // actor can resolve the reserved `dump_to_path` path.
                 let tools = self
                     .services
                     .config
@@ -1258,19 +1284,24 @@ pub(crate) fn extract_max_duration(arguments: &str) -> Option<u64> {
 /// On timeout the returned `ToolResult` carries a failure message that names
 /// `max_duration_secs` and shows an example call so the model can retry with a larger budget.
 ///
-/// A successful result is also run through the reserved `dump_to_disk`
+/// A successful result is also run through the reserved `dump_to_path`
 /// intercept: a call carrying that argument has its output written to the
 /// named file and the in-context result replaced by a pointer stub. Timeout
-/// results are never dumped — the failure narrative is the result.
+/// results are never dumped — the failure narrative is the result. A call
+/// whose dump argument is a true/false spelling is rejected before the tool
+/// runs, with [`DUMP_CORRECTION`] as the failure result — the corrective
+/// message is the whole result, never an annotation on real work.
 async fn run_builtin_with_timeout(
     tool_call: ToolCall,
     tool_ctx: ToolContext,
     execute_fn: fn(ToolCall, ToolContext) -> BoxedToolFuture,
 ) -> ToolResult {
-    // Peeked before the move into `execute_fn`: the dump intercept runs on
-    // whatever the tool returns, and the timeout arm's failure narrative is
-    // exempt by construction (a failed result is never dumped).
-    let dump_path = extract_dump_path(&tool_call.arguments);
+    // Classified before the move into `execute_fn`: the timeout arm's
+    // failure narrative is exempt from dumping by construction (a failed
+    // result is never dumped); the Corrective short-circuit lives in the
+    // dispatch task above so a true/false dump argument never executes a
+    // tool on either builtin path.
+    let dump = classify_dump_argument(&tool_call.arguments);
     let cwd = tool_ctx.cwd.clone();
     let call_id = tool_call.id.clone();
     let call_name = tool_call.name.clone();
@@ -1298,7 +1329,7 @@ async fn run_builtin_with_timeout(
         },
         None => execute_fn(tool_call, tool_ctx).await,
     };
-    if let Some(dump_path) = dump_path {
+    if let DumpDecision::Dump(dump_path) = dump {
         apply_dump(&mut result, &dump_path, cwd.as_path(), DUMP_PREVIEW_BYTES);
     }
     result
@@ -1563,11 +1594,11 @@ mod timeout_tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn dump_to_disk_call_writes_file_and_stubs_result() {
-        // Given a call carrying dump_to_disk and a tool that completes.
+    async fn dump_to_path_call_writes_file_and_stubs_result() {
+        // Given a call carrying dump_to_path and a tool that completes.
         let dir = jinn_testutil::tempdir();
         let mut call = make_call();
-        call.arguments = r#"{"dump_to_disk":"research/page.md"}"#.to_owned();
+        call.arguments = r#"{"dump_to_path":"research/page.md"}"#.to_owned();
 
         // When running the tool.
         let result = run_builtin_with_timeout(call, empty_ctx(&dir.path), fast_execute).await;
@@ -1591,7 +1622,7 @@ mod timeout_tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn call_without_dump_to_disk_is_unchanged() {
+    async fn call_without_dump_to_path_is_unchanged() {
         // Given a call without the reserved argument.
         let dir = jinn_testutil::tempdir();
 
@@ -1608,10 +1639,10 @@ mod timeout_tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn timed_out_result_is_never_dumped() {
-        // Given a call carrying dump_to_disk whose tool exceeds the global timeout.
+        // Given a call carrying dump_to_path whose tool exceeds the global timeout.
         let dir = jinn_testutil::tempdir();
         let mut call = make_call();
-        call.arguments = r#"{"dump_to_disk":"page.md"}"#.to_owned();
+        call.arguments = r#"{"dump_to_path":"page.md"}"#.to_owned();
         let mut ctx = empty_ctx(&dir.path);
         ctx.timeout = Some(Duration::from_millis(50));
 
@@ -1847,6 +1878,7 @@ mod mcp_dispatch_gate_tests {
     use jinn_testutil::bus_harness::{TestHarness, await_recorded};
     use jinn_tools_msg::{CancelToolBatch, ExecuteTool, ExecuteToolBatch, RegisterTools};
     use jinn_tools_msg::{ToolExecutionCompleted, ToolsUnregistered};
+    use marked_path::MarkedPathAccess as _;
 
     use super::{ToolOrchestratorActor, ToolOrchestratorActorDeps};
 
@@ -2359,6 +2391,91 @@ mod mcp_dispatch_gate_tests {
         assert!(
             messages.is_empty(),
             "a batch during a cancel drain must not run; got {messages:?}"
+        );
+    }
+
+    /// A builtin-filtered spawn: only `get_time` registers, so the batch
+    /// below exercises the real builtin dispatch path (the corrective gate
+    /// in the spawn task) without the rest of the builtin catalog.
+    async fn spawn_builtin_only_orchestrator(
+        state: &State,
+    ) -> (TestHarness, jinn_kernel::common::services::Services) {
+        let harness = TestHarness::new().await;
+        let services = harness.services().await;
+        let _runtime = services
+            .slices
+            .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
+            .expect("the catalog registers the MCP runtime cell");
+        ToolOrchestratorActor::spawn(
+            &services.trouper_system.clone(),
+            ToolOrchestratorActorDeps {
+                deps: jinn_kernel::common::actor_deps::ActorDeps {
+                    services: services.clone(),
+                },
+                state: state.clone(),
+                services: services.clone(),
+                builtin_filter: Some(vec!["get_time".to_owned()]),
+            },
+        );
+        (harness, services)
+    }
+
+    fn get_time_call(arguments: &str) -> ToolCall {
+        ToolCall {
+            id: "tc_time".into(),
+            name: "get_time".to_owned(),
+            arguments: arguments.to_owned(),
+        }
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn corrective_dump_argument_fails_the_builtin_before_execution() {
+        // Given a builtin-only orchestrator, a session with a default cwd
+        // under a test-owned root, and a recorder for completions.
+        let dir = jinn_testutil::tempdir();
+        let state = State::new(AppState::default());
+        let session_id = SessionId::new();
+        state.write().session.set_default_cwd(dir.path.clone());
+        let (harness, services) = spawn_builtin_only_orchestrator(&state).await;
+        let results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+        services
+            .turn_ledger
+            .mint(
+                &session_id,
+                jinn_kernel::common::turn_ledger::MintKind::FreshTurn,
+            )
+            .expect("fixture mint");
+
+        // When dispatching a get_time call whose dump argument spells false.
+        harness
+            .publish(ExecuteToolBatch {
+                session_id: session_id.clone(),
+                tool_calls: vec![get_time_call(r#"{"dump_to_path":"false"}"#)],
+                dispatched_at: jiff::Timestamp::now(),
+                turn: services.turn_ledger.live(&session_id).expect("live").turn,
+            })
+            .await;
+
+        // Then the call fails with the corrective contract text, and no
+        // file named false was written under the session cwd — the tool
+        // never executed and the dump never ran.
+        let messages = await_recorded(&results, 1, Duration::from_secs(3)).await;
+        assert_eq!(messages.len(), 1, "got: {messages:?}");
+        let result = &messages[0].result;
+        assert!(!result.success, "{result:?}");
+        assert!(
+            result.content.contains("dump_to_path"),
+            "expected the corrective contract text, got: {}",
+            result.content
+        );
+        let entries = std::fs::read_dir(dir.path.as_path())
+            .expect("cwd readable")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("cwd entries readable");
+        assert!(
+            entries.is_empty(),
+            "a file named false must not exist; got {entries:?}"
         );
     }
 }
