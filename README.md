@@ -5,6 +5,7 @@ A TUI agent harness with multi-session support and Vim-style keybinds.
 [CHANGELOG](./CHANGELOG.md)
 
 ![Screenshot](doc/screenshots/full.png)
+![Screenshot](doc/screenshots/webui.png)
 
 ## Major Features
 
@@ -136,6 +137,7 @@ Run TUI apps in a separate task that an agent can interact with.
 
 `jinn` support many standard agent harness-y things, including:
 
+- Web interface (works, but not yet fully TUI parity)
 - `AGENTS.md` and `~/.agents` skill discovery
 - Live configuration reload
 - Custom prompts inlined with `#prompt-name`
