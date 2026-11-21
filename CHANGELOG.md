@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- (webui) Keystrokes no longer erroneously close modals.
+
 ## 2026-11-20 v1.26.0
 
 - Add minimal webui.
