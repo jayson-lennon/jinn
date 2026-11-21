@@ -44,7 +44,9 @@ use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_mcp_msg::{McpConnectionStatus, McpServerLog, McpServerStatus};
 use jinn_preferences_config::schemas::mcp::{McpServerConfig, TransportKind};
-use jinn_tools_msg::dump::{DUMP_PREVIEW_BYTES, apply_dump, extract_dump_path};
+use jinn_tools_msg::dump::{
+    DUMP_CORRECTION, DUMP_PREVIEW_BYTES, DumpDecision, apply_dump, classify_dump_argument,
+};
 use jinn_tools_msg::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail};
 use jinn_tools_msg::{ExecuteTool, RegisterTools};
 use jinn_tools_msg::{ToolExecutionCompleted, ToolsUnregistered};
@@ -988,7 +990,22 @@ impl MsgHandler<ExecuteTool> for McpActor {
         let tool_call = msg.tool_call.clone();
         let max_output_lines = msg.max_output_lines;
         let max_output_bytes = msg.max_output_bytes;
-        let dump_path = extract_dump_path(&msg.tool_call.arguments);
+
+        // The corrective gate runs before the arguments parse and before any
+        // server call: a dump argument spelling true/false is the boolean-flag
+        // misreading, and the call fails with [`DUMP_CORRECTION`] instead of
+        // executing or writing a file named `false`.
+        if let DumpDecision::Corrective = classify_dump_argument(&tool_call.arguments) {
+            self.deps
+                .publish(ToolExecutionCompleted {
+                    session_id,
+                    result: failure_result(&tool_call, DUMP_CORRECTION),
+                    turn: msg.turn,
+                    synthesized: false,
+                })
+                .await;
+            return;
+        }
 
         let arguments = match parse_arguments(&tool_call.arguments) {
             Ok(args) => args,
@@ -1049,14 +1066,19 @@ impl MsgHandler<ExecuteTool> for McpActor {
             }
         };
 
-        // The reserved `dump_to_disk` intercept runs before the publish: a
-        // successful call carrying the argument has its original text written
-        // to the agent-chosen path and the in-context result stubbed. The
-        // cwd rides on the command from the orchestrator; without it the dump
-        // is skipped — degrade, never guess. A relative path resolves against
-        // the carried cwd, exactly as a builtin tool path would.
-        if let (Some(dump_path), Some(cwd)) = (&dump_path, msg.cwd.as_deref()) {
-            apply_dump(&mut result, dump_path, Path::new(cwd), DUMP_PREVIEW_BYTES);
+        // The reserved `dump_to_path` intercept runs before the publish: a
+        // successful call whose dump argument classified as a real path has
+        // its original text written to the agent-chosen path and the
+        // in-context result stubbed. The Corrective case never reaches here
+        // — the gate above rejected the call before the server was invoked.
+        // The cwd rides on the command from the orchestrator; without it the
+        // dump is skipped — degrade, never guess. A relative path resolves
+        // against the carried cwd, exactly as a builtin tool path would.
+        if let (DumpDecision::Dump(dump_path), Some(cwd)) = (
+            classify_dump_argument(&tool_call.arguments),
+            msg.cwd.as_deref(),
+        ) {
+            apply_dump(&mut result, &dump_path, Path::new(cwd), DUMP_PREVIEW_BYTES);
         }
 
         self.deps

@@ -178,6 +178,47 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
 
 #[rstest::rstest]
 #[test]
+fn the_page_shell_carries_the_webapp_install_links() {
+    // Given the fully rendered page shell.
+    let page = rendered_page();
+
+    // Then the head carries every tag installability reads — the
+    // manifest link, the favicon (the Android shortcut builder's icon
+    // source), the apple-touch icon, and the theme color. Each
+    // referenced asset is a real vendor row, so a renamed file fails
+    // here rather than silently 404ing in a browser.
+    let markers = [
+        format!("{}manifest.webmanifest\"", contract::VENDOR_PREFIX),
+        format!("{}icon-favicon-32.png\"", contract::VENDOR_PREFIX),
+        format!("{}icon-apple-touch-180.png\"", contract::VENDOR_PREFIX),
+    ];
+    for marker in markers {
+        assert!(
+            page.contains(&marker),
+            "the page head must reference {marker}; got: {page}"
+        );
+    }
+    assert!(page.contains("rel=\"manifest\""), "{page}");
+    assert!(page.contains("rel=\"apple-touch-icon\""), "{page}");
+    assert!(page.contains("<meta name=\"theme-color\""), "{page}");
+    // And each referenced path is a vouched vendor row.
+    for path in [
+        "manifest.webmanifest",
+        "icon-favicon-32.png",
+        "icon-apple-touch-180.png",
+        "icon-192.png",
+        "icon-512.png",
+        "icon-maskable-512.png",
+    ] {
+        assert!(
+            crate::vendor::resolve_request(path).is_some(),
+            "the page shell names {path} but no vendor row vouches for it"
+        );
+    }
+}
+
+#[rstest::rstest]
+#[test]
 fn the_client_script_tag_names_the_vendored_bundle() {
     // Given the fully rendered page shell.
     let page = rendered_page();

@@ -582,8 +582,9 @@ pub const VENDOR_PREFIX: &str = "/vendor/";
 
 /// The Datastar browser bundle's served filename inside `/vendor/` —
 /// what the page's `<script>` loads. The bundle is committed vendored
-/// bytes (the manifest's one row), not build output: with the
-/// TypeScript client gone, nothing in-repo regenerates it.
+/// bytes (with the webapp install assets, the manifest and the icon
+/// set), not build output: with the TypeScript client gone, nothing
+/// in-repo regenerates them.
 pub const VENDOR_APP_JS: &str = "datastar.js";
 
 /// The contract's DOM-targeting constants: id, attribute, class, and
