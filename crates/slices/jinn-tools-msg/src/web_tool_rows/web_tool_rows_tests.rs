@@ -248,6 +248,73 @@ fn rows_render_everything_on_with_no_filter() {
     assert!(rows.iter().all(|row| row.enabled));
 }
 
+#[rstest::rstest]
+#[test]
+fn rows_truncate_the_description_to_its_first_sentence() {
+    // Given a definition whose description runs several sentences.
+    let mut definitions = defs(&["bash"]);
+    definitions[0].description =
+        "Runs a shell command. Captures stdout and stderr. Times out after the configured limit."
+            .to_owned();
+
+    // When building the modal rows.
+    let rows = modal_rows(&definitions, "openrouter", false, false, None);
+
+    // Then the row carries only the first sentence — the summary stays
+    // scannable in the modal.
+    assert_eq!(rows[0].description, "Runs a shell command.");
+}
+
+#[rstest::rstest]
+#[test]
+fn rows_keep_a_single_sentence_description_whole() {
+    // Given a definition whose description is one sentence with no
+    // trailing period and no further sentences.
+    let mut definitions = defs(&["bash"]);
+    definitions[0].description = "Runs a shell command".to_owned();
+
+    // When building the modal rows.
+    let rows = modal_rows(&definitions, "openrouter", false, false, None);
+
+    // Then the row carries the text verbatim — truncation never
+    // damages a description that is already one sentence.
+    assert_eq!(rows[0].description, "Runs a shell command");
+}
+
+#[rstest::rstest]
+#[test]
+fn rows_truncate_at_a_sentence_boundary_not_an_abbreviation() {
+    // Given a description whose first sentence contains a decimal
+    // number (a naive split on '.' would cut mid-sentence).
+    let mut definitions = defs(&["bash"]);
+    definitions[0].description =
+        "Times out after 2.5 seconds by default. Override the limit per call.".to_owned();
+
+    // When building the modal rows.
+    let rows = modal_rows(&definitions, "openrouter", false, false, None);
+
+    // Then the row carries through the real sentence end — the UAX#29
+    // boundary, not the decimal point.
+    assert_eq!(
+        rows[0].description,
+        "Times out after 2.5 seconds by default."
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn rows_truncate_an_empty_description_to_empty() {
+    // Given a definition with an empty description.
+    let mut definitions = defs(&["bash"]);
+    definitions[0].description = String::new();
+
+    // When building the modal rows.
+    let rows = modal_rows(&definitions, "openrouter", false, false, None);
+
+    // Then the row's summary is empty — no panic, no fallback text.
+    assert_eq!(rows[0].description, "");
+}
+
 // ---------------------------------------------------------------------------
 // committed_tool_filter
 // ---------------------------------------------------------------------------

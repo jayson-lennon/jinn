@@ -60,10 +60,10 @@ highlights:
   page and pick **Tools**. The modal lists the registry's tools for the
   viewed session — provider-gated (tools the current provider cannot run
   are absent), bot-gated (`conclude` always for a bot, `notify_parent`
-  only with a parent), sorted by name — each row showing its name,
-  description, and an on/off mark read from the session's live
-  `tool_filter`. Clicking a row commits immediately for the viewed
-  session: the filter becomes a deny filter over the off-rows with the
+  only with a parent), sorted by name — each row showing its name, the
+  description's first sentence, and an on/off mark read from the
+  session's live `tool_filter`. Clicking a row commits immediately for
+  the viewed session: the filter becomes a deny filter over the off-rows with the
   clicked tool flipped (the TUI `<enter>` confirm's semantic, applied per
   click — no staging, no confirm). Dismissing with `Esc` or an overlay
   click **reverts** to the filter the session held when the modal

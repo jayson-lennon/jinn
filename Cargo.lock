@@ -5907,6 +5907,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "trouper",
+ "unicode-segmentation",
 ]
 
 [[package]]

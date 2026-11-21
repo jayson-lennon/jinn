@@ -15,21 +15,42 @@
 use jinn_bot_msg::is_bot_tool_definition;
 use jinn_core_types::NameFilter;
 use jinn_core_types::ToolDefinition;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// One tool row ready for display, presentation-free.
 ///
 /// `enabled` is derived from the session's live tool filter at row build,
 /// the same predicate the prompt's gate applies — a row the filter withholds
 /// renders off, so committing the rendered state reproduces the filter.
+/// `description` is the definition description's **first sentence**: the
+/// row summary stays scannable when a definition carries a multi-sentence
+/// brief, and the toggle semantics never read the description — the name
+/// is the identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebToolRow {
     /// The tool's name — the identity a toggle POST validates against the
     /// rendered rows.
     pub name: String,
-    /// Human-readable description shown beside the name.
+    /// The description's first sentence, shown beside the name.
     pub description: String,
     /// Whether the session's live filter currently permits the tool.
     pub enabled: bool,
+}
+
+/// The first UAX#29 sentence of `description`, verbatim — the row
+/// summary's scannable form. Splitting rides `unicode-segmentation`'s
+/// sentence boundaries (never a manual split on `.`, which would cut
+/// abbreviations and decimals in half). A description whose text yields
+/// no sentence (empty, or no alphanumeric content) truncates to the
+/// empty string rather than the whole text.
+#[must_use]
+fn first_sentence(description: &str) -> String {
+    description
+        .split_sentence_bounds()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_owned()
 }
 
 /// Whether a session with the given bot facts is offered tool definition
@@ -79,7 +100,7 @@ pub fn modal_rows(
         .filter(|def| bot_sees_tool(is_bot, bot_has_parent, def))
         .map(|def| WebToolRow {
             name: def.name.clone(),
-            description: def.description.clone(),
+            description: first_sentence(&def.description),
             enabled: tool_filter.is_none_or(|filter| filter.permits(&def.name)),
         })
         .collect();
