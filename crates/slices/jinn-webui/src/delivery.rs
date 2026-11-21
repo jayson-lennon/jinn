@@ -772,9 +772,8 @@ pub async fn handle_rename(
 /// Returns [`ActionError`] when the session id is malformed, no live
 /// session carries it, or the skill name names nothing in the
 /// session's discovered set (the rendered rows are the accepted set).
-pub async fn handle_skill_toggle(
+pub fn handle_skill_toggle(
     state: &State,
-    bus: &BusService,
     session_id: &str,
     skill: &str,
 ) -> Result<(), ActionError> {
@@ -815,10 +814,9 @@ pub async fn handle_skill_toggle(
         session.set_skill_filter(Some(filter));
     });
 
-    // TUI parity: the toggle publishes nothing. The bus parameter
-    // stays in the signature so every delivery handler shares one
-    // shape (state, bus, ids) and a future semantic has the handle.
-    let _ = bus;
+    // TUI parity: the toggle publishes nothing — the sync write is the
+    // whole behavior, so this handler is synchronous (no bridge, no
+    // await).
     Ok(())
 }
 
@@ -913,9 +911,7 @@ pub async fn handle_skill_load(
     // as a pinned success tool result sharing the call's id.
     let xml = format!(
         "<skill name=\"{}\" location=\"{}\">\n{}\n</skill>",
-        discovered.name,
-        discovered.file_path,
-        discovered.body
+        discovered.name, discovered.file_path, discovered.body
     );
     let arguments = serde_json::json!({ "name": discovered.name }).to_string();
     let tool_call_id = ChatEntryId::new().to_string();
@@ -926,12 +922,8 @@ pub async fn handle_skill_load(
             "skill",
             arguments,
         ));
-        let mut result = ChatEntry::tool_result(
-            tool_call_id,
-            "skill",
-            xml,
-            ToolResultStatus::Success,
-        );
+        let mut result =
+            ChatEntry::tool_result(tool_call_id, "skill", xml, ToolResultStatus::Success);
         result.pin_position = Some(PinPosition::Relative);
         session.push_entry(result);
     });

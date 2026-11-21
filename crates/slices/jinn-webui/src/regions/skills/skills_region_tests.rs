@@ -124,11 +124,7 @@ fn discovered(dir: &marked_path::MarkedPathBuf<marked_path::Absolute>) -> Vec<Sk
 
 /// Writes `skills` into the session's ephemeral discovered set (the
 /// state write the scan actor's handling performs).
-fn discover(
-    state: &jinn_kernel::State,
-    session: &jinn_core_types::SessionId,
-    skills: Vec<Skill>,
-) {
+fn discover(state: &jinn_kernel::State, session: &jinn_core_types::SessionId, skills: Vec<Skill>) {
     state.with_session(|view| {
         view.session
             .map()
@@ -241,7 +237,10 @@ async fn every_row_carries_mark_name_description_and_source_badge() {
     // badge (the TUI badge rule), and the force-load button with its
     // class hook.
     let row = row_fragment(&html, "solo");
-    assert!(row.contains("solo description"), "description renders: {row}");
+    assert!(
+        row.contains("solo description"),
+        "description renders: {row}"
+    );
     assert!(
         row.contains("skill-source-project"),
         "the project badge renders: {row}"
@@ -266,9 +265,7 @@ async fn a_global_skill_renders_no_source_badge() {
         file_path: dir
             .join_all(["global", "SKILL.md"])
             .expect("typed parent joins bare names"),
-        base_dir: dir
-            .join("global")
-            .expect("typed parent joins a bare name"),
+        base_dir: dir.join("global").expect("typed parent joins a bare name"),
         source: SkillSource::Global,
     };
     discover(&state, &id, vec![skill]);
@@ -298,9 +295,7 @@ async fn the_enabled_mark_lands_on_exactly_the_permitted_skills() {
         view.session
             .map()
             .get_or_create(&id)
-            .set_skill_filter(Some(jinn_core_types::NameFilter::deny(
-                ["beta".to_owned()],
-            )));
+            .set_skill_filter(Some(jinn_core_types::NameFilter::deny(["beta".to_owned()])));
     });
 
     // When rendering the modal.
@@ -348,11 +343,8 @@ async fn a_session_that_died_mid_view_renders_an_empty_modal() {
     let (_state, shared) = harness();
 
     // When rendering the modal for that id.
-    let html = super::modal_fragment(
-        &shared,
-        "00000000-0000-0000-0000-000000000000",
-    )
-    .expect("the modal renders");
+    let html = super::modal_fragment(&shared, "00000000-0000-0000-0000-000000000000")
+        .expect("the modal renders");
 
     // Then the overlay and empty rows container render, with no rows
     // — an empty modal, not an error (the pull is the renderer; a

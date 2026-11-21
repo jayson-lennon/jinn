@@ -146,33 +146,28 @@ fn skill_rows(shared: &crate::server::ServerShared, session_id: &str) -> Vec<Ski
         return Vec::new();
     };
     let guard = shared.read_state();
-    let rows = guard.session.get(&id).map_or_default(|session| {
-        let enabled = |name: &str| session.is_skill_enabled(name);
+    guard.session.get(&id).map_or_default(|session| {
         session
             .discovered_skills()
             .iter()
             .map(|skill| SkillRowRead {
                 skill: skill.clone(),
-                enabled: enabled(&skill.name),
+                enabled: session.is_skill_enabled(&skill.name),
             })
             .collect::<Vec<_>>()
-    });
-    rows
+    })
 }
 
 /// Builds the web rows for one render: [`jinn_skills_msg::Skill`]
 /// plus each row's enablement, sorted case-insensitively by name (the
 /// shared builders' order the persona and MCP modals render in).
 #[must_use]
-fn sorted_rows(
-    shared: &crate::server::ServerShared,
-    session_id: &str,
-) -> Vec<(Skill, bool)> {
+fn sorted_rows(shared: &crate::server::ServerShared, session_id: &str) -> Vec<(Skill, bool)> {
     let mut rows: Vec<(Skill, bool)> = skill_rows(shared, session_id)
         .into_iter()
         .map(|read| (read.skill, read.enabled))
         .collect();
-    rows.sort_by(|left, right| left.0.name.to_lowercase().cmp(&right.0.name.to_lowercase()));
+    rows.sort_by_key(|(skill, _)| skill.name.to_lowercase());
     rows
 }
 

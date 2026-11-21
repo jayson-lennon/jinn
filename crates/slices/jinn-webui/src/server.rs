@@ -910,14 +910,8 @@ async fn skill_toggle(
     form: Result<WebForm<jinn_webui_msg::SkillToggleForm>, HandlerError>,
 ) -> Result<SseAction, HandlerError> {
     let WebForm(form) = form?;
-    crate::delivery::handle_skill_toggle(
-        shared.state(),
-        shared.bus(),
-        &form.session_id,
-        &form.skill,
-    )
-    .await
-    .map_err(|error| fail(error.status(), error.sentence()))?;
+    crate::delivery::handle_skill_toggle(shared.state(), &form.session_id, &form.skill)
+        .map_err(|error| fail(error.status(), error.sentence()))?;
     Ok(SseAction::new(vec![element_patch_inner(
         format!("#{}", crate::contract::SKILL_MODAL_ID),
         crate::regions::skills::modal_fragment(&shared, &form.session_id)?,
@@ -939,14 +933,9 @@ async fn skill_load(
     form: Result<WebForm<jinn_webui_msg::SkillLoadForm>, HandlerError>,
 ) -> Result<SseAction, HandlerError> {
     let WebForm(form) = form?;
-    crate::delivery::handle_skill_load(
-        shared.state(),
-        shared.bus(),
-        &form.session_id,
-        &form.skill,
-    )
-    .await
-    .map_err(|error| fail(error.status(), error.sentence()))?;
+    crate::delivery::handle_skill_load(shared.state(), shared.bus(), &form.session_id, &form.skill)
+        .await
+        .map_err(|error| fail(error.status(), error.sentence()))?;
     let id = parse_session_id(&form.session_id)?;
     let transcript_html = {
         let guard = shared.read_state();

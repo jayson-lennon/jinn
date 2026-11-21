@@ -356,7 +356,7 @@ mod tests {
             )),
             "{joined}"
         );
-        assert!(!joined.contains("<"), "{joined}");
+        assert!(!joined.contains('<'), "{joined}");
     }
 
     #[rstest::rstest]

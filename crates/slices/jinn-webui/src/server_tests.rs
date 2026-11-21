@@ -1652,10 +1652,7 @@ mod skill_actions {
                     .path
                     .join_all([name, "SKILL.md"])
                     .expect("typed parent joins bare names"),
-                base_dir: dir
-                    .path
-                    .join(name)
-                    .expect("typed parent joins a bare name"),
+                base_dir: dir.path.join(name).expect("typed parent joins a bare name"),
                 source: jinn_skills_msg::SkillSource::Global,
             })
             .collect();
@@ -1722,10 +1719,17 @@ mod skill_actions {
         assert_eq!(filter.mode, jinn_core_types::FilterMode::Deny);
         assert_eq!(
             filter.names,
-            ["alpha".to_owned()].into_iter().collect::<std::collections::BTreeSet<_>>()
+            ["alpha".to_owned()]
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
         );
-        assert!(!state.read().session.get(&id).map_or(false, |session| session
-            .is_skill_enabled("alpha")));
+        assert!(
+            !state
+                .read()
+                .session
+                .get(&id)
+                .is_none_or(|session| session.is_skill_enabled("alpha"))
+        );
         assert_eq!(audit.names().len(), 0);
         // And the response is the re-rendered modal with the flip on
         // the alpha row (the stale-fragment pattern).
@@ -1750,12 +1754,9 @@ mod skill_actions {
         let id = seed_session(&state);
         discover(&state, &id, &["alpha", "beta"]);
         state.with_session(|view| {
-            view.session
-                .map()
-                .get_or_create(&id)
-                .set_skill_filter(Some(jinn_core_types::NameFilter::deny([
-                    "alpha".to_owned(),
-                ])));
+            view.session.map().get_or_create(&id).set_skill_filter(Some(
+                jinn_core_types::NameFilter::deny(["alpha".to_owned()]),
+            ));
         });
 
         // When posting a toggle naming `alpha` again.
@@ -1816,8 +1817,13 @@ mod skill_actions {
         );
         // And the allow-listed skill the click did not touch is
         // untouched in state.
-        assert!(state.read().session.get(&id).map_or(false, |session| session
-            .is_skill_enabled("alpha")));
+        assert!(
+            state
+                .read()
+                .session
+                .get(&id)
+                .is_none_or(|session| session.is_skill_enabled("alpha"))
+        );
     }
 
     #[rstest::rstest]
@@ -1830,11 +1836,8 @@ mod skill_actions {
         discover(&state, &id, &["pinned"]);
         state.with_session(|view| {
             let session = view.session.map().get_or_create(&id);
-            let call = jinn_core_types::ChatEntry::tool_call(
-                "call-1",
-                "skill",
-                "{\"name\":\"pinned\"}",
-            );
+            let call =
+                jinn_core_types::ChatEntry::tool_call("call-1", "skill", "{\"name\":\"pinned\"}");
             let mut result = jinn_core_types::ChatEntry::tool_result(
                 "call-1",
                 "skill",
@@ -1947,28 +1950,26 @@ mod skill_actions {
         // carrying the wrapped body, pinned relative — and the bus
         // names exactly one MarkSessionInteracted (the only publish).
         assert_eq!(status, StatusCode::OK);
-        let (call_name, result_content, pinned) = state
-            .read()
-            .session
-            .get(&id)
-            .map_or_else(Default::default, |session| {
-                let history = session.history();
-                let call_name = history.iter().rev().find_map(|entry| match &entry.kind {
-                    jinn_core_types::ChatEntryKind::ToolCall { name, .. } => Some(name.clone()),
-                    _ => None,
+        let (call_name, result_content, pinned) =
+            state
+                .read()
+                .session
+                .get(&id)
+                .map_or_else(Default::default, |session| {
+                    let history = session.history();
+                    let call_name = history.iter().rev().find_map(|entry| match &entry.kind {
+                        jinn_core_types::ChatEntryKind::ToolCall { name, .. } => Some(name.clone()),
+                        _ => None,
+                    });
+                    let result_content = history.iter().rev().find_map(|entry| match &entry.kind {
+                        jinn_core_types::ChatEntryKind::ToolResult { content, .. } => {
+                            Some(content.clone())
+                        }
+                        _ => None,
+                    });
+                    let pinned = history.iter().filter(|entry| entry.is_pinned()).count();
+                    (call_name, result_content, pinned)
                 });
-                let result_content = history.iter().rev().find_map(|entry| match &entry.kind {
-                    jinn_core_types::ChatEntryKind::ToolResult { content, .. } => {
-                        Some(content.clone())
-                    }
-                    _ => None,
-                });
-                let pinned = history
-                    .iter()
-                    .filter(|entry| entry.is_pinned())
-                    .count();
-                (call_name, result_content, pinned)
-            });
         assert_eq!(call_name.as_deref(), Some("skill"));
         assert!(
             result_content
@@ -1995,10 +1996,7 @@ mod skill_actions {
             "{body}"
         );
         assert!(
-            body.contains(&format!(
-                "selector #{}",
-                crate::contract::TRANSCRIPT_ID
-            )),
+            body.contains(&format!("selector #{}", crate::contract::TRANSCRIPT_ID)),
             "{body}"
         );
     }
@@ -2015,9 +2013,7 @@ mod skill_actions {
             view.session
                 .map()
                 .get_or_create(&id)
-                .set_skill_filter(Some(jinn_core_types::NameFilter::deny([
-                    "beta".to_owned(),
-                ])));
+                .set_skill_filter(Some(jinn_core_types::NameFilter::deny(["beta".to_owned()])));
         });
 
         // When posting a load naming `beta`.
@@ -2032,11 +2028,21 @@ mod skill_actions {
         // permits `beta` (the name left the deny list — the durable
         // auto-enable), with the interaction mark published.
         assert_eq!(status, StatusCode::OK);
-        assert!(state.read().session.get(&id).map_or(false, |session| session
-            .is_skill_enabled("beta")));
+        assert!(
+            state
+                .read()
+                .session
+                .get(&id)
+                .is_none_or(|session| session.is_skill_enabled("beta"))
+        );
         let filter = filter_of(&state, &id).expect("the filter survives");
         assert_eq!(filter.names.len(), 0);
-        assert_eq!(audit.of_type::<jinn_session_msg::MarkSessionInteracted>().len(), 1);
+        assert_eq!(
+            audit
+                .of_type::<jinn_session_msg::MarkSessionInteracted>()
+                .len(),
+            1
+        );
     }
 
     #[rstest::rstest]
@@ -2079,13 +2085,14 @@ mod skill_actions {
         // mark published (the TUI's duplicate branch publishes
         // nothing).
         assert_eq!(status, StatusCode::OK);
-        let (pairs_after, notice) = state
-            .read()
-            .session
-            .get(&id)
-            .map_or_else(Default::default, |session| {
-                let history = session.history();
-                let pairs = history
+        let (pairs_after, notice) =
+            state
+                .read()
+                .session
+                .get(&id)
+                .map_or_else(Default::default, |session| {
+                    let history = session.history();
+                    let pairs = history
                     .iter()
                     .filter(|entry| {
                         matches!(
@@ -2094,15 +2101,20 @@ mod skill_actions {
                         )
                     })
                     .count();
-                let notice = history.iter().any(|entry| {
-                    matches!(&entry.kind, jinn_core_types::ChatEntryKind::Transient(text)
+                    let notice = history.iter().any(|entry| {
+                        matches!(&entry.kind, jinn_core_types::ChatEntryKind::Transient(text)
                         if text == "Skill 'alpha' is already loaded")
+                    });
+                    (pairs, notice)
                 });
-                (pairs, notice)
-            });
         assert_eq!(pairs_after, pairs_before);
         assert!(notice, "the duplicate notice appends");
-        assert_eq!(audit.of_type::<jinn_session_msg::MarkSessionInteracted>().len(), 1);
+        assert_eq!(
+            audit
+                .of_type::<jinn_session_msg::MarkSessionInteracted>()
+                .len(),
+            1
+        );
         // And the response re-renders the transcript, where the notice
         // is visible (askama escapes the apostrophe).
         let unfolded = body.replace("data: elements ", "");
