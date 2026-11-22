@@ -35,6 +35,14 @@ pub const TRANSCRIPT_WRAP_ID: &str = "transcript-wrap";
 /// The transcript's entry container — chat appends here.
 pub const TRANSCRIPT_ID: &str = "transcript";
 
+/// The transcript's **streaming container** — the in-flight turn's
+/// rendered tail swaps here. The last child of [`TRANSCRIPT_ID`], so
+/// settled entries (above it) and streamed entries (inside it) never
+/// interleave; the `transcript-full` inner replace clears it
+/// structurally at every settle, because the full fragment carries the
+/// empty container as its own last child.
+pub const STREAMING_ID: &str = "streaming";
+
 /// The composer-controls container — send↔cancel swaps here.
 pub const CONTROLS_ID: &str = "composer-controls";
 
@@ -115,6 +123,12 @@ pub const ACTION_SEND: &str = "send";
 
 /// The cancel form's action name.
 pub const ACTION_CANCEL: &str = "cancel";
+
+/// The queue form's action name — the composer's queue button, shown
+/// beside cancel while the session is working. It posts the send
+/// endpoint verbatim (the session actor queues a busy-phase enqueue),
+/// so it is a value of [`ACTION_DATA_ATTR`], not a new route.
+pub const ACTION_QUEUE: &str = "queue";
 
 /// The model form's action name.
 pub const ACTION_MODEL: &str = "model";
@@ -215,12 +229,6 @@ pub const SIGNAL_MODELS_REFRESHING: &str = "modelsRefreshing";
 /// modal's effect re-pulls its rows in response.
 pub const SIGNAL_MODELS_TICK: &str = "modelsTick";
 
-/// The transcript-append tick — bumped alongside every streamed
-/// transcript patch (append and full replace). The transcript wrap's
-/// scroll effect reads it: a change means the transcript grew, and a
-/// reader keeping watch on the tail scrolls to it. Purely a client
-/// reactive key — no surface reads its value.
-pub const SIGNAL_CHAT_TICK: &str = "chatTick";
 /// The sessions-list tick — every pushed list refresh bumps it; the
 /// list's effect re-pulls with the active filter (pushed lists are
 /// signal-only: the pull remains the renderer).
@@ -677,6 +685,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     SESSIONS_FILTER_INPUT_ID,
     TRANSCRIPT_WRAP_ID,
     TRANSCRIPT_ID,
+    STREAMING_ID,
     CONTROLS_ID,
     MODEL_PICKER_ID,
     MODEL_PICKER_MODAL_HOST_ID,
@@ -689,6 +698,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_DATA_ATTR,
     ACTION_SEND,
     ACTION_CANCEL,
+    ACTION_QUEUE,
     ACTION_MODEL,
     ACTION_REFRESH_MODELS,
     SESSION_ROW_CLASS,

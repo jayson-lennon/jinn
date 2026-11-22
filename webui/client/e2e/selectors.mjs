@@ -29,14 +29,21 @@ export const PAGE_ROOT = "#page-root";
 export const PAGE_SESSION_ATTR = "data-webui-session";
 /** The transcript entry container id (`wire.TRANSCRIPT_ID`). */
 export const TRANSCRIPT = "#transcript";
+/** The transcript's scroll container id (`wire.TRANSCRIPT_WRAP_ID`). */
+export const TRANSCRIPT_WRAP = "#transcript-wrap";
 /** One transcript entry's article element and its kind class. */
 export const ENTRY = (kind) => `article.entry.${kind}`;
 /** The composer textarea id (`wire.INPUT_ID`). */
 export const INPUT = "#input";
+/** The composer container id (`wire.COMPOSER_ID`). */
+export const COMPOSER = "#composer";
 /** The composer send button (action = `wire.ACTION_SEND`). */
 export const SEND_BUTTON = '[data-webui-action="send"]';
 /** The composer cancel button (action = `wire.ACTION_CANCEL`). */
 export const CANCEL_BUTTON = '[data-webui-action="cancel"]';
+/** The composer queue button (action = `wire.ACTION_QUEUE`) — busy
+ * fragment only, rendered before the cancel button. */
+export const QUEUE_BUTTON = '[data-webui-action="queue"]';
 /** The streaming spinner id (`wire.BUSY_SPINNER_ID`). */
 export const BUSY_SPINNER = "#busy-spinner";
 /** The model-picker button id (`wire.MODEL_PICKER_BUTTON_ID`). */

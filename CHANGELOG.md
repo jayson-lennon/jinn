@@ -3,7 +3,13 @@
 ## (development)
 
 - (webui) Keystrokes no longer erroneously close modals.
+- (webui) Sessions no longer auto-scroll while the model is generating tokens.
+- (webui) Adjust rendering to more closely match TUI transcript.
+- (webui) Enter key no longer sends a prompt.
+- (webui) Add a new `Q` (queue) button to queue a message while session is working.
 - Remove `#generate-persona` prompt.
+- Agents should avoid using `dump_to_path` more often.
+  - Blocked using `/dev/null` and similar "null" paths for `dump_to_path`
 
 ## 2026-11-21 v1.26.1
 

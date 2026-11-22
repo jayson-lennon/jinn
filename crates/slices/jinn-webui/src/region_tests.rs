@@ -156,11 +156,9 @@ async fn every_declared_container_id_appears_in_the_rendered_page_shell() {
     let sessions = crate::regions::sessions::sessions_fragment(&shared, None)
         .await
         .expect("sessions render");
-    let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate {
-        entries: Vec::new(),
-        start: 0,
-    })
-    .expect("transcript renders");
+    let transcript_html =
+        crate::templates::render(&crate::templates::TranscriptTemplate::new(Vec::new(), 0))
+            .expect("transcript renders");
     let controls = crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
         id.to_string(),
         false,

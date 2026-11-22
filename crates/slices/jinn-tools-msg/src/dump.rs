@@ -50,19 +50,28 @@ pub enum DumpDecision {
     Dump(String),
     /// The argument is absent or carries no meaningful value — no dump.
     Absent,
-    /// The argument names true/false instead of a path — the boolean-flag
-    /// misreading. The caller rejects the call with [`DUMP_CORRECTION`]
-    /// before the tool executes.
+    /// The argument names true/false (the boolean-flag misreading) or a
+    /// discard-sink spelling such as `/dev/null` (which would silently
+    /// throw the result away). The caller rejects the call with
+    /// [`DUMP_CORRECTION`] before the tool executes.
     Corrective,
 }
 
 /// The corrective failure text a tool call receives when its dump argument
-/// carries a true/false spelling. Names the field's contract — *pass in a
-/// path or omit the field entirely* — so the model can correct on the retry.
+/// carries a true/false spelling or a discard-sink spelling. Names the
+/// field's contract — *pass in a path or omit the field entirely* — so the
+/// model can correct on the retry.
 pub const DUMP_CORRECTION: &str = "dump_to_path takes a file path or must be omitted \
-entirely — true/false is not accepted. Pass a path to write the full result to disk \
-(relative paths resolve against the working directory), or omit the field to keep the \
-full result in context.";
+entirely — it is neither a boolean flag (true/false is rejected) nor a discard sink \
+(/dev/null, /dev/zero, nul, null, none are rejected: dumping there would silently throw \
+the result away). Pass a real path to write the full result to disk (relative paths \
+resolve against the working directory), or omit the field to keep the full result in \
+context.";
+
+/// The discard-sink spellings the misreading model reaches for instead of a
+/// real path. Matched whole-value and case-insensitively against the
+/// trimmed argument; a path merely containing one of these words is honored.
+const DISCARD_SINK_SPELLINGS: [&str; 5] = ["/dev/null", "/dev/zero", "nul", "null", "none"];
 
 /// Sort a tool call's reserved dump argument into a [`DumpDecision`].
 ///
@@ -72,10 +81,13 @@ full result in context.";
 /// blank string all yield [`DumpDecision::Absent`] — the caller proceeds
 /// exactly as if the feature did not exist. Only the *string* spellings
 /// `true`/`false` (case-insensitive, surrounding whitespace tolerated)
-/// yield [`DumpDecision::Corrective`]: that is the observed boolean-flag
-/// misreading, and a file named `false` is never the model's intent.
-/// Any other string is [`DumpDecision::Dump`], carrying the untrimmed
-/// original spelling — path resolution semantics are unchanged.
+/// and the discard-sink family `/dev/null`, `/dev/zero`, `nul`, `null`,
+/// `none` (case-insensitive, whole-value match) yield
+/// [`DumpDecision::Corrective`]: those are the two observed misreadings —
+/// the boolean flag and the discard sink — and either misfire silently
+/// destroys the model's own tool output. Any other string is
+/// [`DumpDecision::Dump`], carrying the untrimmed original spelling — path
+/// resolution semantics are unchanged.
 #[must_use]
 pub fn classify_dump_argument(arguments: &str) -> DumpDecision {
     let value: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
@@ -90,6 +102,12 @@ pub fn classify_dump_argument(arguments: &str) -> DumpDecision {
         return DumpDecision::Absent;
     }
     if trimmed.eq_ignore_ascii_case("true") || trimmed.eq_ignore_ascii_case("false") {
+        return DumpDecision::Corrective;
+    }
+    if DISCARD_SINK_SPELLINGS
+        .iter()
+        .any(|sink| trimmed.eq_ignore_ascii_case(sink))
+    {
         return DumpDecision::Corrective;
     }
     DumpDecision::Dump(text.to_owned())
@@ -562,6 +580,45 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[case("/dev/null")]
+    #[case("/dev/zero")]
+    #[case("nul")]
+    #[case("null")]
+    #[case("none")]
+    #[case("/DEV/NULL")]
+    #[case("NULL")]
+    #[case("None")]
+    #[case("  /dev/null  ")]
+    fn classify_dump_argument_flags_discard_sink_spellings_as_corrective(#[case] value: &str) {
+        // Given a dump_to_path value naming a discard sink in any case.
+        let arguments = format!(r#"{{"dump_to_path":"{value}"}}"#);
+
+        // When classifying.
+        let decision = classify_dump_argument(&arguments);
+
+        // Then the call is corrective — dumping there would silently throw
+        // the result away, so it is rejected before the tool runs.
+        assert_eq!(decision, DumpDecision::Corrective);
+    }
+
+    #[rstest::rstest]
+    #[case("notes/null_island.md")]
+    #[case("none.md")]
+    #[case("out/nul.txt")]
+    #[case("/dev/zero/page.md")]
+    fn classify_dump_argument_honors_paths_containing_sink_words(#[case] value: &str) {
+        // Given a dump_to_path value that merely contains a sink word.
+        let arguments = format!(r#"{{"dump_to_path":"{value}"}}"#);
+
+        // When classifying.
+        let decision = classify_dump_argument(&arguments);
+
+        // Then the whole path is honored — the sink set matches whole
+        // values only, never substrings.
+        assert_eq!(decision, DumpDecision::Dump(value.to_owned()));
+    }
+
+    #[rstest::rstest]
     fn classify_dump_argument_json_boolean_false_is_absent_not_corrective() {
         // Given a JSON boolean false (not the string spelling).
         let arguments = r#"{"dump_to_path":false}"#;
@@ -610,5 +667,10 @@ mod tests {
         assert!(message.contains("dump_to_path"), "{message}");
         assert!(message.contains("path"), "{message}");
         assert!(message.contains("omit"), "{message}");
+        // And it teaches both misreadings: the boolean flag and the
+        // discard sink.
+        assert!(message.contains("boolean flag"), "{message}");
+        assert!(message.contains("/dev/null"), "{message}");
+        assert!(message.contains("discard sink"), "{message}");
     }
 }

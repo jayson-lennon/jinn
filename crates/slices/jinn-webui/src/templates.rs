@@ -416,7 +416,10 @@ pub struct EntryTemplate {
     pub index: usize,
 }
 
-/// The transcript fragment: the entries at `cursor..` (or all).
+/// The transcript fragment: the entries at `cursor..` (or all), then
+/// the streaming container — always the fragment's last child, so a
+/// `transcript-full` inner replace re-creates it empty and settled
+/// entries never interleave with the streamed tail.
 #[derive(Template)]
 #[template(path = "transcript.html")]
 pub struct TranscriptTemplate {
@@ -425,6 +428,20 @@ pub struct TranscriptTemplate {
     /// The index the slice starts at (the first entry's cursor
     /// position).
     pub start: usize,
+    /// The streaming container's id, from the contract.
+    pub streaming_id: &'static str,
+}
+
+impl TranscriptTemplate {
+    /// Builds the fragment with the contract's container id filled.
+    #[must_use]
+    pub fn new(entries: Vec<crate::transcript::RenderedEntry>, start: usize) -> Self {
+        Self {
+            entries,
+            start,
+            streaming_id: contract::STREAMING_ID,
+        }
+    }
 }
 
 /// One row of the sessions fragment.
@@ -520,6 +537,9 @@ pub struct ControlsTemplate {
     pub send_action: &'static str,
     /// The cancel action's contract name.
     pub cancel_action: &'static str,
+    /// The queue action's contract name — the busy fragment's second
+    /// button, posting the send endpoint (a busy-phase enqueue queues).
+    pub queue_action: &'static str,
     /// The send endpoint — the composer's `@post` target.
     pub send_path: &'static str,
     /// The cancel endpoint — the cancel button's `@post` target.
@@ -528,6 +548,8 @@ pub struct ControlsTemplate {
     pub send_label: &'static str,
     /// The cancel button's label.
     pub cancel_label: &'static str,
+    /// The queue button's label (busy fragment only).
+    pub queue_label: &'static str,
 }
 
 impl ControlsTemplate {
@@ -543,10 +565,12 @@ impl ControlsTemplate {
             action_attr: contract::ACTION_DATA_ATTR,
             send_action: contract::ACTION_SEND,
             cancel_action: contract::ACTION_CANCEL,
+            queue_action: contract::ACTION_QUEUE,
             send_path: contract::SEND_PATH,
             cancel_path: contract::CANCEL_PATH,
             send_label: "Send",
             cancel_label: "Cancel",
+            queue_label: "Q",
         }
     }
 }

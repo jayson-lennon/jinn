@@ -2402,9 +2402,10 @@ mod stream_catchup {
 
         // Then one entry event arrives — everything after cursor 1 —
         // and the trailing park advances the resume cursor to the
-        // length while bumping chatTick so the reader's scroll effect
-        // follows the catch-up tail: the entry's `id:` is 2 (cursor
-        // 1 + 1) and the trailing event is the tick signal patch.
+        // length without keying any scroll: the entry's `id:` is 2
+        // (cursor 1 + 1) and the trailing event is a signal patch
+        // whose payload mutates nothing (onlyIfMissing over an
+        // always-declared signal — no effect fires, no scroll).
         let [entry, trailing] = events.as_slice() else {
             panic!(
                 "an entry event and the trailing event, got {}",
@@ -2414,10 +2415,13 @@ mod stream_catchup {
         assert_eq!(entry.id.as_deref(), Some("2"));
         let entry_data = entry.data.join("\n");
         assert!(entry_data.contains("third"), "{entry_data}");
+        assert!(!entry_data.contains("signals"), "{entry_data}");
         assert_eq!(trailing.id.as_deref(), Some("2"));
-        assert_eq!(
-            trailing.data.join(""),
-            format!("signals {{\"{}\":2}}", crate::contract::SIGNAL_CHAT_TICK)
+        assert_eq!(trailing.event, datastar::consts::EventType::PatchSignals);
+        let trailing_data = trailing.data.join("");
+        assert!(
+            trailing_data.contains("onlyIfMissing true"),
+            "{trailing_data}"
         );
     }
 
@@ -2439,15 +2443,17 @@ mod stream_catchup {
 
         // Then no entry events arrive, and one park event advances the
         // resume cursor so the client does not re-catch-up forever —
-        // with the chatTick bump (nothing rendered, so a reader at the
-        // bottom stays there; the effect's scroll is a no-op).
+        // with a payload that mutates no signal (nothing rendered, so
+        // there is nothing to follow and nothing to scroll).
         let [trailing] = events.as_slice() else {
             panic!("only the trailing event, got {}", events.len())
         };
         assert_eq!(trailing.id.as_deref(), Some("1"));
-        assert_eq!(
-            trailing.data.join(""),
-            format!("signals {{\"{}\":1}}", crate::contract::SIGNAL_CHAT_TICK)
+        assert_eq!(trailing.event, datastar::consts::EventType::PatchSignals);
+        let trailing_data = trailing.data.join("");
+        assert!(
+            trailing_data.contains("onlyIfMissing true"),
+            "{trailing_data}"
         );
     }
 
