@@ -247,6 +247,10 @@ test("a toggle under a filter keeps the filtered view and reverts to the open-ti
   const query = TOOL.slice(0, 3);
   await page.locator(sel.TOOLS_FILTER).click();
   await page.keyboard.type(query);
+  // The final keystroke's re-pull races the mark: an in-flight pull
+  // from an earlier keystroke can land after it, so wait for the
+  // input to settle at the full query before reading the marks.
+  await expect(page.locator(sel.TOOLS_FILTER)).toHaveValue(query);
   await expect(row.locator("mark").first()).toHaveText(query);
 
   // When toggling the filtered-in row.
