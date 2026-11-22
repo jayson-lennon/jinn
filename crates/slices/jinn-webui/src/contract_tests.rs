@@ -349,6 +349,8 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
         sessions_attention: 4,
         sessions_route: contract::SESSIONS_ROUTE,
         session_page_path: contract::SESSION_PAGE_PREFIX,
+        web_theme: "system".to_owned(),
+        theme_color: crate::templates::theme_color_for("system"),
     })
     .expect("the page shell renders");
 
