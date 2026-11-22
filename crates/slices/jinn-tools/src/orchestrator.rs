@@ -1622,6 +1622,26 @@ mod timeout_tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn dump_to_path_containing_sink_words_still_dumps() {
+        // Given a call whose dump path merely contains a sink word.
+        let dir = jinn_testutil::tempdir();
+        let mut call = make_call();
+        call.arguments = r#"{"dump_to_path":"research/null_island/page.md"}"#.to_owned();
+
+        // When running the tool.
+        let result = run_builtin_with_timeout(call, empty_ctx(&dir.path), fast_execute).await;
+
+        // Then the real path is honored — the sink gate matches whole
+        // values only, so the file is written and the stub published.
+        let written =
+            std::fs::read_to_string(dir.path.as_path().join("research/null_island/page.md"))
+                .expect("dump file written");
+        assert_eq!(written, "done");
+        assert!(result.content.contains("page.md"), "{}", result.content);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn call_without_dump_to_path_is_unchanged() {
         // Given a call without the reserved argument.
         let dir = jinn_testutil::tempdir();
@@ -2476,6 +2496,63 @@ mod mcp_dispatch_gate_tests {
         assert!(
             entries.is_empty(),
             "a file named false must not exist; got {entries:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn discard_sink_dump_argument_fails_the_builtin_before_execution() {
+        // Given a builtin-only orchestrator, a session with a default cwd
+        // under a test-owned root, and a recorder for completions.
+        let dir = jinn_testutil::tempdir();
+        let state = State::new(AppState::default());
+        let session_id = SessionId::new();
+        state.write().session.set_default_cwd(dir.path.clone());
+        let (harness, services) = spawn_builtin_only_orchestrator(&state).await;
+        let results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+        services
+            .turn_ledger
+            .mint(
+                &session_id,
+                jinn_kernel::common::turn_ledger::MintKind::FreshTurn,
+            )
+            .expect("fixture mint");
+
+        // When dispatching a get_time call whose dump argument names
+        // /dev/null — the observed discard-sink misreading.
+        harness
+            .publish(ExecuteToolBatch {
+                session_id: session_id.clone(),
+                tool_calls: vec![get_time_call(r#"{"dump_to_path":"/dev/null"}"#)],
+                dispatched_at: jiff::Timestamp::now(),
+                turn: services.turn_ledger.live(&session_id).expect("live").turn,
+            })
+            .await;
+
+        // Then the call fails with the corrective contract text naming the
+        // discard sink, and nothing was written under the session cwd — the
+        // tool never executed and no dump stub replaced the result.
+        let messages = await_recorded(&results, 1, Duration::from_secs(3)).await;
+        assert_eq!(messages.len(), 1, "got: {messages:?}");
+        let result = &messages[0].result;
+        assert!(!result.success, "{result:?}");
+        assert!(
+            result.content.contains("dump_to_path"),
+            "expected the corrective contract text, got: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("discard sink"),
+            "correction must teach the discard-sink misreading, got: {}",
+            result.content
+        );
+        let entries = std::fs::read_dir(dir.path.as_path())
+            .expect("cwd readable")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("cwd entries readable");
+        assert!(
+            entries.is_empty(),
+            "a discard-sink dump must not write under the cwd; got {entries:?}"
         );
     }
 }

@@ -39,6 +39,13 @@ impl UnreadSessionMarks {
         self.marks.contains(session_id)
     }
 
+    /// How many sessions wear the mark — the titlebar sessions
+    /// button's badge number and its attention threshold.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.marks.len()
+    }
+
     /// Marks the session unread.
     ///
     /// Returns `true` when the mark is new — the transition a set

@@ -157,15 +157,15 @@ pub const SIDEBAR_CSS: &str = r#"
               color: var(--muted); padding: 12px 14px 4px; margin: 0; }
 #sessions { overflow-y: auto; flex: 1; min-height: 0; }
 #sessions-filter { margin: 4px 10px 8px; padding: 5px 8px; font: inherit; font-size: 13px;
-                   color: var(--fg); background: #14161a; border: 1px solid var(--border);
+                   color: var(--fg); background: var(--bg); border: 1px solid var(--border);
                    border-radius: 5px; width: calc(100% - 20px); }
 #sessions-filter:focus { outline: none; border-color: var(--accent); }
 .srow { display: block; padding: 8px 14px; color: var(--fg); text-decoration: none;
         border-bottom: 1px solid var(--border); cursor: pointer; }
-.srow:hover { background: #23272f; }
-.srow.unread { background: #e3b341; }
-.srow.unread .stitle { color: #14161a; }
-.srow.unread .smeta { color: #3d3320; }
+.srow:hover { background: var(--bg-hover); }
+.srow.unread { background: var(--mark); }
+.srow.unread .stitle { color: var(--on-fill); }
+.srow.unread .smeta { color: var(--on-mark-muted); }
 /* The viewed fill: the session THIS page has open — two pages viewing
    different sessions each paint their own row, and the landing page
    paints none. Placed AFTER `.unread` so equal specificity resolves
@@ -175,13 +175,13 @@ pub const SIDEBAR_CSS: &str = r#"
    in that window the row the user is looking at must read as the
    viewed one, not as unread). */
 .srow.active { background: var(--accent); }
-.srow.active .stitle { color: #14161a; font-weight: 600; }
-.srow.active .smeta { color: #14161a; }
+.srow.active .stitle { color: var(--on-accent); font-weight: 600; }
+.srow.active .smeta { color: var(--on-accent); }
 .srow .stitle { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .srow .smeta { font-size: 11px; color: var(--muted); }
-.srow.bot .smeta::after { content: " · bot"; color: #d4a72c; }
-.srow.active .smeta::after { color: #14161a; }
-.srow.unread .smeta::after { color: #3d3320; }
+.srow.bot .smeta::after { content: " · bot"; color: var(--bot); }
+.srow.active .smeta::after { color: var(--on-accent); }
+.srow.unread .smeta::after { color: var(--on-mark-muted); }
 /* The working spinner: the row-level mark that a turn is in flight —
    streaming, tools, or cancelling, one class for all three (the busy
    definition is PhaseView::is_working; the web list never re-derives
@@ -195,13 +195,33 @@ pub const SIDEBAR_CSS: &str = r#"
                           border: 2px solid var(--accent); border-top-color: transparent;
                           border-radius: 50%;
                           animation: webui-spin .8s linear infinite; }
-.srow.active .working { border-color: #14161a; border-top-color: transparent; }
-.srow.unread .working { border-color: #14161a; border-top-color: transparent; }
+.srow.active .working { border-color: var(--on-accent); border-top-color: transparent; }
+.srow.unread .working { border-color: var(--on-fill); border-top-color: transparent; }
+/* The switch interstitial: the full-viewport loading overlay a
+   session-row click raises (the switching signal drives it) until the
+   activation response's page swap re-seeds the signal. Stacked above
+   the menu panel (z-index 70) — the click may come from the drawer or
+   the menu, and the overlay must cover both. Static shell markup,
+   hidden by default like the scrims; the click-through it blocks is
+   the point: a second activate mid-switch must not fire. */
+#switch-overlay { position: fixed; inset: 0; background: var(--scrim);
+                  z-index: 80; display: flex; align-items: center;
+                  justify-content: center; }
+#switch-overlay[hidden] { display: none; }
+.switch-card { background: var(--panel); border: 1px solid var(--border);
+               border-radius: 8px; padding: 18px 26px;
+               display: flex; flex-direction: column; align-items: center;
+               gap: 12px; }
+.switch-spinner { display: inline-block; width: 18px; height: 18px;
+                  border: 3px solid var(--accent); border-top-color: transparent;
+                  border-radius: 50%;
+                  animation: webui-spin .8s linear infinite; }
+.switch-label { color: var(--fg); font-size: 14px; }
 @media (max-width: 767px) {
   #sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: min(80vw, 320px);
              z-index: 40; transform: translateX(-100%); transition: transform .25s ease; }
   #page-root.drawer-open #sidebar { transform: translateX(0); }
-  #drawer-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 30;
+  #drawer-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 30;
                   display: block; }
   #drawer-scrim[hidden] { display: none; }
   .srow { padding: 12px 14px; }
@@ -239,6 +259,15 @@ fn unread_marks_of(guard: &StateReadGuard<'_>) -> Option<jinn_webui_msg::UnreadS
     slices
         .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
         .map(|cell| cell.read().clone())
+}
+
+/// The unread-mark count for the given session map — the titlebar
+/// sessions button's badge number. Zero when no registry is attached
+/// (no registry means no mark write paths, so the count degrades to
+/// zero rather than failing — the same signal-not-correctness rule
+/// [`unread_marks_of`] follows).
+pub(crate) fn unread_count_of(guard: &StateReadGuard<'_>) -> usize {
+    unread_marks_of(guard).map_or(0, |marks| marks.count())
 }
 
 /// The sessions-list fragment from a state guard — the fan-out's

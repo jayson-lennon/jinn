@@ -1,22 +1,29 @@
-//! The menu region — the titlebar's hamburger button and its item
-//! panel.
+//! The menu region — the titlebar's hamburger button, the sessions
+//! drawer toggle with its unread-count badge, and the item panel.
 //!
 //! Parts declared: `page_fill` and nothing else. The menu is static
 //! chrome — no pull route (nothing to re-render server-side), no SSE
 //! event (the `-msg` crate is untouched by design), no settle, and no
-//! guard render (the fragment cannot vary with session state). The
-//! model-picker button is the precedent for a fragment-only region:
-//! the region system is where page areas live, and future
-//! server-backed menu items need the home.
+//! guard render. The fragment varies with session state in two
+//! server-rendered ways — the per-session items' presence (persona,
+//! MCP, tools, skills) and the seeded unread count — both stamped by
+//! the page render sites at boot; the client half (the Datastar
+//! bindings) keeps the surfaces live between page renders, keyed off
+//! the signals the sessions push bumps. The model-picker button is
+//! the precedent for a fragment-only region: the region system is
+//! where page areas live, and future server-backed menu items need
+//! the home.
 //!
-//! The fragment ships the panel `hidden`; the client half
-//! (the panel's `data-attr:hidden` bindings) toggles visibility, closes on
-//! the item, and toggles the drawer-open class on the page root —
-//! the drawer itself is the sessions region's mobile presentation
-//! (its media query lives in Unit 2's `SIDEBAR_CSS` work). No width
-//! logic exists on either side: at desktop widths the item closes
-//! the menu and toggles a class the desktop CSS never matches, so
-//! the observable effect is "menu closes" — the CSS decides.
+//! The fragment ships the panel `hidden`; the client half (the
+//! panel's and the scrim's `data-attr:hidden` bindings) toggles
+//! visibility, closes on the item, and toggles the drawer-open class
+//! on the page root — the drawer itself is the sessions region's
+//! mobile presentation. No width logic exists on either side: at
+//! desktop widths the item closes the menu and toggles a class the
+//! desktop CSS never matches, so the observable effect is "menu
+//! closes" — the CSS decides. The sessions button is hidden at
+//! ≥768px by the same rule: the sidebar is static there, so the
+//! button would duplicate a list already on screen.
 
 use crate::region::RegionParts;
 use crate::region::WebRegion;
@@ -67,18 +74,25 @@ impl WebRegion for MenuRegion {
     }
 }
 
-/// The menu's static fragment — the hamburger button and its item
-/// panel. Infallible: the fragment is all contract constants, so a
-/// render failure is a template bug that must be a compile error (askama
-/// checks the fields), not a runtime path.
+/// The menu's static fragment — the hamburger button, the sessions
+/// drawer toggle with its unread badge, and the item panel.
+/// Infallible: the fragment is all contract constants plus the count,
+/// so a render failure is a template bug that must be a compile error
+/// (askama checks the fields), not a runtime path.
 ///
 /// `viewed_session` is the page's viewed session id: empty on the
 /// landing page, which omits the persona item (persona binds
 /// per-session, so a page viewing nothing has no persona to open).
+///
+/// `attention_count` is the render-time size of the instance's
+/// unread-mark set — the sessions button's seeded state, correct
+/// before any push arrives. The button's live updates key off the
+/// `sessionsAttention` signal the sessions push carries.
 #[must_use]
-pub fn menu_fragment(viewed_session: &str) -> String {
+pub fn menu_fragment(viewed_session: &str, attention_count: usize) -> String {
     crate::templates::render(&crate::templates::MenuTemplate::with_contract(
         viewed_session,
+        attention_count,
     ))
     .unwrap_or_else(|error| {
         tracing::warn!(%error, what = "menu-fragment", "webui template render failed; \
@@ -90,14 +104,15 @@ pub fn menu_fragment(viewed_session: &str) -> String {
 /// The menu region's stylesheet: the slide-in panel's geometry and its
 /// scrim — full-height, left-anchored, 280px (the sidebar's width),
 /// translateX transition, stacked above the drawer stack (the menu is
-/// the entry surface) — plus the interaction affordances (hover/focus
-/// feedback) and the phone media query's touch-target bumps. The panel
-/// geometry is width-independent; only the touch bumps are
-/// width-specific, decided by a media query. The scrim's stack level
-/// also rides here (mirrored in `sessions.rs`'s sheet for the
-/// drawer-side of the A6 sandwich).
+/// the entry surface) — plus the titlebar sessions button (the drawer's
+/// one-tap opener, hidden at ≥768px where the sidebar is static) with
+/// its attention fill and count badge, the interaction affordances
+/// (hover/focus feedback), and the phone media query's touch-target
+/// bumps. The panel geometry is width-independent; only the touch
+/// bumps and the sessions button's width decision are media-query
+/// scoped, decided by CSS alone.
 pub const MENU_CSS: &str = r#"
-#menu-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; }
+#menu-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 60; }
 #menu-scrim[hidden] { display: none; }
 #menu-panel { position: fixed; top: 0; bottom: 0; left: 0; width: 280px;
               background: var(--panel); border-right: 1px solid var(--border);
@@ -109,11 +124,44 @@ pub const MENU_CSS: &str = r#"
                       transition: none; }
 #menu-panel:not([hidden]) { transform: translateX(0); }
 #menu-button:hover { border-color: var(--accent); }
-#menu-panel button:hover { background: #23272f; }
+#menu-panel button:hover { background: var(--bg-hover); }
 #menu-panel button:focus-visible { outline: 1px solid var(--accent); }
+/* The sessions drawer toggle: the hamburger's sibling, styled like it
+   at rest. The attention fill reuses the unread rows' exact grammar —
+   the same gold, the same dark ink — so the button and the rows read
+   as one signal. The badge rides inside the button's box via the
+   shared #menu inline-flex row. */
+#sessions-button { background: var(--panel); color: var(--fg);
+                   border: 1px solid var(--border); border-radius: 6px;
+                   padding: 6px 10px; font: inherit; line-height: 1;
+                   cursor: pointer; font-size: 15px; }
+#sessions-button:hover { border-color: var(--accent); }
+#sessions-button.attention { background: var(--mark); border-color: var(--mark);
+                             color: var(--on-fill); }
+#sessions-button-count { display: none; background: var(--mark); color: var(--on-fill);
+                         border-radius: 9px; padding: 1px 7px;
+                         font-size: 12px; font-weight: 600; line-height: 1.4;
+                         align-self: center; }
+/* At ≥768px the sidebar is static chrome — the button would duplicate
+   a list already on screen, so the CSS hides it. */
+@media (min-width: 768px) {
+  #sessions-button, #sessions-button-count { display: none; }
+}
+#menu-item-theme { display: flex; margin-top: auto; padding: 6px 4px 2px;
+                   border-top: 1px solid var(--border); gap: 4px; }
+#menu-item-theme button { flex: 1; text-align: center; font-size: 12px;
+                          padding: 6px 4px; border-radius: 5px;
+                          border: 1px solid var(--border); color: var(--muted);
+                          background: transparent; cursor: pointer; font: inherit; }
+#menu-item-theme button:hover { background: var(--bg-hover); }
+#menu-item-theme button.theme-active { background: var(--bg-active);
+                                       color: var(--fg); font-weight: 600; }
 @media (max-width: 767px) {
   #menu-button { min-height: 40px; min-width: 40px; }
+  #sessions-button { min-height: 40px; min-width: 40px; }
+  #sessions-button-count { display: inline-block; }
   #menu-panel button { min-height: 40px; padding: 10px 12px; }
+  #menu-item-theme button { min-height: 40px; padding: 8px 4px; }
 }
 "#;
 
@@ -132,12 +180,12 @@ mod menu_region_tests {
     /// The fragment as a session page renders it (a session viewed,
     /// persona item present).
     fn fragment() -> String {
-        super::menu_fragment("00000000-0000-0000-0000-000000000001")
+        super::menu_fragment("00000000-0000-0000-0000-000000000001", 0)
     }
 
     /// The fragment as the landing page renders it (nothing viewed).
     fn landing_fragment() -> String {
-        super::menu_fragment("")
+        super::menu_fragment("", 0)
     }
 
     #[rstest::rstest]
@@ -183,10 +231,62 @@ mod menu_region_tests {
             "the Skills item is missing: {html}"
         );
         let items = html.matches("menu-item").count();
-        assert_eq!(items, 6, "the panel lists all six items: {html}");
+        assert_eq!(
+            items, 10,
+            "the panel lists all six items + the theme control: {html}"
+        );
         assert!(
             html.contains("Sessions"),
             "the item labels Sessions: {html}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_theme_control_carries_the_three_modes_and_posts_the_pick() {
+        // Given the session-page menu fragment.
+        let html = fragment();
+
+        // Then the segmented control renders the Light, Dark, and
+        // System options, each posting its mode to the theme endpoint,
+        // and the active-mark class binding reads the webTheme signal.
+        for (id, mode) in [
+            (contract::MENU_ITEM_THEME_LIGHT_ID, "light"),
+            (contract::MENU_ITEM_THEME_DARK_ID, "dark"),
+            (contract::MENU_ITEM_THEME_SYSTEM_ID, "system"),
+        ] {
+            let item =
+                html.split_once(&format!("id=\"{id}\""))
+                    .map_or_else(String::new, |(_, rest)| {
+                        rest.split_once('>')
+                            .map_or_else(String::new, |(tag, _)| tag.to_owned())
+                    });
+            assert!(
+                item.contains(&format!("'{}'", contract::THEME_PATH)),
+                "{id} posts to the theme endpoint: {item}"
+            );
+            assert!(
+                item.contains(&format!("payload: {{theme: '{mode}'}}")),
+                "{id} posts its mode: {item}"
+            );
+            assert!(
+                item.contains(&format!("${} === '{mode}'", contract::SIGNAL_WEB_THEME)),
+                "{id} marks the active mode off the signal: {item}"
+            );
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_theme_control_renders_on_the_landing_page() {
+        // Given the landing-page menu fragment (nothing viewed).
+        let html = landing_fragment();
+
+        // Then the theme control is present — the mode binds app-wide,
+        // not per-session, so the control is not gated on a session.
+        assert!(
+            html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_THEME_ID)),
+            "the theme control is missing on the landing page: {html}"
         );
     }
 
@@ -396,6 +496,114 @@ mod menu_region_tests {
         );
     }
 
+    /// The element for `id`: the text from the id attribute through
+    /// the element's closing tag. A `>`-bounded scan would cut
+    /// mid-attribute (the bindings carry `$signal > 0`), so the
+    /// element's own close is the bound. `str::get` returns `None` on
+    /// a non-boundary index, so the slicing cannot panic.
+    fn element_of(id: &str, closing: &str, html: &str) -> String {
+        let marker = format!("id=\"{id}\"");
+        let (head, _tail) = html
+            .split_once(&marker)
+            .unwrap_or_else(|| panic!("the {id} element renders: {html}"));
+        let start = head.len() + marker.len();
+        let rest = html
+            .get(start..)
+            .unwrap_or_else(|| panic!("the marker lands mid-codepoint: {html}"));
+        let end = rest.find(closing).map_or_else(
+            || panic!("the {id} element closes: {html}"),
+            |i| i + closing.len(),
+        );
+        rest.get(..end)
+            .unwrap_or_else(|| panic!("the close lands mid-codepoint: {html}"))
+            .to_owned()
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_sessions_button_carries_the_drawer_toggle_and_the_attention_binding() {
+        // Given the menu fragment.
+        let html = fragment();
+
+        // Then the sessions button renders with its contract id, its
+        // click toggles the drawer signal (one drawer, two openers),
+        // and its class binding keys off the attention signal — the
+        // client applies the fill, never the server.
+        let tag = element_of(contract::SESSIONS_BUTTON_ID, "</button>", &html);
+        assert!(
+            tag.contains("$drawerOpen"),
+            "the button toggles the drawer signal: {html}"
+        );
+        assert!(
+            tag.contains(&format!(
+                "data-class:{}=\"$sessionsAttention > 0\"",
+                contract::SESSIONS_ATTENTION_CLASS
+            )),
+            "the attention binding keys off the signal: {html}"
+        );
+        assert!(
+            tag.contains("aria-label"),
+            "the button names itself for assistive tech: {html}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_count_badge_binds_visibility_and_text_to_the_attention_signal() {
+        // Given the menu fragment.
+        let html = fragment();
+
+        // Then the badge span renders with its contract id and both
+        // bindings — hidden at zero, the number at any other count —
+        // so the server's seeded signal alone decides what shows.
+        let tag = element_of(contract::SESSIONS_BUTTON_COUNT_ID, "</span>", &html);
+        assert!(
+            tag.contains(&format!(
+                "data-text=\"${}\"",
+                contract::SIGNAL_SESSIONS_ATTENTION
+            )),
+            "the badge shows the count: {html}"
+        );
+        assert!(
+            tag.contains(&format!(
+                "data-show=\"${} > 0\"",
+                contract::SIGNAL_SESSIONS_ATTENTION
+            )),
+            "the badge hides at zero: {html}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_menu_css_pins_the_sessions_button_its_fill_and_the_desktop_hide() {
+        // Given the menu region's stylesheet.
+        let css = super::MENU_CSS;
+
+        // Then it styles the button, carries the attention fill (the
+        // unread rows' gold and dark ink), and hides the button and
+        // badge at ≥768px — the width decision is CSS-only.
+        assert!(
+            css.contains(&format!("#{}", contract::SESSIONS_BUTTON_ID)),
+            "the button is styled: {css}"
+        );
+        assert!(
+            css.contains(&format!(
+                "#{}.{}",
+                contract::SESSIONS_BUTTON_ID,
+                contract::SESSIONS_ATTENTION_CLASS
+            )),
+            "the attention fill rule exists: {css}"
+        );
+        assert!(
+            css.contains("var(--mark)") && css.contains("var(--on-fill)"),
+            "the fill is the unread rows' grammar (tokenized): {css}"
+        );
+        assert!(
+            css.contains("@media (min-width: 768px)"),
+            "the desktop hide is a media query: {css}"
+        );
+    }
+
     #[rstest::rstest]
     #[test]
     fn the_item_names_the_sessions_action_through_the_contract_attribute() {
@@ -412,6 +620,20 @@ mod menu_region_tests {
         assert!(
             item.contains("$drawerOpen"),
             "the item's drawer toggle is missing: {html}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_attention_class_is_not_a_dom_constant_of_the_fresh_render() {
+        // Given the contract's DOM constants.
+        // Then the attention class is absent — membership would assert
+        // presence in a fresh server render, and the class exists only
+        // after client signal evaluation (the drawer-open precedent;
+        // the referential gate would fail, and rightly).
+        assert!(
+            !contract::DOM_CONSTANTS.contains(&contract::SESSIONS_ATTENTION_CLASS),
+            "the attention class is client state, not fresh-render markup"
         );
     }
 

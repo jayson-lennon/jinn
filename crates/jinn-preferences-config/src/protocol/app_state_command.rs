@@ -21,6 +21,8 @@ pub enum AppStateUpdate {
     SetSidebarWidth(Option<u16>),
     /// Set the last-selected reasoning effort.
     SetReasoningEffort(Option<ReasoningEffort>),
+    /// Set the webui's color mode (`light`/`dark`/`system`).
+    SetWebTheme(Option<String>),
 }
 
 impl AppStateUpdate {
@@ -36,6 +38,7 @@ impl AppStateUpdate {
             Self::SetReasoningEffort(v) => {
                 state.reasoning_effort = *v;
             }
+            Self::SetWebTheme(v) => state.web_theme.clone_from(v),
         }
     }
 }
@@ -122,6 +125,49 @@ mod tests {
 
         // Then theme_name is set.
         assert_eq!(state.theme_name.as_deref(), Some("dracula"));
+    }
+
+    #[rstest::rstest]
+    fn set_web_theme_applies_to_state() {
+        // Given default app-state.
+        let mut state = AppStateFile::default();
+
+        // When applying SetWebTheme with a mode.
+        AppStateUpdate::SetWebTheme(Some("light".to_owned())).apply(&mut state);
+
+        // Then web_theme is set.
+        assert_eq!(state.web_theme.as_deref(), Some("light"));
+    }
+
+    #[rstest::rstest]
+    fn set_web_theme_none_clears_existing() {
+        // Given app-state with an existing web theme.
+        let mut state = AppStateFile {
+            web_theme: Some("dark".to_owned()),
+            ..Default::default()
+        };
+
+        // When applying SetWebTheme(None).
+        AppStateUpdate::SetWebTheme(None).apply(&mut state);
+
+        // Then web_theme is cleared (system mode).
+        assert!(state.web_theme.is_none());
+    }
+
+    #[rstest::rstest]
+    fn set_web_theme_leaves_tui_theme_untouched() {
+        // Given app-state carrying a TUI theme name.
+        let mut state = AppStateFile {
+            theme_name: Some("gruvbox-dark".to_owned()),
+            ..Default::default()
+        };
+
+        // When applying SetWebTheme.
+        AppStateUpdate::SetWebTheme(Some("light".to_owned())).apply(&mut state);
+
+        // Then web_theme is set and the TUI theme is untouched.
+        assert_eq!(state.web_theme.as_deref(), Some("light"));
+        assert_eq!(state.theme_name.as_deref(), Some("gruvbox-dark"));
     }
 
     #[rstest::rstest]

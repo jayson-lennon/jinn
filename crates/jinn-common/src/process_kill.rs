@@ -191,12 +191,18 @@ mod tests {
             .spawn()
             .expect("spawn should succeed");
         let pid = child.id().expect("child has a pid before it exits");
+        // The pgid the group signal will address: process_group(0) made the
+        // child its own leader, so the pid is the pgid. Captured before the
+        // kill, since the group ceases to exist once the leader is signalled.
+        let pgid = pid as i32;
         // The shell exits once it has launched the grandchild. The wait is
-        // on the grandchild's *existence* — the group signal can only reach
-        // it once it is running, and a fixed sleep would only guess at when
-        // that happens.
+        // on the grandchild's *existence* within the spawn's own group — the
+        // group signal can only reach it once it is running, and a fixed
+        // sleep would only guess at when that happens. The group scope keeps
+        // an unrelated host process running the same command line out of the
+        // oracle.
         jinn_testutil::wait::wait_for(std::time::Duration::from_secs(5), || {
-            !jinn_testutil::platform::find_orphans("sleep 65", "sleep").is_empty()
+            !jinn_testutil::platform::find_orphans_in_group("sleep 65", "sleep", pgid).is_empty()
         })
         .await;
 
@@ -208,11 +214,11 @@ mod tests {
             .expect("kill task should complete");
 
         // Then no 'sleep 65' grandchild survived the group signal. The wait
-        // is on the grandchild's *absence* after the signal — the kernel
-        // reaps it asynchronously, and a fixed sleep would only guess at how
-        // long that takes.
+        // is on the grandchild's *absence* within that group after the
+        // signal — the kernel reaps it asynchronously, and a fixed sleep
+        // would only guess at how long that takes.
         jinn_testutil::wait::wait_for(std::time::Duration::from_secs(5), || {
-            jinn_testutil::platform::find_orphans("sleep 65", "sleep").is_empty()
+            jinn_testutil::platform::find_orphans_in_group("sleep 65", "sleep", pgid).is_empty()
         })
         .await;
     }

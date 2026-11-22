@@ -29,18 +29,23 @@ export const PAGE_ROOT = "#page-root";
 export const PAGE_SESSION_ATTR = "data-webui-session";
 /** The transcript entry container id (`wire.TRANSCRIPT_ID`). */
 export const TRANSCRIPT = "#transcript";
+/** The transcript's scroll container id (`wire.TRANSCRIPT_WRAP_ID`). */
+export const TRANSCRIPT_WRAP = "#transcript-wrap";
 /** One transcript entry's article element and its kind class. */
 export const ENTRY = (kind) => `article.entry.${kind}`;
 /** The composer textarea id (`wire.INPUT_ID`). */
 export const INPUT = "#input";
+/** The composer container id (`wire.COMPOSER_ID`). */
+export const COMPOSER = "#composer";
 /** The composer send button (action = `wire.ACTION_SEND`). */
 export const SEND_BUTTON = '[data-webui-action="send"]';
 /** The composer cancel button (action = `wire.ACTION_CANCEL`). */
 export const CANCEL_BUTTON = '[data-webui-action="cancel"]';
+/** The composer queue button (action = `wire.ACTION_QUEUE`) — busy
+ * fragment only, rendered before the cancel button. */
+export const QUEUE_BUTTON = '[data-webui-action="queue"]';
 /** The streaming spinner id (`wire.BUSY_SPINNER_ID`). */
 export const BUSY_SPINNER = "#busy-spinner";
-/** The titlebar's `.m` model label span. */
-export const MODEL_LABEL = "#model-status .m";
 /** The model-picker button id (`wire.MODEL_PICKER_BUTTON_ID`). */
 export const PICKER_BUTTON = "#model-picker-button";
 /** The modal overlay id (`wire.MODEL_PICKER_MODAL_ID`). */
@@ -65,6 +70,12 @@ export const SESSION_PAGE_PATH = "/web/session/";
 export const MENU = "#menu";
 /** The hamburger button id (`wire.MENU_BUTTON_ID`). */
 export const MENU_BUTTON = "#menu-button";
+/** The titlebar sessions button id (`wire.SESSIONS_BUTTON_ID`). */
+export const SESSIONS_BUTTON = "#sessions-button";
+/** The sessions button's count badge id (`wire.SESSIONS_BUTTON_COUNT_ID`). */
+export const SESSIONS_BUTTON_COUNT = "#sessions-button-count";
+/** The sessions button's attention class (`wire.SESSIONS_ATTENTION_CLASS`). */
+export const SESSIONS_ATTENTION_CLASS = "attention";
 /** The menu's item panel id (`wire.MENU_PANEL_ID`). */
 export const MENU_PANEL = "#menu-panel";
 /** The menu scrim id (`wire.MENU_SCRIM_ID`). */
@@ -79,12 +90,24 @@ export const MENU_ITEM_PERSONA = "#menu-item-persona";
 export const MENU_ITEM_MCP = "#menu-item-mcp";
 /** The menu's tools item id (`wire.MENU_ITEM_TOOLS_ID`). */
 export const MENU_ITEM_TOOLS = "#menu-item-tools";
+/** The menu's theme control host id (`wire.MENU_ITEM_THEME_ID`). */
+export const MENU_ITEM_THEME = "#menu-item-theme";
+/** The theme control's option id, by mode. */
+export const THEME_OPTION = (mode) => `#menu-item-theme-${mode}`;
+/** The active option's class (`wire.THEME_ACTIVE_CLASS`). */
+export const THEME_ACTIVE_CLASS = "theme-active";
+/** The theme POST's endpoint (`wire.THEME_PATH`). */
+export const THEME_PATH = "/web/theme";
+/** The document's `data-theme` attribute — the mode hook the CSS keys. */
+export const DATA_THEME_ATTR = "data-theme";
 /** The MCP modal overlay id (`wire.MCP_MODAL_ID`). */
 export const MCP_MODAL = "#mcp-modal";
 /** The MCP modal's host span id (`wire.MCP_MODAL_HOST_ID`). */
 export const MCP_MODAL_HOST = "#mcp-modal-host";
 /** The MCP modal's row container id (`wire.MCP_ROWS_ID`). */
 export const MCP_ROWS = "#mcp-rows";
+/** The MCP modal's filter input id (`wire.MCP_FILTER_ID`). */
+export const MCP_FILTER = "#mcp-filter";
 /** One MCP server row, by its server-name attr (`wire.MCP_SERVER_DATA_ATTR`). */
 export const MCP_ROW = (name) => `[data-webui-server="${name}"]`;
 /** The enabled row class (`wire.MCP_ROW_ENABLED_CLASS`). */
@@ -119,6 +142,8 @@ export const TOOLS_MODAL = "#tools-modal";
 export const TOOLS_MODAL_HOST = "#tools-modal-host";
 /** The tools modal's row container id (`wire.TOOLS_ROWS_ID`). */
 export const TOOLS_ROWS = "#tools-rows";
+/** The tools modal's filter input id (`wire.TOOLS_FILTER_ID`). */
+export const TOOLS_FILTER = "#tools-filter";
 /** One tool row, by its tool-name attr (`wire.TOOL_NAME_DATA_ATTR`). */
 export const TOOL_ROW = (name) => `[data-webui-tool="${name}"]`;
 /** The off-row class (`tools-row-off`) — a row the session's live
@@ -149,6 +174,8 @@ export const SKILL_MODAL = "#skills-modal";
 export const SKILL_MODAL_HOST = "#skills-modal-host";
 /** The skills modal's row container id (`wire.SKILL_ROWS_ID`). */
 export const SKILL_ROWS = "#skills-rows";
+/** The skills modal's filter input id (`wire.SKILL_FILTER_ID`). */
+export const SKILL_FILTER = "#skills-filter";
 /** One skill row, by its skill-name attr (`wire.SKILL_NAME_DATA_ATTR`). */
 export const SKILL_ROW = (name) => `[data-webui-skill="${name}"]`;
 /** The enabled row class hook (the skills modal's TUI-parity mark). */
@@ -188,6 +215,10 @@ export const SESSION_NEW_EMPTY = "#session-new-empty";
 export const DRAWER_SCRIM = "#drawer-scrim";
 /** The drawer-open class the client toggles on the page root. */
 export const DRAWER_OPEN_CLASS = "drawer-open";
+/** The session-switch interstitial overlay id
+ * (`wire.SWITCH_OVERLAY_ID`) — the loading surface a session-row
+ * click raises until the activation response's page swap lands. */
+export const SWITCH_OVERLAY = "#switch-overlay";
 
 /**
  * The one model this tier's scratch config defines.

@@ -70,11 +70,12 @@ test-one FILTER:
 build-tests-windows:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Exes land in target/x86_64-pc-windows-msvc/debug/deps/ - one per
-    # crate, hash-suffixed. Rebuilds leave stale-hash copies behind, so the
-    # exact fresh set is also written to win-test-suites.txt (via cargo's
-    # JSON message stream, which names each test executable) for the VM's
-    # run-windows-tests.ps1 to read. The exes are CRT-static, so the VM
+    # Test exes are cross-built and their exact fresh set written to
+    # win-test-suites.txt via cargo's JSON message stream, which names each
+    # test executable. With current cargo the exes land per-package under
+    # debug/build/<crate>/<hash>/out/; rebuilds leave stale-hash copies
+    # behind, so the manifest - not any directory listing - is what the
+    # VM's run-windows-tests.ps1 reads. The exes are CRT-static, so the VM
     # needs nothing installed: run them from the same cwd the Linux side
     # uses.
     if ! command -v cargo-xwin >/dev/null 2>&1; then
@@ -96,24 +97,23 @@ build-tests-windows:
         | sort -u > /tmp/win-test-suites.candidate
     # A fully cached run re-emits no artifact messages, so an empty candidate
     # means nothing compiled: keep a previous manifest if one exists, else
-    # fall back to the deps glob. Entries are repo-relative POSIX paths
-    # (target/x86_64-pc-windows-msvc/debug/deps/<crate>-<hash>.exe) — the
-    # VM's run-windows-tests.ps1 anchors on the target/ prefix, never on the
-    # build host's filesystem layout.
+    # fall back to a scan of the whole debug tree. Entries are repo-relative
+    # POSIX paths anchored on target/ — the VM's run-windows-tests.ps1
+    # anchors on that prefix too, never on the build host's filesystem
+    # layout.
     if [ -s /tmp/win-test-suites.candidate ]; then
         mv /tmp/win-test-suites.candidate win-test-suites.txt
     elif [ ! -f win-test-suites.txt ]; then
-        (cd target/x86_64-pc-windows-msvc/debug/deps && ls -1 *.exe) \
+        find target/x86_64-pc-windows-msvc/debug -type f -name '*.exe' \
             | grep -E -- '-[0-9a-f]+\.exe$' \
-            | sed 's|^|target/x86_64-pc-windows-msvc/debug/deps/|' \
+            | LC_ALL=C sort -u \
             > win-test-suites.txt
     else
         rm -f /tmp/win-test-suites.candidate
         echo "==> nothing recompiled; win-test-suites.txt kept from the previous build"
     fi
-    echo "==> Windows test exes in target/x86_64-pc-windows-msvc/debug/deps/:"
-    echo "    (exact suite list: win-test-suites.txt)"
-    ls -1 target/x86_64-pc-windows-msvc/debug/deps/*.exe | sed 's/^/    /'
+    echo "==> Windows test exes cross-built (exact suite list: win-test-suites.txt)"
+    wc -l < win-test-suites.txt | sed 's/^/    /' | sed 's/$/ suite(s)/'
 
 # Fast compile check of the whole workspace (no codegen).
 check:
@@ -629,6 +629,24 @@ webui-smoke:
     cargo test -p jinn-webui --lib smoke_tests
     echo '==> webui-smoke green'
 
+# Kill stray webui-e2e jinn runs and remove their scratch dirs.
+#
+# The e2e harness spawns jinn detached (setsid script -qfec) so a
+# crashed or aborted run never reached teardown leaves the whole
+# session alive. Every process in the chain carries the scratch root
+# in its cmdline (`--db-path /tmp/jinn-webui-e2e/...`), so one pkill
+# pattern reaches jinn and its script/fish wrappers alike. Not
+# parallel-safe: it kills any concurrent e2e suite.
+webui-e2e-clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    E2E_PAT='--db-path /tmp/jinn-webui-e2e/'
+    pkill -TERM -f -- "$E2E_PAT" 2>/dev/null || true
+    sleep 0.5
+    pkill -KILL -f -- "$E2E_PAT" 2>/dev/null || true
+    rm -rf /tmp/jinn-webui-e2e/run-*
+    echo '==> webui-e2e-clean green'
+
 # Full-stack webui e2e: build the real binary, boot it against a
 # scratch paths root with the sample (keyless, network-free) backend,
 # and drive the page with headless Playwright. Standalone by design —
@@ -638,6 +656,7 @@ webui-smoke:
 webui-e2e:
     #!/usr/bin/env bash
     set -euo pipefail
+    just webui-e2e-clean
     echo '==> cargo build --bin jinn'
     cargo build --bin jinn
     echo '==> npm ci (webui/client/e2e)'

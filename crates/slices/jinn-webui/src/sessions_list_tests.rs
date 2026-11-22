@@ -1101,7 +1101,7 @@ fn the_active_fill_rule_follows_the_unread_rule_in_the_stylesheet() {
         .find(".srow.active { background: var(--accent); }")
         .expect("the active fill rule renders");
     let unread_pos = css
-        .find(".srow.unread { background: #e3b341; }")
+        .find(".srow.unread { background: var(--mark); }")
         .expect("the unread fill rule renders");
 
     // Then `.active` comes after `.unread` — the viewed fill wins the
@@ -1146,7 +1146,7 @@ async fn a_row_wearing_both_fills_resolves_to_the_viewed_fill() {
         .find(".srow.active { background: var(--accent); }")
         .expect("the active fill rule renders");
     let unread_pos = css
-        .find(".srow.unread { background: #e3b341; }")
+        .find(".srow.unread { background: var(--mark); }")
         .expect("the unread fill rule renders");
     assert!(
         active_pos > unread_pos,

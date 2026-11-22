@@ -84,6 +84,38 @@ test("selecting the parameterized lifecycle re-pulls with the args input", async
   await expect(args).toHaveAttribute("placeholder", "Please enter: <1>");
 });
 
+test("typing into the args input keeps the modal open, Escape closes it", async ({
+  page,
+}) => {
+  // Given the modal open on the parameterized lifecycle, so the args
+  // input rendered.
+  await openSession(page);
+  await page.locator(sel.MENU_BUTTON).click();
+  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
+  const modal = page.locator(sel.SESSION_NEW_MODAL);
+  await expect(modal).toBeVisible();
+  await page
+    .locator(sel.SESSION_NEW_LIFECYCLE)
+    .selectOption("echo-setup");
+  const args = page.locator(sel.SESSION_NEW_ARGS);
+  await expect(args).toBeVisible();
+
+  // When typing into the args input with real keypresses — `fill()`
+  // dispatches no keydown events, which is exactly the blind spot
+  // that let an every-keystroke dismissal ship unnoticed.
+  await args.click();
+  await page.keyboard.type("hello world");
+
+  // Then the modal is still open and the input holds the typed text —
+  // a keystroke must never dismiss the form.
+  await expect(modal).toBeVisible();
+  await expect(args).toHaveValue("hello world");
+
+  // And Escape dismisses it.
+  await page.keyboard.press("Escape");
+  await expect(modal).toBeHidden();
+});
+
 test("creating a session lands on the new session's page", async ({ page }) => {
   // Given the modal open on the blank lifecycle with the scratch
   // project selected.
@@ -91,6 +123,7 @@ test("creating a session lands on the new session's page", async ({ page }) => {
   const beforeId = await page.locator(sel.PAGE_ROOT).getAttribute(
     sel.PAGE_SESSION_ATTR,
   );
+  const rowsBefore = await page.locator(sel.SESSION_ROW).count();
   await page.locator(sel.MENU_BUTTON).click();
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   const modal = page.locator(sel.SESSION_NEW_MODAL);
@@ -101,7 +134,9 @@ test("creating a session lands on the new session's page", async ({ page }) => {
 
   // Then the page swapped wholesale to the created session's page:
   // the root's session id changed, the URL tracks it, the modal is
-  // gone, and the sidebar lists two sessions.
+  // gone, and the sidebar grew by exactly one row (a delta, not an
+  // absolute count — the serial tier's shared db may hold sessions
+  // created by specs sorting before this one).
   await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
   await expect(modal).toHaveCount(0);
   const root = page.locator(sel.PAGE_ROOT);
@@ -112,5 +147,5 @@ test("creating a session lands on the new session's page", async ({ page }) => {
   await expect(page).toHaveURL(
     new RegExp(`${sel.SESSION_PAGE_PATH.replace("/", "/")}${createdId}`),
   );
-  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(2);
+  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(rowsBefore + 1);
 });

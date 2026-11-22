@@ -1,4 +1,9 @@
 <span id="{{ menu_id }}">
+  <button id="{{ sessions_button_id }}" type="button" aria-label="Sessions"
+          data-class:attention="$sessionsAttention > 0"
+          data-on:click="$drawerOpen = !$drawerOpen">&#x1F4CB;</button>
+  <span id="{{ sessions_button_count_id }}" data-show="$sessionsAttention > 0"
+        data-text="$sessionsAttention"></span>
   <button id="{{ menu_button_id }}" type="button" aria-haspopup="true"
           data-attr:aria-expanded="$menuOpen ? 'true' : 'false'"
           data-on:click="$menuOpen = true" aria-controls="{{ menu_panel_id }}">&#x2630;</button>
@@ -17,5 +22,16 @@
     {% endif %}
     <button id="{{ menu_item_sessions_id }}"
             data-on:click="$menuOpen = false; $drawerOpen = !$drawerOpen">Sessions</button>
+    <span id="{{ menu_item_theme_id }}" role="group" aria-label="Color mode">
+      <button id="{{ menu_item_theme_light_id }}" type="button"
+              data-class:{{ theme_active_class }}="${{ signal_web_theme }} === 'light'"
+              data-on:click="${{ signal_web_theme }} = 'light'; @post('{{ theme_path }}', {contentType: 'json', payload: {theme: 'light'}})">Light</button>
+      <button id="{{ menu_item_theme_dark_id }}" type="button"
+              data-class:{{ theme_active_class }}="${{ signal_web_theme }} === 'dark'"
+              data-on:click="${{ signal_web_theme }} = 'dark'; @post('{{ theme_path }}', {contentType: 'json', payload: {theme: 'dark'}})">Dark</button>
+      <button id="{{ menu_item_theme_system_id }}" type="button"
+              data-class:{{ theme_active_class }}="${{ signal_web_theme }} === 'system'"
+              data-on:click="${{ signal_web_theme }} = 'system'; @post('{{ theme_path }}', {contentType: 'json', payload: {theme: 'system'}})">System</button>
+    </span>
   </span>
 </span>

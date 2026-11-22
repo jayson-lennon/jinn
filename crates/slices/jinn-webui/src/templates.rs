@@ -3,10 +3,11 @@
 //! Compile-time-checked: a template naming a field the model lacks
 //! fails the build, which is the reason this stack was chosen. The
 //! page shell is inert markup — data attributes and ids from
-//! [`crate::contract`]; every behavior (stream subscription, fragment
-//! swaps, action posts) lives in the TypeScript client compiled from
-//! `webui/client/`. Every dynamic region is a fragment template the
-//! handlers render and the client swaps into the page.
+//! [`crate::contract`]; every behavior rides the declarative Datastar
+//! attributes the templates carry (stream subscription, fragment
+//! swaps, action posts) against the committed browser bundle. Every
+//! dynamic region is a fragment template the handlers render and a
+//! Datastar action post swaps into the page.
 //!
 //! Escaping: askama escapes by extension — `.html` templates escape
 //! every interpolation — so a session title carrying markup cannot
@@ -22,14 +23,164 @@ use jinn_webui_msg::SessionListItem;
 /// re-export so template expressions stay short.
 use crate::contract;
 
-/// The page shell's base stylesheet: the design tokens and the
-/// cross-region chrome (flex layout, titlebar, transcript entry
+/// The page shell's base stylesheet: the design tokens (all three
+/// palettes — the whole stylesheet's only color-literal home) and the
+/// cross-region chrome (flex layout, titlebar; transcript entry
 /// styling is the transcript region's; see [`crate::region`]'s `css`
 /// join). Region styles live on the region and arrive through
 /// [`page_style`], so a region change never edits this constant.
+///
+/// Palette sources: dark is lifted role-for-role from the shipped
+/// default TUI theme (`res/themes/default.toml` — the comment on each
+/// token names its role), light from `res/themes/nord-light.toml`.
+/// The default token set is dark (on `:root`); the mode attribute
+/// lives on `<body>` (outside the swapped page root, so it survives
+/// a session-activate swap and the body background follows the mode):
+/// `body[data-theme="light"]` overrides it, and
+/// `@media (prefers-color-scheme: light)` re-applies the light set
+/// for `data-theme="system"` and for a body carrying no mode at all,
+/// so system detection is pure CSS with no client script.
+/// `color-scheme` rides each block so native form controls (the
+/// session-new `<select>`, filter inputs) match the palette.
 pub const BASE_CSS: &str = r#"
-:root { --bg: #14161a; --fg: #d7dae0; --muted: #8a8f98; --accent: #4c8bd8;
-        --border: #2a2e35; --panel: #1b1e24; --err: #e5534b; --ok: #57ab5a; }
+:root {
+  /* gutter_bg [25,27,30] */
+  --bg: #191b1e;
+  /* infopopup_bg [40,44,52] */
+  --panel: #282c34;
+  /* primary_text [220,220,220] */
+  --fg: #dcdcdc;
+  /* muted_text [116,116,116], lifted to #8f8f8f: the theme's value
+     falls under 3:1 on the raised surfaces (hover, active rows) the
+     web paints it over; #8f8f8f clears 3:1 on every dark surface. */
+  --muted: #8f8f8f;
+  /* derived: one step above --bg in the theme's blue-tinted ramp
+     (the theme names no border role; keeps the edge visible on both
+     --bg and --panel) */
+  --border: #2b2f36;
+  /* user_block_bg [52,53,65] — the user entry's own surface */
+  --bg-user-entry: #343541;
+  /* below --bg: the code and preformatted surface */
+  --bg-code: #131519;
+  /* derived: the hover step sits between --panel and the active
+     row in the user_block tint family — the theme's picker_selected_bg
+     [70,72,78] drops muted below 3:1, so the step is lifted until the
+     floor holds */
+  --bg-hover: #31343c;
+  /* derived: the active-row step, one step above --bg-hover for the
+     same floor */
+  --bg-active: #3a3d48;
+  /* derived: tool_pending_bg [45,45,50] retinted to the badge family */
+  --bg-badge-pending: #20242c;
+  /* tool_success_bg [44,55,44] darkened until the status text clears
+     4.5:1 on it */
+  --bg-badge-ok: #111d15;
+  /* tool_failure_bg [60,40,40] darkened for the same floor */
+  --bg-badge-err: #241616;
+  /* accent: keeps the shipped blue family (#4c8bd8), verified >=3:1
+     as text on every dark surface and 5.17:1 under dark button text */
+  --accent: #4c8bd8;
+  /* error_text (red family) lifted to #ee7770: the shipped value
+     falls under 4.5:1 on --panel (#282c34, where error toasts sit);
+     #ee7770 clears the floor on every dark surface */
+  --err: #ee7770;
+  /* success (green family, current value kept): 6.06:1 on --bg */
+  --ok: #57ab5a;
+  /* the modal/overlay scrim: black at the shipped opacity */
+  --scrim: rgba(0, 0, 0, .55);
+  /* text on an accent or error FILL: near-black, the darker side of
+     both fills */
+  --on-fill: #14161a;
+  /* the unread mark's fill: the shipped gold, 9.3:1 under --on-fill */
+  --mark: #e3b341;
+  /* the mark's secondary text on the gold fill */
+  --on-mark-muted: #3d3320;
+  /* the bot suffix's gold as text: 7.7:1 on --bg */
+  --bot: #d4a72c;
+  /* on the accent fill the label reads near-black; on the page the
+     white send-button label rides --on-fill too (5.2:1) */
+  --on-accent: #14161a;
+  --on-err: #14161a;
+  color-scheme: dark;
+}
+body[data-theme="light"] {
+  /* nord-light gutter_bg Snow Storm (Nord6) */
+  --bg: #eceff4;
+  /* nord-light infopopup_bg (Nord4) */
+  --panel: #e5e9f0;
+  /* nord-light primary_text (Polar Night, Nord0) */
+  --fg: #2e3440;
+  /* nord-light muted_text lifted to #67768f: the theme's #7b88a1
+     falls under 3:1 on the badge fills; #67768f clears 3:1 on every
+     light surface */
+  --muted: #67768f;
+  /* nord-light border_unfocused (Snow Storm, Nord4) */
+  --border: #d8dee9;
+  /* nord-light user_block_bg (Nord4) — same surface as --panel */
+  --bg-user-entry: #e5e9f0;
+  /* nord-light gutter_context_included, a step below --bg */
+  --bg-code: #e2e6ee;
+  /* nord-light picker_highlight_bg (Nord) */
+  --bg-hover: #e7edf5;
+  /* nord-light picker_selected_bg (Nord) */
+  --bg-active: #dce6f2;
+  /* nord-light tool_pending_bg, retinted to the badge family */
+  --bg-badge-pending: #dfe0ee;
+  /* nord-light tool_success_bg, darkened for the 4.5:1 status floor */
+  --bg-badge-ok: #dde8d8;
+  /* nord-light tool_failure_bg, darkened for the same floor */
+  --bg-badge-err: #f2dcdc;
+  /* nord-light focus_accent (Frost, Nord10) deepened to #4a6e95: the
+     theme value carries 3.5:1 as text, under the 4.5:1 text floor */
+  --accent: #4a6e95;
+  /* nord-light error_text (Aurora red, Nord11) deepened to #a8404a
+     for the text floor (the theme value carries 3.55:1) */
+  --err: #a8404a;
+  /* nord-light success (Aurora green, Nord14) deepened to #3d6b2a
+     for the text floor (the theme value carries 1.8:1 as text) */
+  --ok: #3d6b2a;
+  /* the scrim keeps its dark wash over the pale palette */
+  --scrim: rgba(0, 0, 0, .55);
+  /* on fills: white on the mid-tone accent (5.3:1), near-black on
+     the pale badge fills */
+  --on-fill: #2e3440;
+  --on-accent: #ffffff;
+  --on-err: #ffffff;
+  /* the unread mark: nord-light warning (Aurora yellow, Nord13) */
+  --mark: #ebcb8b;
+  --on-mark-muted: #63511d;
+  /* the bot suffix's gold, deepened for the text floor (theme-family
+     amber at 4.9:1 on --bg) */
+  --bot: #7f6400;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  body[data-theme="system"], body:not([data-theme]) {
+    --bg: #eceff4;
+    --panel: #e5e9f0;
+    --fg: #2e3440;
+    --muted: #67768f;
+    --border: #d8dee9;
+    --bg-user-entry: #e5e9f0;
+    --bg-code: #e2e6ee;
+    --bg-hover: #e7edf5;
+    --bg-active: #dce6f2;
+    --bg-badge-pending: #dfe0ee;
+    --bg-badge-ok: #dde8d8;
+    --bg-badge-err: #f2dcdc;
+    --accent: #4a6e95;
+    --err: #a8404a;
+    --ok: #3d6b2a;
+    --scrim: rgba(0, 0, 0, .55);
+    --on-fill: #2e3440;
+    --on-accent: #ffffff;
+    --on-err: #ffffff;
+    --mark: #ebcb8b;
+    --on-mark-muted: #63511d;
+    --bot: #7f6400;
+    color-scheme: light;
+  }
+}
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg);
        font: 15px/1.55 system-ui, sans-serif; }
@@ -42,7 +193,6 @@ body { margin: 0; background: var(--bg); color: var(--fg);
             display: flex; align-items: baseline; gap: 12px; }
 #titlebar .t { font-weight: 600; min-width: 0; overflow: hidden;
                text-overflow: ellipsis; white-space: nowrap; }
-#titlebar .m { color: var(--muted); font-size: 12px; }
 #menu { position: relative; display: inline-flex; }
 #menu-button { background: var(--panel); color: var(--fg);
                border: 1px solid var(--border); border-radius: 6px;
@@ -52,8 +202,21 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 #menu-panel button { background: transparent; color: var(--fg); text-align: left;
                      border: 0; border-radius: 5px; padding: 8px 12px;
                      font: inherit; cursor: pointer; white-space: nowrap; }
-#menu-panel button:hover { background: #23272f; }
+#menu-panel button:hover { background: var(--bg-hover); }
 "#;
+
+/// The `<meta name="theme-color">` content for a color mode — the
+/// mode's background token. `system` (or anything unrecognized)
+/// renders the dark value: the OS decides at paint time, and the
+/// meta cannot express a media query, so the page names the palette
+/// its `:root` defaults to.
+#[must_use]
+pub fn theme_color_for(mode: &str) -> &'static str {
+    match mode {
+        "light" => "#eceff4",
+        _ => "#191b1e",
+    }
+}
 
 /// The stylesheet the page shell inlines: the base chrome, then every
 /// registered region's fragment in registry order (registration order
@@ -99,9 +262,12 @@ pub struct PageTemplate {
     pub session_id: String,
     /// The session title.
     pub title: String,
-    /// The model-status wrapper fragment (label + picker), rendered
-    /// inline — the titlebar's whole model display.
-    pub status_html: String,
+    /// The titlebar's model-picker button fragment (bare button; the
+    /// page shell owns the `#model-picker` host span), rendered inline.
+    pub button_html: String,
+    /// The button's host span id (`model-picker`) — the shell owns
+    /// the span; the fragment fills it.
+    pub picker_host_id: &'static str,
     /// The rendered-entry cursor the page's inline transcript already
     /// carries — the stream's starting `Last-Event-ID`, so catch-up
     /// never re-appends what the page render included.
@@ -114,6 +280,9 @@ pub struct PageTemplate {
     pub controls_html: String,
     /// The menu fragment (hamburger + panel), rendered inline.
     pub menu_html: String,
+    /// The render-time unread-mark count — the menu's sessions
+    /// button badge's seeded value.
+    pub sessions_attention: usize,
     /// `/vendor/` — the script tag's URL prefix.
     pub vendor_prefix: &'static str,
     /// The client bundle's cache-busting URL inside `/vendor/`
@@ -169,6 +338,9 @@ pub struct PageTemplate {
     /// The menu scrim's id — the static shell overlay behind the
     /// slide-in menu panel (stacked above the drawer scrim).
     pub menu_scrim_id: &'static str,
+    /// The session-switch interstitial's id — the loading overlay a
+    /// session-row click raises; static shell markup like the scrims.
+    pub switch_overlay_id: &'static str,
     /// The viewed session's stream URL, empty on the landing page —
     /// the `data-init` `@get` binds to it; the runtime keeps the
     /// fetch-stream open (with retries) for the page's lifetime and
@@ -188,13 +360,28 @@ pub struct PageTemplate {
     /// The activate POST's route prefix — the rename editor's `@post`
     /// target builds `<prefix><id>/rename` from it.
     pub session_page_path: &'static str,
+    /// The persisted color mode seeding the `webTheme` signal —
+    /// `light`, `dark`, `system`, or empty (system is the default;
+    /// the body's `data-attr` binding treats an empty signal as
+    /// system).
+    pub web_theme: String,
+    /// The `<meta name="theme-color">` content for the active mode —
+    /// the mode's `--bg` value, rendered per render and patched by
+    /// the theme POST (the browser chrome reads it from `<head>`,
+    /// outside the swapped page root).
+    pub theme_color: &'static str,
 }
 
 impl PageTemplate {
     /// The no-session landing page: sessions list only, every other
     /// region empty, cursor zero.
     #[must_use]
-    pub fn landing(sessions_html: String, menu_html: String) -> Self {
+    pub fn landing(
+        sessions_html: String,
+        menu_html: String,
+        attention_count: usize,
+        web_theme: String,
+    ) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
@@ -203,8 +390,10 @@ impl PageTemplate {
             sessions_html,
             transcript_html: String::new(),
             controls_html: String::new(),
-            status_html: String::new(),
+            button_html: String::new(),
+            picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
+            sessions_attention: attention_count,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
@@ -225,11 +414,14 @@ impl PageTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             stream_url: String::new(),
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
             viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
+            theme_color: theme_color_for(&web_theme),
+            web_theme,
         }
     }
 
@@ -239,6 +431,10 @@ impl PageTemplate {
     /// rendered cursor so the first catch-up never re-appends what
     /// the page already rendered.
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the page render's full fragment set is one composite value in practice"
+    )]
     pub fn session(
         session_id: &str,
         title: String,
@@ -246,8 +442,10 @@ impl PageTemplate {
         sessions_html: String,
         transcript_html: String,
         controls_html: String,
-        status_html: String,
+        button_html: String,
         menu_html: String,
+        attention_count: usize,
+        web_theme: String,
     ) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
@@ -257,8 +455,10 @@ impl PageTemplate {
             sessions_html,
             transcript_html,
             controls_html,
-            status_html,
+            button_html,
+            picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
+            sessions_attention: attention_count,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
@@ -279,11 +479,14 @@ impl PageTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
             viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
+            theme_color: theme_color_for(&web_theme),
+            web_theme,
         }
     }
 }
@@ -308,8 +511,11 @@ pub struct PageRootTemplate {
     pub transcript_html: String,
     /// The composer-controls fragment.
     pub controls_html: String,
-    /// The model-status fragment.
-    pub status_html: String,
+    /// The titlebar's model-picker button fragment.
+    pub button_html: String,
+    /// The button's host span id (`model-picker`) — the shell owns
+    /// the span; the fragment fills it.
+    pub picker_host_id: &'static str,
     /// The menu fragment.
     pub menu_html: String,
     /// The rendered-entry cursor the inline transcript carries.
@@ -350,6 +556,8 @@ pub struct PageRootTemplate {
     pub drawer_scrim_id: &'static str,
     /// The menu scrim's id.
     pub menu_scrim_id: &'static str,
+    /// The session-switch interstitial's id.
+    pub switch_overlay_id: &'static str,
     /// The sessions pull's route — the list's effect re-pulls it.
     pub sessions_route: &'static str,
     /// The sessions pull's filter query parameter — the effect builds
@@ -365,6 +573,12 @@ pub struct PageRootTemplate {
     /// the `data-init` `@get` binding the root carries on session
     /// pages, so a navigation patch re-opens the stream by itself.
     pub stream_url: String,
+    /// The render-time unread-mark count — the menu's sessions
+    /// button badge's seeded value in the root's signal seed.
+    pub sessions_attention: usize,
+    /// The persisted color mode seeding the `webTheme` signal — the
+    /// same value the full page render seeds.
+    pub web_theme: String,
 }
 
 impl PageRootTemplate {
@@ -372,6 +586,10 @@ impl PageRootTemplate {
     /// shape `PageTemplate::session` renders inline (one field source,
     /// two render targets).
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the page render's full fragment set is one composite value in practice"
+    )]
     pub fn session(
         session_id: &str,
         title: String,
@@ -379,8 +597,10 @@ impl PageRootTemplate {
         sessions_html: String,
         transcript_html: String,
         controls_html: String,
-        status_html: String,
+        button_html: String,
         menu_html: String,
+        attention_count: usize,
+        web_theme: String,
     ) -> Self {
         Self {
             session_id: session_id.to_owned(),
@@ -389,8 +609,10 @@ impl PageRootTemplate {
             sessions_html,
             transcript_html,
             controls_html,
-            status_html,
+            button_html,
+            picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
+            sessions_attention: attention_count,
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -409,11 +631,13 @@ impl PageRootTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
             viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
+            web_theme,
         }
     }
 }
@@ -429,7 +653,10 @@ pub struct EntryTemplate {
     pub index: usize,
 }
 
-/// The transcript fragment: the entries at `cursor..` (or all).
+/// The transcript fragment: the entries at `cursor..` (or all), then
+/// the streaming container — always the fragment's last child, so a
+/// `transcript-full` inner replace re-creates it empty and settled
+/// entries never interleave with the streamed tail.
 #[derive(Template)]
 #[template(path = "transcript.html")]
 pub struct TranscriptTemplate {
@@ -438,6 +665,20 @@ pub struct TranscriptTemplate {
     /// The index the slice starts at (the first entry's cursor
     /// position).
     pub start: usize,
+    /// The streaming container's id, from the contract.
+    pub streaming_id: &'static str,
+}
+
+impl TranscriptTemplate {
+    /// Builds the fragment with the contract's container id filled.
+    #[must_use]
+    pub fn new(entries: Vec<crate::transcript::RenderedEntry>, start: usize) -> Self {
+        Self {
+            entries,
+            start,
+            streaming_id: contract::STREAMING_ID,
+        }
+    }
 }
 
 /// One row of the sessions fragment.
@@ -533,6 +774,9 @@ pub struct ControlsTemplate {
     pub send_action: &'static str,
     /// The cancel action's contract name.
     pub cancel_action: &'static str,
+    /// The queue action's contract name — the busy fragment's second
+    /// button, posting the send endpoint (a busy-phase enqueue queues).
+    pub queue_action: &'static str,
     /// The send endpoint — the composer's `@post` target.
     pub send_path: &'static str,
     /// The cancel endpoint — the cancel button's `@post` target.
@@ -541,6 +785,8 @@ pub struct ControlsTemplate {
     pub send_label: &'static str,
     /// The cancel button's label.
     pub cancel_label: &'static str,
+    /// The queue button's label (busy fragment only).
+    pub queue_label: &'static str,
 }
 
 impl ControlsTemplate {
@@ -556,10 +802,12 @@ impl ControlsTemplate {
             action_attr: contract::ACTION_DATA_ATTR,
             send_action: contract::ACTION_SEND,
             cancel_action: contract::ACTION_CANCEL,
+            queue_action: contract::ACTION_QUEUE,
             send_path: contract::SEND_PATH,
             cancel_path: contract::CANCEL_PATH,
             send_label: "Send",
             cancel_label: "Cancel",
+            queue_label: "Q",
         }
     }
 }
@@ -575,6 +823,10 @@ impl ControlsTemplate {
 pub struct MenuTemplate {
     /// The menu region's host container id.
     pub menu_id: &'static str,
+    /// The titlebar sessions button's id.
+    pub sessions_button_id: &'static str,
+    /// The sessions button's count badge id.
+    pub sessions_button_count_id: &'static str,
     /// The hamburger button's id.
     pub menu_button_id: &'static str,
     /// The item panel's id.
@@ -632,6 +884,25 @@ pub struct MenuTemplate {
     pub skills_picker_url: String,
     /// The skills modal host's CSS selector — the pull's swap target.
     pub skills_modal_host_selector: &'static str,
+    /// The render-time unread-mark count — the badge's seeded value.
+    pub attention_count: usize,
+    /// The theme control's host id — the segmented Light/Dark/System
+    /// control at the panel's tail (mode binds app-wide, not
+    /// per-session, so it renders on the landing page too).
+    pub menu_item_theme_id: &'static str,
+    /// The theme control's Light option id.
+    pub menu_item_theme_light_id: &'static str,
+    /// The theme control's Dark option id.
+    pub menu_item_theme_dark_id: &'static str,
+    /// The theme control's System option id.
+    pub menu_item_theme_system_id: &'static str,
+    /// The theme pick POST's endpoint — each option's `@post` target.
+    pub theme_path: &'static str,
+    /// The active-mode signal's name — the options' active-mark class
+    /// binding reads it.
+    pub signal_web_theme: &'static str,
+    /// The active option's class — applied by the signal binding.
+    pub theme_active_class: &'static str,
 }
 
 impl MenuTemplate {
@@ -639,11 +910,16 @@ impl MenuTemplate {
     ///
     /// `viewed_session` is the page's viewed session id — empty on the
     /// landing page, which omits the persona item entirely.
+    /// `attention_count` seeds the sessions button's unread count —
+    /// the render-time fact the live signal updates between renders.
     #[must_use]
-    pub fn with_contract(viewed_session: &str) -> Self {
+    pub fn with_contract(viewed_session: &str, attention_count: usize) -> Self {
         Self {
             menu_id: contract::MENU_ID,
+            sessions_button_id: contract::SESSIONS_BUTTON_ID,
+            sessions_button_count_id: contract::SESSIONS_BUTTON_COUNT_ID,
             menu_button_id: contract::MENU_BUTTON_ID,
+            attention_count,
             menu_panel_id: contract::MENU_PANEL_ID,
             menu_item_sessions_id: contract::MENU_ITEM_SESSIONS_ID,
             menu_item_new_session_id: contract::MENU_ITEM_NEW_SESSION_ID,
@@ -665,13 +941,22 @@ impl MenuTemplate {
             menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
             skills_picker_url: format!("{}{viewed_session}", contract::SKILL_PICKER_PREFIX),
             skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
+            menu_item_theme_id: contract::MENU_ITEM_THEME_ID,
+            menu_item_theme_light_id: contract::MENU_ITEM_THEME_LIGHT_ID,
+            menu_item_theme_dark_id: contract::MENU_ITEM_THEME_DARK_ID,
+            menu_item_theme_system_id: contract::MENU_ITEM_THEME_SYSTEM_ID,
+            theme_path: contract::THEME_PATH,
+            signal_web_theme: contract::SIGNAL_WEB_THEME,
+            theme_active_class: contract::THEME_ACTIVE_CLASS,
         }
     }
 }
 
 /// The model-picker's titlebar button fragment: the current model as a
-/// clickable control. The label carries the viewed selection; the
-/// client opens the modal on its click.
+/// clickable control — the **bare button**, no host span (the page
+/// shell owns `#model-picker`; the switch and refresh POSTs patch this
+/// same render into that host's interior). The label carries the
+/// viewed selection; the client opens the modal on its click.
 #[derive(Template)]
 #[template(path = "model_button.html")]
 pub struct ModelButtonTemplate {
@@ -681,8 +966,6 @@ pub struct ModelButtonTemplate {
     pub current: String,
     /// The button's id.
     pub button_id: &'static str,
-    /// The picker container's id.
-    pub picker_id: &'static str,
     /// The modal-open pull's URL (unfiltered) — the button's `@get`.
     pub picker_url: String,
     /// The modal host span's id — the pull's swap target.
@@ -696,41 +979,9 @@ impl ModelButtonTemplate {
         Self {
             picker_url: format!("{}{session_id}", contract::MODEL_PICKER_PREFIX),
             button_id: contract::MODEL_PICKER_BUTTON_ID,
-            picker_id: contract::MODEL_PICKER_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             session_id,
             current,
-        }
-    }
-}
-
-/// The titlebar's model-status wrapper: the static `.m` label span and
-/// the picker container rendered **as one fragment**, so a switch
-/// re-renders both in one swap (the `.m` label used to be static page
-/// markup that stayed stale after a switch). The page shell renders it
-/// inline at boot; the switch and refresh POSTs answer with it.
-#[derive(Template)]
-#[template(path = "model_status.html")]
-pub struct ModelStatusTemplate {
-    /// The current selection's label (the `.m` span's text).
-    pub model: String,
-    /// The pre-rendered button fragment (inlined with `|safe`).
-    pub model_html: String,
-    /// The wrapper's id.
-    pub status_id: &'static str,
-    /// The picker container's id (inside the wrapper).
-    pub picker_id: &'static str,
-}
-
-impl ModelStatusTemplate {
-    /// Builds the template from the current label and button HTML.
-    #[must_use]
-    pub fn with_contract(model: String, model_html: String) -> Self {
-        Self {
-            model,
-            model_html,
-            status_id: contract::MODEL_STATUS_ID,
-            picker_id: contract::MODEL_PICKER_ID,
         }
     }
 }
@@ -1053,16 +1304,23 @@ impl PersonaModalTemplate {
 
 /// One MCP server row of the MCP servers modal: the shared row
 /// builder's output (the TUI inspector consumes the same builder)
-/// plus the contract hooks the toggle POST needs. The status badge's
-/// class and label derive from the row's connection status — the
-/// TUI's `ServerRowState::derive` semantics verbatim (`None`/starting
-/// → "starting", running → "running", dead → "dead"), never
-/// re-derived here.
+/// plus the contract hooks the toggle POST needs and the
+/// filter-highlight segments. The status badge's class and label
+/// derive from the row's connection status — the TUI's
+/// `ServerRowState::derive` semantics verbatim (`None`/starting →
+/// "starting", running → "running", dead → "dead"), never re-derived
+/// here.
 #[derive(Template)]
 #[template(path = "mcp_row.html")]
 pub struct McpRowTemplate {
     /// The shared builder's row data.
     pub row: jinn_mcp_msg::McpServerRow,
+    /// The name field split into matched/plain runs from the fuzzy
+    /// filter — matched runs render in `<mark>`. One plain run of the
+    /// full text when there is no filter.
+    pub name_segments: Vec<jinn_selection_widget::TextRun>,
+    /// The description field, split like `name_segments`.
+    pub description_segments: Vec<jinn_selection_widget::TextRun>,
     /// The attribute a row names its server with — the toggle POST's
     /// payload field.
     pub server_attr: &'static str,
@@ -1077,21 +1335,28 @@ pub struct McpRowTemplate {
     pub status_class: &'static str,
     /// The status badge's label.
     pub status_label: &'static str,
+    /// The filter text signal's name — the row's toggle POST echoes it
+    /// so the response renders the filtered view.
+    pub filter_signal: &'static str,
 }
 
 impl McpRowTemplate {
-    /// Builds the template from a shared-builder row: the badge is the
-    /// msg crate's shared derivation — enablement first (a disabled
-    /// server reads `off` even when the runtime cell still holds the
-    /// killed connection's last report), then the connection status
-    /// with no-report rendered as `starting`.
+    /// Builds the template from a filtered shared-builder row: the
+    /// badge is the msg crate's shared derivation — enablement first
+    /// (a disabled server reads `off` even when the runtime cell still
+    /// holds the killed connection's last report), then the connection
+    /// status with no-report rendered as `starting`.
     #[must_use]
-    pub fn from_row(row: jinn_mcp_msg::McpServerRow) -> Self {
-        let badge = jinn_mcp_msg::McpRowBadge::derive(row.enabled, row.status);
+    pub fn from_filtered(filtered: jinn_mcp_msg::FilteredMcpRow) -> Self {
+        let segments = filtered.row.segments(&filtered.match_indices);
+        let badge = jinn_mcp_msg::McpRowBadge::derive(filtered.row.enabled, filtered.row.status);
         let status_label = badge.label();
         let status_class = status_label;
         Self {
-            row,
+            row: filtered.row,
+            name_segments: segments.name,
+            description_segments: segments.description,
+            filter_signal: contract::SIGNAL_MCP_FILTER,
             server_attr: contract::MCP_SERVER_DATA_ATTR,
             action_attr: contract::ACTION_DATA_ATTR,
             toggle_action: contract::ACTION_MCP_TOGGLE,
@@ -1102,19 +1367,28 @@ impl McpRowTemplate {
     }
 }
 
-/// The MCP modal: the overlay with the unfiltered TUI-parity rows.
-/// Rendered into the MCP modal host by the GET pull; the client
-/// toggles its visibility, and the `mcpTick` effect re-pulls the rows
-/// when the coordinator's stored event lands (the modelsTick
-/// pattern). The rows arrive pre-rendered (each [`McpRowTemplate`]
-/// renders first — the shape the persona modal's rows use).
+/// The MCP modal: the overlay with the filter input and the filtered
+/// TUI-parity rows. Rendered into the MCP modal host by the GET pull
+/// (with the filter applied server-side); the client toggles its
+/// visibility, and the `mcpTick` effect re-pulls the rows when the
+/// coordinator's stored event lands (the modelsTick pattern). The
+/// rows arrive pre-rendered (each [`McpRowTemplate`] renders first —
+/// the shape the persona modal's rows use).
 #[derive(Template)]
 #[template(path = "mcp_modal.html")]
 pub struct McpModalTemplate {
     /// The pre-rendered rows.
     pub rows: Vec<String>,
+    /// The filter text the rows were rendered with (the input's
+    /// initial value, so a re-pull keeps what the user typed).
+    pub filter: String,
     /// The modal overlay's id.
     pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The filter text signal's name — the input binds it; the rows
+    /// effect reads it.
+    pub filter_signal: &'static str,
     /// The rows container's id.
     pub rows_id: &'static str,
     /// The modal host span's id — the pull's swap target.
@@ -1126,10 +1400,13 @@ pub struct McpModalTemplate {
 impl McpModalTemplate {
     /// Builds the template with the contract's hooks filled.
     #[must_use]
-    pub fn with_contract(rows: Vec<String>) -> Self {
+    pub fn with_contract(rows: Vec<String>, filter: String) -> Self {
         Self {
             rows,
+            filter,
             modal_id: contract::MCP_MODAL_ID,
+            filter_id: contract::MCP_FILTER_ID,
+            filter_signal: contract::SIGNAL_MCP_FILTER,
             rows_id: contract::MCP_ROWS_ID,
             modal_host_id: contract::MCP_MODAL_HOST_ID,
             picker_route: contract::MCP_PICKER_PREFIX,
@@ -1137,15 +1414,25 @@ impl McpModalTemplate {
     }
 }
 
-/// One row of the tools modal: the TUI picker's ✓/✗ enablement mark
-/// rendered as HTML. The row is a plain render over the shared
-/// vocabulary's [`jinn_tools_msg::WebToolRow`] — no badge, no status:
-/// the tool list has no runtime half to report on.
+/// One row of the tools modal: the TUI picker's ✓/✓ enablement mark
+/// rendered as HTML. The row renders the shared vocabulary's
+/// [`jinn_tools_msg::WebToolRow`] with its filter-highlight segments
+/// — no badge, no status: the tool list has no runtime half to report
+/// on.
 #[derive(Template)]
 #[template(path = "tools_row.html")]
 pub struct ToolsRowTemplate {
     /// The shared vocabulary's row data.
     pub row: jinn_tools_msg::WebToolRow,
+    /// The name field split into matched/plain runs from the fuzzy
+    /// filter — matched runs render in `<mark>`. One plain run of the
+    /// full text when there is no filter.
+    pub name_segments: Vec<jinn_selection_widget::TextRun>,
+    /// The description field, split like `name_segments`.
+    pub description_segments: Vec<jinn_selection_widget::TextRun>,
+    /// The filter text signal's name — the row's toggle POST echoes it
+    /// so the response renders the filtered view.
+    pub filter_signal: &'static str,
     /// The attribute a row names its tool with — the toggle POST's
     /// payload field.
     pub tool_attr: &'static str,
@@ -1158,11 +1445,15 @@ pub struct ToolsRowTemplate {
 }
 
 impl ToolsRowTemplate {
-    /// Builds the template from a shared-vocabulary row.
+    /// Builds the template from a filtered shared-vocabulary row.
     #[must_use]
-    pub fn from_row(row: jinn_tools_msg::WebToolRow) -> Self {
+    pub fn from_filtered(filtered: jinn_tools_msg::FilteredWebToolRow) -> Self {
+        let segments = filtered.row.segments(&filtered.match_indices);
         Self {
-            row,
+            row: filtered.row,
+            name_segments: segments.name,
+            description_segments: segments.description,
+            filter_signal: contract::SIGNAL_TOOLS_FILTER,
             tool_attr: contract::TOOL_NAME_DATA_ATTR,
             action_attr: contract::ACTION_DATA_ATTR,
             toggle_action: contract::ACTION_TOOLS_TOGGLE,
@@ -1223,8 +1514,16 @@ impl ToolsRowsTemplate {
 pub struct ToolsModalTemplate {
     /// The pre-rendered rows.
     pub rows: Vec<String>,
+    /// The filter text the rows were rendered with (the input's
+    /// initial value, so a re-pull keeps what the user typed).
+    pub filter: String,
     /// The modal overlay's id.
     pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The filter text signal's name — the input binds it; the rows
+    /// effect reads it.
+    pub filter_signal: &'static str,
     /// The rows container's id.
     pub rows_id: &'static str,
     /// The revert snapshot's stamp element id.
@@ -1250,6 +1549,7 @@ impl ToolsModalTemplate {
     #[must_use]
     pub fn with_contract(
         rows: Vec<String>,
+        filter: String,
         snapshot: Option<&jinn_core_types::NameFilter>,
         viewed_session: &str,
     ) -> Self {
@@ -1266,7 +1566,10 @@ impl ToolsModalTemplate {
         );
         Self {
             rows,
+            filter,
             modal_id: contract::TOOLS_MODAL_ID,
+            filter_id: contract::TOOLS_FILTER_ID,
+            filter_signal: contract::SIGNAL_TOOLS_FILTER,
             rows_id: contract::TOOLS_ROWS_ID,
             revert_stamp_id: contract::TOOLS_REVERT_STAMP_ID,
             revert_snapshot,
@@ -1279,10 +1582,11 @@ impl ToolsModalTemplate {
 
 /// One skill row of the skills modal: the discovered [`Skill`][skill]
 /// stamped with the contract hooks the toggle and load POSTs need,
-/// plus the enablement mark, source badge, and loaded state the TUI
-/// picker's row vocabulary mirrors. Built from the msg-crate `Skill`
-/// plus session accessors — never the TUI's `SkillEntry` (that carries
-/// the theme and feeds ratatui line rendering).
+/// plus the enablement mark, filter-highlight segments, source badge,
+/// and loaded state the TUI picker's row vocabulary mirrors. Built
+/// from the msg crate's filtered skill rows — never the TUI's
+/// `SkillEntry` (that carries the theme and feeds ratatui line
+/// rendering).
 ///
 /// [skill]: jinn_skills_msg::Skill
 #[derive(Template)]
@@ -1293,6 +1597,12 @@ pub struct SkillRowTemplate {
     /// Whether the skill passes the session's current filter — the
     /// enabled mark (● vs ○, the TUI marker vocabulary).
     pub enabled: bool,
+    /// The name field split into matched/plain runs from the fuzzy
+    /// filter — matched runs render in `<mark>`. One plain run of the
+    /// full text when there is no filter.
+    pub name_segments: Vec<jinn_selection_widget::TextRun>,
+    /// The description field, split like `name_segments`.
+    pub description_segments: Vec<jinn_selection_widget::TextRun>,
     /// The source badge's class suffix (`project`/`global`); global
     /// skills render no badge, the TUI badge rule.
     pub source_class: &'static str,
@@ -1301,6 +1611,9 @@ pub struct SkillRowTemplate {
     /// Whether the row renders a source badge — global skills render
     /// none (the TUI badge rule), project skills badge.
     pub has_source_badge: bool,
+    /// The filter text signal's name — the row's toggle and load
+    /// POSTs echo it so the responses render the filtered view.
+    pub filter_signal: &'static str,
     /// The attribute a row names its skill with — the toggle and load
     /// POSTs' payload field.
     pub skill_attr: &'static str,
@@ -1319,11 +1632,13 @@ pub struct SkillRowTemplate {
 }
 
 impl SkillRowTemplate {
-    /// Builds the template from the discovered skill and the session's
+    /// Builds the template from a filtered skill and the session's
     /// enablement read: the source badge follows the TUI badge rule
     /// (project-scoped skills badge, global skills do not).
     #[must_use]
-    pub fn from_skill(skill: jinn_skills_msg::Skill, enabled: bool) -> Self {
+    pub fn from_filtered(filtered: jinn_skills_msg::FilteredSkillRow, enabled: bool) -> Self {
+        let segments = filtered.segments();
+        let skill = filtered.skill;
         let (source_class, source_label, has_source_badge) = match &skill.source {
             jinn_skills_msg::SkillSource::Project { .. } => ("project", "project", true),
             jinn_skills_msg::SkillSource::Global => ("global", "", false),
@@ -1331,6 +1646,9 @@ impl SkillRowTemplate {
         Self {
             skill,
             enabled,
+            name_segments: segments.name,
+            description_segments: segments.description,
+            filter_signal: contract::SIGNAL_SKILLS_FILTER,
             source_class,
             source_label,
             has_source_badge,
@@ -1345,8 +1663,9 @@ impl SkillRowTemplate {
     }
 }
 
-/// The skills modal: the overlay with the unfiltered TUI-parity rows.
-/// Rendered into the skills modal host by the GET pull; the client
+/// The skills modal: the overlay with the filter input and the
+/// filtered TUI-parity rows. Rendered into the skills modal host by
+/// the GET pull (with the filter applied server-side); the client
 /// toggles its visibility, and the `skillsTick` effect re-pulls the
 /// rows when a discovery scan reports (the mcpTick pattern —
 /// discovery lands async after the modal can be opened). The rows
@@ -1357,8 +1676,16 @@ impl SkillRowTemplate {
 pub struct SkillModalTemplate {
     /// The pre-rendered rows.
     pub rows: Vec<String>,
+    /// The filter text the rows were rendered with (the input's
+    /// initial value, so a re-pull keeps what the user typed).
+    pub filter: String,
     /// The modal overlay's id.
     pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The filter text signal's name — the input binds it; the rows
+    /// effect reads it.
+    pub filter_signal: &'static str,
     /// The rows container's id.
     pub rows_id: &'static str,
     /// The modal host span's id — the pull's swap target.
@@ -1371,10 +1698,13 @@ pub struct SkillModalTemplate {
 impl SkillModalTemplate {
     /// Builds the template with the contract's hooks filled.
     #[must_use]
-    pub fn with_contract(rows: Vec<String>) -> Self {
+    pub fn with_contract(rows: Vec<String>, filter: String) -> Self {
         Self {
             rows,
+            filter,
             modal_id: contract::SKILL_MODAL_ID,
+            filter_id: contract::SKILL_FILTER_ID,
+            filter_signal: contract::SIGNAL_SKILLS_FILTER,
             rows_id: contract::SKILL_ROWS_ID,
             modal_host_id: contract::SKILL_MODAL_HOST_ID,
             picker_route: contract::SKILL_PICKER_PREFIX,

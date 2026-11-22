@@ -32,9 +32,12 @@ use datastar::prelude::{ExecuteScript, PatchElements, PatchSignals};
 use futures::StreamExt as _;
 use jinn_core_types::SessionId;
 use jinn_kernel::State;
+use jinn_preferences_config::protocol::app_state_command::AppStateUpdate;
+use jinn_preferences_config::protocol::app_state_command::UpdateAppState;
 use jinn_slices::PhaseView;
 use jinn_slices::bus::BusService;
 use jinn_webui_msg::SseEnvelope;
+use jinn_webui_msg::SseKind;
 use jinn_webui_msg::TranscriptQuery;
 use std::convert::Infallible;
 use std::time::Duration;
@@ -211,9 +214,14 @@ fn signal_patch(pairs: &[(&str, serde_json::Value)]) -> datastar::DatastarEvent 
     PatchSignals::new(serde_json::Value::Object(object).to_string()).into_datastar_event()
 }
 
-/// One `patch-elements` event appending fragment HTML at a selector.
+/// One `patch-elements` event appending fragment HTML — placed
+/// before the session's streaming container so the container stays
+/// the transcript's last child (the tail-replace target).
 fn append_patch(html: String) -> datastar::DatastarEvent {
-    PatchElements::new(html).into_datastar_event()
+    PatchElements::new(html)
+        .selector(format!("#{}", crate::contract::STREAMING_ID))
+        .mode(datastar::consts::ElementPatchMode::Before)
+        .into_datastar_event()
 }
 
 /// One `patch-elements` event replacing a selector's inner HTML —
@@ -240,13 +248,19 @@ async fn overlay_reset_patches(
     id: &SessionId,
 ) -> Result<Vec<datastar::DatastarEvent>, HandlerError> {
     // The same full render the GET page endpoint serves, so a
-    // navigation response and a fresh load are byte-identical shapes.
+    // navigation response and a fresh load are byte-identical shapes —
+    // including the settled-prefix split (the boundary-aware cursor
+    // the page shell stamps) when the activated session is mid-turn.
     let view = session_view(shared, id).await?;
     let sessions_html = crate::regions::sessions::sessions_fragment(shared, None, Some(id)).await?;
-    let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate {
-        entries: view.transcript.entries.clone(),
-        start: 0,
-    })
+    let (transcript_entries, cursor) = {
+        let guard = shared.read_state();
+        shared.settled_prefix(id, &guard)
+    };
+    let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate::new(
+        transcript_entries,
+        0,
+    ))
     .map_err(|e| fail(500, e.to_string()))?;
     let controls_html =
         crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
@@ -254,23 +268,34 @@ async fn overlay_reset_patches(
             view.phase != PhaseView::Idle.as_str(),
         ))
         .map_err(|e| fail(500, e.to_string()))?;
-    let model_html = crate::regions::model_picker::status_fragment(shared, &id.to_string())?;
-    let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
+    let model_html = crate::regions::model_picker::button_fragment(shared, &id.to_string())?;
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
+    let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
+    let web_theme = persisted_web_theme(shared);
     // The root fragment — NOT the full page shell. The runtime morphs
     // element patches; a document-shaped patch (DOCTYPE + <html>) is
     // parsed as a whole document and its fight with the live page
     // leaves the old subtree's stray nodes alive. The root div alone
     // replaces cleanly (and its data-signals seed resets every
     // transient overlay signal atomically).
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     let page = crate::templates::render(&crate::templates::PageRootTemplate::session(
         &id.to_string(),
         view.transcript.title.clone(),
-        view.transcript.len(),
+        cursor,
         sessions_html,
         transcript_html,
         controls_html,
         model_html,
         menu_html,
+        attention_count,
+        web_theme,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(vec![
@@ -468,6 +493,66 @@ impl ServerShared {
     pub(crate) fn bus(&self) -> &BusService {
         &self.bus
     }
+
+    /// The session's settled prefix under an already-held guard: the
+    /// rendered entries the settled transcript carries (`0..boundary`
+    /// mid-turn, the whole history otherwise) and the cursor value the
+    /// render stamps — the boundary mid-turn, the full count
+    /// otherwise. One read path for page fill, the activation
+    /// response, and the POST swaps, so every full transcript render
+    /// splits at the same boundary the fan-out's pushes split at.
+    #[must_use]
+    pub(crate) fn settled_prefix(
+        &self,
+        session_id: &SessionId,
+        guard: &jinn_kernel::common::state::StateReadGuard<'_>,
+    ) -> (Vec<crate::transcript::RenderedEntry>, usize) {
+        let boundary = self.fanout.settled_boundary(session_id);
+        let Some(session) = guard.session.get(session_id) else {
+            return (Vec::new(), 0);
+        };
+        let transcript = crate::transcript::TranscriptModel::from_live(
+            session.history(),
+            session.title(),
+            &crate::regions::transcript::model_label(session.model_selection()),
+            session.phase().as_str(),
+            session.is_bot(),
+        );
+        match boundary {
+            // Mid-turn: the settled prefix only — the in-flight tail
+            // belongs to the streaming container, and a full render
+            // carrying it too would double every tail entry until the
+            // settle.
+            Some(boundary) => {
+                let end = boundary.min(transcript.entries.len());
+                let entries = transcript.entries.get(..end).map_or_else(
+                    || transcript.entries.clone(),
+                    <[crate::transcript::RenderedEntry]>::to_vec,
+                );
+                (entries, end)
+            }
+            None => {
+                let len = transcript.entries.len();
+                (transcript.entries, len)
+            }
+        }
+    }
+
+    /// The boundary-aware full-transcript fragment under an
+    /// already-held guard — the POST-swap shape (persona switch,
+    /// skill load). Splitting at the boundary keeps those swaps from
+    /// carrying the in-flight tail the streaming container already
+    /// shows.
+    #[must_use]
+    pub(crate) fn settled_fragment(
+        &self,
+        session_id: &SessionId,
+        guard: &jinn_kernel::common::state::StateReadGuard<'_>,
+    ) -> String {
+        let (entries, _cursor) = self.settled_prefix(session_id, guard);
+        crate::templates::render(&crate::templates::TranscriptTemplate::new(entries, 0))
+            .unwrap_or_default()
+    }
 }
 
 /// Builds the web surface's routes.
@@ -486,6 +571,7 @@ pub fn router(shared: ServerShared) -> Router {
         .route("/web/send", post(send))
         .route("/web/cancel", post(cancel))
         .route("/web/model", post(model))
+        .route(crate::contract::THEME_PATH, post(theme))
         .route(crate::contract::PERSONA_PATH, post(persona))
         .route(crate::contract::MCP_TOGGLE_PATH, post(mcp_toggle))
         .route(crate::contract::TOOLS_TOGGLE_PATH, post(tools_toggle))
@@ -545,12 +631,19 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
 /// session is viewed, so the list carries no viewed (blue) row.
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
     let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None, None).await?;
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     // No viewed session on the landing page — the menu renders without
     // the persona item.
-    let menu_html = crate::regions::menu::menu_fragment("");
+    let menu_html = crate::regions::menu::menu_fragment("", attention_count);
+    let web_theme = persisted_web_theme(&shared);
     let html = crate::templates::render(&crate::templates::PageTemplate::landing(
         sessions_html,
         menu_html,
+        attention_count,
+        web_theme,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(Page::new(html))
@@ -566,6 +659,14 @@ async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, H
 /// has no other way through. Publication failure is logged, never a
 /// 500: the page is already rendered, and the mark is signal, not
 /// correctness.
+///
+/// Mid-turn the inline transcript carries the **settled prefix only**
+/// (split at the fan-out's settled boundary) and the cursor attr
+/// stamps that boundary — the streaming container above it stays
+/// empty at boot, and the first flush tick refills the tail. A page
+/// reconnecting mid-turn therefore converges without duplication: the
+/// catch-up pull serves `since..boundary`, never the tail the stream
+/// is about to re-push wholesale.
 async fn page_session(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
@@ -574,10 +675,16 @@ async fn page_session(
     let view = session_view(&shared, &id).await?;
     let sessions_html =
         crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
-    let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate {
-        entries: view.transcript.entries.clone(),
-        start: 0,
-    })
+    // The settled prefix + boundary cursor, under one guard.
+    let (transcript_entries, cursor) = {
+        let guard = shared.read_state();
+        let (entries, cursor) = shared.settled_prefix(&id, &guard);
+        (entries, cursor)
+    };
+    let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate::new(
+        transcript_entries,
+        0,
+    ))
     .map_err(|e| fail(500, e.to_string()))?;
     let controls_html =
         crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
@@ -585,17 +692,24 @@ async fn page_session(
             view.phase != PhaseView::Idle.as_str(),
         ))
         .map_err(|e| fail(500, e.to_string()))?;
-    let model_html = crate::regions::model_picker::status_fragment(&shared, &session_id)?;
-    let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
+    let model_html = crate::regions::model_picker::button_fragment(&shared, &session_id)?;
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
+    let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
+    let web_theme = persisted_web_theme(&shared);
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         &session_id,
         view.transcript.title.clone(),
-        view.transcript.len(),
+        cursor,
         sessions_html,
         transcript_html,
         controls_html,
         model_html,
         menu_html,
+        attention_count,
+        web_theme,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     shared
@@ -608,6 +722,23 @@ async fn page_session(
 }
 
 // ── Shared reads ────────────────────────────────────────────────────
+
+/// The persisted color mode from the app state — `light`, `dark`, or
+/// `system` (an unset or unrecognized persisted value reads as
+/// `system`, the CSS default).
+#[must_use]
+fn persisted_web_theme(shared: &ServerShared) -> String {
+    let guard = shared.read_state();
+    match guard.frontend.app_state.web_theme.as_deref() {
+        Some("light" | "dark" | "system") => guard
+            .frontend
+            .app_state
+            .web_theme
+            .clone()
+            .unwrap_or_default(),
+        _ => "system".to_owned(),
+    }
+}
 
 /// A session's full view for one page render: the projection plus the
 /// phase, from live state or (when not loaded) the store.
@@ -668,7 +799,12 @@ async fn session_view(shared: &ServerShared, id: &SessionId) -> Result<SessionVi
 /// The correctness dependency: a page (re)connects, reads its
 /// `Last-Event-ID`, pulls everything after it, then subscribes to the
 /// stream. A cursor past the entry count re-reads everything — the
-/// history-shrink re-sync rule.
+/// history-shrink re-sync rule. Mid-turn the pull serves the
+/// **settled** slice only: the cursor's coordinate space ends at the
+/// fan-out's settled boundary, so a reconnecting page pulls the
+/// settled prefix and the streaming container's tail refills from the
+/// next flush tick — never pulled and pushed at once (the
+/// no-duplication rule).
 pub(crate) async fn transcript_pull(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
@@ -676,13 +812,22 @@ pub(crate) async fn transcript_pull(
 ) -> Result<Fragment, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
-    let start = query.cursor_within(view.transcript.len());
-    let entries: Vec<_> = view.transcript.since(query.since).to_vec();
-    let html = crate::templates::render(&crate::templates::TranscriptTemplate {
-        entries,
-        start: start.unwrap_or(0),
-    })
-    .map_err(|e| fail(500, e.to_string()))?;
+    let boundary = shared.fanout.settled_boundary(&id);
+    // The rendered space the pull is answerable for: the boundary
+    // mid-turn, the full count otherwise.
+    let rendered_len = boundary.unwrap_or(view.transcript.len());
+    let start = query.cursor_within(rendered_len);
+    let end = start.unwrap_or(0);
+    let entries: Vec<_> = view
+        .transcript
+        .entries
+        .iter()
+        .skip(end)
+        .take(rendered_len.saturating_sub(end))
+        .cloned()
+        .collect();
+    let html = crate::templates::render(&crate::templates::TranscriptTemplate::new(entries, end))
+        .map_err(|e| fail(500, e.to_string()))?;
     Ok(Fragment::new(html))
 }
 
@@ -800,11 +945,63 @@ async fn cancel(
     Ok(SseAction::empty())
 }
 
+/// `POST /web/theme` — set the webui's color mode. The web mirror of
+/// a preferences write: the mode is validated against the three-value
+/// vocabulary (an unknown value was never rendered by the menu
+/// control — the unrecognized-value refusal is the 400, never a
+/// silent default), the choice is published as `UpdateAppState(
+/// SetWebTheme)` for the app-state actor to persist, and the response
+/// re-seeds the `webTheme` signal and patches the theme-color meta —
+/// both **rendered from the submitted value**, never from the state
+/// cache (the persona precedent: the actor applies the diff
+/// asynchronously, so the cache races the response).
+async fn theme(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<WebForm<jinn_webui_msg::ThemeForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
+    let theme = form.theme;
+    if !matches!(theme.as_str(), "light" | "dark" | "system") {
+        return Err(fail(
+            400,
+            format!("unknown theme `{theme}` (want light, dark, or system)"),
+        ));
+    }
+    shared
+        .bus()
+        .publish(UpdateAppState {
+            updates: vec![AppStateUpdate::SetWebTheme(Some(theme.clone()))],
+        })
+        .await;
+    // Response truth: the submitted value, not the state cache. The
+    // signal re-seed makes the acting page's mode deterministic even
+    // where the click handler already set it (e.g. a urlencoded
+    // caller), and the meta patch refreshes the browser chrome.
+    Ok(SseAction::new(vec![
+        signal_patch(&[(crate::contract::SIGNAL_WEB_THEME, theme_value(&theme))]),
+        PatchElements::new(format!(
+            "<meta name=\"theme-color\" content=\"{}\">",
+            crate::templates::theme_color_for(&theme)
+        ))
+        .selector("meta[name='theme-color']")
+        .mode(datastar::consts::ElementPatchMode::Replace)
+        .into_datastar_event(),
+    ]))
+}
+
+/// The signal value for a mode — system is stored as the empty string
+/// on the signal (the body's `data-attr` binding reads it as system),
+/// light/dark pass through verbatim.
+fn theme_value(theme: &str) -> serde_json::Value {
+    match theme {
+        "system" => serde_json::Value::String(String::new()),
+        other => serde_json::Value::String(other.to_owned()),
+    }
+}
+
 /// `POST /web/model` — switch a session's model. Responds with the
-/// re-rendered titlebar **status wrapper** (the `.m` label and the
-/// button together, so both displays update in one swap); the modal
-/// closes on the client — a stale modal must not survive the switch it
-/// caused.
+/// re-rendered titlebar button; the modal closes on the client — a
+/// stale modal must not survive the switch it caused.
 async fn model(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<WebForm<jinn_webui_msg::ModelForm>, HandlerError>,
@@ -821,15 +1018,15 @@ async fn model(
     )
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
-    // The titlebar status wrapper swaps in one inner patch (the `.m`
-    // label and the button together — the wrapper exists so a switch
-    // never leaves the label stale); the modal-close is a signal
-    // patch, not an element patch: the modal's visibility is
-    // signal-driven.
+    // The titlebar's model area swaps in one inner patch (the bare
+    // button into the page shell's `#model-picker` host — the payload
+    // must never be the button's own host-span render, which would
+    // nest a duplicate id); the modal-close is a signal patch, not an
+    // element patch: the modal's visibility is signal-driven.
     Ok(SseAction::new(vec![
         element_patch_inner(
-            format!("#{}", crate::contract::MODEL_STATUS_ID),
-            crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
+            format!("#{}", crate::contract::MODEL_PICKER_ID),
+            crate::regions::model_picker::button_fragment(&shared, &form.session_id)?,
         ),
         signal_patch(&[(
             crate::contract::SIGNAL_MODAL_OPEN,
@@ -867,19 +1064,27 @@ async fn persona(
         // The chosen persona lacks a handoff block: the delivery path
         // pushed the loud error entry, and the transcript swap is what
         // makes it visible now (rendered from state that already holds
-        // the entry — the sync-write-then-render ordering).
+        // the entry — the sync-write-then-render ordering). The swap
+        // renders the settled prefix (boundary-aware), so a swap
+        // landing mid-turn never carries the tail the streaming
+        // container already shows.
         let id = parse_session_id(&form.session_id)?;
         let transcript_html = {
             let guard = shared.read_state();
-            crate::regions::transcript::transcript_full_fragment(&id, &guard)
+            shared.settled_fragment(&id, &guard)
         };
         events.push(element_patch_inner(
             format!("#{}", crate::contract::TRANSCRIPT_ID),
             transcript_html,
         ));
     }
+    // The modal fragment's root carries the modal's own id, so an
+    // inner patch addressed at the modal would NEST a second copy
+    // inside it (Datastar reconciles nothing on an inner patch).
+    // The host is the pull's own swap target — the same address the
+    // menu item's `@get` fills — so the correction patch reuses it.
     events.push(element_patch_inner(
-        format!("#{}", crate::contract::PERSONA_MODAL_ID),
+        format!("#{}", crate::contract::PERSONA_MODAL_HOST_ID),
         crate::regions::persona_picker::modal_fragment(&shared, &form.session_id, "")?,
     ));
     events.push(signal_patch(&[(
@@ -913,7 +1118,11 @@ async fn mcp_toggle(
     .map_err(|error| fail(error.status(), error.sentence()))?;
     Ok(SseAction::new(vec![element_patch_inner(
         format!("#{}", crate::contract::MCP_MODAL_ID),
-        crate::regions::mcp_servers::modal_fragment(&shared, &form.session_id)?,
+        crate::regions::mcp_servers::modal_fragment(
+            &shared,
+            &form.session_id,
+            form.filter.as_deref().unwrap_or_default(),
+        )?,
     )]))
 }
 
@@ -927,6 +1136,10 @@ struct ToolsToggleForm {
     session_id: String,
     /// The tool name, exactly as a rendered row carries it.
     tool: String,
+    /// The client's current filter text, echoed into the response's
+    /// rendered rows (absent or empty renders unfiltered).
+    #[serde(default)]
+    filter: Option<String>,
 }
 
 /// The revert POST's body: the open-time snapshot the dismissal posts
@@ -964,11 +1177,15 @@ async fn tools_toggle(
     // must not re-execute the stamp's `data-init` nor nest a second
     // modal inside the open one. The fragment carries the rows
     // container itself, so the patch replaces it (an inner patch would
-    // nest a second `#tools-rows`).
+    // nest a second `#tools-rows`). The client's current filter rides
+    // the form and echoes into the rendered rows — the stale-fragment
+    // rule extends to the filtered view (an unfiltered response would
+    // flash rows the user filtered out).
     Ok(SseAction::new(vec![
         PatchElements::new(crate::regions::tools::rows_fragment(
             &shared,
             &form.session_id,
+            form.filter.as_deref().unwrap_or_default(),
         )?)
         .selector(crate::contract::TOOLS_ROWS_SELECTOR.to_owned())
         .mode(ElementPatchMode::Replace)
@@ -1013,7 +1230,11 @@ async fn skill_toggle(
         .map_err(|error| fail(error.status(), error.sentence()))?;
     Ok(SseAction::new(vec![element_patch_inner(
         format!("#{}", crate::contract::SKILL_MODAL_ID),
-        crate::regions::skills::modal_fragment(&shared, &form.session_id)?,
+        crate::regions::skills::modal_fragment(
+            &shared,
+            &form.session_id,
+            form.filter.as_deref().unwrap_or_default(),
+        )?,
     )]))
 }
 
@@ -1036,14 +1257,21 @@ async fn skill_load(
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
     let id = parse_session_id(&form.session_id)?;
+    // The pinned pair (or the duplicate's notice) rides the settled
+    // prefix render — boundary-aware, so a swap landing mid-turn never
+    // duplicates the tail.
     let transcript_html = {
         let guard = shared.read_state();
-        crate::regions::transcript::transcript_full_fragment(&id, &guard)
+        shared.settled_fragment(&id, &guard)
     };
     Ok(SseAction::new(vec![
         element_patch_inner(
             format!("#{}", crate::contract::SKILL_MODAL_ID),
-            crate::regions::skills::modal_fragment(&shared, &form.session_id)?,
+            crate::regions::skills::modal_fragment(
+                &shared,
+                &form.session_id,
+                form.filter.as_deref().unwrap_or_default(),
+            )?,
         ),
         element_patch_inner(
             format!("#{}", crate::contract::TRANSCRIPT_ID),
@@ -1064,13 +1292,13 @@ async fn refresh_models(
     crate::delivery::handle_refresh_models(shared.bus(), &form.session_id)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    // Status wrapper now; rows arrive with the discovery fan-out's
-    // `models` push (a signal tick — the open modal's effect re-pulls
-    // its rows). The spinner clears when the tick lands (the
-    // browser's own effect on the tick signal).
+    // Button now; rows arrive with the discovery fan-out's `models`
+    // push (a signal tick — the open modal's effect re-pulls its
+    // rows). The spinner clears when the tick lands (the browser's
+    // own effect on the tick signal).
     Ok(SseAction::new(vec![element_patch_inner(
-        format!("#{}", crate::contract::MODEL_STATUS_ID),
-        crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
+        format!("#{}", crate::contract::MODEL_PICKER_ID),
+        crate::regions::model_picker::button_fragment(&shared, &form.session_id)?,
     )]))
 }
 
@@ -1098,6 +1326,21 @@ async fn activate(
     // Validate the path id (the page render re-parses it; this check
     // makes a malformed id a 400 before the switch publishes).
     parse_session_id(&session_id)?;
+    // Wait out the fan-out's activation wave before rendering: the
+    // store sets the active id, then the fan-out actor processes the
+    // load-completed event — clearing the activated session's unread
+    // mark and fanning the sessions signal. `wait_for_activation`
+    // returns the moment the active id flips, which can beat the
+    // fan-out's clear; a response rendered in between seeds the
+    // swapped page with the pre-clear count, and the clear wave —
+    // broadcast before this client's new stream subscribes — never
+    // reaches it. Awaiting the wave itself (a bounded peek at the
+    // fan-out's own broadcast, not a sleep) orders the response after
+    // the clear, so the swap seed and the stream-connect convergence
+    // patch both read post-clear truth. The timeout bounds a
+    // no-mark activation (nothing to clear, no wave worth waiting
+    // for): the render falls through with whatever is current.
+    await_activation_wave(&shared, &session_id).await;
     // A page render for the activated session. The load is async (the
     // store actor hydrates it), so a just-archived session may not be
     // in live state yet; the render falls through to the store and
@@ -1168,9 +1411,13 @@ async fn rename(
     // page is the requester — it is the viewer, so its blue row rides
     // the same markup every consumer gets.
     let list_html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     shared
         .fanout
-        .push_sessions_refresh_from(&id, list_html.clone());
+        .push_sessions_refresh_from(&id, attention_count);
     // The initiating page's sidebar is the response's element patch;
     // its titlebar text and tab title follow from the two signal
     // patches (the title span and the document title both bind
@@ -1189,6 +1436,40 @@ async fn rename(
 }
 
 // ── SSE ─────────────────────────────────────────────────────────────
+
+/// How long [`await_activation_wave`] waits for the fan-out's
+/// activation wave before rendering the response anyway. The happy
+/// path is the fan-out actor's dispatch latency (microseconds); the
+/// budget only ever binds on a wedged actor or an activation with no
+/// list fan to wait for.
+const ACTIVATION_WAVE_BUDGET: Duration = Duration::from_millis(250);
+
+/// Peeks the fan-out's broadcast for the next sessions envelope
+/// addressed to `session_id` — the activation wave
+/// [`crate::fanout::WebUiFanoutActor`] fans on every load-completed —
+/// so the activation response renders after the fan-out's mark-clear
+/// instead of racing it. Subscriber-side only: this reads the fan-out's
+/// output; the mark cell keeps its single writer.
+async fn await_activation_wave(shared: &ServerShared, session_id: &str) {
+    let mut rx = shared.fanout.subscribe();
+    let deadline = tokio::time::Instant::now() + ACTIVATION_WAVE_BUDGET;
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return;
+        }
+        match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Ok(envelope))
+                if envelope.kind == SseKind::Sessions
+                    && envelope.session_id.to_string() == session_id =>
+            {
+                return;
+            }
+            Ok(Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => {}
+            Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) | Err(_) => return,
+        }
+    }
+}
 
 /// The canonical page URL for one session id — the navigation
 /// response's `pushState` target.
@@ -1237,10 +1518,15 @@ async fn stream(
         .or(query.since)
         .unwrap_or(0);
     // Catch-up: the entries after the client's cursor, rendered under
-    // one guard and dropped before the stream is built. An unknown
-    // session catches up empty — the session may still be loading; the
-    // first `transcript-full` push fills it.
+    // one guard and dropped before the stream is built — clipped to
+    // the session's settled boundary when a turn is in flight, so the
+    // catch-up serves the settled prefix only and the streaming
+    // container's tail refills from the next flush tick (never pulled
+    // and pushed at once). An unknown session catches up empty — the
+    // session may still be loading; the first `transcript-full` push
+    // fills it.
     let catchup = {
+        let boundary = shared.fanout.settled_boundary(&id);
         let guard = shared.read_state();
         guard.session.get(&id).map(|session| {
             let transcript = crate::transcript::TranscriptModel::from_live(
@@ -1250,11 +1536,19 @@ async fn stream(
                 session.phase().as_str(),
                 session.is_bot(),
             );
-            (transcript.since(Some(cursor)).to_vec(), transcript.len())
+            // The answerable space: the boundary mid-turn, the full
+            // count otherwise — then the shrink-re-read rule inside it.
+            let total = boundary.unwrap_or(transcript.len()).min(transcript.len());
+            let start = cursor.min(total);
+            let slice = transcript
+                .entries
+                .get(start..total)
+                .map_or_else(Vec::new, <[crate::transcript::RenderedEntry]>::to_vec);
+            (slice, start, total)
         })
     };
-    let catchup_events = catchup.map_or_else(Vec::new, |(entries, total)| {
-        render_catchup_events(&entries, cursor, total)
+    let catchup_events = catchup.map_or_else(Vec::new, |(entries, start, total)| {
+        render_catchup_events(&entries, start, total)
     });
 
     // Subscribe AFTER the catch-up snapshot: a fragment published in
@@ -1262,6 +1556,37 @@ async fn stream(
     // counts its own sessions pushes — the tick signal bumps per
     // connection, never globally.
     let rx = shared.fanout.subscribe();
+    // Sessions-signal convergence: one patch on connect carrying the
+    // current unread count, the same heal the transcript's catch-up
+    // snapshot performs for entries. The page render seeded the badge
+    // at request time, but a mark transition can land between that
+    // render and this connect (activation of a marked session is the
+    // sharp edge: the fan-out's clear wave races the browser's
+    // navigation), and a broadcast is fire-and-forget — a wave fired
+    // before this stream subscribed never re-arrives. The connect
+    // patch closes that window for the badge; the tick rides it so the
+    // client's list also converges on connect.
+    let converge: Vec<Result<SseEvent, Infallible>> = {
+        let attention = {
+            let guard = shared.read_state();
+            crate::regions::sessions::unread_count_of(&guard)
+        };
+        crate::push::sdk_events_of(
+            &SseEnvelope {
+                kind: SseKind::Sessions,
+                session_id: id.clone(),
+                cursor: 0,
+                html: attention.to_string(),
+            },
+            0,
+        )
+        .map_or_default(|events| {
+            events
+                .into_iter()
+                .map(|event| Ok(event.write_as_axum_sse_event()))
+                .collect()
+        })
+    };
     let session_filter = id.clone();
     let tick = std::sync::atomic::AtomicU64::new(0);
     let live = tokio_stream::wrappers::BroadcastStream::new(rx)
@@ -1292,7 +1617,11 @@ async fn stream(
                 std::vec::IntoIter<Result<axum::response::sse::Event, Infallible>>,
             >
     }));
-    let stream = futures::StreamExt::chain(catchup, live).flatten();
+    let stream = futures::StreamExt::chain(
+        futures::stream::iter(vec![futures::stream::iter(converge)]),
+        futures::StreamExt::chain(catchup, live),
+    )
+    .flatten();
     Sse::new(stream)
         .keep_alive(KeepAlive::new().interval(SSE_KEEPALIVE).text("keepalive"))
         .into_response()
@@ -1311,11 +1640,15 @@ pub struct StreamQuery {
 }
 
 /// Builds the catch-up events for a reconnect: every entry after
-/// `start` as an append patch, then one empty frame that parks the
-/// cursor at `total` even when the last render failed, so a reconnect
-/// does not re-pull forever. The trailing frame carries no HTML —
-/// its `id:` line is its whole payload (the browser's resume
-/// position).
+/// `start` as a patch that inserts it **before** the streaming
+/// container (the entries are settled transcript content — the
+/// container holds the in-flight tail and must stay the transcript's
+/// last child), then one cursor-park frame that parks the cursor at
+/// `total` even when the last render failed, so a reconnect does not
+/// re-pull forever. The trailing frame patches no signal any effect
+/// reads (its `onlyIfMissing` payload is a no-op on a connected
+/// page) — a reconnect appends without scrolling; its `id:` line is
+/// its real payload (the browser's resume position).
 pub(crate) fn render_catchup_events(
     entries: &[crate::transcript::RenderedEntry],
     start: usize,
@@ -1332,22 +1665,24 @@ pub(crate) fn render_catchup_events(
             let html = crate::templates::render(&template).ok()?;
             Some(
                 PatchElements::new(html)
-                    .selector(format!("#{}", crate::contract::TRANSCRIPT_ID))
-                    .mode(datastar::consts::ElementPatchMode::Append)
+                    .selector(format!("#{}", crate::contract::STREAMING_ID))
+                    .mode(datastar::consts::ElementPatchMode::Before)
                     .id((start + offset + 1).to_string())
                     .into_datastar_event(),
             )
         })
         .collect();
-    // The trailing cursor-park + scroll tick: a signal patch whose
-    // `id:` parks the browser's resume cursor at `total` and whose
-    // chatTick bump keys the wrap's scroll effect — a reconnect's
-    // catch-up appends land with the reader following the tail, same
-    // as a live batch.
+    // The trailing cursor-park: a signal patch whose `id:` parks the
+    // browser's resume cursor at `total` (the settled boundary
+    // mid-turn — never the live count). The payload is reader-less —
+    // `onlyIfMissing` over an always-declared signal, so no signal
+    // value ever changes and no `data-effect` anywhere fires: a
+    // reconnect's catch-up appends land without scrolling.
     events.push(
         PatchSignals::new(
-            serde_json::json!({ crate::contract::SIGNAL_CHAT_TICK: total }).to_string(),
+            serde_json::json!({ crate::contract::SIGNAL_MENU_OPEN: false }).to_string(),
         )
+        .only_if_missing(true)
         .id(total.max(start).to_string())
         .into_datastar_event(),
     );

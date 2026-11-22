@@ -255,7 +255,7 @@ fn arg_display_tokens(template: &CommandTemplate) -> String {
 /// The new-session modal's stylesheet: overlay, card, field rows,
 /// the args hint, and the refusal wrapper.
 pub const SESSION_NEW_CSS: &str = r#"
-.session-new-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+.session-new-modal { position: fixed; inset: 0; background: var(--scrim);
                      display: flex; align-items: flex-start;
                      justify-content: center; padding-top: 10vh; z-index: 50; }
 .session-new-modal[hidden] { display: none; }

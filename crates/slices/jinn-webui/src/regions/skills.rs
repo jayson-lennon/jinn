@@ -7,16 +7,25 @@
 //! MCP modals — `container_id` is `None` because the host is not one
 //! of the page shell's inline regions).
 //!
-//! The rows are TUI-parity and unfiltered: one row per skill in the
-//! viewed session's discovered set, each with the enablement mark
-//! (●/○), name, description, and the project-scoped source badge (the
-//! TUI badge rule: project skills badge, global skills do not). Rows
-//! build from the msg-crate [`jinn_skills_msg::Skill`] plus the
-//! session's skill accessors — never the TUI's `SkillEntry`, which
-//! carries the theme and feeds ratatui line rendering. Loaded-ness
-//! has no badge, by parity: the TUI row shows none either (the picker
-//! figures loaded-ness in its excluded footer); a user discovers it
-//! through the force-load notice.
+//! The rows are TUI-parity: one row per skill in the viewed session's
+//! discovered set, each with the enablement mark (●/○), name,
+//! description, and the project-scoped source badge (the TUI badge
+//! rule: project skills badge, global skills do not). Rows build from
+//! the msg-crate [`jinn_skills_msg::Skill`] plus the session's skill
+//! accessors — never the TUI's `SkillEntry`, which carries the theme
+//! and feeds ratatui line rendering. Loaded-ness has no badge, by
+//! parity: the TUI row shows none either (the picker figures
+//! loaded-ness in its excluded footer); a user discovers it through
+//! the force-load notice.
+//!
+//! The modal carries the persona/model filter bar: the pull takes an
+//! optional `?filter=` and applies the shared fuzzy filter
+//! ([`jinn_skills_msg::filter_skills`], the TUI picker's match core
+//! over `{name} {description}`) before rendering, with matched runs
+//! marked. Enablement is paired at render — the filter narrows the
+//! view, never the accepted set (a toggle validates against the
+//! discovered set regardless of the view). Toggle and load responses
+//! echo the client's filter back and render the filtered view.
 //!
 //! A toggle POST (in `delivery.rs`) applies `NameFilter::permit` /
 //! `withhold` to the session's skill filter synchronously — the
@@ -39,9 +48,11 @@
 //! gesture); this region owns the modal fragment and its pull.
 
 use axum::extract::Path as AxPath;
+use axum::extract::Query as AxQuery;
 use axum::extract::State as AxumState;
 use jinn_skills_msg::Skill;
 use jinn_webui_msg::SseKind;
+use serde::Deserialize;
 
 use crate::region::RegionParts;
 use crate::region::RegionPull;
@@ -116,11 +127,22 @@ impl WebRegion for SkillsRegion {
 async fn pull_handler(
     AxumState(shared): AxumState<crate::server::ServerShared>,
     AxPath(session_id): AxPath<String>,
+    AxQuery(query): AxQuery<SkillFilterQuery>,
 ) -> Result<crate::server::Fragment, crate::server::HandlerError> {
+    let filter = query.filter.unwrap_or_default();
     Ok(
-        crate::server::Fragment::new(modal_fragment(&shared, &session_id)?)
+        crate::server::Fragment::new(modal_fragment(&shared, &session_id, &filter)?)
             .with_swap(crate::contract::SKILL_MODAL_HOST_SELECTOR, "inner"),
     )
+}
+
+/// The pull's query: the optional `filter` parameter — the shared
+/// fuzzy filter over skill name and description.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SkillFilterQuery {
+    /// The filter text; absent or empty renders every row.
+    #[serde(default)]
+    pub filter: Option<String>,
 }
 
 /// One row's read: the discovered skill and whether it passes the
@@ -171,9 +193,11 @@ fn sorted_rows(shared: &crate::server::ServerShared, session_id: &str) -> Vec<(S
     rows
 }
 
-/// The modal fragment: the overlay with the unfiltered TUI-parity
-/// rows — enablement mark, name, description, source badge, and the
-/// per-row force-load button.
+/// The modal fragment: the overlay with the filter input and the
+/// filtered TUI-parity rows — enablement mark, name, description,
+/// source badge, and the per-row force-load button. The filter
+/// narrows the view only: enablement is paired at render, and a
+/// toggle's accepted set stays the whole discovered set.
 ///
 /// # Errors
 ///
@@ -181,22 +205,49 @@ fn sorted_rows(shared: &crate::server::ServerShared, session_id: &str) -> Vec<(S
 pub(crate) fn modal_fragment(
     shared: &crate::server::ServerShared,
     session_id: &str,
+    filter: &str,
 ) -> Result<String, crate::server::HandlerError> {
-    let rows: Vec<String> = sorted_rows(shared, session_id)
-        .into_iter()
-        .map(|(skill, enabled)| {
-            crate::templates::render(&crate::templates::SkillRowTemplate::from_skill(
-                skill, enabled,
-            ))
-            .unwrap_or_else(|error| {
-                tracing::warn!(%error, what = "skill-row", "webui template render failed; \
-                     skipping the row");
-                String::new()
-            })
-        })
+    let sorted = sorted_rows(shared, session_id);
+    let enabled_by_name: std::collections::BTreeMap<&str, bool> = sorted
+        .iter()
+        .map(|(skill, enabled)| (skill.name.as_str(), *enabled))
         .collect();
-    crate::templates::render(&crate::templates::SkillModalTemplate::with_contract(rows))
-        .map_err(|error| crate::server::map_render_error(&error))
+    let rows: Vec<String> =
+        jinn_skills_msg::filter_skills(&sorted_skills(shared, session_id), filter)
+            .into_iter()
+            .map(|filtered| {
+                let enabled = enabled_by_name
+                    .get(filtered.skill.name.as_str())
+                    .copied()
+                    .unwrap_or(false);
+                crate::templates::render(&crate::templates::SkillRowTemplate::from_filtered(
+                    filtered, enabled,
+                ))
+                .unwrap_or_else(|error| {
+                    tracing::warn!(%error, what = "skill-row", "webui template render failed; \
+                         skipping the row");
+                    String::new()
+                })
+            })
+            .collect();
+    crate::templates::render(&crate::templates::SkillModalTemplate::with_contract(
+        rows,
+        filter.to_owned(),
+    ))
+    .map_err(|error| crate::server::map_render_error(&error))
+}
+
+/// The viewed session's discovered skills, sorted case-insensitively
+/// by name (the shared builders' order the persona and MCP modals
+/// render in) — the filter's input vocabulary.
+#[must_use]
+fn sorted_skills(shared: &crate::server::ServerShared, session_id: &str) -> Vec<Skill> {
+    let mut skills: Vec<Skill> = skill_rows(shared, session_id)
+        .into_iter()
+        .map(|read| read.skill)
+        .collect();
+    skills.sort_by_key(|skill| skill.name.to_lowercase());
+    skills
 }
 
 /// The skills region's stylesheet: the modal overlay and the rows.
@@ -205,18 +256,22 @@ pub(crate) fn modal_fragment(
 /// resolve in this region's favor); the rows add the description
 /// fill, the source badge, and the force-load button.
 pub const SKILL_CSS: &str = r#"
-.skill-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+.skill-modal { position: fixed; inset: 0; background: var(--scrim);
                display: flex; align-items: flex-start;
                justify-content: center; padding-top: 10vh; z-index: 40; }
 .skill-modal[hidden] { display: none; }
 .skill-modal-inner { background: var(--panel); border: 1px solid var(--border);
                      border-radius: 8px; width: min(560px, 92vw);
                      max-height: 70vh; display: flex; flex-direction: column; }
-.skill-modal-head { padding: 10px; border-bottom: 1px solid var(--border); }
+.skill-modal-head { display: flex; gap: 8px; padding: 10px;
+                    border-bottom: 1px solid var(--border); }
+#skills-filter { flex: 1; background: var(--bg); color: var(--fg);
+                 border: 1px solid var(--border); border-radius: 6px;
+                 padding: 6px 8px; font: inherit; }
 #skills-rows { overflow-y: auto; padding: 4px 0; }
 .skill-row { display: flex; gap: 8px; padding: 7px 12px; cursor: pointer;
              align-items: baseline; }
-.skill-row:hover { background: #23272f; }
+.skill-row:hover { background: var(--bg-hover); }
 .skill-row .skill-row-marker { width: 1.2em; color: var(--muted); }
 .skill-row .skill-row-description { color: var(--muted); flex: 1;
                                     overflow: hidden; text-overflow: ellipsis;
@@ -233,8 +288,11 @@ pub const SKILL_CSS: &str = r#"
                                    color: var(--accent); }
 .skill-row.skill-row-enabled .skill-row-name { font-weight: 600; }
 .skill-row.skill-row-enabled .skill-row-marker { color: var(--accent); }
+.skill-row mark { background: transparent; color: var(--accent);
+                  font-weight: 600; }
 @media (max-width: 767px) {
   .skill-row { min-height: 40px; padding: 10px 12px; }
+  #skills-filter { min-height: 40px; }
 }
 "#;
 

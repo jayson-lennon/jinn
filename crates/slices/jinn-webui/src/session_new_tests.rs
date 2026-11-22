@@ -22,12 +22,17 @@ use crate::server::ServerShared;
 
 /// A two-lifecycle config document: one shell setup with two
 /// parameters, one without a setup at all.
-const CONFIG_DOC: &str = r#"
+///
+/// The second project is the non-`~` absolute-path specimen. Its
+/// spelling is platform-conditional: `/abs/other` is not absolute on
+/// Windows (no drive prefix), so the production validator would refuse
+/// it there — the specimen must be a valid absolute path per host.
+const CONFIG_DOC_TEMPLATE: &str = r#"
 [[project.entry]]
 path = "~/code/demo"
 
 [[project.entry]]
-path = "/abs/other"
+path = "{abs_specimen}"
 
 [[session_lifecycle.script]]
 name = "worktree"
@@ -37,9 +42,16 @@ setup_command = "git worktree add ~/wt/$1 $2"
 name = "bare"
 "#;
 
+/// The absolute-path specimen the config document names, per platform.
+#[cfg(windows)]
+const ABS_SPECIMEN: &str = "C:/abs/other";
+#[cfg(not(windows))]
+const ABS_SPECIMEN: &str = "/abs/other";
+
 /// The project+lifecycle config layer the creation tests run under.
 fn config_doc() -> jinn_config::ConfigLayer {
-    jinn_config::testutil::config_layer(CONFIG_DOC)
+    let document = CONFIG_DOC_TEMPLATE.replace("{abs_specimen}", ABS_SPECIMEN);
+    jinn_config::testutil::config_layer(&document)
 }
 
 /// The harness: fresh state, seeded cell registry, and the shared
@@ -129,7 +141,8 @@ fn the_form_renders_project_and_lifecycle_options_with_blank_first() {
     // select names every configured lifecycle, and the blank row is
     // the select's first entry.
     assert!(html.contains(r#"value="~/code/demo""#), "{html}");
-    assert!(html.contains(r#"value="/abs/other""#), "{html}");
+    let specimen_option = format!(r#"value="{ABS_SPECIMEN}""#);
+    assert!(html.contains(&specimen_option), "{html}");
     assert!(html.contains(r#"value="worktree""#), "{html}");
     assert!(html.contains(r#"value="bare""#), "{html}");
     let lifecycle_select = html
@@ -457,7 +470,7 @@ async fn create_persists_the_scripted_session() {
         .spawn_recorder::<jinn_session_store_msg::PersistSession>()
         .await;
     let form = CreateSessionForm {
-        project: "/abs/other".to_owned(),
+        project: ABS_SPECIMEN.to_owned(),
         lifecycle: "worktree".to_owned(),
         args: Some("branch extra".to_owned()),
     };

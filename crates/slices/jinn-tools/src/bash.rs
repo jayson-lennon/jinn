@@ -910,7 +910,7 @@ mod tests {
 
         // Given a bash command that spawns a background child process.
         let shell = "/bin/sh".to_owned();
-        let guard = {
+        let (guard, group_pid) = {
             let child = tokio::process::Command::new(&shell)
                 .arg("-c")
                 .arg("sleep 60 & sleep 60")
@@ -922,14 +922,21 @@ mod tests {
                 .expect("spawn should succeed");
             let pid = child.id().expect("child should have a PID");
             assert!(pid > 0, "child PID should be positive");
-            KillOnDrop::new(child)
+            // The group leader's pid IS the pgid (process_group(0) made the
+            // child its own leader) — captured before the kill, since the
+            // group ceases to exist once the leader is signalled.
+            let group_pid = pid as i32;
+            (KillOnDrop::new(child), group_pid)
         };
 
         // Wait until both spawned processes are running. The wait is on the
-        // processes' *existence* — the shell starts them asynchronously, and
-        // a fixed sleep would only guess at when they appear.
+        // processes' *existence* within the spawn's own group — the shell
+        // starts them asynchronously, and a fixed sleep would only guess at
+        // when they appear. The group scope keeps an unrelated host process
+        // running the same command line out of the oracle.
         jinn_testutil::wait::wait_for(std::time::Duration::from_secs(5), || {
-            jinn_testutil::platform::find_orphans("sleep 60", "sleep").len() >= 2
+            jinn_testutil::platform::find_orphans_in_group("sleep 60", "sleep", group_pid).len()
+                >= 2
         })
         .await;
 
@@ -937,11 +944,12 @@ mod tests {
         drop(guard);
 
         // Then the group signal takes the whole group down. The wait is on
-        // the processes' *absence* after the signal — the kernel reaps them
-        // asynchronously, and a fixed sleep would only guess at how long
-        // that takes.
+        // the processes' *absence* within that group after the signal — the
+        // kernel reaps them asynchronously, and a fixed sleep would only
+        // guess at how long that takes.
         jinn_testutil::wait::wait_for(std::time::Duration::from_secs(5), || {
-            jinn_testutil::platform::find_orphans("sleep 60", "sleep").is_empty()
+            jinn_testutil::platform::find_orphans_in_group("sleep 60", "sleep", group_pid)
+                .is_empty()
         })
         .await;
     }
