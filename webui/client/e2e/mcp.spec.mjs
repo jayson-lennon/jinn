@@ -126,3 +126,73 @@ test("the landing page's menu carries no MCP item", async ({ page }) => {
   await expect(page.locator(sel.MENU_ITEM_MCP)).toHaveCount(0);
   await expect(page.locator(sel.MENU_ITEM_SESSIONS)).toBeVisible();
 });
+
+test("typing in the filter narrows the rows with marked runs", async ({
+  page,
+}) => {
+  // Given the MCP modal open with the scratch server listed.
+  await openMcpModal(page);
+  const row = page.locator(sel.MCP_ROW(sel.MCP_SERVER));
+  await expect(row).toBeVisible();
+  const query = sel.MCP_SERVER.slice(0, 2);
+
+  // When typing a matching prefix with real keypresses (fill()
+  // dispatches no keydown, and typing must not dismiss the modal).
+  await page.locator(sel.MCP_FILTER).click();
+  await page.keyboard.type(query);
+
+  // Then the row is still visible with a marked run — the server
+  // filtered and highlighted it.
+  await expect(row).toBeVisible();
+  await expect(row.locator("mark").first()).toHaveText(query);
+
+  // And the input keeps what was typed.
+  await expect(page.locator(sel.MCP_FILTER)).toHaveValue(query);
+
+  // And Escape dismisses the modal.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(sel.MCP_MODAL)).toBeHidden();
+});
+
+test("a toggle under a filter keeps the filtered view with the input intact", async ({
+  page,
+}) => {
+  // Given the MCP modal open, the server disabled, and a filter typed.
+  await openMcpModal(page);
+  const row = page.locator(sel.MCP_ROW(sel.MCP_SERVER));
+  const query = sel.MCP_SERVER.slice(0, 2);
+  await page.locator(sel.MCP_FILTER).click();
+  await page.keyboard.type(query);
+  await expect(row.locator("mark").first()).toHaveText(query);
+
+  // When toggling the filtered-in row (the scratch server starts
+  // disabled; the click enables it).
+  await row.click();
+
+  // Then the row re-renders enabled but still filtered in, the input
+  // intact — the toggle response rendered the view the user was
+  // looking at.
+  await expect(row).toHaveClass(/mcp-row-enabled/);
+  await expect(page.locator(sel.MCP_FILTER)).toHaveValue(query);
+
+  // And Escape dismisses; reopening shows the unfiltered rows with
+  // the enablement kept (the filter is view-local).
+  await page.keyboard.press("Escape");
+  await expect(page.locator(sel.MCP_MODAL)).toBeHidden();
+  await page.locator(sel.MENU_BUTTON).click();
+  await page.locator(sel.MENU_ITEM_MCP).click();
+  const reopened = page.locator(sel.MCP_MODAL);
+  await expect(reopened).toBeVisible();
+  await expect(page.locator(sel.MCP_FILTER)).toHaveValue("");
+  await expect(page.locator(sel.MCP_ROW(sel.MCP_SERVER))).toHaveClass(
+    /mcp-row-enabled/,
+  );
+
+  // Cleanup: the serial tier's later specs pivot on the disabled
+  // state this file's earlier specs restore, so disable again (the
+  // click is the XOR; the view filter is gone in the reopened modal).
+  await page.locator(sel.MCP_ROW(sel.MCP_SERVER)).click();
+  await expect(page.locator(sel.MCP_ROW(sel.MCP_SERVER))).not.toHaveClass(
+    /mcp-row-enabled/,
+  );
+});

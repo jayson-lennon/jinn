@@ -85,6 +85,8 @@ export const MCP_MODAL = "#mcp-modal";
 export const MCP_MODAL_HOST = "#mcp-modal-host";
 /** The MCP modal's row container id (`wire.MCP_ROWS_ID`). */
 export const MCP_ROWS = "#mcp-rows";
+/** The MCP modal's filter input id (`wire.MCP_FILTER_ID`). */
+export const MCP_FILTER = "#mcp-filter";
 /** One MCP server row, by its server-name attr (`wire.MCP_SERVER_DATA_ATTR`). */
 export const MCP_ROW = (name) => `[data-webui-server="${name}"]`;
 /** The enabled row class (`wire.MCP_ROW_ENABLED_CLASS`). */
@@ -119,6 +121,8 @@ export const TOOLS_MODAL = "#tools-modal";
 export const TOOLS_MODAL_HOST = "#tools-modal-host";
 /** The tools modal's row container id (`wire.TOOLS_ROWS_ID`). */
 export const TOOLS_ROWS = "#tools-rows";
+/** The tools modal's filter input id (`wire.TOOLS_FILTER_ID`). */
+export const TOOLS_FILTER = "#tools-filter";
 /** One tool row, by its tool-name attr (`wire.TOOL_NAME_DATA_ATTR`). */
 export const TOOL_ROW = (name) => `[data-webui-tool="${name}"]`;
 /** The off-row class (`tools-row-off`) — a row the session's live
@@ -149,6 +153,8 @@ export const SKILL_MODAL = "#skills-modal";
 export const SKILL_MODAL_HOST = "#skills-modal-host";
 /** The skills modal's row container id (`wire.SKILL_ROWS_ID`). */
 export const SKILL_ROWS = "#skills-rows";
+/** The skills modal's filter input id (`wire.SKILL_FILTER_ID`). */
+export const SKILL_FILTER = "#skills-filter";
 /** One skill row, by its skill-name attr (`wire.SKILL_NAME_DATA_ATTR`). */
 export const SKILL_ROW = (name) => `[data-webui-skill="${name}"]`;
 /** The enabled row class hook (the skills modal's TUI-parity mark). */
