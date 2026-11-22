@@ -581,8 +581,23 @@ fn configured_servers(services: &Services) -> Vec<(String, McpServerConfig)> {
 
 impl MsgHandler<SessionLoadCompleted> for McpCoordinatorActor {
     async fn handle(&mut self, msg: &SessionLoadCompleted, _ctx: &mut MsgCtx<'_>) {
-        // Given a session restored from disk.
-        self.clear_runtime_for_session(msg.session_id());
+        // Given a session whose activation published completed — a disk
+        // restore, or (since live switches publish it too) a re-activation
+        // of a session already in memory.
+        // The runtime clear is only honest when the connections it
+        // describes are gone: a disk restore happens in a fresh process
+        // where nothing is spawned, so every stored status is stale. A
+        // re-activation of an already-live session has every actor still
+        // running with current statuses — clearing them would blank the
+        // badges of living connections, and reconcile would skip the
+        // respawn (its duplicate guard), leaving nothing to republish.
+        let has_live_actors = {
+            let spawned = self.spawned.lock();
+            spawned.keys().any(|(sid, _)| sid == msg.session_id())
+        };
+        if !has_live_actors {
+            self.clear_runtime_for_session(msg.session_id());
+        }
         let enabled = self
             .state
             .read()
@@ -590,7 +605,8 @@ impl MsgHandler<SessionLoadCompleted> for McpCoordinatorActor {
             .get(msg.session_id())
             .map(|session| session.enabled_mcp_servers().clone());
 
-        // When reconciling its enablement.
+        // When reconciling its enablement — a no-op while the spawned set
+        // already matches.
         if let Some(enabled) = enabled {
             self.reconcile(msg.session_id(), &enabled).await;
         }

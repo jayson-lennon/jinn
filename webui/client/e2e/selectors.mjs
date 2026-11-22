@@ -188,6 +188,12 @@ export const SESSION_NEW_EMPTY = "#session-new-empty";
 export const DRAWER_SCRIM = "#drawer-scrim";
 /** The drawer-open class the client toggles on the page root. */
 export const DRAWER_OPEN_CLASS = "drawer-open";
+/** The titlebar sessions button id (`wire.SESSIONS_BUTTON_ID`). */
+export const SESSIONS_BUTTON = "#sessions-button";
+/** The sessions button's count badge id (`wire.SESSIONS_BUTTON_COUNT_ID`). */
+export const SESSIONS_BUTTON_COUNT = "#sessions-button-count";
+/** The sessions button's attention class (`wire.SESSIONS_ATTENTION_CLASS`). */
+export const SESSIONS_ATTENTION_CLASS = "attention";
 /** The session-switch interstitial overlay id
  * (`wire.SWITCH_OVERLAY_ID`) — the loading surface a session-row
  * click raises until the activation response's page swap lands. */
