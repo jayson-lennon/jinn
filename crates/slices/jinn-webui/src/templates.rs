@@ -408,7 +408,10 @@ pub struct EntryTemplate {
     pub index: usize,
 }
 
-/// The transcript fragment: the entries at `cursor..` (or all).
+/// The transcript fragment: the entries at `cursor..` (or all), then
+/// the streaming container — always the fragment's last child, so a
+/// `transcript-full` inner replace re-creates it empty and settled
+/// entries never interleave with the streamed tail.
 #[derive(Template)]
 #[template(path = "transcript.html")]
 pub struct TranscriptTemplate {
@@ -417,6 +420,20 @@ pub struct TranscriptTemplate {
     /// The index the slice starts at (the first entry's cursor
     /// position).
     pub start: usize,
+    /// The streaming container's id, from the contract.
+    pub streaming_id: &'static str,
+}
+
+impl TranscriptTemplate {
+    /// Builds the fragment with the contract's container id filled.
+    #[must_use]
+    pub fn new(entries: Vec<crate::transcript::RenderedEntry>, start: usize) -> Self {
+        Self {
+            entries,
+            start,
+            streaming_id: contract::STREAMING_ID,
+        }
+    }
 }
 
 /// One row of the sessions fragment.

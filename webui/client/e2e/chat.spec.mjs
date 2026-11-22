@@ -61,3 +61,41 @@ test("cancel mid-stream ends the turn and restores the send control", async ({
     page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY("error")}`)
   ).toContainText("Cancelled");
 });
+
+test("pressing Enter in the composer sends nothing and inserts a newline", async ({
+  page,
+}) => {
+  // Given the boot session open, an observer counting POSTs to the
+  // send endpoint, and the transcript's current user-entry count —
+  // the session's transcript persists across specs, so "nothing was
+  // sent" is a count that does not grow, not an empty transcript.
+  await openSession(page);
+  const sendPosts = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().includes("/web/send")) {
+      sendPosts.push(request.url());
+    }
+  });
+  const userEntries = page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY("user")}`);
+  const before = await userEntries.count();
+
+  // When typing into the composer and pressing Enter with a real
+  // key event — `fill()` dispatches no keydown events, which is
+  // exactly the blind spot that let Enter-to-send ship (and the
+  // blind spot that let it regress unnoticed). Mobile soft
+  // keyboards fire Enter to insert newlines, so the press must
+  // never send.
+  await page.locator(sel.INPUT).fill("hello");
+  await page.locator(sel.INPUT).press("Enter");
+
+  // Then no send POST fired.
+  expect(sendPosts).toEqual([]);
+
+  // And the text stayed in the composer with the newline inserted
+  // — the message was not submitted and not cleared.
+  const value = await page.locator(sel.INPUT).inputValue();
+  expect(value).toBe("hello\n");
+
+  // And the transcript gained no user entry — nothing was sent.
+  await expect(userEntries).toHaveCount(before);
+});
