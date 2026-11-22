@@ -206,6 +206,19 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 #menu-panel button:hover { background: var(--bg-hover); }
 "#;
 
+/// The `<meta name="theme-color">` content for a color mode — the
+/// mode's background token. `system` (or anything unrecognized)
+/// renders the dark value: the OS decides at paint time, and the
+/// meta cannot express a media query, so the page names the palette
+/// its `:root` defaults to.
+#[must_use]
+pub fn theme_color_for(mode: &str) -> &'static str {
+    match mode {
+        "light" => "#eceff4",
+        _ => "#191b1e",
+    }
+}
+
 /// The stylesheet the page shell inlines: the base chrome, then every
 /// registered region's fragment in registry order (registration order
 /// is the equal-specificity tie-breaker; regions are appended at the
@@ -331,13 +344,23 @@ pub struct PageTemplate {
     /// The activate POST's route prefix — the rename editor's `@post`
     /// target builds `<prefix><id>/rename` from it.
     pub session_page_path: &'static str,
+    /// The persisted color mode seeding the `webTheme` signal —
+    /// `light`, `dark`, `system`, or empty (system is the default;
+    /// the body's `data-attr` binding treats an empty signal as
+    /// system).
+    pub web_theme: String,
+    /// The `<meta name="theme-color">` content for the active mode —
+    /// the mode's `--bg` value, rendered per render and patched by
+    /// the theme POST (the browser chrome reads it from `<head>`,
+    /// outside the swapped page root).
+    pub theme_color: &'static str,
 }
 
 impl PageTemplate {
     /// The no-session landing page: sessions list only, every other
     /// region empty, cursor zero.
     #[must_use]
-    pub fn landing(sessions_html: String, menu_html: String) -> Self {
+    pub fn landing(sessions_html: String, menu_html: String, web_theme: String) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
@@ -371,6 +394,8 @@ impl PageTemplate {
             stream_url: String::new(),
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
+            theme_color: theme_color_for(&web_theme),
+            web_theme,
         }
     }
 
@@ -380,6 +405,10 @@ impl PageTemplate {
     /// rendered cursor so the first catch-up never re-appends what
     /// the page already rendered.
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the page render's full fragment set is one composite value in practice"
+    )]
     pub fn session(
         session_id: &str,
         title: String,
@@ -389,6 +418,7 @@ impl PageTemplate {
         controls_html: String,
         status_html: String,
         menu_html: String,
+        web_theme: String,
     ) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
@@ -423,6 +453,8 @@ impl PageTemplate {
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
+            theme_color: theme_color_for(&web_theme),
+            web_theme,
         }
     }
 }
@@ -497,6 +529,9 @@ pub struct PageRootTemplate {
     /// the `data-init` `@get` binding the root carries on session
     /// pages, so a navigation patch re-opens the stream by itself.
     pub stream_url: String,
+    /// The persisted color mode seeding the `webTheme` signal — the
+    /// same value the full page render seeds.
+    pub web_theme: String,
 }
 
 impl PageRootTemplate {
@@ -504,6 +539,10 @@ impl PageRootTemplate {
     /// shape `PageTemplate::session` renders inline (one field source,
     /// two render targets).
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the page render's full fragment set is one composite value in practice"
+    )]
     pub fn session(
         session_id: &str,
         title: String,
@@ -513,6 +552,7 @@ impl PageRootTemplate {
         controls_html: String,
         status_html: String,
         menu_html: String,
+        web_theme: String,
     ) -> Self {
         Self {
             session_id: session_id.to_owned(),
@@ -544,6 +584,7 @@ impl PageRootTemplate {
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
+            web_theme,
         }
     }
 }
@@ -762,6 +803,23 @@ pub struct MenuTemplate {
     pub skills_picker_url: String,
     /// The skills modal host's CSS selector — the pull's swap target.
     pub skills_modal_host_selector: &'static str,
+    /// The theme control's host id — the segmented Light/Dark/System
+    /// control at the panel's tail (mode binds app-wide, not
+    /// per-session, so it renders on the landing page too).
+    pub menu_item_theme_id: &'static str,
+    /// The theme control's Light option id.
+    pub menu_item_theme_light_id: &'static str,
+    /// The theme control's Dark option id.
+    pub menu_item_theme_dark_id: &'static str,
+    /// The theme control's System option id.
+    pub menu_item_theme_system_id: &'static str,
+    /// The theme pick POST's endpoint — each option's `@post` target.
+    pub theme_path: &'static str,
+    /// The active-mode signal's name — the options' active-mark class
+    /// binding reads it.
+    pub signal_web_theme: &'static str,
+    /// The active option's class — applied by the signal binding.
+    pub theme_active_class: &'static str,
 }
 
 impl MenuTemplate {
@@ -795,6 +853,13 @@ impl MenuTemplate {
             menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
             skills_picker_url: format!("{}{viewed_session}", contract::SKILL_PICKER_PREFIX),
             skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
+            menu_item_theme_id: contract::MENU_ITEM_THEME_ID,
+            menu_item_theme_light_id: contract::MENU_ITEM_THEME_LIGHT_ID,
+            menu_item_theme_dark_id: contract::MENU_ITEM_THEME_DARK_ID,
+            menu_item_theme_system_id: contract::MENU_ITEM_THEME_SYSTEM_ID,
+            theme_path: contract::THEME_PATH,
+            signal_web_theme: contract::SIGNAL_WEB_THEME,
+            theme_active_class: contract::THEME_ACTIVE_CLASS,
         }
     }
 }

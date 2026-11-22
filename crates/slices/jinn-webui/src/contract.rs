@@ -195,6 +195,28 @@ pub const DRAWER_OPEN_CLASS: &str = "drawer-open";
 /// The menu's action name — the one item's action attribute value.
 pub const ACTION_MENU_SESSIONS: &str = "menu-sessions";
 
+// ── Web theme (color mode) ──────────────────────────────────────────
+
+/// The menu's theme-control host id — the segmented Light/Dark/System
+/// control inside the slide-in panel.
+pub const MENU_ITEM_THEME_ID: &str = "menu-item-theme";
+/// The theme control's Light option id.
+pub const MENU_ITEM_THEME_LIGHT_ID: &str = "menu-item-theme-light";
+/// The theme control's Dark option id.
+pub const MENU_ITEM_THEME_DARK_ID: &str = "menu-item-theme-dark";
+/// The theme control's System option id.
+pub const MENU_ITEM_THEME_SYSTEM_ID: &str = "menu-item-theme-system";
+/// The theme pick POST's endpoint — carries the chosen mode; the
+/// response re-seeds the signal and patches the theme-color meta.
+pub const THEME_PATH: &str = "/web/theme";
+/// The active color mode's signal name (`light`/`dark`/`system` —
+/// the values the CSS `data-theme` selectors and the persisted
+/// `AppStateFile::web_theme` share).
+pub const SIGNAL_WEB_THEME: &str = "webTheme";
+/// The class marking the theme control's active option — signal-driven,
+/// so the mark follows the mode without a re-render.
+pub const THEME_ACTIVE_CLASS: &str = "theme-active";
+
 // ── Datastar signal names ───────────────────────────────────────────
 //
 // The client runtime holds view-local state only; these names are the
@@ -758,6 +780,12 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_SKILL_LOAD,
     DRAWER_SCRIM_ID,
     MENU_SCRIM_ID,
+    MENU_ITEM_THEME_ID,
+    MENU_ITEM_THEME_LIGHT_ID,
+    MENU_ITEM_THEME_DARK_ID,
+    MENU_ITEM_THEME_SYSTEM_ID,
+    THEME_ACTIVE_CLASS,
+    SIGNAL_WEB_THEME,
 ];
 
 /// The sessions pull's query parameter (`GET /web/sessions?q=<text>`)
@@ -794,6 +822,7 @@ pub const CLIENT_PATHS: &[&str] = &[
     SKILL_TOGGLE_PATH,
     SKILL_LOAD_PATH,
     VENDOR_PREFIX,
+    THEME_PATH,
 ];
 
 /// The subset of [`CLIENT_PATHS`] the **browser runtime** builds
@@ -826,4 +855,5 @@ pub const CLIENT_URLS: &[&str] = &[
     SKILL_TOGGLE_PATH,
     SKILL_LOAD_PATH,
     VENDOR_PREFIX,
+    THEME_PATH,
 ];

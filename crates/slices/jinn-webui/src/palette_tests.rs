@@ -105,7 +105,12 @@ fn luminance(hex: &str) -> f64 {
         .chars()
         .collect();
     assert_eq!(digits.len(), 6, "palette colors are 6-digit hex: {hex}");
-    let nibble = |at: usize| digits[at].to_digit(16).expect("hex digit") as u8;
+    let nibble = |at: usize| -> u8 {
+        digits
+            .get(at)
+            .and_then(|c| c.to_digit(16))
+            .expect("hex digit at a length-checked index") as u8
+    };
     let (r, g, b) = (
         nibble(0) * 16 + nibble(1),
         nibble(2) * 16 + nibble(3),
