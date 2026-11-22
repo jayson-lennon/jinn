@@ -73,27 +73,55 @@ impl ImageConverter for ImageCrateConverter {
                 "the image crate cannot decode this format (unsupported, truncated, or corrupt)",
             )?;
 
-        let png = {
-            let mut out = Cursor::new(Vec::new());
-            decoded
-                .write_to(&mut out, ImageFormat::Png)
-                .change_context(ImageConversionError)
-                .attach(input.to_string())
-                .attach("failed to re-encode decoded image as PNG")?;
-            out.into_inner()
-        };
-
-        // Trait-contract parity: every backend returns PNG-magic-prefixed
-        // bytes, regardless of how it produced them.
-        if !png.starts_with(super::converter::PNG_MAGIC) {
-            return Err(Report::new(ImageConversionError)
-                .change_context(ImageConversionError)
-                .attach(input.to_string())
-                .attach("image crate output is not a valid PNG"));
-        }
-
-        Ok(png)
+        encode_png(&decoded, input.to_string())
     }
+
+    /// The in-memory override: decodes straight from the bytes, no temp file.
+    ///
+    /// Same sniffing and same error shape as the path-based stage — the bytes
+    /// carry their own format, so a paste's PNG decodes regardless of what
+    /// name (none) it arrived under.
+    fn convert_to_png_bytes(&self, bytes: &[u8]) -> Result<Vec<u8>, Report<ImageConversionError>> {
+        let decoded = image::ImageReader::new(Cursor::new(bytes))
+            .with_guessed_format()
+            .change_context(ImageConversionError)
+            .attach("failed to sniff the image format from the bytes")?
+            .decode()
+            .change_context(ImageConversionError)
+            .attach(
+                "the image crate cannot decode these bytes (unsupported, truncated, or corrupt)",
+            )?;
+
+        encode_png(&decoded, "in-memory bytes".to_owned())
+    }
+}
+
+/// Re-encodes a decoded image as PNG and validates the magic signature —
+/// the tail both conversion stages share.
+fn encode_png(
+    decoded: &image::DynamicImage,
+    context: String,
+) -> Result<Vec<u8>, Report<ImageConversionError>> {
+    let png = {
+        let mut out = Cursor::new(Vec::new());
+        decoded
+            .write_to(&mut out, ImageFormat::Png)
+            .change_context(ImageConversionError)
+            .attach(context.clone())
+            .attach("failed to re-encode decoded image as PNG")?;
+        out.into_inner()
+    };
+
+    // Trait-contract parity: every backend returns PNG-magic-prefixed
+    // bytes, regardless of how it produced them.
+    if !png.starts_with(super::converter::PNG_MAGIC) {
+        return Err(Report::new(ImageConversionError)
+            .change_context(ImageConversionError)
+            .attach(context)
+            .attach("image crate output is not a valid PNG"));
+    }
+
+    Ok(png)
 }
 
 #[cfg(test)]

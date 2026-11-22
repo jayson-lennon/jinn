@@ -15,6 +15,13 @@ use jinn_core_types::url_citation::UrlCitation;
 use crate::transcript::render_entry;
 use crate::transcript::render_entry_streaming;
 
+/// The fixed session id the entry renders name — attachments key the
+/// image URLs off it.
+fn session_id() -> jinn_core_types::SessionId {
+    jinn_core_types::SessionId::try_from_string("00000000-0000-0000-0000-000000000000")
+        .expect("valid uuid")
+}
+
 /// A citation with the given title and URL.
 fn citation(title: &str, url: &str) -> UrlCitation {
     UrlCitation {
@@ -36,7 +43,7 @@ fn an_annotation_entry_renders_as_a_collapsed_sources_disclosure() {
     ]);
 
     // When rendering it through the settled projection.
-    let rendered = render_entry(&entry);
+    let rendered = render_entry(&entry, &session_id());
 
     // Then it is a disclosure whose summary carries the source count,
     // and the summary names the sources — collapsed by default (TUI
@@ -60,7 +67,7 @@ fn expanded_source_rows_link_http_urls_with_noopener() {
     ]);
 
     // When rendering it.
-    let rendered = render_entry(&entry);
+    let rendered = render_entry(&entry, &session_id());
 
     // Then each citation row links its URL, opening a new tab under
     // `noopener`, with the title as the link text and the URL as
@@ -101,7 +108,7 @@ fn a_non_http_citation_url_renders_as_plain_text_never_a_link() {
     )]);
 
     // When rendering it.
-    let rendered = render_entry(&entry);
+    let rendered = render_entry(&entry, &session_id());
 
     // Then the row is unlinked — the hostile scheme renders as text.
     assert!(
@@ -123,7 +130,7 @@ fn citation_fields_are_escaped_against_hostile_payloads() {
     )]);
 
     // When rendering it.
-    let rendered = render_entry(&entry);
+    let rendered = render_entry(&entry, &session_id());
 
     // Then no raw tag or attribute-breaking quote survives into the
     // markup — every provider-supplied field is escaped, including
@@ -155,7 +162,7 @@ fn an_empty_citation_title_falls_back_to_the_url_as_the_link_text() {
     let entry = ChatEntry::annotation(vec![citation("", "https://example.com/bare")]);
 
     // When rendering it.
-    let rendered = render_entry(&entry);
+    let rendered = render_entry(&entry, &session_id());
 
     // Then the link text is the TUI's untitled guard — the URL still
     // renders beside it as the muted text.
@@ -176,7 +183,7 @@ fn footnote_markdown_renders_reference_and_definition_elements() {
     let entry = ChatEntry::assistant("Claim here[^1].\n\n[^1]: The supporting source paragraph.");
 
     // When rendering it.
-    let rendered = render_entry(&entry);
+    let rendered = render_entry(&entry, &session_id());
 
     // Then the reference and the definition render as elements — no
     // literal `[^1]` text survives into the markup.
@@ -207,7 +214,7 @@ fn footnote_bodies_render_supplied_markup_as_escaped_text_and_urls_stay_plain() 
     );
 
     // When rendering it.
-    let rendered = render_entry(&entry);
+    let rendered = render_entry(&entry, &session_id());
 
     // Then the payload is demoted to text (pulldown-cmark escapes it;
     // raw HTML events are demoted by `render_markdown`) and the bare
@@ -235,8 +242,8 @@ fn a_thinking_entry_renders_its_markdown_syntax_literally_not_rendered() {
     let entry = ChatEntry::thinking("### heading\n**bold** [link](https://x.example)");
 
     // When rendering it (either projection — the rule is the same).
-    let settled = render_entry(&entry);
-    let streaming = render_entry_streaming(&entry, true);
+    let settled = render_entry(&entry, &session_id());
+    let streaming = render_entry_streaming(&entry, &session_id(), true);
 
     // Then the syntax renders literally — thinking is escaped
     // verbatim, never markdown-rendered (TUI parity).
@@ -267,8 +274,8 @@ fn the_streaming_projection_opens_only_thinking_disclosures() {
     let tool_call = ChatEntry::tool_call("t1", "read_file", "/tmp/x");
 
     // When rendering both through the streaming projection.
-    let thinking_streaming = render_entry_streaming(&thinking, true);
-    let tool_streaming = render_entry_streaming(&tool_call, true);
+    let thinking_streaming = render_entry_streaming(&thinking, &session_id(), true);
+    let tool_streaming = render_entry_streaming(&tool_call, &session_id(), true);
 
     // Then only the thinking entry carries the open state; the tool
     // disclosure stays collapsed mid-stream (TUI parity).

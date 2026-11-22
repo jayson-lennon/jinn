@@ -57,6 +57,22 @@ pub trait ImageConverter: Send + Sync {
         &self,
         input: &MarkedPathBuf<Absolute>,
     ) -> Result<Vec<u8>, Report<ImageConversionError>>;
+
+    /// Convert in-memory image bytes to PNG bytes.
+    ///
+    /// The bytes-based counterpart of [`Self::convert_to_png`]: web image
+    /// ingestion holds already-read bytes (a paste or an upload) and has no
+    /// file to name. The default stages the bytes through a temp file and
+    /// delegates to [`Self::convert_to_png`], so a backend only overrides
+    /// this when it can decode in memory (the `image` crate stage does).
+    ///
+    /// # Errors
+    ///
+    /// Returns `Report<ImageConversionError>` under the same conditions as
+    /// [`Self::convert_to_png`], plus staging failures (temp-file write).
+    fn convert_to_png_bytes(&self, bytes: &[u8]) -> Result<Vec<u8>, Report<ImageConversionError>> {
+        stage_bytes_for_conversion(bytes)?.pipe(|path| self.convert_to_png(path))
+    }
 }
 
 /// Production converter backed by the ImageMagick CLI.
@@ -97,6 +113,67 @@ impl Default for ImageMagickConverter {
 
 /// PNG magic signature: `\x89PNG\r\n\x1a\n`.
 pub(crate) const PNG_MAGIC: &[u8] = b"\x89PNG\r\n\x1a\n";
+
+/// Stages in-memory bytes into a temp file so a path-based converter can
+/// read them.
+///
+/// The bytes-based conversion default's bridge: the ImageMagick stage is
+/// subprocess-based and can only be handed a path, so bytes it receives ride
+/// a temp file for the conversion's lifetime. The file deletes itself when
+/// the guard drops.
+///
+/// # Errors
+///
+/// Returns `Report<ImageConversionError>` when the temp file cannot be
+/// created or written.
+fn stage_bytes_for_conversion(
+    bytes: &[u8],
+) -> Result<tempfile::NamedTempFile, Report<ImageConversionError>> {
+    use std::io::Write as _;
+    let file = tempfile::Builder::new()
+        .prefix("jinn-image-convert-")
+        .tempfile()
+        .change_context(ImageConversionError)
+        .attach("failed to create a temp file for image conversion")?;
+    let mut handle = file
+        .reopen()
+        .change_context(ImageConversionError)
+        .attach("failed to open the conversion temp file for writing")?;
+    handle
+        .write_all(bytes)
+        .change_context(ImageConversionError)
+        .attach("failed to stage image bytes for conversion")?;
+    handle
+        .flush()
+        .change_context(ImageConversionError)
+        .attach("failed to flush staged image bytes")?;
+    Ok(file)
+}
+
+/// Runs `f` over the staged file's path, keeping the file alive for the
+/// call's duration.
+trait TempFilePipe {
+    fn pipe<T>(
+        self,
+        f: impl FnOnce(&MarkedPathBuf<Absolute>) -> Result<T, Report<ImageConversionError>>,
+    ) -> Result<T, Report<ImageConversionError>>;
+}
+
+impl TempFilePipe for tempfile::NamedTempFile {
+    fn pipe<T>(
+        self,
+        f: impl FnOnce(&MarkedPathBuf<Absolute>) -> Result<T, Report<ImageConversionError>>,
+    ) -> Result<T, Report<ImageConversionError>> {
+        let path = MarkedPathBuf::<Absolute>::new(self.path().to_str().ok_or_else(|| {
+            Report::new(ImageConversionError)
+                .change_context(ImageConversionError)
+                .attach("conversion temp file path is not valid UTF-8")
+        })?)
+        .change_context(ImageConversionError)
+        .attach("conversion temp file path is not a valid marked path")?;
+        f(&path)
+    }
+}
 
 impl ImageConverter for ImageMagickConverter {
     fn name(&self) -> &'static str {
@@ -271,6 +348,18 @@ impl ImageConverterService {
         input: &MarkedPathBuf<Absolute>,
     ) -> Result<Vec<u8>, Report<ImageConversionError>> {
         self.backend.convert_to_png(input)
+    }
+
+    /// See [`ImageConverter::convert_to_png_bytes`].
+    ///
+    /// # Errors
+    ///
+    /// Propagates the converter's error.
+    pub fn convert_to_png_bytes(
+        &self,
+        bytes: &[u8],
+    ) -> Result<Vec<u8>, Report<ImageConversionError>> {
+        self.backend.convert_to_png_bytes(bytes)
     }
 }
 

@@ -123,6 +123,9 @@ sup.footnote-reference a:hover { text-decoration: underline; }
 div.footnote-definition { margin: 6px 0; padding-left: 10px;
                           border-left: 2px solid var(--border); font-size: 13px; }
 sup.footnote-definition-label { color: var(--muted); margin-right: 6px; }
+.entry img.attachment { display: block; max-width: 320px; max-height: 240px;
+                        border-radius: 6px; margin: 8px 0 2px;
+                        border: 1px solid var(--border); }
 "#;
 
 /// The model selection rendered as the label a reader recognizes.
@@ -153,6 +156,7 @@ pub fn transcript_full_fragment(
         &model_label(session.model_selection()),
         session.phase().as_str(),
         session.is_bot(),
+        session_id,
     );
     crate::templates::render(&crate::templates::TranscriptTemplate::new(
         transcript.entries,

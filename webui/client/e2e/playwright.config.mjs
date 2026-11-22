@@ -26,5 +26,8 @@ export default defineConfig({
     headless: true,
     viewport: { width: 1280, height: 800 },
     ...devices["Desktop Chrome"],
+    // The attachments spec's loopback TLS fixture serves a committed
+    // self-signed cert; the page's own fetches must not fail on it.
+    ignoreHTTPSErrors: true,
   },
 });

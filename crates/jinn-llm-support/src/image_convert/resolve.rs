@@ -226,6 +226,51 @@ pub fn format_attachment_error(report: &Report<ImageResolveError>) -> String {
     out
 }
 
+/// Why in-memory image bytes could not become an attachment.
+///
+/// The bytes-based counterpart of [`ImageFileError`]: a paste or an upload
+/// has no file to be missing, so the failure modes are the bytes' own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageBytesError {
+    /// The bytes are not a recognized image format at all — neither native
+    /// nor convertible. A data URL or fetched body carrying HTML, JSON, or
+    /// truncated bytes lands here.
+    NotAnImage,
+    /// The bytes are a recognizable image but the conversion chain (the Rust
+    /// decoder first, ImageMagick fallback second) could not transcode them.
+    ConversionUnavailable,
+}
+
+/// Turns in-memory image bytes into an [`Attachment`], the bytes-based
+/// counterpart of [`resolve_image_file_blocking`].
+///
+/// Native formats (PNG/JPEG/GIF/WEBP) attach as-is; a recognizable
+/// non-native image (HEIC, AVIF, TIFF, BMP, …) transcodes to PNG through the
+/// converter service; anything else reports [`ImageBytesError::NotAnImage`].
+/// The webui's send boundary calls this inside `spawn_blocking`.
+///
+/// Blocking; callers must run it inside `spawn_blocking`.
+///
+/// # Errors
+///
+/// Returns [`ImageBytesError::ConversionUnavailable`] when a
+/// conversion-needing image cannot be transcoded.
+pub fn ingest_image_bytes_blocking(
+    bytes: Vec<u8>,
+    converter: &ImageConverterService,
+) -> Result<Attachment, ImageBytesError> {
+    match classify_image_bytes(&bytes) {
+        ImageKind::Native { media_type } => Ok(Attachment::image(media_type.to_owned(), bytes)),
+        ImageKind::NeedsConversion => {
+            let png_bytes = converter
+                .convert_to_png_bytes(&bytes)
+                .map_err(|_conv| ImageBytesError::ConversionUnavailable)?;
+            Ok(Attachment::image(String::from("image/png"), png_bytes))
+        }
+        ImageKind::NotAnImage => Err(ImageBytesError::NotAnImage),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -239,6 +284,7 @@ mod tests {
 
     use error_stack::Report;
     use marked_path::MarkedPathAccess;
+    use rstest::rstest;
 
     use super::*;
     use crate::image_convert::UnavailableConverter;
@@ -291,6 +337,69 @@ mod tests {
 
     fn png_bytes() -> Vec<u8> {
         b"\x89PNG\r\n\x1a\nbody".to_vec()
+    }
+
+    // -- ingest_image_bytes_blocking (bytes-based ingestion) ---------------
+
+    #[rstest]
+    fn ingest_bytes_attaches_native_png_as_is() {
+        // Given native PNG bytes and a converter that would fail if called.
+        let bytes = png_bytes();
+        let converter = service(false, false);
+
+        // When ingesting the bytes.
+        let result = ingest_image_bytes_blocking(bytes.clone(), &converter);
+
+        // Then the attachment carries the original bytes and media type —
+        // native formats never touch the converter.
+        let attachment = result.expect("native png attaches");
+        assert_eq!(attachment.media_type(), "image/png");
+        assert_eq!(attachment.data(), bytes.as_slice());
+    }
+
+    #[rstest]
+    fn ingest_bytes_transcodes_recognizable_non_native_image() {
+        // Given HEIC-shaped bytes (ftyp + heic brand — recognizable,
+        // non-native) and a working converter.
+        let mut heic = vec![0x00, 0x00, 0x00, 0x08];
+        heic.extend_from_slice(b"ftypheicpayload");
+        let converter = service(true, false);
+
+        // When ingesting the bytes.
+        let result = ingest_image_bytes_blocking(heic, &converter);
+
+        // Then the attachment is the converter's PNG output.
+        let attachment = result.expect("heic transcodes");
+        assert_eq!(attachment.media_type(), "image/png");
+        assert_eq!(attachment.data(), b"\x89PNG\r\n\x1a\nfake");
+    }
+
+    #[rstest]
+    fn ingest_bytes_refuses_unrecognizable_bytes() {
+        // Given bytes that are not any known image format.
+        let bytes = b"<html>not an image</html>".to_vec();
+        let converter = service(true, false);
+
+        // When ingesting the bytes.
+        let result = ingest_image_bytes_blocking(bytes, &converter);
+
+        // Then the refusal names the bytes not-an-image (the webui maps
+        // this to its 400).
+        assert_eq!(result.unwrap_err(), ImageBytesError::NotAnImage);
+    }
+
+    #[rstest]
+    fn ingest_bytes_reports_conversion_unavailability() {
+        // Given HEIC-shaped bytes and a converter whose chain fails.
+        let mut heic = vec![0x00, 0x00, 0x00, 0x08];
+        heic.extend_from_slice(b"ftypheicpayload");
+        let converter = service(false, false);
+
+        // When ingesting the bytes.
+        let result = ingest_image_bytes_blocking(heic, &converter);
+
+        // Then the refusal is the typed conversion failure, not NotAnImage.
+        assert_eq!(result.unwrap_err(), ImageBytesError::ConversionUnavailable);
     }
 
     /// Wraps a resolved path in a `PendingPath` with the basename as the raw

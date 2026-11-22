@@ -250,6 +250,23 @@ pub fn app_js_versioned_path() -> String {
         .expect("the client entry module is a manifest row")
 }
 
+/// The image-attach helper's `/vendor/` URL — `paste.<hash>.js`.
+///
+/// # Panics
+///
+/// Panics when the helper is not a manifest row — a contract break
+/// caught at the first page render, in tests, not in the wild.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "a missing row is a contract break that must panic loudly at the \
+              first page render, not a fallible path to thread through"
+)]
+pub fn paste_js_versioned_path() -> String {
+    crate::vendor::versioned_path(contract::VENDOR_PASTE_JS)
+        .expect("the image-attach helper is a manifest row")
+}
+
 /// The full page shell. Rendered by `GET /web` and by
 /// `GET /web/session/{id}` (a session page is the same shell with the
 /// regions filled for that session).
@@ -289,6 +306,9 @@ pub struct PageTemplate {
     /// (`main.<hash>.js`) — the hash is the manifest row's sha256
     /// prefix, so an upgraded binary serves a URL no old page cached.
     pub app_js_versioned: String,
+    /// The image-attach helper's cache-busting URL inside `/vendor/`
+    /// (`paste.<hash>.js`), versioned the same way as the bundle.
+    pub paste_js_versioned: String,
     /// The page-root id — the element a session switch replaces.
     pub page_root_id: &'static str,
     /// The attribute carrying the viewed session's id.
@@ -349,6 +369,14 @@ pub struct PageTemplate {
     /// The sessions pull's route — the list's filter/tick effect
     /// re-pulls it.
     pub sessions_route: &'static str,
+    /// The sessions pull's filter query parameter — the effect builds
+    /// `?q=<text>` from it when a filter is in force.
+    pub filter_query_param: &'static str,
+    /// The sessions pull's viewer query parameter — the effect builds
+    /// `&viewed=<id>` from it (when a session is viewed) so the
+    /// re-pulled list paints the viewed row, not the instance's
+    /// active one.
+    pub viewed_query_param: &'static str,
     /// The activate POST's route prefix — the rename editor's `@post`
     /// target builds `<prefix><id>/rename` from it.
     pub session_page_path: &'static str,
@@ -388,6 +416,7 @@ impl PageTemplate {
             sessions_attention: attention_count,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
+            paste_js_versioned: paste_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -409,6 +438,8 @@ impl PageTemplate {
             switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             stream_url: String::new(),
             sessions_route: contract::SESSIONS_ROUTE,
+            filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
+            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             theme_color: theme_color_for(&web_theme),
             web_theme,
@@ -451,6 +482,7 @@ impl PageTemplate {
             sessions_attention: attention_count,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
+            paste_js_versioned: paste_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -472,6 +504,8 @@ impl PageTemplate {
             switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             sessions_route: contract::SESSIONS_ROUTE,
+            filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
+            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             theme_color: theme_color_for(&web_theme),
             web_theme,
@@ -548,6 +582,13 @@ pub struct PageRootTemplate {
     pub switch_overlay_id: &'static str,
     /// The sessions pull's route — the list's effect re-pulls it.
     pub sessions_route: &'static str,
+    /// The sessions pull's filter query parameter — the effect builds
+    /// `?q=<text>` from it when a filter is in force.
+    pub filter_query_param: &'static str,
+    /// The sessions pull's viewer query parameter — the effect builds
+    /// `&viewed=<id>` from it (when a session is viewed) so the
+    /// re-pulled list paints the viewed row.
+    pub viewed_query_param: &'static str,
     /// The activate POST's route prefix — the rename editor's target.
     pub session_page_path: &'static str,
     /// The viewed session's stream URL (empty on the landing page) —
@@ -614,6 +655,8 @@ impl PageRootTemplate {
             menu_scrim_id: contract::MENU_SCRIM_ID,
             switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             sessions_route: contract::SESSIONS_ROUTE,
+            filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
+            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             web_theme,
@@ -764,6 +807,12 @@ pub struct ControlsTemplate {
     pub send_label: &'static str,
     /// The cancel button's label.
     pub cancel_label: &'static str,
+    /// The pending-image chips strip's id.
+    pub chips_id: &'static str,
+    /// The hidden image file input's id.
+    pub file_input_id: &'static str,
+    /// The visible attach label's id (the file input's click proxy).
+    pub attach_button_id: &'static str,
     /// The queue button's label (busy fragment only).
     pub queue_label: &'static str,
 }
@@ -786,6 +835,9 @@ impl ControlsTemplate {
             cancel_path: contract::CANCEL_PATH,
             send_label: "Send",
             cancel_label: "Cancel",
+            chips_id: contract::IMAGE_CHIPS_ID,
+            file_input_id: contract::IMAGE_FILE_INPUT_ID,
+            attach_button_id: contract::IMAGE_ATTACH_BUTTON_ID,
             queue_label: "Q",
         }
     }

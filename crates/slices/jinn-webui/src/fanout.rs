@@ -42,6 +42,7 @@ use std::time::Duration;
 
 use jinn_core_types::SessionId;
 use jinn_kernel::State;
+use jinn_kernel::protocol::system::ActiveSessionChanged;
 use jinn_provider_selection_msg::ModelCacheStored;
 use jinn_session_msg::SessionOrigin;
 use jinn_session_msg::{SessionArchived, SessionPhaseChanged};
@@ -49,7 +50,7 @@ use jinn_session_store_msg::{SessionLibraryMembershipChanged, SessionLoadComplet
 use jinn_slices::PhaseView;
 use jinn_slices::bus::BusService;
 use jinn_slices::cell::TypedCell;
-use jinn_webui_msg::{SseEnvelope, SseKind, UnreadSessionMarks};
+use jinn_webui_msg::{SessionPageOpened, SseEnvelope, SseKind, UnreadSessionMarks};
 use tokio::sync::broadcast;
 use trouper::actor::ActorPath;
 use trouper::actor::{MsgHandler, ServiceActor};
@@ -294,6 +295,16 @@ impl WebUiFanoutActor {
             // job; the tail re-render needs only the tick.
             .handles::<SessionPhaseChanged>()
             .handles::<SessionLoadCompleted>()
+            // The activation fact — the web click, the TUI switch, and
+            // now the store actor's in-memory branch all announce it.
+            // The handler clears that session's unread mark: activation
+            // anywhere in the instance IS "the user looked".
+            .handles::<ActiveSessionChanged>()
+            // A page arrived at a session (GET, reload, deep link —
+            // archived sessions included, no activation behind it).
+            // The handler clears the same mark: opening the page is
+            // "the user looked" too.
+            .handles::<SessionPageOpened>()
             .handles::<SessionArchived>()
             .handles::<SessionLibraryMembershipChanged>()
             .handles::<ModelCacheStored>()
@@ -430,7 +441,7 @@ impl WebUiFanoutActor {
             .iter()
             .filter(|e| crate::transcript::is_renderable(e))
             .skip(boundary)
-            .map(|e| crate::transcript::render_entry_streaming(e, true))
+            .map(|e| crate::transcript::render_entry_streaming(e, session_id, true))
             .collect();
         drop(guard);
         Some(TailSnapshot { entries, boundary })
@@ -533,6 +544,7 @@ impl WebUiFanoutActor {
             &crate::regions::transcript::model_label(session.model_selection()),
             session.phase().as_str(),
             session.is_bot(),
+            session_id,
         );
         drop(guard);
         let entries = match boundary {
@@ -1006,29 +1018,70 @@ impl MsgHandler<SessionLoadCompleted> for WebUiFanoutActor {
 
 impl WebUiFanoutActor {
     /// The load-completed body, split out for the same test seam.
+    ///
+    /// Refresh duty only: the event fires once per restored session —
+    /// background tree members included — so the list every page shows
+    /// must re-render with the new row set. The unread **clear** lives
+    /// on the two "the user looked" events below ([`MsgHandler for
+    /// ActiveSessionChanged`] and [`MsgHandler for SessionPageOpened`]):
+    /// keying it here would wipe the marks of tree members nobody
+    /// viewed, the exact signal the mark exists to carry.
     pub(crate) fn on_load_completed(&mut self, msg: &SessionLoadCompleted) {
-        // The "the user has now viewed it" clear, keyed to the active
-        // id at handling time: a tree load publishes one completed
-        // event per background member restored under a different
-        // active id, and those members are still unviewed — clearing
-        // them would erase the exact signal the mark exists for. Only
-        // the session that IS the active one at this moment was viewed.
-        // The clear runs BEFORE any fan so the wave the activation
-        // produces carries the post-clear count — the swap seed and
-        // the stream-connect convergence patch both read it, and a
-        // wave stamped pre-clear would leave the navigating client a
-        // stale badge no later wave revisits.
-        let cleared = active_session_id_of(&self.state) == msg.session_id
-            && self.clear_unread(&msg.session_id);
-        // Then refresh every page's sessions list — one fan serves
-        // both facts (the activation and, when it happened, the
-        // clear). The all-sessions wave covers the cleared mark on
-        // every other page's sidebar; the transition gate keeps a
-        // re-clear from fanning twice.
-        if cleared {
+        // A session landed in the live map (a web click's disk load, a
+        // TUI load, a tree hydration): refresh every page's list.
+        self.push_sessions_refresh(&msg.session_id);
+    }
+}
+
+impl MsgHandler<ActiveSessionChanged> for WebUiFanoutActor {
+    async fn handle(&mut self, msg: &ActiveSessionChanged, _ctx: &mut MsgCtx<'_>) {
+        self.on_active_session_changed(msg);
+    }
+}
+
+impl WebUiFanoutActor {
+    /// The activation body, split out for the same test seam.
+    ///
+    /// Activation anywhere in the instance — the web click, the TUI
+    /// switch, the store actor's in-memory branch — is "the user
+    /// looked", so the event's session is exactly the session whose
+    /// mark clears. No instance-pointer read: the event carries the
+    /// viewed id. The clear runs BEFORE any fan so the wave carries
+    /// the post-clear attention count — the swap seed and the
+    /// stream-connect convergence patch both read it, and a wave
+    /// stamped pre-clear would leave the navigating client a stale
+    /// badge no later wave revisits. The transition gate keeps a
+    /// re-clear quiet, and the all-sessions fan is what clears every
+    /// OTHER page's stale yellow.
+    pub(crate) fn on_active_session_changed(&mut self, msg: &ActiveSessionChanged) {
+        let session_id = &msg.session_id;
+        if self.clear_unread(session_id) {
             self.refresh_all_sessions_lists();
         } else {
-            self.push_sessions_refresh(&msg.session_id);
+            self.push_sessions_refresh(session_id);
+        }
+    }
+}
+
+impl MsgHandler<SessionPageOpened> for WebUiFanoutActor {
+    async fn handle(&mut self, msg: &SessionPageOpened, _ctx: &mut MsgCtx<'_>) {
+        self.on_session_page_opened(msg);
+    }
+}
+
+impl WebUiFanoutActor {
+    /// The arrival body, split out for the same test seam.
+    ///
+    /// A page opened the session (GET, reload, deep link — an archived
+    /// session's page included, which activates nothing). The same
+    /// clear-and-refresh shape the activation handler runs: opening
+    /// the page IS the viewing.
+    pub(crate) fn on_session_page_opened(&mut self, msg: &SessionPageOpened) {
+        let session_id = &msg.session_id;
+        if self.clear_unread(session_id) {
+            self.refresh_all_sessions_lists();
+        } else {
+            self.push_sessions_refresh(session_id);
         }
     }
 }

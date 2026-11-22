@@ -16,7 +16,7 @@ use jinn_core_types::SessionId;
 use jinn_kernel::common::services::Services;
 use jinn_kernel::common::state::State;
 use jinn_kernel::protocol::{ChatEntry, ChatEntryKind};
-use jinn_provider_config::{Modality, ModelCache, ModelsDevData};
+use jinn_provider_config::{Modality, ModelCache, ModelsDevData, ProvidersConfig};
 
 /// Decides whether a user entry with attachments may be dispatched to the model.
 ///
@@ -97,12 +97,38 @@ pub fn evaluate_attachment_gate(
             .and_then(|cell| cell.read().model_cache.clone());
         (model_id, cache)
     };
+    // Config-declared capability is the last resort: a static model (sample
+    // backends, models configured without discovery) can have no cache entry
+    // at all on a fresh root, where neither the cache nor models.dev can
+    // answer. `[[providers.model_info]] input_modalities` is the lever the
+    // blocked-entry text names, so it must work even before the first model
+    // refresh seeds the cache.
+    let config_declared = config_declares_image(
+        &services.provider_registry.read().config().clone(),
+        model_id.as_deref(),
+    );
+    if config_declared == Some(true) {
+        return None;
+    }
     attachment_gate(
         model_id.as_deref(),
         entry,
         &models_dev,
         model_cache.as_ref(),
     )
+}
+
+/// Whether the active model's `[[providers.<name>.model_info]]` row declares
+/// `image` in `input_modalities`. `Some(true)` only on an explicit image
+/// declaration; `None` when the model has no config row (the cache and
+/// models.dev still get their say).
+fn config_declares_image(config: &ProvidersConfig, model_id: Option<&str>) -> Option<bool> {
+    let model_id = model_id?;
+    let (provider_name, model_suffix) = model_id.split_once('/')?;
+    let entry = config.providers.get(provider_name)?;
+    let info = entry.model_info.iter().find(|i| i.id == model_suffix)?;
+    let modalities = info.input_modalities.as_deref()?;
+    Some(modalities.iter().any(|m| m == "image"))
 }
 
 /// Resolves a `provider/model` display form against the overlaid model cache.
@@ -152,6 +178,40 @@ mod tests {
             attachments.push(Attachment::image("image/png".to_owned(), vec![1, 2, 3]));
         }
         entry
+    }
+
+    /// A providers config with a single `sample` provider whose optional
+    /// model_info row carries the given modalities.
+    fn config_with_modalities(
+        input_modalities: Option<Vec<String>>,
+    ) -> jinn_provider_config::ProvidersConfig {
+        let mut config = jinn_provider_config::ProvidersConfig {
+            providers: std::collections::BTreeMap::new(),
+            aliases: Vec::new(),
+            default_provider: None,
+            endpoint_defaults: Vec::new(),
+        };
+        config.providers.insert(
+            "sample".to_owned(),
+            jinn_provider_config::ProviderEntry {
+                backend: "sample".to_owned(),
+                models: vec!["sample".to_owned()],
+                base_url: None,
+                api_key_env: None,
+                requires_key: false,
+                extra_body: None,
+                context_length: None,
+                model_info: input_modalities.map_or_else(Vec::new, |m| {
+                    vec![jinn_provider_config::ModelInfoEntry {
+                        id: "sample".to_owned(),
+                        context_length: None,
+                        input_modalities: Some(m),
+                        extra_body: None,
+                    }]
+                }),
+            },
+        );
+        config
     }
 
     fn cache_with_image_modalities() -> jinn_provider_config::ModelCache {
@@ -249,6 +309,45 @@ mod tests {
 
         // Then the attachment is blocked.
         assert!(matches!(blocked.kind, ChatEntryKind::Error(_)));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn config_declares_image_true_for_marked_model() {
+        // Given a providers config whose model_info row declares image.
+        let config = config_with_modalities(Some(vec!["text".to_owned(), "image".to_owned()]));
+
+        // When asking whether sample/sample declares image.
+        let declared = config_declares_image(&config, Some("sample/sample"));
+
+        // Then it does.
+        assert_eq!(declared, Some(true));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn config_declares_image_none_for_unmarked_model() {
+        // Given a providers config with no model_info row for the model.
+        let config = config_with_modalities(None);
+
+        // When asking whether sample/sample declares image.
+        let declared = config_declares_image(&config, Some("sample/sample"));
+
+        // Then there is no config answer (cache and models.dev still decide).
+        assert_eq!(declared, None);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn config_declares_image_none_for_text_only_row() {
+        // Given a providers config whose model_info row omits image.
+        let config = config_with_modalities(Some(vec!["text".to_owned()]));
+
+        // When asking whether sample/sample declares image.
+        let declared = config_declares_image(&config, Some("sample/sample"));
+
+        // Then it does not.
+        assert_eq!(declared, Some(false));
     }
 
     #[rstest::rstest]

@@ -318,3 +318,91 @@ fn fallback_converter_errors_when_both_stages_fail() {
     // Then it errors.
     assert!(result.is_err());
 }
+
+// ---------------------------------------------------------------------------
+// Bytes-based conversion (webui ingestion)
+// ---------------------------------------------------------------------------
+
+#[rstest]
+fn bytes_conversion_decodes_native_png_in_memory() {
+    // Given a 1x1 PNG's bytes (generated below with the image crate).
+    let png_bytes = tiny_png_bytes();
+    let service = ImageConverterService::new(Arc::new(FallbackConverter::new()));
+
+    // When converting the bytes through the bytes-based entry.
+    let result = service.convert_to_png_bytes(&png_bytes);
+
+    // Then it succeeds with PNG-magic output.
+    let png = result.expect("native png converts in memory");
+    assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+}
+
+#[rstest]
+fn bytes_conversion_transcodes_bmp_without_a_file_on_disk() {
+    // Given the inlined 1x1 BMP's bytes — a decodable non-native format —
+    // and no file anywhere.
+    let service = ImageConverterService::new(Arc::new(FallbackConverter::new()));
+
+    // When converting the bytes through the bytes-based entry.
+    let result = service.convert_to_png_bytes(BMP1X1);
+
+    // Then it succeeds with PNG-magic output (the in-memory Rust decoder
+    // handled it; the ImageMagick fallback never ran).
+    let png = result.expect("bmp bytes convert in memory");
+    assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+}
+
+#[rstest]
+fn bytes_conversion_default_stages_heic_through_the_fallback() {
+    // Given a fallback chain whose fallback stage returns canned PNG bytes,
+    // and HEIC-shaped bytes the in-memory Rust decoder cannot read.
+    let canned = b"\x89PNG\r\n\x1a\nfrom-fallback".to_vec();
+    let spy = Arc::new(SpyConverter {
+        available: true,
+        canned: canned.clone(),
+        ..SpyConverter::default()
+    });
+    let converter = FallbackConverter::with_fallback(spy.clone());
+    let mut heic = vec![0x00, 0x00, 0x00, 0x08];
+    heic.extend_from_slice(b"ftypheicpayload");
+
+    // When converting the bytes through the bytes-based entry (the trait
+    // default: stage to a temp file, run the path-based conversion).
+    let result = converter.convert_to_png_bytes(&heic);
+
+    // Then the fallback's bytes come back, and the fallback received a real
+    // staged path — the subprocess bridge ran.
+    assert_eq!(result.expect("converts via staged fallback"), canned);
+    let calls = spy
+        .convert_calls
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert_eq!(calls.len(), 1, "the fallback ran once over a staged path");
+}
+
+#[rstest]
+fn bytes_conversion_reports_failure_when_every_stage_fails() {
+    // Given a fallback chain whose fallback stage errors.
+    let converter = FallbackConverter::with_fallback(Arc::new(SpyConverter {
+        fail: true,
+        ..SpyConverter::default()
+    }));
+    let mut heic = vec![0x00, 0x00, 0x00, 0x08];
+    heic.extend_from_slice(b"ftypheicpayload");
+
+    // When converting the bytes through the bytes-based entry.
+    let result = converter.convert_to_png_bytes(&heic);
+
+    // Then it errors.
+    assert!(result.is_err());
+}
+
+/// A 1x1 PNG, generated in-process (no fixture file, no shell-out).
+fn tiny_png_bytes() -> Vec<u8> {
+    use std::io::Cursor;
+    let img = image::DynamicImage::new(1, 1, image::ColorType::Rgb8);
+    let mut out = Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png)
+        .expect("1x1 png encodes");
+    out.into_inner()
+}

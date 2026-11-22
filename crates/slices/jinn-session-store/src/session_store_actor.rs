@@ -140,6 +140,12 @@ impl SessionStoreActor {
             // Membership changes tell the sidebar's Sessions and Library
             // sections that their lists are stale.
             .emits::<jinn_session_store_msg::SessionLibraryMembershipChanged>()
+            // Every activation announces itself: the disk-load branch
+            // publishes through `restore_loaded_session`, the in-memory
+            // branch through `on_activate_in_memory`. Without this
+            // declaration the schema table carries no edge for the
+            // activation fact this actor produces.
+            .emits::<jinn_kernel::protocol::system::ActiveSessionChanged>()
             // Hydration jobs leave this actor; without this the flush gate
             // drops them and the sidebar never fills in.
             .emits::<HydrateSession>()

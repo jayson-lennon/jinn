@@ -24,6 +24,13 @@ use serde::{Deserialize, Serialize};
 ///
 /// The camelCase aliases are the Datastar browser's JSON signal keys;
 /// the snake_case fields are the urlencoded contract.
+///
+/// `images` carries the composer's pending attachments in chip order —
+/// one entry per image, either the browser shape (the Datastar bundle's
+/// file binding and the paste helper both emit `{name, mime, contents}`
+/// with `contents` the bare base64 payload) or a whole `data:` URL
+/// string from a hand-rolled client. The server decodes and validates
+/// them; an undecodable or oversized entry is a 400 naming its index.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendForm {
     /// The session the text targets.
@@ -31,6 +38,53 @@ pub struct SendForm {
     pub session_id: String,
     /// The text, delivered verbatim.
     pub text: String,
+    /// Pending image attachments, in chip order.
+    #[serde(default, alias = "images")]
+    pub images: Vec<SendImage>,
+}
+
+/// One pending composer image on the wire.
+///
+/// Untagged: the array accepts the browser's object shape
+/// (`{name, mime, contents}`, bare base64) and a bare `data:` URL
+/// string alike.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum SendImage {
+    /// The browser shape — the Datastar bundle's file binding and the
+    /// paste helper both emit this.
+    Parts {
+        /// The base64 image payload, bare.
+        contents: String,
+        /// The browser-reported MIME type. Never trusted.
+        #[serde(default)]
+        mime: String,
+        /// The browser-reported file name, when the picker supplied one.
+        #[serde(default)]
+        name: String,
+    },
+    /// A whole `data:` URL string — the hand-rolled client shape.
+    DataUrl(String),
+}
+
+impl SendImage {
+    /// The payload to decode: the bare base64 or the whole data URL —
+    /// `decode_upload` tells the two apart by the leading `data:`.
+    #[must_use]
+    pub fn payload(&self) -> &str {
+        match self {
+            Self::Parts { contents, .. } | Self::DataUrl(contents) => contents,
+        }
+    }
+
+    /// The browser-reported name, for diagnostics.
+    #[must_use]
+    pub fn reported_name(&self) -> &str {
+        match self {
+            Self::Parts { name, .. } => name,
+            Self::DataUrl(_) => "",
+        }
+    }
 }
 
 /// `POST /web/cancel` — cancel a session's live turn.
@@ -251,18 +305,30 @@ impl TranscriptQuery {
     }
 }
 
-/// The sessions pull's query: `GET /web/sessions?q=<text>`.
+/// The sessions pull's query: `GET /web/sessions?q=<text>&viewed=<id>`.
 ///
 /// The filter narrows the merged list to the sessions whose titles
 /// fuzzy-match `q` — matched server-side with the TUI session picker's
 /// matcher, so exactly one matching implementation exists. An absent
 /// or empty `q` reads as "no filter"; the full grouped list returns.
+///
+/// `viewed` names the session the pulling page is viewing — the list's
+/// blue row is the *viewed* session, and two pages viewing different
+/// sessions each show their own blue, so the viewer travels with the
+/// pull instead of the server guessing. Absent or empty reads as "no
+/// viewer" (the landing page), which renders no active row at all.
 #[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
 pub struct SessionsQuery {
     /// The title fragment sessions must fuzzy-match. Absent or empty →
     /// every session.
     #[serde(default)]
     pub q: Option<String>,
+    /// The session id the pulling page views. Absent or empty → the
+    /// landing page's no-viewer render: no row carries the active
+    /// styling. An unparseable id reads the same way — a page pull
+    /// must never 500 because its viewer string went stale.
+    #[serde(default, alias = "viewedSession")]
+    pub viewed: Option<String>,
 }
 
 impl SessionsQuery {
@@ -274,6 +340,20 @@ impl SessionsQuery {
     #[must_use]
     pub fn filter_text(&self) -> Option<&str> {
         self.q.as_deref().filter(|text| !text.is_empty())
+    }
+
+    /// The viewed session's id, or `None` when nothing is viewed.
+    ///
+    /// The same "absent and empty are equivalent" rule as
+    /// [`Self::filter_text`], plus the stale-viewer rule: an id that
+    /// is not a UUID resolves to no viewer rather than an error — the
+    /// pull renders a list, not a validation surface.
+    #[must_use]
+    pub fn viewed_session(&self) -> Option<SessionId> {
+        self.viewed
+            .as_deref()
+            .filter(|text| !text.is_empty())
+            .and_then(SessionId::try_from_string)
     }
 }
 
@@ -288,7 +368,9 @@ pub struct SessionListItem {
     pub session_id: SessionId,
     /// Display title; the store's untitled fallback when empty.
     pub title: String,
-    /// Whether this row is the instance's active session.
+    /// Whether this row is the *viewed* session — the session the
+    /// rendering page has open, not the instance's active one. Two
+    /// pages viewing different sessions each paint their own row.
     pub active: bool,
     /// Whether the session is a bot run (rows render tinted, and sends
     /// to them are refused).
@@ -297,7 +379,8 @@ pub struct SessionListItem {
     pub loaded: bool,
     /// Whether the session carries an unseen settle — work that
     /// finished while the user was viewing another session. Rows
-    /// wearing it render marked until their session activates.
+    /// wearing it render marked until their session is viewed (by
+    /// activation anywhere in the instance, or by a page opening it).
     pub unread: bool,
     /// Whether the session's live phase is working — a turn is in
     /// flight (streaming, running tools, or cancelling). Rows wearing
@@ -408,6 +491,28 @@ pub struct SseEnvelope {
     /// The server-rendered HTML fragment.
     pub html: String,
 }
+
+/// A web page opened a session — the arrival fact.
+///
+/// Published by the session-page render handler (`GET /web/session/{id}`)
+/// after the page's HTML is built: the user has put a session on a
+/// screen, which is "the user looked" as much as an activation is. The
+/// webui fan-out answers it by clearing that session's unread mark —
+/// the arrival path that a click's activation already covers, and the
+/// path a reload or a deep link (an archived session's page, opened
+/// without activating it) has no other way through.
+///
+/// An Event, and the webui's only self-owned schema: exactly one
+/// producer (the page handler) and one handler (the fan-out) declare
+/// it, so the broadcast contract holds however the transport resolves.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
+#[schema(description = "A web page opened a session.")]
+pub struct SessionPageOpened {
+    /// The session the page opened.
+    pub session_id: SessionId,
+}
+
+impl jinn_slices::BusMessage for SessionPageOpened {}
 
 #[cfg(test)]
 mod tests {

@@ -4478,6 +4478,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "tempfile",
  "tiktoken",
  "tracing",
  "unicode-segmentation",
@@ -6038,6 +6039,7 @@ dependencies = [
  "askama",
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "chaser-oxide",
  "datastar",
  "error-stack",
@@ -6045,6 +6047,7 @@ dependencies = [
  "form_urlencoded",
  "futures",
  "http-body-util",
+ "image",
  "jiff",
  "jinn-app-state",
  "jinn-cell-catalog",
@@ -6053,6 +6056,7 @@ dependencies = [
  "jinn-core-types",
  "jinn-inference-msg",
  "jinn-kernel",
+ "jinn-llm-support",
  "jinn-mcp-msg",
  "jinn-persona-msg",
  "jinn-picker",
@@ -6100,6 +6104,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "trouper",
 ]
 
 [[package]]

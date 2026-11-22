@@ -252,7 +252,7 @@ async fn overlay_reset_patches(
     // including the settled-prefix split (the boundary-aware cursor
     // the page shell stamps) when the activated session is mid-turn.
     let view = session_view(shared, id).await?;
-    let sessions_html = crate::regions::sessions::sessions_fragment(shared, None).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(shared, None, Some(id)).await?;
     let (transcript_entries, cursor) = {
         let guard = shared.read_state();
         shared.settled_prefix(id, &guard)
@@ -517,6 +517,7 @@ impl ServerShared {
             &crate::regions::transcript::model_label(session.model_selection()),
             session.phase().as_str(),
             session.is_bot(),
+            session_id,
         );
         match boundary {
             // Mid-turn: the settled prefix only — the in-flight tail
@@ -569,6 +570,10 @@ pub fn router(shared: ServerShared) -> Router {
         .route("/web/session/{id}", get(page_session))
         .route("/web/stream/{id}", get(stream))
         .route("/web/send", post(send))
+        .route(
+            "/web/attachment/{session}/{entry}/{ordinal}",
+            get(attachment),
+        )
         .route("/web/cancel", post(cancel))
         .route("/web/model", post(model))
         .route(crate::contract::THEME_PATH, post(theme))
@@ -602,11 +607,119 @@ pub fn router(shared: ServerShared) -> Router {
             Some(pull) => router.route(pull.pattern, pull.handler),
             None => router,
         })
+        // The send body carries base64 image data URLs — roughly 4/3× the
+        // raw bytes plus JSON overhead, and several chips compose — so the
+        // default 2 MB body limit would 413 legitimate sends before any
+        // handler ran. 32 MB comfortably bounds the 5 MB-per-image cap the
+        // ingestion enforces per image. The layer sits after every route:
+        // `Router::layer` wraps only the routes added before it.
+        .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024))
         .with_state(shared)
 }
 
 /// The handler error shape: status + one sentence.
 pub type HandlerError = (StatusCode, String);
+
+/// One attachment's image bytes (`GET
+/// /web/attachment/{session}/{entry}/{ordinal}`).
+///
+/// Resolution order — live state first (bounded wait: a just-sent entry
+/// may still be crossing the queue/bus), then the session store's
+/// persisted blobs for archived sessions, then 404. The response is
+/// immutable: entry ids never reuse and an attachment's bytes never
+/// change once attached, so the browser caches forever and the settle
+/// re-renders never re-fetch.
+async fn attachment(
+    AxumState(shared): AxumState<ServerShared>,
+    AxPath((session_raw, entry_raw, ordinal_raw)): AxPath<(String, String, String)>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse as _;
+
+    let Some(session_id) = SessionId::try_from_string(&session_raw) else {
+        return fail(400, "session id is not a UUID").into_response();
+    };
+    let Some(entry_id) = jinn_core_types::ChatEntryId::try_from_string(&entry_raw) else {
+        return fail(400, "entry id is not a UUID").into_response();
+    };
+    let Ok(ordinal) = ordinal_raw.parse::<usize>() else {
+        return fail(400, "ordinal is not a number").into_response();
+    };
+
+    // Live state, bounded: the entry may be mid-flight (queued/busy);
+    // the budget mirrors the activation convergence's shape. Guard
+    // discipline: check under the guard, drop before sleeping.
+    let deadline = tokio::time::Instant::now() + ATTACHMENT_CONVERGENCE_BUDGET;
+    let mut from_live: Option<jinn_provider::Attachment>;
+    loop {
+        from_live = {
+            let guard = shared.read_state();
+            guard.session.get(&session_id).and_then(|session| {
+                session.history().iter().find_map(|entry| {
+                    let () = (entry.id == entry_id).then_some(())?;
+                    let jinn_core_types::ChatEntryKind::User { attachments, .. } = &entry.kind
+                    else {
+                        return None;
+                    };
+                    attachments.get(ordinal).cloned()
+                })
+            })
+        };
+        if from_live.is_some() || tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(ATTACHMENT_POLL_INTERVAL).await;
+    }
+
+    if let Some(attachment) = from_live {
+        return image_response(attachment.media_type(), attachment.data());
+    }
+
+    // Archived: the store's hydrated snapshot carries the attachments.
+    let from_store = shared
+        .session_store
+        .load_session(&session_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|snapshot| {
+            snapshot.entries.iter().find_map(|entry| {
+                let () = (entry.id == entry_id).then_some(())?;
+                let jinn_core_types::ChatEntryKind::User { attachments, .. } = &entry.kind else {
+                    return None;
+                };
+                attachments.get(ordinal).cloned()
+            })
+        });
+
+    match from_store {
+        Some(attachment) => image_response(attachment.media_type(), attachment.data()),
+        None => fail(404, "no such attachment").into_response(),
+    }
+}
+
+/// The bounded wait for a live attachment — a queued send's entry lands
+/// within the dispatch latency; the budget only binds on a wedged bus,
+/// where the settle convergence's re-render re-fetches anyway.
+const ATTACHMENT_CONVERGENCE_BUDGET: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Poll interval for the live-attachment wait.
+const ATTACHMENT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// An attachment's bytes as an immutable, cacheable image response.
+fn image_response(media_type: &str, bytes: &[u8]) -> axum::response::Response {
+    use axum::response::IntoResponse as _;
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, media_type.to_owned()),
+            (
+                axum::http::header::CACHE_CONTROL,
+                "public, max-age=31536000, immutable".to_owned(),
+            ),
+        ],
+        bytes.to_vec(),
+    )
+        .into_response()
+}
 
 /// Maps a domain refusal or render failure to the response error.
 pub(crate) fn fail(status: u16, sentence: impl Into<String>) -> HandlerError {
@@ -635,9 +748,10 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
     axum::response::Redirect::temporary("/web")
 }
 
-/// `GET /web` — the landing page: sessions list, no transcript.
+/// `GET /web` — the landing page: sessions list, no transcript. No
+/// session is viewed, so the list carries no viewed (blue) row.
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
-    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None, None).await?;
     let attention_count = {
         let guard = shared.read_state();
         crate::regions::sessions::unread_count_of(&guard)
@@ -659,6 +773,14 @@ async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, H
 /// `GET /web/session/{id}` — the session page: full render for one
 /// session, live or archived.
 ///
+/// The render IS the arrival: it publishes `SessionPageOpened` after
+/// the page HTML is built, which is how the fan-out learns the user
+/// has put this session on a screen — the clear path a reload or a
+/// deep link (an archived session's page, which activates nothing)
+/// has no other way through. Publication failure is logged, never a
+/// 500: the page is already rendered, and the mark is signal, not
+/// correctness.
+///
 /// Mid-turn the inline transcript carries the **settled prefix only**
 /// (split at the fan-out's settled boundary) and the cursor attr
 /// stamps that boundary — the streaming container above it stays
@@ -672,7 +794,8 @@ async fn page_session(
 ) -> Result<Page, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
-    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let sessions_html =
+        crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
     // The settled prefix + boundary cursor, under one guard.
     let (transcript_entries, cursor) = {
         let guard = shared.read_state();
@@ -710,6 +833,12 @@ async fn page_session(
         web_theme,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
+    shared
+        .bus()
+        .publish(jinn_webui_msg::SessionPageOpened {
+            session_id: id.clone(),
+        })
+        .await;
     Ok(Page::new(html))
 }
 
@@ -753,6 +882,7 @@ async fn session_view(shared: &ServerShared, id: &SessionId) -> Result<SessionVi
                     &crate::regions::transcript::model_label(session.model_selection()),
                     session.phase().as_str(),
                     session.is_bot(),
+                    id,
                 ),
                 session.phase(),
             )
@@ -778,6 +908,7 @@ async fn session_view(shared: &ServerShared, id: &SessionId) -> Result<SessionVi
             &crate::regions::transcript::model_label(&snapshot.metadata.profile.model),
             PhaseView::Idle.as_str(),
             false,
+            id,
         ),
         phase: PhaseView::Idle.as_str().to_owned(),
     })
@@ -931,41 +1062,34 @@ async fn send(
     form: Result<WebForm<jinn_webui_msg::SendForm>, HandlerError>,
 ) -> Result<SseAction, HandlerError> {
     let WebForm(form) = form?;
-    crate::delivery::handle_send(shared.state(), shared.bus(), &form.session_id, &form.text)
+    let entry = crate::delivery::handle_send(shared.state(), shared.bus(), &form.session_id, &form)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
+    // Delivery validated the id; the echo's attachment URLs name it.
+    let published_session_id = SessionId::try_from_string(&form.session_id)
+        .ok_or_else(|| fail(400, "session id is not a UUID"))?;
     // The optimistic entry renders through the same projection the
     // transcript region uses — identical markup, so the streamed
     // assistant echo and the settle convergence dedupe it (the e2e
-    // chat spec pins the no-double).
-    let entry = crate::transcript::render_entry(&jinn_core_types::ChatEntry {
-        id: jinn_core_types::ChatEntryId::new(),
-        timing: jinn_core_types::EntryTiming::Instant {
-            at: jiff::Timestamp::now(),
-        },
-        kind: jinn_core_types::ChatEntryKind::User {
-            display: form.text.clone(),
-            expanded: form.text.clone(),
-            attachments: Vec::new(),
-            outcome: jinn_core_types::AttachmentOutcome::default(),
-        },
-        pin_position: None,
-        context_override: jinn_core_types::ContextOverride::default(),
-        context_history: Vec::new(),
-        token_count: None,
-        model_used: None,
-        model_requested: None,
-    });
+    // chat spec pins the no-double). It is the *published* entry
+    // object, not a second build: the id the echo carries is the id
+    // the attachment route resolves.
     let html = crate::templates::render(&crate::templates::EntryTemplate {
-        entry,
+        entry: crate::transcript::render_entry(&entry, &published_session_id),
         index: usize::MAX,
     })
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(SseAction::new(vec![
-        signal_patch(&[(
-            crate::contract::SIGNAL_TEXT,
-            serde_json::Value::String(String::new()),
-        )]),
+        signal_patch(&[
+            (
+                crate::contract::SIGNAL_TEXT,
+                serde_json::Value::String(String::new()),
+            ),
+            (
+                crate::contract::SIGNAL_PENDING_IMAGES,
+                serde_json::Value::Array(Vec::new()),
+            ),
+        ]),
         append_patch(html),
     ]))
 }
@@ -1465,8 +1589,10 @@ async fn rename(
     // flicker. (The fan-out actor's own SessionLoadCompleted /
     // SessionArchived refreshes keep the live-only shape deliberately:
     // those events change only live state, and their next pull or
-    // page render carries the store truth.)
-    let list_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    // page render carries the store truth.) The renamed session's
+    // page is the requester — it is the viewer, so its blue row rides
+    // the same markup every consumer gets.
+    let list_html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
     let attention_count = {
         let guard = shared.read_state();
         crate::regions::sessions::unread_count_of(&guard)
@@ -1591,6 +1717,7 @@ async fn stream(
                 &crate::regions::transcript::model_label(session.model_selection()),
                 session.phase().as_str(),
                 session.is_bot(),
+                &id,
             );
             // The answerable space: the boundary mid-turn, the full
             // count otherwise — then the shrink-re-read rule inside it.

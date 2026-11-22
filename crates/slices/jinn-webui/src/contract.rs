@@ -305,6 +305,18 @@ pub const SIGNAL_TITLE_EDITING: &str = "titleEditing";
 pub const SIGNAL_TITLE_COMMITTING: &str = "titleCommitting";
 /// The composer's draft text.
 pub const SIGNAL_TEXT: &str = "text";
+/// The composer's pending image attachments — a JSON array of base64
+/// data URLs in chip order. Client-local: the send clears it, a reload
+/// drops it.
+pub const SIGNAL_PENDING_IMAGES: &str = "images";
+/// The hidden file input the attach button drives (`data-bind` reads its
+/// files into the pending-images signal on `change`).
+pub const IMAGE_FILE_INPUT_ID: &str = "image-file-input";
+/// The attach button that clicks the hidden file input (photo library on
+/// phones).
+pub const IMAGE_ATTACH_BUTTON_ID: &str = "image-attach-button";
+/// The strip above the textarea where pending-image chips render.
+pub const IMAGE_CHIPS_ID: &str = "image-chips";
 /// The new-session form's chosen project path.
 pub const SIGNAL_SESSION_NEW_PROJECT: &str = "sessionnewproject";
 /// The new-session form's chosen lifecycle name.
@@ -745,6 +757,10 @@ pub const TRANSCRIPT_ROUTE: &str = "/web/transcript/{id}";
 /// Route pattern — the model-picker fragment.
 pub const MODEL_PICKER_ROUTE: &str = "/web/model-picker/{id}";
 
+/// Route pattern — one attachment's image bytes: the session, the entry
+/// that carries it, and the attachment's ordinal within that entry.
+pub const ATTACHMENT_ROUTE: &str = "/web/attachment/{session}/{entry}/{ordinal}";
+
 /// Route pattern — the refresh-models action (`POST`): publishes
 /// `RefreshModels` and returns the current button fragment.
 pub const MODELS_REFRESH_ROUTE: &str = "/web/models/refresh";
@@ -792,6 +808,11 @@ pub const TRANSCRIPT_PREFIX: &str = "/web/transcript/";
 /// The path prefix client code builds model-picker URLs from.
 pub const MODEL_PICKER_PREFIX: &str = "/web/model-picker/";
 
+/// The path prefix the transcript renderer builds attachment `<img>`
+/// URLs from — `/web/attachment/{session}/{entry}/` + ordinal. Rendered
+/// HTML only: no client code composes these (the fragments do).
+pub const ATTACHMENT_PREFIX: &str = "/web/attachment/";
+
 /// The vendor mount the client's script tag and the asset table use.
 pub const VENDOR_PREFIX: &str = "/vendor/";
 
@@ -801,6 +822,11 @@ pub const VENDOR_PREFIX: &str = "/vendor/";
 /// set), not build output: with the TypeScript client gone, nothing
 /// in-repo regenerates them.
 pub const VENDOR_APP_JS: &str = "datastar.js";
+
+/// The image-attach helper's served filename inside `/vendor/` — the
+/// one authored script besides the bundle (see `VENDOR_APP_JS` for why
+/// the vendor tree is committed input).
+pub const VENDOR_PASTE_JS: &str = "paste.js";
 
 /// The contract's DOM-targeting constants: id, attribute, class, and
 /// action names. The referential-integrity gate renders the page and
@@ -818,6 +844,10 @@ pub const DOM_CONSTANTS: &[&str] = &[
     BUSY_SPINNER_ID,
     COMPOSER_ID,
     INPUT_ID,
+    SIGNAL_PENDING_IMAGES,
+    IMAGE_FILE_INPUT_ID,
+    IMAGE_ATTACH_BUTTON_ID,
+    IMAGE_CHIPS_ID,
     SESSION_ID_DATA_ATTR,
     PAGE_SESSION_DATA_ATTR,
     TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -905,6 +935,13 @@ pub const DOM_CONSTANTS: &[&str] = &[
 /// — the list's filter effect builds its re-pull URL with it.
 pub const SESSIONS_FILTER_QUERY_PARAM: &str = "q";
 
+/// The sessions pull's viewer query parameter
+/// (`GET /web/sessions?viewed=<id>`) — the list's effect builds its
+/// re-pull URL with it beside the filter, so a tick re-pull renders
+/// the *viewed* session's blue row rather than the instance's active
+/// one. Empty (the landing page) serializes as "no viewer".
+pub const SESSIONS_VIEWED_QUERY_PARAM: &str = "viewed";
+
 /// The contract's endpoint constants a client can build a URL from.
 /// The serve-and-request gate issues a real HTTP request against each.
 pub const CLIENT_PATHS: &[&str] = &[
@@ -918,6 +955,7 @@ pub const CLIENT_PATHS: &[&str] = &[
     STREAM_PREFIX,
     TRANSCRIPT_PREFIX,
     MODEL_PICKER_PREFIX,
+    ATTACHMENT_PREFIX,
     MODEL_FILTER_QUERY_PARAM,
     MODELS_REFRESH_PATH,
     SESSION_NEW_LIFECYCLE_QUERY_PARAM,
@@ -938,6 +976,8 @@ pub const CLIENT_PATHS: &[&str] = &[
     SKILL_LOAD_PATH,
     SKILL_ROWS_PREFIX,
     SKILL_ROWS_SELECTOR,
+    SESSIONS_FILTER_QUERY_PARAM,
+    SESSIONS_VIEWED_QUERY_PARAM,
     VENDOR_PREFIX,
     THEME_PATH,
 ];
