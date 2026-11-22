@@ -13,10 +13,13 @@ use jinn_core_types::ToolDefinition;
 /// The one-line `dump_to_path` schema property injected into every mirrored
 /// tool definition. Jinn cannot edit an MCP server's schema text, so the
 /// reserved argument is added where jinn mirrors every definition — the one
-/// chokepoint all schemas pass through.
-const DUMP_TO_PATH_PROPERTY: &str = "Optional file path to write this tool's full \
-result to; the in-context response becomes a short pointer + preview. Either pass \
-in a path or omit the field entirely — true/false is rejected.";
+/// chokepoint all schemas pass through. Compact on purpose: this line rides
+/// on every published tool, so the heavy imperative wording lives in the
+/// once-paid reserved-arguments block instead.
+const DUMP_TO_PATH_PROPERTY: &str = "Optional — omit the field entirely unless you \
+want this call's full result written to disk; the in-context response then becomes a \
+short pointer + preview. It is not a flag and not a discard sink — either spelling is \
+rejected before the tool runs.";
 
 /// Adds the reserved `dump_to_path` property to a definition's schema.
 ///
@@ -107,12 +110,17 @@ pub fn build_tool_context_block(tools: &BTreeMap<String, ToolDefinition>) -> Opt
 fn reserved_argument_lines() -> [&'static str; 2] {
     [
         "max_duration_secs: per-call timeout override in seconds; 0 disables the timeout.",
-        "dump_to_path: write the full tool result to this path (relative paths resolve against \
-         the working directory; parent directories are created automatically). Either pass in a \
-         path or omit the field entirely — true/false is rejected with a corrective error. The \
-         tool response becomes a pointer to the file plus a short preview — use it for large \
-         results (web page fetches, bulk output) you want to read or grep from disk rather than \
-         carry in context.",
+        "dump_to_path: HEAVILY OPTIONAL — omit the field entirely unless you deliberately \
+         want this one call's ENTIRE tool result written to a file on disk. Do not set it \
+         habitually, as a boolean flag, or as a discard sink: setting it replaces the \
+         in-context result with a pointer stub, so the full text leaves your context \
+         (deliberate dumps only). Omitting keeps the full result in context — that is the \
+         right choice for almost every call. When you do dump: pass a real path (relative \
+         paths resolve against the working directory; parent directories are created \
+         automatically) and read or grep the file on demand. Never /dev/null, /dev/zero, \
+         nul, null, or none — those are rejected before the tool runs, because dumping \
+         there silently destroys your own tool output. Either pass in a path or omit the \
+         field entirely; true/false spellings are rejected the same way.",
     ]
 }
 
@@ -326,12 +334,20 @@ mod tests {
         let block = build_tool_context_block(&tools).expect("should produce a block");
 
         // Then the reserved-arguments section names both reserved arguments
-        // and their conventions, including the pass-a-path-or-omit contract.
+        // and their conventions: the omit-first contract, the heavy
+        // imperative warning against habitual or discard-sink use, and the
+        // parent-creation promise.
         assert!(block.contains("Reserved tool-call arguments:"));
         assert!(block.contains("max_duration_secs"));
         assert!(block.contains("dump_to_path"));
+        assert!(block.contains("HEAVILY OPTIONAL"), "{block}");
+        assert!(
+            block.contains("omit the field entirely unless you deliberately"),
+            "{block}"
+        );
+        assert!(block.contains("discard sink"), "{block}");
+        assert!(block.contains("/dev/null"), "{block}");
         assert!(block.contains("parent directories are created automatically"));
-        assert!(block.contains("Either pass in a path or omit the field entirely"));
         assert!(
             !block.contains("dump_to_disk"),
             "old spelling must be gone: {block}"
@@ -365,8 +381,9 @@ mod tests {
             .get("description")
             .and_then(|d| d.as_str())
             .expect("property description");
-        assert!(description.contains("path"), "{description}");
+        assert!(description.contains("Optional"), "{description}");
         assert!(description.contains("omit"), "{description}");
+        assert!(description.contains("discard sink"), "{description}");
         assert!(properties.get("command").is_some(), "own property kept");
     }
 
