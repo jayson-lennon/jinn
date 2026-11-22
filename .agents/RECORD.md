@@ -61,8 +61,9 @@ Entries are added or amended **only with human approval**.
 - (context) Task-list tool results include the next-step line.
 - (context) Context assembly inserts only pin and working-history messages; there is no synthetic task-list snapshot injection.
 - (attachments) `@path` image resolution degrades on missing-file or non-image outcomes (token stays literal, turn dispatches); only a recognizable image failing conversion hard-blocks.
-- (attachments) A user entry carrying attachments is blocked unless the active model is confirmed image-capable via models.dev — unknown models are blocked, not allowed.
+- (attachments) A user entry carrying attachments is blocked unless the active model is confirmed image-capable via the model cache, models.dev, or an explicit [[providers.model_info]] input_modalities declaration — unknown models are blocked, not allowed.
 - (attachments) `@path` tokens in user entries are colored by resolution outcome in the chat render: green when attached as an image, red when degraded (missing file or not an image).
+- (attachments) The attachment gate honors an image modality declared via [[providers.model_info]] input_modalities even when no model cache exists yet. BECAUSE: the gate's blocked-entry text names providers.toml as the lever, so the lever must work before the first model refresh seeds the cache.
 - (context) `#name` prompt-template tokens in user text expand to the template body; both token kinds are consumed in a second expansion pass.
 - (context) `@path` tokens resolve to `file://` URIs against cwd/home when the file is a readable image; otherwise the token is left as literal text.
 - (dashboard) The dashboard tab renders each actor's runtime lifecycle as its own State word (running/idle/escalated/crashed), removing the row on a `Normal` or `Shutdown` stop.
@@ -125,6 +126,7 @@ Entries are added or amended **only with human approval**.
 - (mcp) A `remote_http` server (transport = "remote_http") connects to an externally-managed HTTP server at the configured `url` with no process management; `command` is optional (unused for remote_http).
 - (mcp) MCP connections are monitored post-connect: a liveness watcher polls for transport closure and publishes `Dead` when the connection drops, uniformly across stdio, local_http, and remote_http transports.
 - (mcp) The `restart_mcp_server` built-in tool lets the model restart a dead MCP server by name (or by stripping a `mcp__<server>__<tool>` namespace).
+- (mcp) The MCP coordinator skips the runtime-status clear on SessionLoadCompleted when the session's connections are still live. BECAUSE: clearing would blank running badges and reconcile's duplicate guard would leave nothing to republish.
 - (mcp) MCP server entries accept a `headers` map; values support `${VAR}` env-var token expansion anywhere in the string, applied to both `local_http` and `remote_http` connections and ignored on stdio.
 - (mcp) MCP header variables are resolved once at startup into the shared key store alongside provider keys; an unset or empty variable prevents connection with an error naming the variable, and header values are never logged or rendered.
 - (mcp) MCP child processes (stdio and local_http) spawn terminal-isolated, like tool children.
@@ -337,6 +339,7 @@ Entries are added or amended **only with human approval**.
 - (preview) The session preview popup draws its loading indicator on the last row of its content area, horizontally centred, matching the chat log's session-load line.
 - (preview) A background session's context usage in the sidebar session preview derives from its last token-ledger record's per-dispatch sent estimate; the cached assembled size exists only for sessions the context-size actor has recalculated (the active one).
 - (session) Session activation is one command: the session store actor skips the disk read for a session already in memory and measures its chat log instead, so the sidebar, the session picker, and subagent entry all behave alike.
+- (session) An in-memory session activation publishes SessionLoadCompleted like every other activation path. BECAUSE: the webui fan-out keys the unread-mark clear to it, and a live switch that skips it strands the mark on the session the user just viewed.
 - (ui) The spinner animation interval is a single shared constant, but the animation _state_ is per widget: the three loading indicators render through `throbber-widgets-tui`'s stateful widget, and only the session preview derives its glyph from elapsed time, because it is a bare paragraph with no widget to hold state.
 - (slices) The chat input box is owned by the `jinn-chat-input` slice: its element, validation, autocomplete rendering, directory-lister actor, and keybinds.
 - (keybinds) Chat input keys are declared by the slice as route rows and a printable-character catch-all; the keymap generates them from the registered rows.
@@ -850,3 +853,8 @@ Entries are added or amended **only with human approval**.
 - (skills) A loaded skill's toggle is a silent no-op on both the TUI picker and the web skills modal. BECAUSE: a disabled marker would promise an unload that never happens while the body stays pinned in history.
 - (webui) The web skills modal's per-row force-load repeats the TUI `<c-l>` load verbatim — pinned skill tool pair, durable auto-enable, MarkSessionInteracted, and the duplicate's "already loaded" transient. BECAUSE: one load semantic must hold across surfaces.
 - (webui) The webui fan-out subscribes SkillsLoaded and bumps a skillsTick signal that makes an open skills modal re-pull its rows. BECAUSE: discovery lands async after the modal can be opened, and the pull route remains the correctness dependency.
+- (webui) The web composer accepts image attachments by clipboard paste, a file-attach button, and https URLs ending in an image extension, all ingested at the POST boundary. BECAUSE: paste is the desktop screenshot flow, the button is the mobile photo-library gesture, and the extension gate keeps ordinary links unfetched.
+- (webui) Web image ingestion sniffs bytes, transcodes non-native formats to PNG through jinn-llm-support, and caps each image at 5 MB with a synchronous 400 naming the offender. BECAUSE: the read_image tool already converts outside an actor, and boundary feedback beats a failed turn.
+- (webui) The web transcript renders a user entry's image attachments inline through a GET attachment route that serves bytes from live state (bounded wait), falling back to the session store for archived sessions. BECAUSE: inline base64 would multiply every settle push by every image's size, and the bounded wait is the activate endpoint's precedent.
+- (webui) Clipboard paste in the web composer is handled by a vendored, sha256-pinned paste.js riding the vendor manifest. BECAUSE: Datastar's expressions are synchronous and cannot drive the async FileReader a paste needs.
+- (webui) Web-attached images ride the existing EnqueueUserMessage entry payload; no new bus schema exists for them. BECAUSE: the actor's attachment field and vision gate already own the semantics, and the command's ~47 construction sites say its shape is not to be touched lightly.
