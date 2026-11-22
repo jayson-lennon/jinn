@@ -22,12 +22,17 @@ import { baseUrl } from "./run.mjs";
  * @returns {Promise<string>} the created session's id.
  */
 async function createSession(page) {
+  const before = page.url();
   await page.locator(sel.MENU_BUTTON).click();
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   const modal = page.locator(sel.SESSION_NEW_MODAL);
   await expect(modal).toBeVisible();
   await page.locator(sel.SESSION_NEW_SUBMIT).click();
   const root = page.locator(sel.PAGE_ROOT);
+  // The swap signal: the response closes the menu (a signal patch)
+  // before it replaces #page-root, so menu-hidden alone can race the
+  // swap. The URL pushState happens with the swap — wait for it.
+  await expect(page).not.toHaveURL(before);
   await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
   const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
   if (!createdId) {
