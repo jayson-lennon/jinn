@@ -211,9 +211,14 @@ fn signal_patch(pairs: &[(&str, serde_json::Value)]) -> datastar::DatastarEvent 
     PatchSignals::new(serde_json::Value::Object(object).to_string()).into_datastar_event()
 }
 
-/// One `patch-elements` event appending fragment HTML at a selector.
+/// One `patch-elements` event appending fragment HTML — placed
+/// before the session's streaming container so the container stays
+/// the transcript's last child (the tail-replace target).
 fn append_patch(html: String) -> datastar::DatastarEvent {
-    PatchElements::new(html).into_datastar_event()
+    PatchElements::new(html)
+        .selector(format!("#{}", crate::contract::STREAMING_ID))
+        .mode(datastar::consts::ElementPatchMode::Before)
+        .into_datastar_event()
 }
 
 /// One `patch-elements` event replacing a selector's inner HTML —
