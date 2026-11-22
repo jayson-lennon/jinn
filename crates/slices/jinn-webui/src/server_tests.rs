@@ -15,6 +15,7 @@ use crate::contract;
 use axum::body::Body;
 use axum::http::Request;
 use axum::http::StatusCode;
+use base64::Engine as _;
 use jinn_app_state::AppState;
 use jinn_core_types::SessionId;
 use jinn_kernel::State;
@@ -173,6 +174,26 @@ async fn post_form(router: &axum::Router, uri: &str, body: &str) -> (StatusCode,
     (status, text)
 }
 
+/// Posts a JSON body — the Datastar browser's signal shape, and the
+/// shape an images array rides (urlencoded cannot carry a list).
+async fn post_json(router: &axum::Router, uri: &str, body: &str) -> (StatusCode, String) {
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_owned()))
+                .expect("request builds"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let text = axax_bytes(response).await;
+    (status, text)
+}
+
 async fn axax_bytes(response: axum::response::Response) -> String {
     let text = axum::body::to_bytes(response.into_body(), 1024 * 1024)
         .await
@@ -315,7 +336,243 @@ fn title_of(state: &State, id: &SessionId) -> Option<String> {
         .map_or_default(|session| session.title().map(str::to_owned))
 }
 
-/// A session store serving one fixed archived summary from
+/// A store serving one archived snapshot with an image attachment —
+/// the session-store fallback half of the attachment route. The entry
+/// is minted once so every load returns the same id the route must
+/// resolve.
+#[derive(Debug)]
+struct OneArchivedAttachmentStore {
+    session_id: jinn_core_types::SessionId,
+    entry: jinn_core_types::ChatEntry,
+}
+
+#[async_trait::async_trait]
+impl jinn_session_state::SessionStore for OneArchivedAttachmentStore {
+    fn name(&self) -> &'static str {
+        "one-archived-attachment"
+    }
+
+    async fn load_summaries(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(vec![jinn_session_store_msg::SessionSummary {
+            session_id: self.session_id.clone(),
+            title: "Archived with image".to_owned(),
+            updated_at: jiff::Timestamp::now(),
+            created_at: jiff::Timestamp::now(),
+            session_state: jinn_session_store_msg::SessionState::Archived,
+            in_library: false,
+            is_bot: false,
+            parent_session: None,
+            project: None,
+        }])
+    }
+
+    async fn save(
+        &self,
+        _snapshot: &jinn_session_state::SessionSnapshot,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn load_session(
+        &self,
+        session_id: &jinn_core_types::SessionId,
+    ) -> Result<
+        Option<jinn_session_state::SessionSnapshot>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        if *session_id != self.session_id {
+            return Ok(None);
+        }
+        let mut snapshot = jinn_session_state::ChatSessionState::new().capture_snapshot();
+        snapshot.metadata.session_id = session_id.clone();
+        snapshot.entries = vec![self.entry.clone()];
+        Ok(Some(snapshot))
+    }
+
+    async fn delete(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn fork(
+        &self,
+        _source_session_id: &jinn_core_types::SessionId,
+        _at_ordinal: usize,
+    ) -> Result<
+        jinn_core_types::SessionId,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(jinn_core_types::SessionId::new())
+    }
+
+    async fn set_archived(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _archived: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn set_archived_many(
+        &self,
+        _session_ids: &[jinn_core_types::SessionId],
+        _archived: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn set_in_library(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _in_library: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn dirty_session_ids(
+        &self,
+    ) -> Result<
+        Vec<jinn_core_types::SessionId>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn reindex_session_chunk(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _max_entries: usize,
+    ) -> Result<bool, error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(true)
+    }
+
+    async fn pending_dirty_count(
+        &self,
+    ) -> Result<usize, error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(0)
+    }
+
+    async fn load_unarchived_summaries(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn search(
+        &self,
+        _params: jinn_session_store_msg::SearchParams,
+    ) -> Result<
+        jinn_session_store_msg::SearchOutcome,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(jinn_session_store_msg::SearchOutcome {
+            total_matches: 0,
+            per_session: Vec::new(),
+            hits: Vec::new(),
+        })
+    }
+
+    async fn fetch_window(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _anchor: &jinn_core_types::ChatEntryId,
+        _context: usize,
+    ) -> Result<
+        Option<jinn_session_store_msg::TranscriptWindow>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(None)
+    }
+
+    async fn fetch_tail(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _limit: usize,
+    ) -> Result<
+        Option<jinn_session_store_msg::TranscriptWindow>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(None)
+    }
+}
+
+/// A harness whose store serves one archived session carrying a PNG —
+/// no live session exists. Returns the id, the minted entry, the router.
+fn harness_with_archived_attachment(
+    png: Vec<u8>,
+) -> (
+    jinn_core_types::SessionId,
+    jinn_core_types::ChatEntry,
+    axum::Router,
+) {
+    let slices = Slices::new();
+    let provider_cell = slices
+        .register(
+            jinn_provider_selection_msg::provider_state_slot(),
+            jinn_provider_selection_msg::ProviderCell::default(),
+        )
+        .expect("the provider cell registers once per harness");
+    let unread_marks = unread_marks_for(&slices);
+    let state = {
+        let app = AppState::default();
+        app.session.attach_slices(slices.clone());
+        State::new(app)
+    };
+    let archived_id = SessionId::new();
+    let entry = jinn_core_types::ChatEntry::user_with_attachments(
+        "archived shot",
+        vec![jinn_provider::Attachment::image(
+            "image/png".to_owned(),
+            png,
+        )],
+    );
+    let personas_cell = slices
+        .register(
+            jinn_persona_msg::personas_slot(),
+            jinn_persona_msg::Personas::default(),
+        )
+        .expect("the personas cell registers once per harness");
+    let mcp_runtime_cell = slices
+        .register(
+            jinn_mcp_msg::mcp_runtime_slot(),
+            jinn_mcp_msg::McpRuntimeState::default(),
+        )
+        .expect("the MCP runtime cell registers once");
+    let (bus, _audit) = BusService::new_recording();
+    let (fanout, _rx) =
+        crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone(), unread_marks);
+    let shared = ServerShared::new(
+        state,
+        bus,
+        jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
+            OneArchivedAttachmentStore {
+                session_id: archived_id.clone(),
+                entry: entry.clone(),
+            },
+        )),
+        provider_cell,
+        personas_cell,
+        mcp_runtime_cell,
+        jinn_provider_config::ProviderRegistryService::new(harness_registry()),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
+        fanout,
+        8388,
+        "test".to_owned(),
+    );
+    (archived_id, entry, router(shared))
+}
+
 /// `load_summaries`; every other operation behaves like the fake.
 #[derive(Debug)]
 struct OneArchivedRowStore(jinn_core_types::SessionId, String);
@@ -762,6 +1019,62 @@ mod renders {
         assert!(!body.contains("<script>"), "{body}");
         assert!(body.contains("&lt;script&gt;"), "{body}");
     }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn user_entry_renders_attached_images_as_route_urls() {
+        // Given a session with a user entry carrying one image attachment.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let entry = jinn_core_types::ChatEntry::user_with_attachments(
+            "see screenshot",
+            vec![jinn_provider::Attachment::image(
+                "image/png".to_owned(),
+                b"\x89PNGfake".to_vec(),
+            )],
+        );
+        let entry_id = entry.id.to_string();
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .push_entry(entry);
+
+        // When rendering the transcript.
+        let (_status, body) = get(&router, &format!("/web/transcript/{id}")).await;
+
+        // Then the image rides the attachment route — the session, the
+        // minted entry id, ordinal 0 — and never a data: URI.
+        assert!(
+            body.contains(&format!("src=\"/web/attachment/{id}/{entry_id}/0\"")),
+            "route-shaped img src: {body}"
+        );
+        assert!(
+            !body.contains("data:image"),
+            "no base64 in fragments: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn text_only_user_entry_renders_no_image_markup() {
+        // Given a session whose user entry carries no attachments.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .push_entry(jinn_core_types::ChatEntry::user("plain words"));
+
+        // When rendering the transcript.
+        let (_status, body) = get(&router, &format!("/web/transcript/{id}")).await;
+
+        // Then no img tag exists at all.
+        assert!(!body.contains("<img"), "no img markup: {body}");
+    }
 }
 
 /// Action paths: each publish names its existing schema, and the
@@ -928,6 +1241,321 @@ mod actions {
         // nothing is published.
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn send_with_images_publishes_an_entry_carrying_attachments() {
+        // Given a live session and a data URL carrying real PNG bytes.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let png = tiny_png_for_tests();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&png)
+        );
+
+        // When posting a send whose images array carries it.
+        let (status, _body) = post_json(
+            &router,
+            "/web/send",
+            &format!(r#"{{"sessionId": "{id}", "text": "look", "images": ["{data_url}"]}}"#),
+        )
+        .await;
+
+        // Then the send is accepted and the published enqueue's entry
+        // carries the image attachment — the actor pipeline's field.
+        assert_eq!(status, StatusCode::OK);
+        let published = audit.of_type::<jinn_chat_input_msg::EnqueueUserMessage>();
+        let [message] = published.as_slice() else {
+            panic!("exactly one enqueue was published, got {}", published.len())
+        };
+        let jinn_core_types::ChatEntryKind::User { attachments, .. } = &message.entry.kind else {
+            panic!("expected a user entry")
+        };
+        let [attachment] = attachments.as_slice() else {
+            panic!("exactly one attachment, got {}", attachments.len())
+        };
+        assert_eq!(attachment.media_type(), "image/png");
+        assert_eq!(attachment.data(), png.as_slice());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn send_accepts_an_image_only_message() {
+        // Given a live session and an image with no text.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let png = tiny_png_for_tests();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&png)
+        );
+
+        // When posting a send with empty text but one image.
+        let (status, _body) = post_json(
+            &router,
+            "/web/send",
+            &format!(r#"{{"sessionId": "{id}", "text": "", "images": ["{data_url}"]}}"#),
+        )
+        .await;
+
+        // Then the send is accepted — the image-only rule.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(audit_count(&audit, "EnqueueUserMessage"), 1);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn send_refuses_an_image_that_is_not_an_image() {
+        // Given a live session and a data URL whose bytes are HTML.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let data_url = format!(
+            "data:text/html;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(b"<html></html>")
+        );
+
+        // When posting a send carrying it.
+        let (status, body) = post_json(
+            &router,
+            "/web/send",
+            &format!(r#"{{"sessionId": "{id}", "text": "look", "images": ["{data_url}"]}}"#),
+        )
+        .await;
+
+        // Then the refusal names the chip index and nothing publishes.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("image 0"), "refusal names the chip: {body}");
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn send_refuses_an_oversized_image_before_publishing() {
+        // Given a live session and a data URL just over the 5 MB cap with a
+        // valid PNG prefix (the cap must fire before any sniff or convert).
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+        bytes.resize(crate::attachment::MAX_IMAGE_BYTES + 1, 0);
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&bytes)
+        );
+
+        // When posting a send carrying it.
+        let (status, body) = post_json(
+            &router,
+            "/web/send",
+            &format!(r#"{{"sessionId": "{id}", "text": "look", "images": ["{data_url}"]}}"#),
+        )
+        .await;
+
+        // Then the refusal names the cap and nothing publishes.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("the limit is"), "cap sentence: {body}");
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn send_with_a_text_only_body_never_fetches_urls_in_prose() {
+        // Given a live session and a text carrying a *non-image* URL (the
+        // gate never admits it, so no fetch attempt exists to fail on).
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting the send.
+        let (status, _body) = post_form(
+            &router,
+            "/web/send",
+            &format!("session_id={id}&text=read+https://example.com/page.html+please"),
+        )
+        .await;
+
+        // Then the send rides through as plain text.
+        assert_eq!(status, StatusCode::OK);
+        let published = audit.of_type::<jinn_chat_input_msg::EnqueueUserMessage>();
+        let [message] = published.as_slice() else {
+            panic!("exactly one enqueue was published, got {}", published.len())
+        };
+        assert!(message.entry.text().contains("example.com/page.html"));
+    }
+
+    /// A 1x1 PNG generated in-process — the smallest real image the
+    /// sniffer accepts natively.
+    fn tiny_png_for_tests() -> Vec<u8> {
+        use std::io::Cursor;
+        let img = image::DynamicImage::new(1, 1, image::ColorType::Rgb8);
+        let mut out = Cursor::new(Vec::new());
+        img.write_to(&mut out, image::ImageFormat::Png)
+            .expect("1x1 png encodes");
+        out.into_inner()
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn attachment_route_serves_a_live_entrys_image_bytes() {
+        // Given a live session whose user entry carries a PNG attachment.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let png = tiny_png_for_tests();
+        let entry = jinn_core_types::ChatEntry::user_with_attachments(
+            "shot",
+            vec![jinn_provider::Attachment::image(
+                "image/png".to_owned(),
+                png.clone(),
+            )],
+        );
+        let entry_id = entry.id.to_string();
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .push_entry(entry);
+
+        // When requesting the attachment.
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/web/attachment/{id}/{entry_id}/0"))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("response");
+
+        // Then the bytes come back, image-typed and immutable-cached.
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("image/png")
+        );
+        assert!(
+            response
+                .headers()
+                .get(axum::http::header::CACHE_CONTROL)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.contains("immutable"))
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("body reads");
+        assert_eq!(bytes.as_ref(), png.as_slice());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn attachment_route_404s_an_ordinal_past_the_entry() {
+        // Given a live session whose user entry carries one attachment.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let entry = jinn_core_types::ChatEntry::user_with_attachments(
+            "shot",
+            vec![jinn_provider::Attachment::image(
+                "image/png".to_owned(),
+                tiny_png_for_tests(),
+            )],
+        );
+        let entry_id = entry.id.to_string();
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .push_entry(entry);
+
+        // When requesting ordinal 1 (the entry has only ordinal 0).
+        let (status, body) = get(&router, &format!("/web/attachment/{id}/{entry_id}/1")).await;
+
+        // Then the route refuses with not-found.
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn attachment_route_rejects_malformed_ids() {
+        // Given the route.
+        let (_state, _audit, _slices, router) = harness();
+
+        // When requesting with a non-UUID session id.
+        let (status, _body) = get(
+            &router,
+            "/web/attachment/not-a-uuid/8f2b21c0-0000-0000-0000-000000000000/0",
+        )
+        .await;
+
+        // Then the route refuses as a client error.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn attachment_route_404s_an_unknown_entry() {
+        // Given a live session and an id no entry carries.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let ghost = jinn_core_types::ChatEntryId::new_v5_tag("ghost");
+
+        // When requesting the ghost entry's attachment.
+        let (status, _body) = get(&router, &format!("/web/attachment/{id}/{ghost}/0")).await;
+
+        // Then the route 404s (after the bounded live wait expires).
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn attachment_route_serves_an_archived_sessions_stored_bytes() {
+        // Given a store-backed archived session carrying one PNG and no
+        // live session with that id.
+        let png = tiny_png_for_tests();
+        let (id, entry, router) = harness_with_archived_attachment(png.clone());
+        let entry_id = entry.id.to_string();
+
+        // And the store's snapshot is the harness's minted entry, so the
+        // id the route must resolve is the id the render names.
+        let snapshot = {
+            let mut snap = jinn_session_state::ChatSessionState::new().capture_snapshot();
+            snap.metadata.session_id = id.clone();
+            snap.entries = vec![entry.clone()];
+            snap
+        };
+
+        // When rendering the archived transcript, the entry names the
+        // attachment route.
+        let rendered = crate::transcript::TranscriptModel::from_snapshot(
+            &snapshot, None, "model", "idle", false, &id,
+        );
+        assert!(rendered.entries.iter().any(|e| {
+            e.body_html
+                .contains(&format!("src=\"/web/attachment/{id}/{entry_id}/0\""))
+        }));
+
+        // When requesting the attachment bytes through the route.
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/web/attachment/{id}/{entry_id}/0"))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("response");
+
+        // Then the store's bytes come back.
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("body reads");
+        assert_eq!(bytes.as_ref(), png.as_slice());
     }
 
     #[rstest::rstest]
@@ -2488,6 +3116,7 @@ mod stream_catchup {
             "model",
             session.phase().as_str(),
             session.is_bot(),
+            &id,
         );
         drop(guard);
 
@@ -2524,12 +3153,14 @@ mod stream_catchup {
     #[tokio::test]
     async fn catchup_frames_with_nothing_missed_still_advance_the_cursor() {
         // Given a transcript and a client already current.
+        let any_session = SessionId::new();
         let transcript = crate::transcript::TranscriptModel::from_live(
             &[jinn_core_types::ChatEntry::user("only")],
             Some("t"),
             "model",
             "idle",
             false,
+            &any_session,
         );
 
         // When building catch-up from the full cursor.
@@ -2893,6 +3524,7 @@ mod transients {
             "model",
             session.phase().as_str(),
             session.is_bot(),
+            &id,
         );
         let stamped = session
             .history()
@@ -2925,7 +3557,12 @@ mod transients {
 
         // When projecting it.
         let transcript = crate::transcript::TranscriptModel::from_snapshot(
-            &snapshot, None, "model", "idle", false,
+            &snapshot,
+            None,
+            "model",
+            "idle",
+            false,
+            &snapshot.metadata.session_id,
         );
 
         // Then both entries land in the cursor space, the transient

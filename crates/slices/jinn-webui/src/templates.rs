@@ -250,6 +250,23 @@ pub fn app_js_versioned_path() -> String {
         .expect("the client entry module is a manifest row")
 }
 
+/// The image-attach helper's `/vendor/` URL — `paste.<hash>.js`.
+///
+/// # Panics
+///
+/// Panics when the helper is not a manifest row — a contract break
+/// caught at the first page render, in tests, not in the wild.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "a missing row is a contract break that must panic loudly at the \
+              first page render, not a fallible path to thread through"
+)]
+pub fn paste_js_versioned_path() -> String {
+    crate::vendor::versioned_path(contract::VENDOR_PASTE_JS)
+        .expect("the image-attach helper is a manifest row")
+}
+
 /// The full page shell. Rendered by `GET /web` and by
 /// `GET /web/session/{id}` (a session page is the same shell with the
 /// regions filled for that session).
@@ -289,6 +306,9 @@ pub struct PageTemplate {
     /// (`main.<hash>.js`) — the hash is the manifest row's sha256
     /// prefix, so an upgraded binary serves a URL no old page cached.
     pub app_js_versioned: String,
+    /// The image-attach helper's cache-busting URL inside `/vendor/`
+    /// (`paste.<hash>.js`), versioned the same way as the bundle.
+    pub paste_js_versioned: String,
     /// The page-root id — the element a session switch replaces.
     pub page_root_id: &'static str,
     /// The attribute carrying the viewed session's id.
@@ -396,6 +416,7 @@ impl PageTemplate {
             sessions_attention: attention_count,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
+            paste_js_versioned: paste_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -461,6 +482,7 @@ impl PageTemplate {
             sessions_attention: attention_count,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
+            paste_js_versioned: paste_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -785,6 +807,12 @@ pub struct ControlsTemplate {
     pub send_label: &'static str,
     /// The cancel button's label.
     pub cancel_label: &'static str,
+    /// The pending-image chips strip's id.
+    pub chips_id: &'static str,
+    /// The hidden image file input's id.
+    pub file_input_id: &'static str,
+    /// The visible attach label's id (the file input's click proxy).
+    pub attach_button_id: &'static str,
     /// The queue button's label (busy fragment only).
     pub queue_label: &'static str,
 }
@@ -807,6 +835,9 @@ impl ControlsTemplate {
             cancel_path: contract::CANCEL_PATH,
             send_label: "Send",
             cancel_label: "Cancel",
+            chips_id: contract::IMAGE_CHIPS_ID,
+            file_input_id: contract::IMAGE_FILE_INPUT_ID,
+            attach_button_id: contract::IMAGE_ATTACH_BUTTON_ID,
             queue_label: "Q",
         }
     }

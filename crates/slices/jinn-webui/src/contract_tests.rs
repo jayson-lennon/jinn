@@ -91,6 +91,7 @@ fn rendered_page() -> String {
         sessions_attention: 0,
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
+        paste_js_versioned: crate::templates::paste_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,
@@ -136,7 +137,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 22] = [
+    let targets: [(&str, &str); 25] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
@@ -162,6 +163,9 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
         ("skills modal host", contract::SKILL_MODAL_HOST_ID),
         ("drawer scrim", contract::DRAWER_SCRIM_ID),
         ("menu scrim", contract::MENU_SCRIM_ID),
+        ("image chips", contract::IMAGE_CHIPS_ID),
+        ("image file input", contract::IMAGE_FILE_INPUT_ID),
+        ("image attach label", contract::IMAGE_ATTACH_BUTTON_ID),
     ];
 
     // Then each one appears as `id="..."` in the markup — a missing
@@ -249,6 +253,61 @@ fn the_client_script_tag_names_the_vendored_bundle() {
 
 #[rstest::rstest]
 #[test]
+fn the_page_loads_the_paste_helper_as_a_versioned_classic_script() {
+    // Given the fully rendered page shell.
+    let page = rendered_page();
+
+    // When finding the paste helper's script tag.
+    let versioned = crate::templates::paste_js_versioned_path();
+    let marker = format!("src=\"{}{versioned}\"", contract::VENDOR_PREFIX);
+
+    // Then the page loads it under its cache-busting URL, as a plain
+    // (non-module) script — modules defer, so a module-tagged helper
+    // would evaluate after the bundle's first expressions run.
+    assert!(
+        page.contains(&marker),
+        "the page must load {marker} as the attach helper; got: {page}"
+    );
+    assert!(
+        crate::vendor::resolve_request(&versioned)
+            .is_some_and(|(asset, hash)| asset.path == contract::VENDOR_PASTE_JS && hash.is_some()),
+        "the versioned helper URL must resolve through the request table"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_paste_helper_bytes_name_the_contract_ids_they_drive() {
+    // Given the helper's embedded bytes (the pinned vendor row).
+    let asset = crate::vendor::VENDOR_ASSETS
+        .iter()
+        .find(|a| a.path == contract::VENDOR_PASTE_JS)
+        .expect("paste.js is a manifest row");
+    let source = String::from_utf8(asset.bytes.to_vec()).expect("paste.js is utf-8");
+
+    // Then every contract id and signal the helper touches appears in
+    // its source verbatim — a contract rename without a helper re-pin
+    // fails here instead of silently leaving paste and chips dead.
+    for token in [
+        contract::IMAGE_CHIPS_ID,
+        contract::IMAGE_FILE_INPUT_ID,
+        contract::SIGNAL_PENDING_IMAGES,
+    ] {
+        assert!(
+            source.contains(token),
+            "paste.js must name `{token}` — the helper drives the contract's DOM"
+        );
+    }
+    // And the merge event name the composer's expression subscribes to
+    // matches the helper's dispatch.
+    assert!(
+        source.contains("jinnaddimages"),
+        "paste.js must dispatch the merge event the composer listens for"
+    );
+}
+
+#[rstest::rstest]
+#[test]
 fn the_page_names_the_viewed_session_in_the_data_attribute() {
     // Given the fully rendered page shell for a session id.
     let id = jinn_core_types::SessionId::new();
@@ -270,6 +329,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         sessions_attention: 0,
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
+        paste_js_versioned: crate::templates::paste_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,
@@ -333,6 +393,7 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
         menu_html: crate::regions::menu::menu_fragment(&id.to_string(), 4),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
+        paste_js_versioned: crate::templates::paste_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,

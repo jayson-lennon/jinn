@@ -9,6 +9,10 @@
   <link rel="apple-touch-icon" href="/vendor/icon-apple-touch-180.png">
   <title data-text="$title + ' — jinn'">{{ title }} — jinn</title>
   <script type="module" src="{{ vendor_prefix }}{{ app_js_versioned }}"></script>
+  {#- The composer's image-attach helper — classic script, evaluated
+      before the module (modules are deferred), so its `window.jinn*`
+      hooks exist before any Datastar expression first runs. -#}
+  <script src="{{ vendor_prefix }}{{ paste_js_versioned }}"></script>
   <style>{{ style|safe }}</style>
 </head>
 <body data-attr:data-theme="$webTheme || 'system'">

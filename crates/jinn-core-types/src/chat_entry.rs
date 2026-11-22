@@ -1078,6 +1078,52 @@ mod tests {
         assert_eq!(attachments[0].data(), &[1, 2, 3]);
     }
 
+    #[rstest::rstest]
+    #[test]
+    fn user_with_attachments_constructor_carries_images_and_text() {
+        // Given an attachment and the typed message.
+        let attachments = vec![crate::attachment::Attachment::image(
+            "image/jpeg".to_owned(),
+            vec![9, 8, 7],
+        )];
+
+        // When constructing the entry through the attachment constructor.
+        let entry = ChatEntry::user_with_attachments("look at this", attachments);
+
+        // Then the entry is a user entry carrying both the verbatim text
+        // and the image.
+        let ChatEntryKind::User {
+            display,
+            expanded,
+            attachments,
+            ..
+        } = &entry.kind
+        else {
+            panic!("expected User kind")
+        };
+        assert_eq!(display, "look at this");
+        assert_eq!(expanded, "look at this");
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].media_type(), "image/jpeg");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn user_constructor_matches_the_attachment_constructor_with_none() {
+        // Given the same text through both constructors.
+        let plain = ChatEntry::user("hello");
+        let with_empty = ChatEntry::user_with_attachments("hello", Vec::new());
+
+        // Then both produce user entries with the same text — `user` is
+        // the attachment constructor at zero attachments.
+        assert_eq!(plain.text(), with_empty.text());
+        let (ChatEntryKind::User { .. }, ChatEntryKind::User { .. }) =
+            (&plain.kind, &with_empty.kind)
+        else {
+            panic!("expected User kinds")
+        };
+    }
+
     fn tool_result_entry_with_attachments() -> ChatEntry {
         let mut entry = ChatEntry::user("placeholder");
         entry.kind = ChatEntryKind::ToolResult {

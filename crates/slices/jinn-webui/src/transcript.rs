@@ -24,12 +24,15 @@
 //! tail in the phases a stream produces, so `since=N` returning
 //! entries at `N..` stays coherent between pull and push.
 
+use jinn_core_types::SessionId;
 use jinn_core_types::chat_entry::ChatEntry;
 use jinn_core_types::chat_entry::ChatEntryKind;
 use jinn_core_types::tool_result_status::ToolResultStatus;
 use pulldown_cmark::Event;
 use pulldown_cmark::Options;
 use pulldown_cmark::Parser;
+
+use crate::contract::ATTACHMENT_PREFIX;
 
 /// Escapes text for inclusion in HTML — the one escaping function the
 /// slice renders through. Fragments built anywhere else call this, so
@@ -136,13 +139,14 @@ impl TranscriptModel {
         model: &str,
         phase: &str,
         is_bot: bool,
+        session_id: &SessionId,
     ) -> Self {
         Self {
             title: title.unwrap_or("Untitled Session").to_owned(),
             model: model.to_owned(),
             phase: phase.to_owned(),
             is_bot,
-            entries: render_history(history),
+            entries: render_history(history, session_id),
         }
     }
 
@@ -156,13 +160,14 @@ impl TranscriptModel {
         model: &str,
         phase: &str,
         is_bot: bool,
+        session_id: &SessionId,
     ) -> Self {
         Self {
             title: title.unwrap_or("Untitled Session").to_owned(),
             model: model.to_owned(),
             phase: phase.to_owned(),
             is_bot,
-            entries: render_history(&snapshot.entries),
+            entries: render_history(&snapshot.entries, session_id),
         }
     }
 
@@ -191,6 +196,27 @@ impl TranscriptModel {
     }
 }
 
+/// Appends one `<img>` per attachment beneath the entry text, each served
+/// by the immutable attachment route — never a data: URI (the fragments
+/// must stay byte-small; the settle push would otherwise carry every
+/// image on every convergence).
+fn append_attachment_images(
+    body: &mut String,
+    entry: &ChatEntry,
+    session_id: &SessionId,
+    attachments: &[jinn_provider::Attachment],
+) {
+    use std::fmt::Write as _;
+    for (ordinal, attachment) in attachments.iter().enumerate() {
+        let media_type = escape_html(attachment.media_type());
+        let _ = write!(
+            body,
+            "<img class=\"attachment\" src=\"{ATTACHMENT_PREFIX}{session_id}/{}/{}\" alt=\"attached {media_type}\">",
+            entry.id, ordinal,
+        );
+    }
+}
+
 /// Projects one chat entry into its rendered form.
 ///
 /// Every kind renders (see [`is_renderable`]): disclosures for tool
@@ -200,18 +226,32 @@ impl TranscriptModel {
 /// false here (the settled projection); the streaming tail's render
 /// sets it for its thinking entries.
 #[must_use]
-pub fn render_entry(entry: &ChatEntry) -> RenderedEntry {
-    render_entry_streaming(entry, false)
+pub fn render_entry(entry: &ChatEntry, session_id: &SessionId) -> RenderedEntry {
+    render_entry_streaming(entry, session_id, false)
 }
 
 /// [`render_entry`] with the streaming disclosure state decided: the
 /// in-flight tail renders thinking entries open; everything else
 /// stays collapsed regardless of state.
 #[must_use]
-pub fn render_entry_streaming(entry: &ChatEntry, streaming_open: bool) -> RenderedEntry {
+pub fn render_entry_streaming(
+    entry: &ChatEntry,
+    session_id: &SessionId,
+    streaming_open: bool,
+) -> RenderedEntry {
     let (class, body, summary, is_disclosure, tool_status) = match &entry.kind {
-        ChatEntryKind::User { display, .. } => {
-            ("user", render_markdown(display), None, false, None)
+        ChatEntryKind::User {
+            display,
+            attachments,
+            ..
+        } => {
+            // Attached images render inline beneath the text, each served
+            // by the immutable attachment route — never a data: URI (the
+            // fragments must stay byte-small; the settle push would
+            // otherwise carry every image on every convergence).
+            let mut body = render_markdown(display);
+            append_attachment_images(&mut body, entry, session_id, attachments);
+            ("user", body, None, false, None)
         }
         ChatEntryKind::Assistant(text) => ("assistant", render_markdown(text), None, false, None),
         ChatEntryKind::Actor { source, text } => (
@@ -418,10 +458,10 @@ pub fn summarize_arguments(arguments: &str, max: usize) -> String {
 
 /// Filters and renders a history slice — the one entry loop.
 #[must_use]
-pub fn render_history(history: &[ChatEntry]) -> Vec<RenderedEntry> {
+pub fn render_history(history: &[ChatEntry], session_id: &SessionId) -> Vec<RenderedEntry> {
     history
         .iter()
         .filter(|e| is_renderable(e))
-        .map(render_entry)
+        .map(|entry| render_entry(entry, session_id))
         .collect()
 }

@@ -22,7 +22,6 @@
 //!   guard — the web adds only an entry point to the one rename
 //!   semantic the TUI path already defines.
 
-use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::ModelSelection;
 use jinn_core_types::NameFilter;
 use jinn_core_types::SessionId;
@@ -195,21 +194,27 @@ pub async fn handle_send(
     state: &State,
     bus: &BusService,
     session_id: &str,
-    text: &str,
-) -> Result<(), ActionError> {
+    form: &jinn_webui_msg::SendForm,
+) -> Result<jinn_core_types::ChatEntry, SendFailure> {
+    // Ingestion first — it needs no state and every refusal is a 400
+    // before the session lookup matters.
+    let attachments = ingest_send_images(form).await?;
+
     let message = {
-        let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
-        if text.is_empty() {
-            return Err(ActionError::EmptyText);
+        let session_id = SessionId::try_from_string(session_id)
+            .ok_or(ActionError::BadSessionId)
+            .map_err(SendFailure::from_action)?;
+        if form.text.is_empty() && attachments.is_empty() {
+            return Err(SendFailure::Action(ActionError::EmptyText));
         }
 
         let mut guard = state.write();
         let Some(session) = guard.session.get_mut(&session_id) else {
-            return Err(ActionError::UnknownSession(session_id));
+            return Err(SendFailure::Action(ActionError::UnknownSession(session_id)));
         };
 
         if session.is_bot() {
-            return Err(ActionError::BotTarget(session_id));
+            return Err(SendFailure::Action(ActionError::BotTarget(session_id)));
         }
 
         // A delivered message marks the target interacted — without
@@ -218,13 +223,183 @@ pub async fn handle_send(
         // invariant).
         session.mark_interacted();
 
-        EnqueueUserMessage {
+        jinn_chat_input_msg::EnqueueUserMessage {
             session_id,
-            entry: jinn_core_types::ChatEntry::user(text.to_owned()),
+            entry: jinn_core_types::ChatEntry::user_with_attachments(
+                form.text.clone(),
+                attachments,
+            ),
         }
     };
+    let entry = message.entry.clone();
     bus.publish(message).await;
-    Ok(())
+    Ok(entry)
+}
+
+/// Why a send failed: an ordinary action refusal, or an image-ingestion
+/// refusal. The status and sentence map through the shared refusal
+/// vocabulary either way.
+#[derive(Debug, Error)]
+#[error(debug)]
+pub enum SendFailure {
+    /// The session/text validations refused (empty text, unknown session,
+    /// bot target, malformed id).
+    Action(ActionError),
+    /// An attached image was refused by ingestion.
+    Ingest(crate::attachment::IngestError),
+}
+
+impl SendFailure {
+    /// Wraps an ordinary action refusal — the `?`-friendly conversion the
+    /// send body's validation returns through.
+    pub const fn from_action(action: ActionError) -> Self {
+        Self::Action(action)
+    }
+
+    /// The HTTP status this refusal maps to.
+    #[must_use]
+    pub const fn status(&self) -> u16 {
+        match self {
+            Self::Action(action) => action.status(),
+            Self::Ingest(ingest) => ingest.status(),
+        }
+    }
+
+    /// The error sentence the response body carries.
+    #[must_use]
+    pub fn sentence(&self) -> String {
+        match self {
+            Self::Action(action) => action.sentence(),
+            Self::Ingest(ingest) => ingest.sentence(),
+        }
+    }
+}
+
+/// Ingests the send's images: composer data URLs first (chip order), then
+/// scanned URLs fetched in text order. Blocking work (decode, sniff,
+/// convert, fetch) runs inside `spawn_blocking`; the first refusal aborts
+/// the whole send.
+///
+/// # Errors
+///
+/// The first [`IngestError`](crate::attachment::IngestError) in chip
+/// order, then URL order.
+async fn ingest_send_images(
+    form: &jinn_webui_msg::SendForm,
+) -> Result<Vec<jinn_provider::Attachment>, SendFailure> {
+    let urls = crate::attachment::scan_image_urls(&form.text);
+    if form.images.is_empty() && urls.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let converter = jinn_llm_support::image_convert::ImageConverterService::system();
+    let mut attachments = Vec::new();
+
+    // Composer uploads, in chip order.
+    for (index, image) in form.images.iter().enumerate() {
+        let converter = converter.clone();
+        let payload = image.payload().to_owned();
+        let ingested = tokio::task::spawn_blocking(move || {
+            crate::attachment::ingest_upload(&payload, index, &converter)
+        })
+        .await
+        .map_err(|join| {
+            tracing::error!(%join, what = "image-ingest", "upload {index} ingest task failed");
+            SendFailure::Ingest(crate::attachment::IngestError::BadDataUrl(index))
+        })?
+        .map_err(SendFailure::Ingest)?;
+        attachments.push(ingested.attachment);
+    }
+
+    // Scanned image URLs, in text order. The scheme and extension gates
+    // already ran in the scan; what remains is fetch + sniff.
+    for url in urls {
+        let bytes = fetch_image_url(&url).await.map_err(SendFailure::Ingest)?;
+        let converter = converter.clone();
+        let url_for_task = url.clone();
+        let ingested = tokio::task::spawn_blocking(move || {
+            crate::attachment::ingest_fetched(&url_for_task, bytes, &converter)
+        })
+        .await
+        .map_err(|join| {
+            tracing::error!(%join, what = "image-ingest", "url ingest task failed for {url}");
+            SendFailure::Ingest(crate::attachment::IngestError::FetchFailed(url.clone()))
+        })?
+        .map_err(SendFailure::Ingest)?;
+        attachments.push(ingested.attachment);
+    }
+
+    Ok(attachments)
+}
+
+/// Fetches one gated image URL's bytes, with a fetch timeout so a slow
+/// host delays but never hangs the send. The cap rides here too: the
+/// body is rejected once it passes [`MAX_IMAGE_BYTES`].
+///
+/// # Errors
+///
+/// [`IngestError::InsecureUrl`](crate::attachment::IngestError) (the scan
+/// can be handed non-https text), `FetchFailed` on transport, status, or
+/// timeout.
+async fn fetch_image_url(url: &str) -> Result<Vec<u8>, crate::attachment::IngestError> {
+    if !url.starts_with("https://") {
+        return Err(crate::attachment::IngestError::InsecureUrl(url.to_owned()));
+    }
+    let response = http_client()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|_e| crate::attachment::IngestError::FetchFailed(url.to_owned()))?;
+    if !response.status().is_success() {
+        return Err(crate::attachment::IngestError::FetchFailed(url.to_owned()));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_e| crate::attachment::IngestError::FetchFailed(url.to_owned()))?;
+    if bytes.len() > crate::attachment::MAX_IMAGE_BYTES {
+        return Err(crate::attachment::IngestError::Oversize {
+            index: usize::MAX,
+            bytes: bytes.len(),
+        });
+    }
+    Ok(bytes.to_vec())
+}
+
+/// The shared HTTP client for URL-attachment fetches (rustls provider
+/// installed at process start; the same pinned reqwest shape the
+/// provider backends use).
+///
+/// The e2e tier's loopback TLS fixture serves a committed self-signed
+/// cert; when `JINN_WEBUI_TEST_ROOT_CERT` names a PEM file the client
+/// trusts it *in addition to* the system roots. The var is a test-only
+/// knob read here at client construction — production never sets it,
+/// and the standard trust store is always in place, so this cannot
+/// weaken a real fetch.
+fn http_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::LazyLock<reqwest::Client> =
+        std::sync::LazyLock::new(|| match std::env::var("JINN_WEBUI_TEST_ROOT_CERT") {
+            Ok(path) => {
+                let pem = match std::fs::read(&path) {
+                    Ok(pem) => pem,
+                    Err(error) => {
+                        tracing::warn!(%path, %error, what = "image-fetch-client",
+                            "test root cert unreadable; using system roots only");
+                        return reqwest::Client::new();
+                    }
+                };
+                match reqwest::Certificate::from_pem(&pem) {
+                    Ok(cert) => reqwest::Client::builder()
+                        .add_root_certificate(cert)
+                        .build()
+                        .unwrap_or_else(|_e| reqwest::Client::new()),
+                    Err(_) => reqwest::Client::new(),
+                }
+            }
+            Err(_) => reqwest::Client::new(),
+        });
+    &CLIENT
 }
 
 /// Handles one `POST /web/cancel`.

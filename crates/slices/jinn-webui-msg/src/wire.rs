@@ -24,6 +24,13 @@ use serde::{Deserialize, Serialize};
 ///
 /// The camelCase aliases are the Datastar browser's JSON signal keys;
 /// the snake_case fields are the urlencoded contract.
+///
+/// `images` carries the composer's pending attachments in chip order —
+/// one entry per image, either the browser shape (the Datastar bundle's
+/// file binding and the paste helper both emit `{name, mime, contents}`
+/// with `contents` the bare base64 payload) or a whole `data:` URL
+/// string from a hand-rolled client. The server decodes and validates
+/// them; an undecodable or oversized entry is a 400 naming its index.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendForm {
     /// The session the text targets.
@@ -31,6 +38,53 @@ pub struct SendForm {
     pub session_id: String,
     /// The text, delivered verbatim.
     pub text: String,
+    /// Pending image attachments, in chip order.
+    #[serde(default, alias = "images")]
+    pub images: Vec<SendImage>,
+}
+
+/// One pending composer image on the wire.
+///
+/// Untagged: the array accepts the browser's object shape
+/// (`{name, mime, contents}`, bare base64) and a bare `data:` URL
+/// string alike.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum SendImage {
+    /// The browser shape — the Datastar bundle's file binding and the
+    /// paste helper both emit this.
+    Parts {
+        /// The base64 image payload, bare.
+        contents: String,
+        /// The browser-reported MIME type. Never trusted.
+        #[serde(default)]
+        mime: String,
+        /// The browser-reported file name, when the picker supplied one.
+        #[serde(default)]
+        name: String,
+    },
+    /// A whole `data:` URL string — the hand-rolled client shape.
+    DataUrl(String),
+}
+
+impl SendImage {
+    /// The payload to decode: the bare base64 or the whole data URL —
+    /// `decode_upload` tells the two apart by the leading `data:`.
+    #[must_use]
+    pub fn payload(&self) -> &str {
+        match self {
+            Self::Parts { contents, .. } | Self::DataUrl(contents) => contents,
+        }
+    }
+
+    /// The browser-reported name, for diagnostics.
+    #[must_use]
+    pub fn reported_name(&self) -> &str {
+        match self {
+            Self::Parts { name, .. } => name,
+            Self::DataUrl(_) => "",
+        }
+    }
 }
 
 /// `POST /web/cancel` — cancel a session's live turn.

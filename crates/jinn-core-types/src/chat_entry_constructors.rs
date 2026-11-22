@@ -22,6 +22,24 @@ impl ChatEntry {
     where
         T: Into<String>,
     {
+        Self::user_with_attachments(text, Vec::new())
+    }
+
+    /// Create a new user entry carrying image attachments.
+    ///
+    /// This is the constructor a user message with attached images goes
+    /// through (the web composer's paste/upload/URL paths); plain messages
+    /// use [`Self::user`]. The text is both display and expanded — the
+    /// same verbatim rule `Self::user` applies; the actor's expansion pass
+    /// fills `expanded` later on the ordinary path.
+    #[must_use]
+    pub fn user_with_attachments<T>(
+        text: T,
+        attachments: Vec<crate::attachment::Attachment>,
+    ) -> Self
+    where
+        T: Into<String>,
+    {
         let t = text.into();
         Self {
             id: ChatEntryId::new(),
@@ -29,7 +47,7 @@ impl ChatEntry {
             kind: ChatEntryKind::User {
                 display: t.clone(),
                 expanded: t,
-                attachments: Vec::new(),
+                attachments,
                 outcome: AttachmentOutcome::default(),
             },
             pin_position: None,

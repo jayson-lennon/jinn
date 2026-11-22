@@ -41,6 +41,26 @@ files (directories with trailing slashes) as you type.
   rendering on any terminal with `[graphics] protocol = "halfblocks"`
   in jinn.toml — it applies live and needs no detection.
 
+## The browser UI's composer: image attachments
+
+The web composer takes images three ways, all ingested when you send:
+
+- **Paste** a screenshot (or any image) from the clipboard — anywhere on
+  the page.
+- **The `+` button** beside the composer opens the file picker (the
+  photo library on phones). Several at once works.
+- **A URL in the text**: any `https://…` link ending in
+  `.png .jpg .jpeg .gif .webp` is fetched and attached at send. The
+  link stays visible in the message. Other links are never fetched.
+
+Pending images show as removable chips above the composer. A 5 MB
+per-image cap applies; oversize, non-image, or failed-URL sends are
+refused with a message naming the offender. Images render inline on the
+sent message in the transcript, and the same vision gate applies: a
+model not confirmed image-capable blocks the attachment (mark it via
+`[[providers.model_info]]` `input_modalities` in providers.toml — the
+webui honors the marker even before the first model refresh).
+
 ## `/command`: command popup
 
 `/` opens the command popup only as the buffer's very first character; same

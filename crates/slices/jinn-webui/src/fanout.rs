@@ -441,7 +441,7 @@ impl WebUiFanoutActor {
             .iter()
             .filter(|e| crate::transcript::is_renderable(e))
             .skip(boundary)
-            .map(|e| crate::transcript::render_entry_streaming(e, true))
+            .map(|e| crate::transcript::render_entry_streaming(e, session_id, true))
             .collect();
         drop(guard);
         Some(TailSnapshot { entries, boundary })
@@ -544,6 +544,7 @@ impl WebUiFanoutActor {
             &crate::regions::transcript::model_label(session.model_selection()),
             session.phase().as_str(),
             session.is_bot(),
+            session_id,
         );
         drop(guard);
         let entries = match boundary {
