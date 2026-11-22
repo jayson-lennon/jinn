@@ -42,7 +42,6 @@ body { margin: 0; background: var(--bg); color: var(--fg);
             display: flex; align-items: baseline; gap: 12px; }
 #titlebar .t { font-weight: 600; min-width: 0; overflow: hidden;
                text-overflow: ellipsis; white-space: nowrap; }
-#titlebar .m { color: var(--muted); font-size: 12px; }
 #menu { position: relative; display: inline-flex; }
 #menu-button { background: var(--panel); color: var(--fg);
                border: 1px solid var(--border); border-radius: 6px;
@@ -99,9 +98,12 @@ pub struct PageTemplate {
     pub session_id: String,
     /// The session title.
     pub title: String,
-    /// The model-status wrapper fragment (label + picker), rendered
-    /// inline — the titlebar's whole model display.
-    pub status_html: String,
+    /// The titlebar's model-picker button fragment (bare button; the
+    /// page shell owns the `#model-picker` host span), rendered inline.
+    pub button_html: String,
+    /// The button's host span id (`model-picker`) — the shell owns
+    /// the span; the fragment fills it.
+    pub picker_host_id: &'static str,
     /// The rendered-entry cursor the page's inline transcript already
     /// carries — the stream's starting `Last-Event-ID`, so catch-up
     /// never re-appends what the page render included.
@@ -195,7 +197,8 @@ impl PageTemplate {
             sessions_html,
             transcript_html: String::new(),
             controls_html: String::new(),
-            status_html: String::new(),
+            button_html: String::new(),
+            picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
@@ -236,7 +239,7 @@ impl PageTemplate {
         sessions_html: String,
         transcript_html: String,
         controls_html: String,
-        status_html: String,
+        button_html: String,
         menu_html: String,
     ) -> Self {
         Self {
@@ -247,7 +250,8 @@ impl PageTemplate {
             sessions_html,
             transcript_html,
             controls_html,
-            status_html,
+            button_html,
+            picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
@@ -296,8 +300,11 @@ pub struct PageRootTemplate {
     pub transcript_html: String,
     /// The composer-controls fragment.
     pub controls_html: String,
-    /// The model-status fragment.
-    pub status_html: String,
+    /// The titlebar's model-picker button fragment.
+    pub button_html: String,
+    /// The button's host span id (`model-picker`) — the shell owns
+    /// the span; the fragment fills it.
+    pub picker_host_id: &'static str,
     /// The menu fragment.
     pub menu_html: String,
     /// The rendered-entry cursor the inline transcript carries.
@@ -360,7 +367,7 @@ impl PageRootTemplate {
         sessions_html: String,
         transcript_html: String,
         controls_html: String,
-        status_html: String,
+        button_html: String,
         menu_html: String,
     ) -> Self {
         Self {
@@ -370,7 +377,8 @@ impl PageRootTemplate {
             sessions_html,
             transcript_html,
             controls_html,
-            status_html,
+            button_html,
+            picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
@@ -649,8 +657,10 @@ impl MenuTemplate {
 }
 
 /// The model-picker's titlebar button fragment: the current model as a
-/// clickable control. The label carries the viewed selection; the
-/// client opens the modal on its click.
+/// clickable control — the **bare button**, no host span (the page
+/// shell owns `#model-picker`; the switch and refresh POSTs patch this
+/// same render into that host's interior). The label carries the
+/// viewed selection; the client opens the modal on its click.
 #[derive(Template)]
 #[template(path = "model_button.html")]
 pub struct ModelButtonTemplate {
@@ -660,8 +670,6 @@ pub struct ModelButtonTemplate {
     pub current: String,
     /// The button's id.
     pub button_id: &'static str,
-    /// The picker container's id.
-    pub picker_id: &'static str,
     /// The modal-open pull's URL (unfiltered) — the button's `@get`.
     pub picker_url: String,
     /// The modal host span's id — the pull's swap target.
@@ -675,41 +683,9 @@ impl ModelButtonTemplate {
         Self {
             picker_url: format!("{}{session_id}", contract::MODEL_PICKER_PREFIX),
             button_id: contract::MODEL_PICKER_BUTTON_ID,
-            picker_id: contract::MODEL_PICKER_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             session_id,
             current,
-        }
-    }
-}
-
-/// The titlebar's model-status wrapper: the static `.m` label span and
-/// the picker container rendered **as one fragment**, so a switch
-/// re-renders both in one swap (the `.m` label used to be static page
-/// markup that stayed stale after a switch). The page shell renders it
-/// inline at boot; the switch and refresh POSTs answer with it.
-#[derive(Template)]
-#[template(path = "model_status.html")]
-pub struct ModelStatusTemplate {
-    /// The current selection's label (the `.m` span's text).
-    pub model: String,
-    /// The pre-rendered button fragment (inlined with `|safe`).
-    pub model_html: String,
-    /// The wrapper's id.
-    pub status_id: &'static str,
-    /// The picker container's id (inside the wrapper).
-    pub picker_id: &'static str,
-}
-
-impl ModelStatusTemplate {
-    /// Builds the template from the current label and button HTML.
-    #[must_use]
-    pub fn with_contract(model: String, model_html: String) -> Self {
-        Self {
-            model,
-            model_html,
-            status_id: contract::MODEL_STATUS_ID,
-            picker_id: contract::MODEL_PICKER_ID,
         }
     }
 }

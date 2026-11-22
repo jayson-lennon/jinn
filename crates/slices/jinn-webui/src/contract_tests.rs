@@ -77,11 +77,6 @@ fn rendered_page() -> String {
         String::new(),
     ))
     .expect("an empty picker renders");
-    let model = templates::render(&templates::ModelStatusTemplate::with_contract(
-        String::new(),
-        button,
-    ))
-    .expect("an empty status wrapper renders");
     templates::render(&templates::PageTemplate {
         style: {
             let leaked: &'static str = Box::leak(templates::page_style().into_boxed_str());
@@ -93,7 +88,8 @@ fn rendered_page() -> String {
         sessions_html: sessions,
         transcript_html: transcript,
         controls_html: controls,
-        status_html: model,
+        button_html: button,
+        picker_host_id: contract::MODEL_PICKER_ID,
         menu_html: crate::regions::menu::menu_fragment("00000000-0000-0000-0000-000000000000"),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
@@ -265,7 +261,8 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         sessions_html: sessions,
         transcript_html: String::new(),
         controls_html: String::new(),
-        status_html: String::new(),
+        button_html: String::new(),
+        picker_host_id: contract::MODEL_PICKER_ID,
         menu_html: crate::regions::menu::menu_fragment(&id.to_string()),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
