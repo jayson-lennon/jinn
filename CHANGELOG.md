@@ -3,6 +3,8 @@
 ## (development)
 
 - (webui) Keystrokes no longer erroneously close modals.
+- (webui) Sessions no longer auto-scroll while the model is generating tokens.
+- (webui) Adjust rendering to more closely match TUI transcript.
 - Remove `#generate-persona` prompt.
 
 ## 2026-11-21 v1.26.1
