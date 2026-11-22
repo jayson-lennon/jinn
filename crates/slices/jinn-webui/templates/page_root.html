@@ -1,5 +1,5 @@
 <div id="{{ page_root_id }}" {{ page_session_attr }}="{{ session_id }}"
-     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, chatTick: 0, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '' }"
+     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '' }"
      data-class:drawer-open="$drawerOpen"
      data-on:keydown__document="evt.key === 'Escape' && ($menuOpen ? $menuOpen = false : ($drawerOpen ? $drawerOpen = false : undefined))">
   <nav id="sidebar">
@@ -24,8 +24,7 @@
     <span id="{{ tools_modal_host_id }}"></span>
     <span id="{{ skills_modal_host_id }}"></span>
     <div id="{{ transcript_wrap_id }}" data-ref:transcriptwrap
-         data-init="$transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })"
-         data-effect="$chatTick && $transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })">
+         data-init="$transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })">
       <div id="{{ transcript_id }}" {{ cursor_attr }}="{{ cursor }}">{{ transcript_html|safe }}</div>
     </div>
     <div id="{{ controls_id }}">{{ controls_html|safe }}</div>

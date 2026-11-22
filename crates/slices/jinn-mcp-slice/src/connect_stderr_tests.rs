@@ -20,9 +20,25 @@ use rstest::rstest;
 async fn a_child_that_dies_at_startup_leaves_its_stderr_in_the_connect_failure() {
     // Given a stdio server whose command writes one stderr line and exits.
     let services = Services::new_fake().await;
+    // The fixture binary is written per-run into the test's own tmpdir —
+    // a hardcoded /tmp path evaporates with tmp reaper sweeps and leaves
+    // the test reporting a spawn failure (empty tail) instead of the
+    // stderr path it exists to exercise.
+    let fixture =
+        std::env::temp_dir().join(format!("jinn-mcp-stderr-fixture-{}", std::process::id()));
+    std::fs::write(
+        &fixture,
+        "#!/bin/sh\necho 'boom: this server dies on startup' >&2\nexit 1\n",
+    )
+    .expect("write stderr fixture");
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&fixture, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod stderr fixture");
+    }
     let server = McpServerConfig {
         singleton: true,
-        command: Some("/tmp/jinn-test-panic-server".to_owned()),
+        command: Some(fixture.to_string_lossy().into_owned()),
         args: vec![],
         ..Default::default()
     };
