@@ -29,6 +29,8 @@ export const PAGE_ROOT = "#page-root";
 export const PAGE_SESSION_ATTR = "data-webui-session";
 /** The transcript entry container id (`wire.TRANSCRIPT_ID`). */
 export const TRANSCRIPT = "#transcript";
+/** The transcript's scroll container id (`wire.TRANSCRIPT_WRAP_ID`). */
+export const TRANSCRIPT_WRAP = "#transcript-wrap";
 /** One transcript entry's article element and its kind class. */
 export const ENTRY = (kind) => `article.entry.${kind}`;
 /** The composer textarea id (`wire.INPUT_ID`). */
