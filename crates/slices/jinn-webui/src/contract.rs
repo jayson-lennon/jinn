@@ -764,6 +764,13 @@ pub const DOM_CONSTANTS: &[&str] = &[
 /// — the list's filter effect builds its re-pull URL with it.
 pub const SESSIONS_FILTER_QUERY_PARAM: &str = "q";
 
+/// The sessions pull's viewer query parameter
+/// (`GET /web/sessions?viewed=<id>`) — the list's effect builds its
+/// re-pull URL with it beside the filter, so a tick re-pull renders
+/// the *viewed* session's blue row rather than the instance's active
+/// one. Empty (the landing page) serializes as "no viewer".
+pub const SESSIONS_VIEWED_QUERY_PARAM: &str = "viewed";
+
 /// The contract's endpoint constants a client can build a URL from.
 /// The serve-and-request gate issues a real HTTP request against each.
 pub const CLIENT_PATHS: &[&str] = &[
@@ -793,6 +800,8 @@ pub const CLIENT_PATHS: &[&str] = &[
     SKILL_PICKER_PREFIX,
     SKILL_TOGGLE_PATH,
     SKILL_LOAD_PATH,
+    SESSIONS_FILTER_QUERY_PARAM,
+    SESSIONS_VIEWED_QUERY_PARAM,
     VENDOR_PREFIX,
 ];
 

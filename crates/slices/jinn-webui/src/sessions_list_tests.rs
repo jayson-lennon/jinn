@@ -369,7 +369,7 @@ async fn the_pull_lists_loaded_rows_above_archived_rows() {
     );
 
     // When pulling the sessions fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
 
@@ -431,7 +431,7 @@ async fn children_nest_under_their_parent() {
     let child = seed_child(&state, &root, "subagent child");
 
     // When pulling the sessions fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
 
@@ -475,7 +475,7 @@ async fn a_matching_child_surfaces_its_parent() {
     );
 
     // When pulling with a `q` only the children's titles match.
-    let html = crate::regions::sessions::sessions_fragment(&shared, Some("please set"))
+    let html = crate::regions::sessions::sessions_fragment(&shared, Some("please set"), None)
         .await
         .expect("sessions pull renders");
 
@@ -503,7 +503,7 @@ async fn a_matching_q_returns_only_the_matching_session() {
     let loaded = seed_titled(&state, "Fix the leak");
 
     // When pulling with a `q` only the archived title fuzzy-matches.
-    let html = crate::regions::sessions::sessions_fragment(&shared, Some("ardvark"))
+    let html = crate::regions::sessions::sessions_fragment(&shared, Some("ardvark"), None)
         .await
         .expect("sessions pull renders");
 
@@ -532,7 +532,7 @@ async fn every_whitespace_term_must_match() {
     let both = seed_titled(&state, "please set up the environment");
 
     // When pulling with a two-term `q`.
-    let html = crate::regions::sessions::sessions_fragment(&shared, Some("please set"))
+    let html = crate::regions::sessions::sessions_fragment(&shared, Some("please set"), None)
         .await
         .expect("sessions pull renders");
 
@@ -554,7 +554,7 @@ async fn a_non_matching_q_returns_an_empty_list() {
     seed_titled(&state, "Fix the leak");
 
     // When pulling with a `q` nothing matches.
-    let html = crate::regions::sessions::sessions_fragment(&shared, Some("qqqqzzzz"))
+    let html = crate::regions::sessions::sessions_fragment(&shared, Some("qqqqzzzz"), None)
         .await
         .expect("sessions pull renders");
 
@@ -570,7 +570,7 @@ async fn an_absent_q_returns_every_session() {
     let loaded = seed_titled(&state, "Fix the leak");
 
     // When pulling with no `q`.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
 
@@ -589,7 +589,7 @@ async fn an_empty_q_returns_every_session() {
     let loaded = seed_titled(&state, "Fix the leak");
 
     // When pulling with an empty `q` (the input cleared but sent).
-    let html = crate::regions::sessions::sessions_fragment(&shared, Some(""))
+    let html = crate::regions::sessions::sessions_fragment(&shared, Some(""), None)
         .await
         .expect("sessions pull renders");
 
@@ -601,65 +601,149 @@ async fn an_empty_q_returns_every_session() {
     assert!(ids.contains(&loaded.to_string()), "{html}");
 }
 
-// ── The per-row active flag ─────────────────────────────────────────
+// ── The per-row active flag: the VIEWED session, not the pointer ────
 
 #[rstest::rstest]
 #[tokio::test]
-async fn archived_rows_never_render_active() {
-    // Given the active session and an archived row — the shape where
-    // the old page-level comparison painted every archived row
-    // active.
-    let (state, shared) = harness(vec![archived_summary(SessionId::new(), "Aardvark")]);
-    let active = seed_titled(&state, "Fix the leak");
-    assert!(
-        state.write().session.set_active(active.clone()),
-        "the seeded session activates"
+async fn a_viewed_archived_row_renders_active() {
+    // Given an archived row and a viewer naming it — the deep-link
+    // shape: the page opened the archived session without activating
+    // it, and the pointer points elsewhere (or nowhere).
+    let archived_id = SessionId::new();
+    let (_state, shared) = harness_with(
+        |_state| archived_id.clone(),
+        |seeded| {
+            vec![SessionSummary {
+                session_id: seeded.clone(),
+                title: "Aardvark".to_owned(),
+                updated_at: jiff::Timestamp::now(),
+                created_at: jiff::Timestamp::now(),
+                session_state: SessionState::Archived,
+                in_library: false,
+                is_bot: false,
+                parent_session: None,
+                project: None,
+            }]
+        },
     );
 
-    // When pulling the sessions fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    // When pulling with the archived session as the viewer.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&archived_id))
         .await
         .expect("sessions pull renders");
 
-    // Then only rows whose own id is the instance's active id carry
-    // the active class; the archived row does not.
+    // Then the archived row carries the active class — the viewed
+    // fill follows the page, live or archived.
     let rows = rows_in_order(&html);
-    assert_eq!(rows.len(), 3, "every row renders: {html}");
-    let marked: Vec<&Row> = rows.iter().filter(|row| row.active).collect();
-    assert_eq!(marked.len(), 1, "exactly one row is active: {html}");
-    let marked_id = marked.first().map_or("", |row| row.session_id.as_str());
-    assert_eq!(
-        marked_id,
-        active.to_string(),
-        "the active mark is on the active session's row: {html}"
+    assert!(
+        row_for(&rows, &archived_id).active,
+        "the viewed archived row is active: {html}"
     );
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn exactly_one_row_renders_active_after_a_switch() {
-    // Given three loaded sessions.
+async fn the_instance_pointer_styles_no_row_when_nothing_is_viewed() {
+    // Given two live sessions with the instance's active pointer on
+    // the first, and a pull with NO viewer (the landing page).
     let (state, shared) = harness(Vec::new());
-    seed_titled(&state, "one");
-    let second = seed_titled(&state, "two");
-    seed_titled(&state, "three");
-
-    // When the second session activates and the list re-pulls.
+    let first = seed_titled(&state, "one");
+    seed_titled(&state, "two");
     assert!(
-        state.write().session.set_active(second.clone()),
-        "the second session activates"
+        state.write().session.set_active(first.clone()),
+        "the seeded session activates"
     );
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+
+    // When pulling the sessions fragment without a viewer.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
 
-    // Then exactly one row — the second — carries the active class:
-    // per-row truth, not a page-level comparison.
+    // Then no row carries the active class — the pointer drives no
+    // web styling; the landing page paints no blue row.
+    let rows = rows_in_order(&html);
+    let actives: Vec<&Row> = rows.iter().filter(|row| row.active).collect();
+    assert!(
+        actives.is_empty(),
+        "no row is active without a viewer: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn exactly_the_viewed_row_renders_active() {
+    // Given three loaded sessions, the instance's active pointer on
+    // the second, and a pull viewing the THIRD — the two-pages
+    // disagreeing shape: this page opened a session the instance
+    // never activated.
+    let (state, shared) = harness(Vec::new());
+    seed_titled(&state, "one");
+    let pointer_target = seed_titled(&state, "two");
+    let viewed = seed_titled(&state, "three");
+    assert!(
+        state.write().session.set_active(pointer_target.clone()),
+        "the pointer session activates"
+    );
+
+    // When pulling with the third session as the viewer.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&viewed))
+        .await
+        .expect("sessions pull renders");
+
+    // Then exactly one row — the VIEWED one — carries the active
+    // class, and it is not the row the pointer names.
     let rows = rows_in_order(&html);
     let actives: Vec<&Row> = rows.iter().filter(|row| row.active).collect();
     assert_eq!(actives.len(), 1, "exactly one row is active: {html}");
     let active_id = actives.first().map_or("", |row| row.session_id.as_str());
-    assert_eq!(active_id, second.to_string(), "{html}");
+    assert_eq!(active_id, viewed.to_string(), "{html}");
+    assert_ne!(
+        active_id,
+        pointer_target.to_string(),
+        "the pointer's row stays dark: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn two_pulls_with_different_viewers_each_mark_their_own_row() {
+    // Given two live sessions and two pulls — one viewing each.
+    let (state, shared) = harness(Vec::new());
+    let alpha = seed_titled(&state, "alpha");
+    let beta = seed_titled(&state, "beta");
+    assert!(
+        state.write().session.set_active(alpha.clone()),
+        "the pointer activates one of them"
+    );
+
+    // When pulling once as alpha's page and once as beta's page.
+    let alpha_html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&alpha))
+        .await
+        .expect("alpha's pull renders");
+    let beta_html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&beta))
+        .await
+        .expect("beta's pull renders");
+
+    // Then each pull marks exactly its own row — the fill is the
+    // request's data, not shared server state.
+    let alpha_rows = rows_in_order(&alpha_html);
+    let beta_rows = rows_in_order(&beta_html);
+    assert!(
+        row_for(&alpha_rows, &alpha).active,
+        "alpha's pull marks alpha: {alpha_html}"
+    );
+    assert!(
+        !row_for(&alpha_rows, &beta).active,
+        "alpha's pull leaves beta dark: {alpha_html}"
+    );
+    assert!(
+        row_for(&beta_rows, &beta).active,
+        "beta's pull marks beta: {beta_html}"
+    );
+    assert!(
+        !row_for(&beta_rows, &alpha).active,
+        "beta's pull leaves alpha dark: {beta_html}"
+    );
 }
 
 // ── The unread mark: both render paths ──────────────────────────────
@@ -689,24 +773,25 @@ fn row_for<'a>(rows: &'a [Row], id: &SessionId) -> &'a Row {
 #[rstest::rstest]
 #[tokio::test]
 async fn the_pull_fragment_marks_the_unread_row() {
-    // Given two live sessions, one marked unread, Bar active.
+    // Given two live sessions, one marked unread, and a pull viewing
+    // Bar.
     let (state, shared) = harness(Vec::new());
     let foo = seed_titled(&state, "Foo");
     let bar = seed_titled(&state, "Bar");
-    assert!(state.write().session.set_active(bar.clone()), "activates");
     mark_unread(&shared, std::slice::from_ref(&foo));
 
-    // When pulling the merged sessions fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    // When pulling the merged sessions fragment as Bar's page.
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&bar))
         .await
         .expect("sessions pull renders");
 
-    // Then Foo's row wears the unread class and Bar's does not — the
-    // merged path reads the same cell the fan-out writes.
+    // Then Foo's row wears the unread class, Bar's does not, and
+    // Bar's row is the viewed one — the merged path reads the same
+    // cell the fan-out writes.
     let rows = rows_in_order(&html);
     assert!(row_for(&rows, &foo).unread, "Foo renders marked: {html}");
     assert!(!row_for(&rows, &bar).unread, "Bar renders clean: {html}");
-    assert!(row_for(&rows, &bar).active, "Bar is still active");
+    assert!(row_for(&rows, &bar).active, "Bar is the viewed row");
 }
 
 #[rstest::rstest]
@@ -716,7 +801,6 @@ async fn the_pushed_fragment_marks_the_unread_row() {
     let (state, shared) = harness(Vec::new());
     let foo = seed_titled(&state, "Foo");
     let bar = seed_titled(&state, "Bar");
-    assert!(state.write().session.set_active(bar.clone()), "activates");
     mark_unread(&shared, std::slice::from_ref(&foo));
     let guard = state.read();
 
@@ -724,10 +808,15 @@ async fn the_pushed_fragment_marks_the_unread_row() {
     let html = crate::regions::sessions::sessions_live_fragment(&guard);
 
     // Then the same row is marked on the push path — both paths
-    // produce the same shape through `picker_rows`.
+    // produce the same shape through `picker_rows` (and the pushed
+    // envelope names no viewer: its HTML is discarded on the wire).
     let rows = rows_in_order(&html);
     assert!(row_for(&rows, &foo).unread, "Foo renders marked: {html}");
     assert!(!row_for(&rows, &bar).unread, "Bar renders clean: {html}");
+    assert!(
+        !row_for(&rows, &bar).active,
+        "the envelope render names no viewer"
+    );
 }
 
 #[rstest::rstest]
@@ -755,12 +844,13 @@ async fn an_archived_row_keeps_its_mark() {
     mark_unread(&shared, std::slice::from_ref(&archived_id));
 
     // When pulling the merged fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
 
     // Then the archived row still wears the mark — archived-but-
-    // unviewed is still unviewed; only activation clears.
+    // unviewed is still unviewed; viewing (activation or page
+    // arrival) clears it, and neither has happened.
     let rows = rows_in_order(&html);
     assert!(
         row_for(&rows, &archived_id).unread,
@@ -777,7 +867,7 @@ async fn a_fresh_harness_renders_no_marks() {
     seed_titled(&state, "Zebra");
 
     // When pulling the fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
 
@@ -857,7 +947,7 @@ async fn a_harness_without_a_registry_renders_no_marks() {
     seed_titled(&state, "Foo");
 
     // When pulling the fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
 
@@ -937,7 +1027,7 @@ async fn a_busy_session_renders_the_working_spinner(
     );
 
     // When pulling the merged sessions fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
 
@@ -994,6 +1084,76 @@ async fn a_busy_session_renders_the_working_spinner(
     );
 }
 
+/// The stylesheet's fill-precedence order, asserted positionally: the
+/// `.active` fill rule must resolve OVER `.unread` when both classes
+/// ride one row (the transient window between a settle's mark and the
+/// viewed page's clear). CSS resolves equal specificity by source
+/// order, so this is an ORDER claim, not a presence claim — the two
+/// rules exist at all times; only their sequence changed.
+#[rstest::rstest]
+#[test]
+fn the_active_fill_rule_follows_the_unread_rule_in_the_stylesheet() {
+    // Given the sessions region stylesheet.
+    let css = crate::regions::sessions::SIDEBAR_CSS;
+
+    // When locating the two fill rules.
+    let active_pos = css
+        .find(".srow.active { background: var(--accent); }")
+        .expect("the active fill rule renders");
+    let unread_pos = css
+        .find(".srow.unread { background: #e3b341; }")
+        .expect("the unread fill rule renders");
+
+    // Then `.active` comes after `.unread` — the viewed fill wins the
+    // transient both-classes window.
+    assert!(
+        active_pos > unread_pos,
+        ".active must follow .unread in the stylesheet: {css}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_row_wearing_both_fills_resolves_to_the_viewed_fill() {
+    // Given a session that is simultaneously the viewer's session and
+    // still marked unread — the transient race window between a
+    // settle's mark and the page's clear event.
+    let (state, shared) = harness(Vec::new());
+    let foo = seed_titled(&state, "Foo");
+    mark_unread(&shared, std::slice::from_ref(&foo));
+
+    // When pulling the fragment as Foo's page (its `active` row also
+    // carries the `unread` class in the same markup).
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&foo))
+        .await
+        .expect("sessions pull renders");
+
+    // Then the row carries both classes, and the stylesheet's order
+    // hands the fill to `.active`: its accent background declaration
+    // is the last fill rule standing between the two. The markup
+    // carries both; the rendered background is the accent's, not the
+    // unread yellow's, because `.active` follows `.unread` (the
+    // positional pin above) — the row the user looks at reads as the
+    // viewed one.
+    let rows = rows_in_order(&html);
+    let row = row_for(&rows, &foo);
+    assert!(
+        row.active && row.unread,
+        "precondition: the row carries both classes: {html}"
+    );
+    let css = crate::regions::sessions::SIDEBAR_CSS;
+    let active_pos = css
+        .find(".srow.active { background: var(--accent); }")
+        .expect("the active fill rule renders");
+    let unread_pos = css
+        .find(".srow.unread { background: #e3b341; }")
+        .expect("the unread fill rule renders");
+    assert!(
+        active_pos > unread_pos,
+        "the viewed fill wins the co-occurrence window: {css}"
+    );
+}
+
 #[rstest::rstest]
 #[tokio::test]
 async fn an_idle_session_renders_no_spinner() {
@@ -1009,7 +1169,7 @@ async fn an_idle_session_renders_no_spinner() {
     }
 
     // When pulling the fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
 
@@ -1029,7 +1189,7 @@ async fn an_archived_row_never_carries_the_working_class() {
     let live = seed_titled(&state, "Live");
 
     // When pulling the merged fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    let html = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
 
@@ -1058,7 +1218,7 @@ async fn both_render_paths_produce_the_same_working_markup() {
         .begin_streaming();
 
     // When rendering through the pull path and the pushed path.
-    let pulled = crate::regions::sessions::sessions_fragment(&shared, None)
+    let pulled = crate::regions::sessions::sessions_fragment(&shared, None, None)
         .await
         .expect("sessions pull renders");
     let pushed = {

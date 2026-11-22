@@ -242,7 +242,8 @@ async fn overlay_reset_patches(
     // The same full render the GET page endpoint serves, so a
     // navigation response and a fresh load are byte-identical shapes.
     let view = session_view(shared, id).await?;
-    let sessions_html = crate::regions::sessions::sessions_fragment(shared, None).await?;
+    let sessions_html =
+        crate::regions::sessions::sessions_fragment(shared, None, Some(id)).await?;
     let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate {
         entries: view.transcript.entries.clone(),
         start: 0,
@@ -541,9 +542,10 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
     axum::response::Redirect::temporary("/web")
 }
 
-/// `GET /web` — the landing page: sessions list, no transcript.
+/// `GET /web` — the landing page: sessions list, no transcript. No
+/// session is viewed, so the list carries no viewed (blue) row.
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
-    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None, None).await?;
     // No viewed session on the landing page — the menu renders without
     // the persona item.
     let menu_html = crate::regions::menu::menu_fragment("");
@@ -557,13 +559,22 @@ async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, H
 
 /// `GET /web/session/{id}` — the session page: full render for one
 /// session, live or archived.
+///
+/// The render IS the arrival: it publishes `SessionPageOpened` after
+/// the page HTML is built, which is how the fan-out learns the user
+/// has put this session on a screen — the clear path a reload or a
+/// deep link (an archived session's page, which activates nothing)
+/// has no other way through. Publication failure is logged, never a
+/// 500: the page is already rendered, and the mark is signal, not
+/// correctness.
 async fn page_session(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
 ) -> Result<Page, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
-    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let sessions_html =
+        crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
     let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate {
         entries: view.transcript.entries.clone(),
         start: 0,
@@ -588,6 +599,12 @@ async fn page_session(
         menu_html,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
+    shared
+        .bus()
+        .publish(jinn_webui_msg::SessionPageOpened {
+            session_id: id.clone(),
+        })
+        .await;
     Ok(Page::new(html))
 }
 
@@ -1148,8 +1165,11 @@ async fn rename(
     // flicker. (The fan-out actor's own SessionLoadCompleted /
     // SessionArchived refreshes keep the live-only shape deliberately:
     // those events change only live state, and their next pull or
-    // page render carries the store truth.)
-    let list_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    // page render carries the store truth.) The renamed session's
+    // page is the requester — it is the viewer, so its blue row rides
+    // the same markup every consumer gets.
+    let list_html =
+        crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
     shared
         .fanout
         .push_sessions_refresh_from(&id, list_html.clone());

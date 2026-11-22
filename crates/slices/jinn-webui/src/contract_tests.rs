@@ -117,6 +117,8 @@ fn rendered_page() -> String {
         menu_scrim_id: contract::MENU_SCRIM_ID,
         stream_url: String::new(),
         sessions_route: contract::SESSIONS_ROUTE,
+        filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
+        viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
         session_page_path: contract::SESSION_PAGE_PREFIX,
     })
     .expect("the page shell renders")
@@ -289,6 +291,8 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         menu_scrim_id: contract::MENU_SCRIM_ID,
         stream_url: String::new(),
         sessions_route: contract::SESSIONS_ROUTE,
+        filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
+        viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
         session_page_path: contract::SESSION_PAGE_PREFIX,
     })
     .expect("the page shell renders");
