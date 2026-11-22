@@ -277,7 +277,7 @@ pub const MODEL_PICKER_CSS: &str = r#"
                        padding: 6px 10px; font: inherit; max-width: 260px;
                        cursor: pointer; }
 .model-picker-button:hover { border-color: var(--accent); }
-.model-picker-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+.model-picker-modal { position: fixed; inset: 0; background: var(--scrim);
                       display: flex; align-items: flex-start;
                       justify-content: center; padding-top: 10vh; z-index: 40; }
 .model-picker-modal[hidden] { display: none; }
@@ -303,12 +303,12 @@ pub const MODEL_PICKER_CSS: &str = r#"
 @keyframes model-picker-spin { to { transform: rotate(360deg); } }
 .model-picker-rows { overflow-y: auto; padding: 4px 0; }
 .model-row { display: flex; gap: 8px; padding: 7px 12px; cursor: pointer; }
-.model-row:hover { background: #23272f; }
+.model-row:hover { background: var(--bg-hover); }
 .model-row .model-row-marker { width: 1.2em; color: var(--muted); }
 .model-row .model-row-provider { color: var(--muted); }
 .model-row mark { background: transparent; color: var(--accent);
                   font-weight: 600; }
-.model-row.model-row-active { background: #20242c; }
+.model-row.model-row-active { background: var(--bg-active); }
 .model-row.model-row-active .model-row-model { font-weight: 600; }
 .model-row.model-row-unavailable { cursor: default; color: var(--muted); }
 .model-row.model-row-unavailable:hover { background: transparent; }

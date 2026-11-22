@@ -81,9 +81,9 @@ pub const COMPOSER_CSS: &str = r#"
 #composer textarea { flex: 1; background: var(--panel); color: var(--fg);
                      border: 1px solid var(--border); border-radius: 6px;
                      padding: 8px 10px; font: inherit; resize: none; height: 64px; }
-#composer button { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+#composer button { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 6px;
                    padding: 0 22px; font: inherit; cursor: pointer; }
-#composer button.cancel { background: var(--err); }
+#composer button.cancel { background: var(--err); color: var(--on-err); }
 @media (max-width: 767px) {
   #composer { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
   #composer textarea { font-size: 16px; min-height: 40px; height: 64px; }

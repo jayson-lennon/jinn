@@ -97,7 +97,7 @@ pub fn menu_fragment(viewed_session: &str) -> String {
 /// also rides here (mirrored in `sessions.rs`'s sheet for the
 /// drawer-side of the A6 sandwich).
 pub const MENU_CSS: &str = r#"
-#menu-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; }
+#menu-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 60; }
 #menu-scrim[hidden] { display: none; }
 #menu-panel { position: fixed; top: 0; bottom: 0; left: 0; width: 280px;
               background: var(--panel); border-right: 1px solid var(--border);
@@ -109,7 +109,7 @@ pub const MENU_CSS: &str = r#"
                       transition: none; }
 #menu-panel:not([hidden]) { transform: translateX(0); }
 #menu-button:hover { border-color: var(--accent); }
-#menu-panel button:hover { background: #23272f; }
+#menu-panel button:hover { background: var(--bg-hover); }
 #menu-panel button:focus-visible { outline: 1px solid var(--accent); }
 @media (max-width: 767px) {
   #menu-button { min-height: 40px; min-width: 40px; }
