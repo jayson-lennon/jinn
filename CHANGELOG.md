@@ -12,6 +12,7 @@
 - (webui) Add dark/light modes.
 - (webui) Add button to bring up session list.
 - (webui) Show loading screen when switching sessions.
+- (webui) Current session always highlighted in blue in session list.
 - Remove `#generate-persona` prompt.
 - Agents should avoid using `dump_to_path` more often.
   - Blocked using `/dev/null` and similar "null" paths for `dump_to_path`
