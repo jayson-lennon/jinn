@@ -11,6 +11,10 @@ jinn-core-types = { workspace = true }
 # pure-data msg crate naming its slice's cell slot). jinn-slices
 # depends on no slice msg crate, so the edge stays cycle-free.
 jinn-slices = { workspace = true }
+# The one schema derive this crate owns (`SessionPageOpened`, the
+# page-arrival event the fan-out's unread-clear keys on) rides the
+# same trouper workspace dep every sibling -msg crate uses.
+trouper = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

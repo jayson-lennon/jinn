@@ -153,7 +153,7 @@ async fn every_declared_container_id_appears_in_the_rendered_page_shell() {
     // routes serve).
     let (state, shared) = harness();
     let id = seed_session(&state);
-    let sessions = crate::regions::sessions::sessions_fragment(&shared, None)
+    let sessions = crate::regions::sessions::sessions_fragment(&shared, None, Some(&id))
         .await
         .expect("sessions render");
     let transcript_html =

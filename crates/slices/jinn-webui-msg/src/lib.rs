@@ -3,16 +3,14 @@
 //!
 //! Everything here is pure data: the form payloads the browser posts,
 //! the transcript query's cursor grammar, the SSE envelope the
-//! fan-out actor produces, and the unread-mark cell payload beside
-//! its slot key. No bus schema lives here — the web UI
-//! publishes *existing* schemas (`EnqueueUserMessage`, `CancelTurn`,
+//! fan-out actor produces, the unread-mark cell payload beside
+//! its slot key, and the one bus Event the webui publishes
+//! ([`SessionPageOpened`], the page-arrival fact the fan-out's
+//! unread-clear keys on). The web UI publishes *existing* schemas
+//! for its actions (`EnqueueUserMessage`, `CancelTurn`,
 //! `ProviderSwitch`, `SessionLoadRequested`) and subscribes existing
-//! events, so this crate never depends on an implementation crate and
-//! never derives a message schema.
-//!
-//! The transcript response itself is deliberately absent: it is
-//! server-rendered HTML, not JSON — the browser swaps it into the page
-//! as-is, so its "type" is a template, not a struct.
+//! events, so this crate owns no message beyond the arrival fact —
+//! and it never depends on an implementation crate.
 
 pub mod unread;
 pub mod wire;
@@ -21,8 +19,8 @@ pub use unread::UnreadSessionMarks;
 pub use unread::webui_unread_slot;
 pub use wire::{
     CancelForm, CreateSessionForm, McpToggleForm, ModelForm, ModelsRefreshForm, PersonaForm,
-    RenameForm, SendForm, SessionListItem, SessionNewQuery, SessionsQuery, SkillLoadForm,
-    SkillToggleForm, SseEnvelope, SseKind, SwitchForm, ThemeForm, TranscriptQuery,
+    RenameForm, SendForm, SessionListItem, SessionNewQuery, SessionPageOpened, SessionsQuery,
+    SkillLoadForm, SkillToggleForm, SseEnvelope, SseKind, SwitchForm, ThemeForm, TranscriptQuery,
 };
 
 #[cfg(test)]

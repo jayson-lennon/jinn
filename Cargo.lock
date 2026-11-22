@@ -6092,6 +6092,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "trouper",
 ]
 
 [[package]]

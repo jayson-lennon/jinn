@@ -349,6 +349,14 @@ pub struct PageTemplate {
     /// The sessions pull's route — the list's filter/tick effect
     /// re-pulls it.
     pub sessions_route: &'static str,
+    /// The sessions pull's filter query parameter — the effect builds
+    /// `?q=<text>` from it when a filter is in force.
+    pub filter_query_param: &'static str,
+    /// The sessions pull's viewer query parameter — the effect builds
+    /// `&viewed=<id>` from it (when a session is viewed) so the
+    /// re-pulled list paints the viewed row, not the instance's
+    /// active one.
+    pub viewed_query_param: &'static str,
     /// The activate POST's route prefix — the rename editor's `@post`
     /// target builds `<prefix><id>/rename` from it.
     pub session_page_path: &'static str,
@@ -409,6 +417,8 @@ impl PageTemplate {
             switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             stream_url: String::new(),
             sessions_route: contract::SESSIONS_ROUTE,
+            filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
+            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             theme_color: theme_color_for(&web_theme),
             web_theme,
@@ -472,6 +482,8 @@ impl PageTemplate {
             switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             sessions_route: contract::SESSIONS_ROUTE,
+            filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
+            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             theme_color: theme_color_for(&web_theme),
             web_theme,
@@ -548,6 +560,13 @@ pub struct PageRootTemplate {
     pub switch_overlay_id: &'static str,
     /// The sessions pull's route — the list's effect re-pulls it.
     pub sessions_route: &'static str,
+    /// The sessions pull's filter query parameter — the effect builds
+    /// `?q=<text>` from it when a filter is in force.
+    pub filter_query_param: &'static str,
+    /// The sessions pull's viewer query parameter — the effect builds
+    /// `&viewed=<id>` from it (when a session is viewed) so the
+    /// re-pulled list paints the viewed row.
+    pub viewed_query_param: &'static str,
     /// The activate POST's route prefix — the rename editor's target.
     pub session_page_path: &'static str,
     /// The viewed session's stream URL (empty on the landing page) —
@@ -614,6 +633,8 @@ impl PageRootTemplate {
             menu_scrim_id: contract::MENU_SCRIM_ID,
             switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             sessions_route: contract::SESSIONS_ROUTE,
+            filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
+            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             web_theme,
