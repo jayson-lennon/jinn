@@ -7,6 +7,6 @@
   {%- if busy -%}
   <button class="cancel" {{ action_attr }}="{{ cancel_action }}" data-on:click="@post('{{ cancel_path }}', {contentType: 'json', payload: {sessionId: $viewedSession}})">{{ cancel_label }}</button>
   {%- else -%}
-  <button {{ action_attr }}="{{ send_action }}" data-on:click="$text.trim().length > 0 && @post('{{ send_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, text: $text}})">{{ send_label }}</button>
+  <button {{ action_attr }}="{{ send_action }}" data-on:click="$text.trim().length > 0 && ($transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER }), true) && @post('{{ send_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, text: $text}})">{{ send_label }}</button>
   {%- endif %}
 </div>
