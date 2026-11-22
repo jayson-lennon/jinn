@@ -593,7 +593,7 @@ impl PageRootTemplate {
             button_html,
             picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
-            sessions_attention,
+            sessions_attention: attention_count,
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -616,7 +616,6 @@ impl PageRootTemplate {
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
-            sessions_attention: attention_count,
             web_theme,
         }
     }
@@ -864,11 +863,6 @@ pub struct MenuTemplate {
     pub skills_picker_url: String,
     /// The skills modal host's CSS selector — the pull's swap target.
     pub skills_modal_host_selector: &'static str,
-    /// The titlebar sessions button's id — the drawer toggle with its
-    /// unread badge.
-    pub sessions_button_id: &'static str,
-    /// The badge span's id — the unread count.
-    pub sessions_button_count_id: &'static str,
     /// The render-time unread-mark count — the badge's seeded value.
     pub attention_count: usize,
     /// The theme control's host id — the segmented Light/Dark/System
@@ -926,9 +920,6 @@ impl MenuTemplate {
             menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
             skills_picker_url: format!("{}{viewed_session}", contract::SKILL_PICKER_PREFIX),
             skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
-            sessions_button_id: contract::SESSIONS_BUTTON_ID,
-            sessions_button_count_id: contract::SESSIONS_BUTTON_COUNT_ID,
-            sessions_attention: attention_count,
             menu_item_theme_id: contract::MENU_ITEM_THEME_ID,
             menu_item_theme_light_id: contract::MENU_ITEM_THEME_LIGHT_ID,
             menu_item_theme_dark_id: contract::MENU_ITEM_THEME_DARK_ID,
