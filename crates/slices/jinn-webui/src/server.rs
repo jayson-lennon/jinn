@@ -242,8 +242,7 @@ async fn overlay_reset_patches(
     // The same full render the GET page endpoint serves, so a
     // navigation response and a fresh load are byte-identical shapes.
     let view = session_view(shared, id).await?;
-    let sessions_html =
-        crate::regions::sessions::sessions_fragment(shared, None, Some(id)).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(shared, None, Some(id)).await?;
     let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate {
         entries: view.transcript.entries.clone(),
         start: 0,
@@ -1168,8 +1167,7 @@ async fn rename(
     // page render carries the store truth.) The renamed session's
     // page is the requester — it is the viewer, so its blue row rides
     // the same markup every consumer gets.
-    let list_html =
-        crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
+    let list_html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
     shared
         .fanout
         .push_sessions_refresh_from(&id, list_html.clone());

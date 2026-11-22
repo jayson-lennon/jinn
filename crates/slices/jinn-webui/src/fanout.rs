@@ -37,7 +37,7 @@ use jinn_session_store_msg::{SessionLibraryMembershipChanged, SessionLoadComplet
 use jinn_slices::PhaseView;
 use jinn_slices::bus::BusService;
 use jinn_slices::cell::TypedCell;
-use jinn_webui_msg::{SseEnvelope, SseKind, SessionPageOpened, UnreadSessionMarks};
+use jinn_webui_msg::{SessionPageOpened, SseEnvelope, SseKind, UnreadSessionMarks};
 use tokio::sync::broadcast;
 use trouper::actor::ActorPath;
 use trouper::actor::{MsgHandler, ServiceActor};

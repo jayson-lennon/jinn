@@ -1506,7 +1506,10 @@ async fn activating_an_in_memory_session_publishes_active_session_changed() {
     // silently (a disk load publishes through `restore_loaded_session`,
     // and the TUI intent path publishes its own).
     let (fixture, jobs, target_id) = measure_fixture().await;
-    let changed = fixture.harness.spawn_recorder::<ActiveSessionChanged>().await;
+    let changed = fixture
+        .harness
+        .spawn_recorder::<ActiveSessionChanged>()
+        .await;
 
     // When the measurement is requested (the in-memory activation).
     fixture
