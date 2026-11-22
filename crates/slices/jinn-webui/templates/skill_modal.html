@@ -1,8 +1,7 @@
 <div id="{{ modal_id }}" class="skill-modal"
      data-attr:hidden="$skillsOpen ? null : true" hidden
+     data-effect__debounce.150ms="$skillsOpen && ($skillsTick + ' ' + ${{ filter_signal }} + ' ' + $skillsOpen).trim() && @get('{{ rows_url }}', {selector: '{{ rows_selector }}', openWhenHidden: true})"
      data-on:click="evt.target === evt.currentTarget && ($skillsOpen = false)"><div class="skill-modal-inner"
      data-on:keydown__document="evt.key === 'Escape' && ($skillsOpen = false)"><div class="skill-modal-head"><input id="{{ filter_id }}" type="text" value="{{ filter }}" autocomplete="off" placeholder="filter skills…"
            data-bind:{{ filter_signal }}></div><div id="{{ rows_id }}"
-      data-effect="($skillsTick + ' ' + ${{ filter_signal }} + ' ' + $skillsOpen).trim() && $skillsOpen && @get('{{ picker_route }}' + $viewedSession + '?filter=' + encodeURIComponent(${{ filter_signal }} || ''), {selector: '#{{ modal_host_id }}', openWhenHidden: true})"
-
     >{% for row in rows %}{{ row|safe }}{% endfor %}</div></div></div>

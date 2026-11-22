@@ -34,6 +34,7 @@
 
 use axum::extract::Path as AxPath;
 use axum::extract::Query as AxQuery;
+use axum::extract::RawQuery;
 use axum::extract::State as AxumState;
 use jinn_provider_selection_msg::provider_rows::{load_provider_entries, sorted_entries};
 use jinn_webui_msg::SseKind;
@@ -115,8 +116,13 @@ async fn pull_handler(
     AxumState(shared): AxumState<crate::server::ServerShared>,
     AxPath(session_id): AxPath<String>,
     AxQuery(query): AxQuery<ModelFilterQuery>,
+    RawQuery(raw): RawQuery,
 ) -> Result<crate::server::Fragment, crate::server::HandlerError> {
-    let filter = query.filter.unwrap_or_default();
+    let filter = crate::server::filter_from_query_or_signal(
+        query.filter,
+        raw.as_deref(),
+        crate::contract::SIGNAL_MODEL_FILTER,
+    );
     Ok(
         crate::server::Fragment::new(modal_fragment(&shared, &session_id, &filter)?)
             .with_swap(crate::contract::MODEL_PICKER_MODAL_HOST_SELECTOR, "inner"),

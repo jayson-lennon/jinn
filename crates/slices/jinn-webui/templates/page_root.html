@@ -7,7 +7,7 @@
     <input id="{{ sessions_filter_input_id }}" type="text" placeholder="filter sessions…"
            autocomplete="off" spellcheck="false" data-bind:sessionsfilter>
     <div id="{{ sessions_id }}"
-         data-effect="($sessionsTick + ' ' + $sessionsfilter).trim() && @get('{{ sessions_route }}' + ($sessionsfilter ? '?q=' + encodeURIComponent($sessionsfilter) : ''), {selector: '#{{ sessions_id }}', openWhenHidden: true})">{{ sessions_html|safe }}</div>
+         data-effect__debounce.150ms="($sessionsTick + ' ' + $sessionsfilter).trim() && @get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true})">{{ sessions_html|safe }}</div>
   </nav>
   <main id="main">
     <div id="titlebar">

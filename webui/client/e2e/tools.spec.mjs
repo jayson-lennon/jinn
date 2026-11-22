@@ -222,9 +222,9 @@ test("typing in the filter narrows the rows with marked runs", async ({
   // Then the row is still visible with a marked run — the rows route
   // filtered and highlighted it. The final keystroke's re-pull races
   // the assertion: an in-flight pull from an earlier keystroke can
-  // land after it, so wait for the input to settle at the full query
-  // before reading the marks.
-  await expect(page.locator(sel.TOOLS_FILTER)).toHaveValue(query);
+  // land after it, so wait for the marks to settle at the full query
+  // — not the input (the input leads the re-render; the marks are
+  // what the assertion reads).
   await expect(row).toBeVisible();
   await expect(row.locator("mark").first()).toHaveText(query);
 
@@ -249,8 +249,8 @@ test("a toggle under a filter keeps the filtered view and reverts to the open-ti
   await page.keyboard.type(query);
   // The final keystroke's re-pull races the mark: an in-flight pull
   // from an earlier keystroke can land after it, so wait for the
-  // input to settle at the full query before reading the marks.
-  await expect(page.locator(sel.TOOLS_FILTER)).toHaveValue(query);
+  // marks to settle at the full query — not the input (the input
+  // leads the re-render; the marks are what the assertion reads).
   await expect(row.locator("mark").first()).toHaveText(query);
 
   // When toggling the filtered-in row.

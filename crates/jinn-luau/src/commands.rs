@@ -105,12 +105,12 @@ fn run_with_budget(
             let chunk = chunk_from_file(path.as_path())?;
             let dir = path
                 .parent()
-                .map_or_else(std::env::temp_dir, |parent| parent.to_path_buf());
+                .map_or_else(tempfile::env::temp_dir, |parent| parent.to_path_buf());
             (chunk, absolute_dir(&dir))
         }
         RunMode::Eval(source) => (
             chunk_from_eval(source.clone()),
-            absolute_dir(&std::env::temp_dir()),
+            absolute_dir(&tempfile::env::temp_dir()),
         ),
     };
 
@@ -277,13 +277,13 @@ fn syntax_message(error: &MluaError) -> String {
 /// a failure falls back to the platform temp dir so the run still proceeds.
 #[expect(
     clippy::expect_used,
-    reason = "std::env::temp_dir is absolute by contract; the expects guard typed construction, not real failure modes"
+    reason = "tempfile::env::temp_dir is absolute by contract; the expects guard typed construction, not real failure modes"
 )]
 fn absolute_dir(dir: &Path) -> marked_path::MarkedPathBuf<marked_path::Absolute> {
     if let Ok(typed) = marked_path::MarkedPathBuf::<marked_path::Absolute>::new(dir) {
         return typed;
     }
-    marked_path::MarkedPathBuf::<marked_path::Absolute>::new(std::env::temp_dir())
+    marked_path::MarkedPathBuf::<marked_path::Absolute>::new(tempfile::env::temp_dir())
         .expect("temp_dir is absolute")
 }
 

@@ -532,8 +532,11 @@ async fn the_modal_renders_the_filter_input_with_the_rows_effect() {
         "the input binds the filter signal: {html}"
     );
     assert!(
-        html.contains("?filter=' + encodeURIComponent(") && html.contains("@get('/web/tools/rows/"),
-        "the effect re-pulls the rows route with a filter param: {html}"
+        html.contains(&format!(
+            "data-effect__debounce.150ms=\"$toolsOpen && ($toolsTick + ' ' + ${}",
+            contract::SIGNAL_TOOLS_FILTER
+        )) && html.contains("@get('/web/tools/rows/"),
+        "the effect debounce-pulls the rows route on tick and filter changes: {html}"
     );
     // And the modal's own `@get` count is exactly the rows effect —
     // no second pull that could re-render the stamp.

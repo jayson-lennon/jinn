@@ -16,7 +16,7 @@ use marked_path::{Absolute, MarkedPathBuf};
     reason = "cwd and temp-dir fallback are absolute on supported platforms"
 )]
 pub(crate) fn default_cwd() -> MarkedPathBuf<Absolute> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
+    let cwd = std::env::current_dir().unwrap_or_else(|_| tempfile::env::temp_dir());
     MarkedPathBuf::<Absolute>::new(cwd).expect("cwd and temp dir are absolute")
 }
 

@@ -83,7 +83,7 @@ impl Default for SessionMap {
             session_load_guard: None,
             startup_hydration_active: false,
             default_cwd: {
-                let cwd = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
+                let cwd = std::env::current_dir().unwrap_or_else(|_| tempfile::env::temp_dir());
                 MarkedPathBuf::<Absolute>::new(cwd).expect("cwd and temp dir are absolute")
             },
             slices: std::sync::OnceLock::new(),

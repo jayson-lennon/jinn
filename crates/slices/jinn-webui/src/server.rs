@@ -580,6 +580,14 @@ pub fn router(shared: ServerShared) -> Router {
             crate::contract::TOOLS_ROWS_ROUTE,
             get(crate::regions::tools::rows_pull_handler),
         )
+        .route(
+            crate::contract::MCP_ROWS_ROUTE,
+            get(crate::regions::mcp_servers::rows_pull_handler),
+        )
+        .route(
+            crate::contract::SKILL_ROWS_ROUTE,
+            get(crate::regions::skills::rows_pull_handler),
+        )
         .route(crate::contract::SKILL_TOGGLE_PATH, post(skill_toggle))
         .route(crate::contract::SKILL_LOAD_PATH, post(skill_load))
         .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
@@ -854,6 +862,58 @@ where
     }
 }
 
+/// The filter a re-pull carries, resolved from its two wire shapes.
+///
+/// The client's re-pull effects issue a **constant-URL** `@get` — the
+/// filter rides Datastar's automatic signal dump (`?datastar={…}`
+/// query parameter) instead of a templated `?filter=` argument. The
+/// constant URL is load-bearing: Datastar cancels an in-flight action
+/// only when the *evaluated URL argument* matches the new one, so a
+/// per-keystroke URL lets a slow earlier-keystroke response land
+/// after the final one and overwrite the rows with the stale query's
+/// render (the flaky `ge`-for-`get` mark). With a constant URL each
+/// keystroke's pull aborts the in-flight previous one — the
+/// last-issued pull always lands last.
+///
+/// The explicit `filter` query parameter stays supported for callers
+/// without the signal dump (curl, the Rust tests); the dump wins when
+/// both are present, since the dump is what the live client sends.
+#[must_use]
+pub(crate) fn filter_from_query_or_signal(
+    explicit: Option<String>,
+    raw_query: Option<&str>,
+    signal: &str,
+) -> String {
+    let raw_query = raw_query.unwrap_or_default();
+    if raw_query.contains("datastar=") {
+        let pairs: Vec<(&str, &str)> = raw_query
+            .split('&')
+            .filter_map(|pair| pair.split_once('='))
+            .collect();
+        let dump = pairs
+            .iter()
+            .find(|(key, _)| *key == "datastar")
+            .map(|(_, v)| *v);
+        if let Some(dump) = dump {
+            // The dump's value is one percent-encoded JSON document.
+            // Pair-parsing the value alone lands the document in the
+            // KEY position, so parse a synthesized `value=` pair and
+            // read the decoded key back — a plain percent-decode
+            // without pulling in a new dependency.
+            let synthesized = format!("{dump}=");
+            let decoded = form_urlencoded::parse(synthesized.as_bytes())
+                .next()
+                .map_or_else(String::new, |(key, _)| key.to_string());
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&decoded)
+                && let Some(filter) = value.get(signal).and_then(|v| v.as_str())
+            {
+                return filter.to_owned();
+            }
+        }
+    }
+    explicit.unwrap_or_default()
+}
+
 /// `POST /web/send` — deliver text into a live session.
 ///
 /// The response is a **SSE sequence of SDK events**, not a fragment:
@@ -1100,14 +1160,23 @@ async fn mcp_toggle(
     )
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
-    Ok(SseAction::new(vec![element_patch_inner(
-        format!("#{}", crate::contract::MCP_MODAL_ID),
-        crate::regions::mcp_servers::modal_fragment(
+    // The response swaps the rows only: the marks update in place and
+    // the skeleton (the filter input it carries) is never re-rendered
+    // — a re-render would reset the input to the pull's query
+    // mid-typing. The fragment carries the rows container itself, so
+    // the patch replaces it (an inner patch would nest a second
+    // `#mcp-rows`). The client's current filter rides the form and
+    // echoes into the rendered rows.
+    Ok(SseAction::new(vec![
+        PatchElements::new(crate::regions::mcp_servers::rows_fragment(
             &shared,
             &form.session_id,
             form.filter.as_deref().unwrap_or_default(),
-        )?,
-    )]))
+        )?)
+        .selector(crate::contract::MCP_ROWS_SELECTOR.to_owned())
+        .mode(ElementPatchMode::Replace)
+        .into_datastar_event(),
+    ]))
 }
 
 /// The tools modal's wire shapes — request/response are region-local
@@ -1212,14 +1281,19 @@ async fn skill_toggle(
     let WebForm(form) = form?;
     crate::delivery::handle_skill_toggle(shared.state(), &form.session_id, &form.skill)
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    Ok(SseAction::new(vec![element_patch_inner(
-        format!("#{}", crate::contract::SKILL_MODAL_ID),
-        crate::regions::skills::modal_fragment(
+    // The response swaps the rows only — the same contract as the
+    // tools toggle: the marks update in place and the skeleton (the
+    // filter input it carries) is never re-rendered mid-typing.
+    Ok(SseAction::new(vec![
+        PatchElements::new(crate::regions::skills::rows_fragment(
             &shared,
             &form.session_id,
             form.filter.as_deref().unwrap_or_default(),
-        )?,
-    )]))
+        )?)
+        .selector(crate::contract::SKILL_ROWS_SELECTOR.to_owned())
+        .mode(ElementPatchMode::Replace)
+        .into_datastar_event(),
+    ]))
 }
 
 /// `POST /web/skills/load` — force-load a skill into the viewed
@@ -1249,14 +1323,14 @@ async fn skill_load(
         shared.settled_fragment(&id, &guard)
     };
     Ok(SseAction::new(vec![
-        element_patch_inner(
-            format!("#{}", crate::contract::SKILL_MODAL_ID),
-            crate::regions::skills::modal_fragment(
-                &shared,
-                &form.session_id,
-                form.filter.as_deref().unwrap_or_default(),
-            )?,
-        ),
+        PatchElements::new(crate::regions::skills::rows_fragment(
+            &shared,
+            &form.session_id,
+            form.filter.as_deref().unwrap_or_default(),
+        )?)
+        .selector(crate::contract::SKILL_ROWS_SELECTOR.to_owned())
+        .mode(ElementPatchMode::Replace)
+        .into_datastar_event(),
         element_patch_inner(
             format!("#{}", crate::contract::TRANSCRIPT_ID),
             transcript_html,

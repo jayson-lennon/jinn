@@ -270,7 +270,7 @@ fn current_cwd() -> Result<marked_path::MarkedPathBuf<marked_path::Absolute>, Re
     })?;
     marked_path::MarkedPathBuf::<marked_path::Absolute>::new(&raw)
         .or_else(|_untyped| {
-            marked_path::MarkedPathBuf::<marked_path::Absolute>::new(std::env::temp_dir())
+            marked_path::MarkedPathBuf::<marked_path::Absolute>::new(tempfile::env::temp_dir())
         })
         .map_err(|_temp_dir_also_untyped| {
             Report::new(LuauError::Harness {

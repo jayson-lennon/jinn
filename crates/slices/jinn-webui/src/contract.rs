@@ -500,6 +500,21 @@ pub const MCP_PICKER_PREFIX: &str = "/web/mcp-servers/";
 /// (the same message the TUI confirm publishes, the full desired set).
 pub const MCP_TOGGLE_PATH: &str = "/web/mcp";
 
+/// Route pattern — the MCP modal's **rows fragment** pull. The filter
+/// keystrokes' and the `mcpTick` re-pull's target: it swaps the rows
+/// container only, so the response never re-renders the filter input
+/// (a host swap's `value="{{ filter }}"` would reset the input to the
+/// stale pull's query mid-typing — the keystroke-drop bug).
+pub const MCP_ROWS_ROUTE: &str = "/web/mcp-servers/rows/{id}";
+
+/// The path prefix the modal's re-pull effect builds MCP-rows URLs
+/// from.
+pub const MCP_ROWS_PREFIX: &str = "/web/mcp-servers/rows/";
+
+/// The MCP rows container spelled as a CSS selector — the re-pull's
+/// swap target (never the modal host: the input must not re-render).
+pub const MCP_ROWS_SELECTOR: &str = "#mcp-rows";
+
 // ── Tools modal ─────────────────────────────────────────────────────
 
 /// The menu's tools item — closes the menu and pulls the tools modal
@@ -678,6 +693,22 @@ pub const SKILL_TOGGLE_PATH: &str = "/web/skills/toggle";
 /// (the TUI `<c-l>` load verbatim: pinned pair, durable auto-enable,
 /// `MarkSessionInteracted`, and the duplicate's transient notice).
 pub const SKILL_LOAD_PATH: &str = "/web/skills/load";
+
+/// Route pattern — the skills modal's **rows fragment** pull. The
+/// filter keystrokes' and the `skillsTick` re-pull's target: it swaps
+/// the rows container only, so the response never re-renders the
+/// filter input (a host swap's `value="{{ filter }}"` would reset the
+/// input to the stale pull's query mid-typing — the keystroke-drop
+/// bug).
+pub const SKILL_ROWS_ROUTE: &str = "/web/skills/rows/{id}";
+
+/// The path prefix the modal's re-pull effect builds skills-rows URLs
+/// from.
+pub const SKILL_ROWS_PREFIX: &str = "/web/skills/rows/";
+
+/// The skills rows container spelled as a CSS selector — the re-pull's
+/// swap target (never the modal host: the input must not re-render).
+pub const SKILL_ROWS_SELECTOR: &str = "#skills-rows";
 
 // ── Endpoints ───────────────────────────────────────────────────────
 
@@ -895,6 +926,8 @@ pub const CLIENT_PATHS: &[&str] = &[
     PERSONA_PATH,
     MCP_PICKER_PREFIX,
     MCP_TOGGLE_PATH,
+    MCP_ROWS_PREFIX,
+    MCP_ROWS_SELECTOR,
     TOOLS_PICKER_PREFIX,
     TOOLS_TOGGLE_PATH,
     TOOLS_REVERT_PATH,
@@ -903,6 +936,8 @@ pub const CLIENT_PATHS: &[&str] = &[
     SKILL_PICKER_PREFIX,
     SKILL_TOGGLE_PATH,
     SKILL_LOAD_PATH,
+    SKILL_ROWS_PREFIX,
+    SKILL_ROWS_SELECTOR,
     VENDOR_PREFIX,
     THEME_PATH,
 ];
@@ -928,6 +963,8 @@ pub const CLIENT_URLS: &[&str] = &[
     PERSONA_PATH,
     MCP_PICKER_PREFIX,
     MCP_TOGGLE_PATH,
+    MCP_ROWS_PREFIX,
+    MCP_ROWS_SELECTOR,
     TOOLS_PICKER_PREFIX,
     TOOLS_TOGGLE_PATH,
     TOOLS_REVERT_PATH,
@@ -936,6 +973,8 @@ pub const CLIENT_URLS: &[&str] = &[
     SKILL_PICKER_PREFIX,
     SKILL_TOGGLE_PATH,
     SKILL_LOAD_PATH,
+    SKILL_ROWS_PREFIX,
+    SKILL_ROWS_SELECTOR,
     VENDOR_PREFIX,
     THEME_PATH,
 ];

@@ -24,6 +24,7 @@ tokio = { workspace = true }
 # Windows-only use was previously the only call site).
 tracing = { workspace = true }
 
+tempfile = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 

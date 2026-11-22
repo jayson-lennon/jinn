@@ -16,6 +16,7 @@ serde = { workspace = true }
 # shape `jinn-session-lifecycle-msg` uses; no kernel, no slice crates.
 trouper = { workspace = true }
 
+tempfile = { workspace = true }
 [dev-dependencies]
 jinn-testutil = { workspace = true }
 rstest = { workspace = true }

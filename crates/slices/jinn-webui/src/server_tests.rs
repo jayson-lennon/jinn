@@ -1612,13 +1612,15 @@ singleton = true
             ["echo".to_owned()].into_iter().collect(),
             "the published set is the full desired set"
         );
-        // And the response is the re-rendered modal with the enabled
-        // mark on the echo row (the stale-fragment pattern). The SSE
+        // And the response is the rows-only swap with the enabled
+        // mark on the echo row (the stale-fragment pattern; the rows
+        // container is the patch target, never the modal skeleton —
+        // the filter input must not re-render mid-typing). The SSE
         // frames line-fold the markup, so the body is unfolded first
         // (every `data:` continuation line rejoined) and the row's own
         // div-to-</div> fragment is the probed slice.
         assert!(
-            body.contains(&format!("id=\"{}\"", crate::contract::MCP_MODAL_ID)),
+            body.contains(&format!("selector #{}", crate::contract::MCP_ROWS_ID)),
             "{body}"
         );
         let unfolded = body.replace("data: elements ", "");
@@ -1836,10 +1838,11 @@ mod skill_actions {
                 .is_none_or(|session| session.is_skill_enabled("alpha"))
         );
         assert_eq!(audit.names().len(), 0);
-        // And the response is the re-rendered modal with the flip on
-        // the alpha row (the stale-fragment pattern).
+        // And the response is the rows-only swap with the flip on the
+        // alpha row (the stale-fragment pattern; the rows container is
+        // the patch target, never the modal skeleton).
         assert!(
-            body.contains(&format!("id=\"{}\"", crate::contract::SKILL_MODAL_ID)),
+            body.contains(&format!("selector #{}", crate::contract::SKILL_ROWS_ID)),
             "{body}"
         );
         let unfolded = body.replace("data: elements ", "");
@@ -2091,13 +2094,13 @@ mod skill_actions {
             )
         };
         assert_eq!(message.session_id, id);
-        // And the response swaps both the re-rendered modal and the
-        // transcript — the pinned pair lands without a reload. The
-        // transcript fragment carries entries only (its container id is
-        // the patch selector, not markup), so the swap is probed by
-        // selector.
+        // And the response swaps both the rows (the re-rendered
+        // filtered view — the skeleton is never re-rendered) and the
+        // transcript — the pinned pair lands without a reload. Both
+        // fragments carry container ids as patch selectors, so the
+        // swaps are probed by selector.
         assert!(
-            body.contains(&format!("id=\"{}\"", crate::contract::SKILL_MODAL_ID)),
+            body.contains(&format!("selector #{}", crate::contract::SKILL_ROWS_ID)),
             "{body}"
         );
         assert!(
@@ -3694,7 +3697,7 @@ mod tools_actions {
         // is the rows container — the signal's re-pull can only touch
         // the rows.
         assert_eq!(status, StatusCode::OK);
-        assert!(body.contains("data-effect="), "{body}");
+        assert!(body.contains("data-effect__debounce.150ms="), "{body}");
         assert!(
             body.contains(&format!("{}{id}", crate::contract::TOOLS_ROWS_PREFIX)),
             "the effect targets the rows route: {body}"
@@ -3766,4 +3769,32 @@ mod tools_actions {
         // gated surface is the menu item: without it nothing pulls into
         // the span or opens the modal, so the landing's span stays inert.
     }
+}
+
+#[rstest::rstest]
+#[test]
+fn filter_from_query_reads_the_datastar_signal_dump() {
+    // Given the wire shape the live client sends: one percent-encoded
+    // JSON signal dump as the `datastar` query value (a `+` inside the
+    // JSON exercises the form-encoding space rule).
+    let raw =
+        "datastar=%7B%22title%22%3A%22Untitled+Session%22%2C%22skillsfilter%22%3A%22e2e%22%7D";
+
+    // When resolving the skills filter from it.
+    let filter =
+        crate::server::filter_from_query_or_signal(None, Some(raw), contract::SIGNAL_SKILLS_FILTER);
+
+    // Then the dump's value is read — not the empty fallback.
+    assert_eq!(filter, "e2e");
+}
+
+#[rstest::rstest]
+#[test]
+fn filter_from_query_falls_back_to_the_explicit_parameter() {
+    // Given a curl-style pull with no signal dump.
+    let filter =
+        crate::server::filter_from_query_or_signal(Some("get".into()), None, "toolsfilter");
+
+    // Then the explicit parameter is honored.
+    assert_eq!(filter, "get");
 }

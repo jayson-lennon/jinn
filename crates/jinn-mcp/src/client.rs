@@ -235,18 +235,48 @@ impl McpClient {
             .attach("failed to spawn MCP server process")?;
 
         let stderr_buffer = Arc::new(Mutex::new(McpStderrBuffer::new()));
-        if let Some(stderr) = stderr {
-            spawn_line_drain(stderr, stderr_buffer.clone());
-        }
+        // Keep the drain's join handle: on a failed handshake the child is
+        // already dead, so waiting for the drain to hit EOF is what makes the
+        // captured tail complete. A fixed sleep instead can lose the line when
+        // the drain task has not been scheduled yet under load.
+        let stderr_drain = stderr.map(|stderr| spawn_line_drain(stderr, stderr_buffer.clone()));
 
-        let service = ().serve(transport).await.map_err(|e| {
-            // Give the drain task a beat to pick up whatever the
-            // child wrote before dying, then attach its tail.
-            std::thread::sleep(Duration::from_millis(150));
+        let service = match ().serve(transport).await {
+            Ok(service) => service,
+            Err(e) => {
+                // The child died (or refused the handshake): its stderr pipe
+                // closes, so wait for the drain to finish before reading the
+                // tail. Bounded so a child that stays alive but silent cannot
+                // hang the failure path.
+                if let Some(drain) = stderr_drain {
+                    wait_for_drain_eof(drain).await;
+                }
+                let tail = stderr_buffer.lock().tail().to_owned();
+                return Err(Report::new(McpClientError)
+                    .attach("MCP initialize handshake failed")
+                    .attach(e)
+                    .attach(format!(
+                        "server stderr:\n{}",
+                        if tail.is_empty() {
+                            "(the server wrote nothing to stderr)".to_owned()
+                        } else {
+                            tail
+                        }
+                    )));
+            }
+        };
+
+        // A server that answers the handshake and then exits immediately would
+        // otherwise be reported as a live connection. Give the service loop a
+        // turn to observe the closed transport, then fail with the tail.
+        tokio::task::yield_now().await;
+        if service.is_transport_closed() {
+            if let Some(drain) = stderr_drain {
+                wait_for_drain_eof(drain).await;
+            }
             let tail = stderr_buffer.lock().tail().to_owned();
-            Report::new(McpClientError)
-                .attach("MCP initialize handshake failed")
-                .attach(e)
+            return Err(Report::new(McpClientError)
+                .attach("MCP server process exited immediately after the handshake")
                 .attach(format!(
                     "server stderr:\n{}",
                     if tail.is_empty() {
@@ -254,8 +284,8 @@ impl McpClient {
                     } else {
                         tail
                     }
-                ))
-        })?;
+                )));
+        }
 
         Ok(Self {
             service,
@@ -668,8 +698,12 @@ impl McpStderrBuffer {
 /// shared buffer. Works for both `ChildStderr` and `ChildStdout` (HTTP mode
 /// interleaves both into one log buffer). The task exits naturally when the
 /// child process dies and the pipe closes (EOF), so no explicit cancellation
-/// is needed — `kill_on_drop` guarantees the child terminates.
-fn spawn_line_drain<R>(stream: R, buffer: Arc<Mutex<McpStderrBuffer>>)
+/// is needed — `kill_on_drop` guarantees the child terminates. Returns the
+/// task's join handle; the drain ends at EOF (pipe closed) or error.
+fn spawn_line_drain<R>(
+    stream: R,
+    buffer: Arc<Mutex<McpStderrBuffer>>,
+) -> tokio::task::JoinHandle<()>
 where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
@@ -682,7 +716,18 @@ where
             }
         }
         // EOF or error: child died or pipe closed — drain exits.
-    });
+    })
+}
+
+/// Waits (bounded) for a stderr drain task to reach EOF.
+///
+/// Called only after the handshake has failed, where the child is already
+/// dead and its pipe is closing; the drain therefore finishes quickly. The
+/// bound keeps an unexpectedly long-lived pipe from stalling the failure
+/// path. Never panics on a cancelled or panicked drain — the caller reads
+/// whatever the buffer holds.
+async fn wait_for_drain_eof(drain: tokio::task::JoinHandle<()>) {
+    let _ = tokio::time::timeout(Duration::from_secs(2), drain).await;
 }
 
 #[cfg(test)]
