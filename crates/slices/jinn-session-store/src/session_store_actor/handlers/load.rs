@@ -330,7 +330,19 @@ impl SessionStoreActor {
     /// only the measurement — not the disk read a [`SessionLoadRequested`]
     /// would perform. The layout hand-off is otherwise identical to a freshly
     /// loaded session's, so it goes through the same dispatch.
-    pub(crate) fn on_activate_in_memory(
+    ///
+    /// The activation itself is announced: this is the one activation branch
+    /// that moved the pointer silently, and consumers key off
+    /// [`ActiveSessionChanged`] as the "the user looked at this session" fact
+    /// (the webui's unread-mark clear). Both callers — the plain sidebar
+    /// activation and the tree-load's already-live branch — funnel through
+    /// here, so one publish covers both; a second at the tree call site would
+    /// double-emit. Every other activation path already publishes through
+    /// [`Self::restore_loaded_session`] or the kernel's intent handler.
+    ///
+    /// `async` only because the publish is: the body holds no await of its
+    /// own, and the two callers already await it.
+    pub(crate) async fn on_activate_in_memory(
         &self,
         ctx: &mut MsgCtx<'_>,
         payload: &SessionLoadRequested,
@@ -387,6 +399,10 @@ impl SessionStoreActor {
             view.session.map().set_active(session_id.clone());
         });
         Self::dispatch_layout(ctx, &session_id, layout_inputs);
+        self.publish(ActiveSessionChanged {
+            session_id: session_id.clone(),
+        })
+        .await;
     }
 
     /// Hands a session's chat log to the layout workers and arms its deadline.
@@ -516,7 +532,7 @@ impl SessionStoreActor {
         // Only the store actor can make this call: it is the single writer of
         // the session map, so it is the only place that knows what is loaded.
         if self.state.read().session.get(&payload.session_id).is_some() {
-            self.on_activate_in_memory(ctx, payload);
+            self.on_activate_in_memory(ctx, payload).await;
             return;
         }
 
@@ -634,7 +650,8 @@ impl SessionStoreActor {
                     session_id: payload.session_id.clone(),
                     content_width: None,
                 },
-            );
+            )
+            .await;
             return;
         }
         match store.load_session(&payload.session_id).await {
