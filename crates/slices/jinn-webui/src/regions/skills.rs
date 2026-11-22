@@ -256,7 +256,7 @@ fn sorted_skills(shared: &crate::server::ServerShared, session_id: &str) -> Vec<
 /// resolve in this region's favor); the rows add the description
 /// fill, the source badge, and the force-load button.
 pub const SKILL_CSS: &str = r#"
-.skill-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+.skill-modal { position: fixed; inset: 0; background: var(--scrim);
                display: flex; align-items: flex-start;
                justify-content: center; padding-top: 10vh; z-index: 40; }
 .skill-modal[hidden] { display: none; }
@@ -271,7 +271,7 @@ pub const SKILL_CSS: &str = r#"
 #skills-rows { overflow-y: auto; padding: 4px 0; }
 .skill-row { display: flex; gap: 8px; padding: 7px 12px; cursor: pointer;
              align-items: baseline; }
-.skill-row:hover { background: #23272f; }
+.skill-row:hover { background: var(--bg-hover); }
 .skill-row .skill-row-marker { width: 1.2em; color: var(--muted); }
 .skill-row .skill-row-description { color: var(--muted); flex: 1;
                                     overflow: hidden; text-overflow: ellipsis;

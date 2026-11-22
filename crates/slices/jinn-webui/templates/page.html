@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#14161a">
+  <meta name="theme-color" content="{{ theme_color }}">
   <link rel="manifest" href="/vendor/manifest.webmanifest">
   <link rel="icon" type="image/png" sizes="32x32" href="/vendor/icon-favicon-32.png">
   <link rel="apple-touch-icon" href="/vendor/icon-apple-touch-180.png">
@@ -11,7 +11,7 @@
   <script type="module" src="{{ vendor_prefix }}{{ app_js_versioned }}"></script>
   <style>{{ style|safe }}</style>
 </head>
-<body>
+<body data-attr:data-theme="$webTheme || 'system'">
   {%- include "page_root.html" -%}
 </body>
 </html>

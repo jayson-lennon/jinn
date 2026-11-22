@@ -208,6 +208,19 @@ pub struct RenameForm {
     pub title: String,
 }
 
+/// `POST /web/theme` — set the webui's color mode.
+///
+/// The body names only the chosen mode (`light`/`dark`/`system`);
+/// anything else is a 400 refusal — an unknown value was never
+/// rendered by the menu control, so it cannot be accepted. The mode
+/// value is the exact vocabulary the CSS `data-theme` selectors and
+/// the persisted `AppStateFile::web_theme` share.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ThemeForm {
+    /// The chosen mode: `light`, `dark`, or `system`.
+    pub theme: String,
+}
+
 /// The transcript pull's query: `GET /web/transcript/{id}?since=N`.
 ///
 /// The cursor is an index into the session's rendered entry sequence.

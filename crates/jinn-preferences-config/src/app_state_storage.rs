@@ -248,6 +248,7 @@ mod tests {
             persona_name: None,
             sidebar_width: Some(40),
             reasoning_effort: None,
+            web_theme: None,
         };
 
         // When saving and reloading.
@@ -301,6 +302,7 @@ mod tests {
             persona_name: None,
             sidebar_width: None,
             reasoning_effort: None,
+            web_theme: None,
         };
 
         // When saving and reloading.
@@ -326,6 +328,7 @@ mod tests {
             persona_name: None,
             sidebar_width: None,
             reasoning_effort: None,
+            web_theme: None,
         };
         service.save(&state).expect("save");
 
@@ -352,6 +355,7 @@ mod tests {
             persona_name: None,
             sidebar_width: None,
             reasoning_effort: None,
+            web_theme: None,
         };
         service.save(&state).expect("save");
 
@@ -362,6 +366,7 @@ mod tests {
             persona_name: None,
             sidebar_width: None,
             reasoning_effort: None,
+            web_theme: None,
         };
         service.save(&updated).expect("save updated");
 
@@ -384,6 +389,7 @@ mod tests {
             persona_name: None,
             sidebar_width: None,
             reasoning_effort: None,
+            web_theme: None,
         };
         service.save(&state).expect("save");
 

@@ -231,7 +231,7 @@ pub(crate) fn modal_fragment(
 /// language, at the same stack level); the rows add the enabled mark
 /// and the status badge styling.
 pub const MCP_CSS: &str = r#"
-.mcp-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+.mcp-modal { position: fixed; inset: 0; background: var(--scrim);
              display: flex; align-items: flex-start;
              justify-content: center; padding-top: 10vh; z-index: 40; }
 .mcp-modal[hidden] { display: none; }
@@ -246,7 +246,7 @@ pub const MCP_CSS: &str = r#"
 #mcp-rows { overflow-y: auto; padding: 4px 0; }
 .mcp-row { display: flex; gap: 8px; padding: 7px 12px; cursor: pointer;
            align-items: baseline; }
-.mcp-row:hover { background: #23272f; }
+.mcp-row:hover { background: var(--bg-hover); }
 .mcp-row .mcp-row-marker { width: 1.2em; color: var(--muted); }
 .mcp-row .mcp-row-summary { color: var(--muted); flex: 1; }
 .mcp-row .mcp-row-status { font-size: .85em; padding: 1px 8px;
@@ -256,8 +256,8 @@ pub const MCP_CSS: &str = r#"
                                               border-color: var(--accent); }
 .mcp-row .mcp-row-status.mcp-status-starting { color: var(--muted); }
 .mcp-row .mcp-row-status.mcp-status-off { color: var(--muted); opacity: .7; }
-.mcp-row .mcp-row-status.mcp-status-dead { color: #e5534b;
-                                           border-color: #e5534b; }
+.mcp-row .mcp-row-status.mcp-status-dead { color: var(--err);
+                                           border-color: var(--err); }
 .mcp-row.mcp-row-enabled .mcp-row-name { font-weight: 600; }
 .mcp-row.mcp-row-enabled .mcp-row-marker { color: var(--accent); }
 .mcp-row mark { background: transparent; color: var(--accent);
