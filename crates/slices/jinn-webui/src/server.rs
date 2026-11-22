@@ -511,7 +511,11 @@ impl ServerShared {
             // settle.
             Some(boundary) => {
                 let end = boundary.min(transcript.entries.len());
-                (transcript.entries[..end].to_vec(), end)
+                let entries = transcript.entries.get(..end).map_or_else(
+                    || transcript.entries.clone(),
+                    <[crate::transcript::RenderedEntry]>::to_vec,
+                );
+                (entries, end)
             }
             None => {
                 let len = transcript.entries.len();
@@ -760,11 +764,8 @@ pub(crate) async fn transcript_pull(
         .take(rendered_len.saturating_sub(end))
         .cloned()
         .collect();
-    let html = crate::templates::render(&crate::templates::TranscriptTemplate::new(
-        entries,
-        end,
-    ))
-    .map_err(|e| fail(500, e.to_string()))?;
+    let html = crate::templates::render(&crate::templates::TranscriptTemplate::new(entries, end))
+        .map_err(|e| fail(500, e.to_string()))?;
     Ok(Fragment::new(html))
 }
 
@@ -1345,7 +1346,11 @@ async fn stream(
             // count otherwise — then the shrink-re-read rule inside it.
             let total = boundary.unwrap_or(transcript.len()).min(transcript.len());
             let start = cursor.min(total);
-            (transcript.entries[start..total].to_vec(), start, total)
+            let slice = transcript
+                .entries
+                .get(start..total)
+                .map_or_else(Vec::new, <[crate::transcript::RenderedEntry]>::to_vec);
+            (slice, start, total)
         })
     };
     let catchup_events = catchup.map_or_else(Vec::new, |(entries, start, total)| {
@@ -1429,10 +1434,7 @@ pub(crate) fn render_catchup_events(
             let html = crate::templates::render(&template).ok()?;
             Some(
                 PatchElements::new(html)
-                    .selector(format!(
-                        "#{}",
-                        crate::contract::STREAMING_ID
-                    ))
+                    .selector(format!("#{}", crate::contract::STREAMING_ID))
                     .mode(datastar::consts::ElementPatchMode::Before)
                     .id((start + offset + 1).to_string())
                     .into_datastar_event(),

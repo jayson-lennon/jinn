@@ -424,10 +424,7 @@ impl WebUiFanoutActor {
             .map(|e| crate::transcript::render_entry_streaming(e, true))
             .collect();
         drop(guard);
-        Some(TailSnapshot {
-            entries,
-            boundary,
-        })
+        Some(TailSnapshot { entries, boundary })
     }
 
     /// Flushes one session's streaming tail: renders `boundary..end`
@@ -460,14 +457,17 @@ impl WebUiFanoutActor {
                 }
             }
         }
-        if self.last_tail.get(session_id).is_some_and(|last| *last == html) {
+        if self
+            .last_tail
+            .get(session_id)
+            .is_some_and(|last| *last == html)
+        {
             // Unchanged tail — nothing new rendered since the last
             // push; keep the 150 ms tick from churning the DOM during
             // long quiet stretches.
             return;
         }
-        self.last_tail
-            .insert(session_id.clone(), html.clone());
+        self.last_tail.insert(session_id.clone(), html.clone());
         self.broadcast(SseEnvelope {
             kind: SseKind::Streaming,
             session_id: session_id.clone(),
@@ -527,10 +527,13 @@ impl WebUiFanoutActor {
         );
         drop(guard);
         let entries = match boundary {
-            Some(boundary) => {
-                let end = boundary.min(transcript.len());
-                transcript.entries[..end].to_vec()
-            }
+            Some(boundary) => transcript
+                .entries
+                .get(..boundary.min(transcript.len()))
+                .map_or_else(
+                    || transcript.entries.clone(),
+                    <[crate::transcript::RenderedEntry]>::to_vec,
+                ),
             None => transcript.entries,
         };
         crate::templates::render(&crate::templates::TranscriptTemplate::new(entries, 0))

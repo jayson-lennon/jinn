@@ -11,9 +11,9 @@
 )]
 
 use jinn_kernel::State;
+use jinn_slices::PhaseView;
 use jinn_slices::Slices;
 use jinn_slices::cell::TypedCell;
-use jinn_slices::PhaseView;
 use jinn_webui_msg::SseEnvelope;
 use jinn_webui_msg::SseKind;
 use jinn_webui_msg::UnreadSessionMarks;
@@ -138,7 +138,9 @@ async fn the_flush_tick_renders_the_inflight_tail_through_the_real_projection() 
         envelope.html
     );
     assert!(
-        envelope.html.contains("<details class=\"disclosure\" open>"),
+        envelope
+            .html
+            .contains("<details class=\"disclosure\" open>"),
         "{}",
         envelope.html
     );
@@ -203,7 +205,9 @@ async fn a_tool_result_lands_in_the_next_ticks_tail_render() {
     assert!(envelope.html.contains("read_file"), "{}", envelope.html);
     assert!(envelope.html.contains("the file body"), "{}", envelope.html);
     assert!(
-        !envelope.html.contains("<details class=\"disclosure\" open>"),
+        !envelope
+            .html
+            .contains("<details class=\"disclosure\" open>"),
         "tool disclosures stay collapsed mid-stream: {}",
         envelope.html
     );
@@ -335,23 +339,22 @@ async fn the_settled_full_render_carries_no_open_disclosure_and_ends_with_the_co
     // Then the full render carries the entry exactly once, as a
     // COLLAPSED disclosure (no open attribute), and the fragment ends
     // with the empty streaming container — the structural wipe.
-    let occurrences = full.html.matches("<article class=\"entry thinking\"").count();
+    let occurrences = full
+        .html
+        .matches("<article class=\"entry thinking\"")
+        .count();
     assert_eq!(occurrences, 1, "{}", full.html);
     assert!(
         !full.html.contains("<details class=\"disclosure\" open>"),
         "the settled render opens nothing: {}",
         full.html
     );
+    assert!(full.html.contains("reasoning away"), "{}", full.html);
     assert!(
-        full.html.contains("reasoning away"),
-        "{}",
-        full.html
-    );
-    assert!(
-        full
-            .html
-            .trim_end()
-            .ends_with(&format!("<div id=\"{}\"></div>", crate::contract::STREAMING_ID)),
+        full.html.trim_end().ends_with(&format!(
+            "<div id=\"{}\"></div>",
+            crate::contract::STREAMING_ID
+        )),
         "the fragment ends with the streaming container: {}",
         full.html
     );

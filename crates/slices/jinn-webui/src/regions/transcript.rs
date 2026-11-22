@@ -154,10 +154,13 @@ pub fn transcript_full_fragment(
         session.phase().as_str(),
         session.is_bot(),
     );
-    crate::templates::render(&crate::templates::TranscriptTemplate::new(transcript.entries, 0))
-        .unwrap_or_else(|error| {
-            tracing::warn!(%error, what = "transcript-full", "webui template render failed; \
+    crate::templates::render(&crate::templates::TranscriptTemplate::new(
+        transcript.entries,
+        0,
+    ))
+    .unwrap_or_else(|error| {
+        tracing::warn!(%error, what = "transcript-full", "webui template render failed; \
                  serving a blank fragment");
-            String::new()
-        })
+        String::new()
+    })
 }

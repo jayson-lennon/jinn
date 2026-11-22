@@ -327,7 +327,8 @@ fn citation_row_html(citation: &jinn_core_types::url_citation::UrlCitation) -> S
     let title = escape_html(title_text);
     let url = escape_html(&citation.url);
     let mut row = String::with_capacity(title.len() + url.len() + 96);
-    if url_starts_with_scheme(&citation.url, "http://") || url_starts_with_scheme(&citation.url, "https://")
+    if url_starts_with_scheme(&citation.url, "http://")
+        || url_starts_with_scheme(&citation.url, "https://")
     {
         let _ = write!(
             row,
@@ -350,9 +351,9 @@ fn citation_row_html(citation: &jinn_core_types::url_citation::UrlCitation) -> S
 /// trusting the detector — a hostile or malformed payload renders as
 /// plain text, never as a link.
 fn url_starts_with_scheme(url: &str, scheme: &str) -> bool {
-    url.len() >= scheme.len()
-        && url.as_bytes()[..scheme.len()]
-            .eq_ignore_ascii_case(scheme.as_bytes())
+    url.as_bytes()
+        .get(..scheme.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(scheme.as_bytes()))
 }
 
 /// Renders the sources list — one [`citation_row_html`] per citation,

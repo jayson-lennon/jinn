@@ -68,12 +68,16 @@ fn expanded_source_rows_link_http_urls_with_noopener() {
     assert!(rendered
         .body_html
         .contains("<a class=\"citation-title\" href=\"https://example.com/a\" target=\"_blank\" rel=\"noopener\">Example</a>"));
-    assert!(rendered
-        .body_html
-        .contains("<span class=\"citation-url\">https://example.com/a</span>"));
-    assert!(rendered
-        .body_html
-        .contains("href=\"http://localhost:8080/doc\""));
+    assert!(
+        rendered
+            .body_html
+            .contains("<span class=\"citation-url\">https://example.com/a</span>")
+    );
+    assert!(
+        rendered
+            .body_html
+            .contains("href=\"http://localhost:8080/doc\"")
+    );
     let first = rendered
         .body_html
         .find("example.com/a")
@@ -169,9 +173,7 @@ fn an_empty_citation_title_falls_back_to_the_url_as_the_link_text() {
 fn footnote_markdown_renders_reference_and_definition_elements() {
     // Given an assistant entry using footnote markdown — the shape
     // model-written citations take.
-    let entry = ChatEntry::assistant(
-        "Claim here[^1].\n\n[^1]: The supporting source paragraph.",
-    );
+    let entry = ChatEntry::assistant("Claim here[^1].\n\n[^1]: The supporting source paragraph.");
 
     // When rendering it.
     let rendered = render_entry(&entry);
