@@ -54,6 +54,13 @@ backend = "sample"
 requires_key = false
 models = ["sample"]
 
+# The attachments spec sends images; the sample model is not in the
+# models.dev reference data, so the vision gate needs the explicit
+# capability marker (the same lever the gate's error entry names).
+[[providers.sample.model_info]]
+id = "sample"
+input_modalities = ["text", "image"]
+
 [providers.ghost]
 backend = "openai"
 requires_key = true
@@ -309,7 +316,14 @@ export async function startJinn() {
       "/dev/null",
     ],
     {
-      env: { ...process.env, JINN_PATHS_ROOT: root },
+      env: {
+        ...process.env,
+        JINN_PATHS_ROOT: root,
+        // The attachments spec's loopback TLS fixture serves a committed
+        // self-signed cert; the image-URL fetch client trusts it in test
+        // runs only (production never sets this var).
+        JINN_WEBUI_TEST_ROOT_CERT: path.join(here, "loopback-cert.pem"),
+      },
       detached: true,
       stdio: "ignore",
     },

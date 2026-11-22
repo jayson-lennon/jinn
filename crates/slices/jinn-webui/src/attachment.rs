@@ -167,24 +167,40 @@ pub fn scan_image_urls(text: &str) -> Vec<String> {
     urls
 }
 
-/// Decodes a wire data URL into bytes, naming the chip position on failure.
+/// Decodes one composer upload into bytes, naming the chip position on
+/// failure.
+///
+/// Two wire shapes exist, both produced by the browser: the bundle's
+/// native file binding and the paste helper emit `{name, mime,
+/// contents}` with the base64 payload **stripped** of its data-URL
+/// prefix, while a hand-rolled client may send the whole `data:` URL.
+/// Both are accepted — the shape is decided by the leading `data:`.
 ///
 /// # Errors
 ///
-/// [`IngestError::BadDataUrl`] when the string is not a `data:<mime>;base64,<…>`
-/// shape or its payload does not decode.
-pub fn decode_data_url(data_url: &str, index: usize) -> Result<(String, Vec<u8>), IngestError> {
-    let Some((metadata, encoded)) = data_url.split_once(',') else {
-        return Err(IngestError::BadDataUrl(index));
-    };
-    let mime = metadata
-        .strip_prefix("data:")
-        .and_then(|rest| rest.strip_suffix(";base64"))
-        .ok_or(IngestError::BadDataUrl(index))?;
+/// [`IngestError::BadDataUrl`] when neither shape parses or the payload
+/// does not decode.
+pub fn decode_upload(value: &str, index: usize) -> Result<(String, Vec<u8>), IngestError> {
+    if let Some(rest) = value.strip_prefix("data:") {
+        let Some((metadata, encoded)) = rest.split_once(',') else {
+            return Err(IngestError::BadDataUrl(index));
+        };
+        let mime = metadata
+            .strip_suffix(";base64")
+            .ok_or(IngestError::BadDataUrl(index))?
+            .to_owned();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|_e| IngestError::BadDataUrl(index))?;
+        return Ok((mime, bytes));
+    }
+    // Bare base64: the browser shape. The mime rides the sibling field;
+    // sniffing decides the format anyway, so an unknown/empty mime is
+    // declared as octet-stream and never trusted.
     let bytes = base64::engine::general_purpose::STANDARD
-        .decode(encoded)
+        .decode(value)
         .map_err(|_e| IngestError::BadDataUrl(index))?;
-    Ok((mime.to_owned(), bytes))
+    Ok(("application/octet-stream".to_owned(), bytes))
 }
 
 /// Ingests one composer upload (data URL from the wire) into an attachment.
@@ -201,7 +217,7 @@ pub fn ingest_upload(
     index: usize,
     converter: &jinn_llm_support::image_convert::ImageConverterService,
 ) -> Result<Ingested, IngestError> {
-    let (_declared_mime, bytes) = decode_data_url(data_url, index)?;
+    let (_declared_mime, bytes) = decode_upload(data_url, index)?;
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(IngestError::Oversize {
             index,
@@ -347,7 +363,7 @@ mod tests {
         );
 
         // When decoding.
-        let (mime, bytes) = decode_data_url(&data_url, 0).expect("decodes");
+        let (mime, bytes) = decode_upload(&data_url, 0).expect("decodes");
 
         // Then the mime and bytes come back.
         assert_eq!(mime, "image/png");
@@ -359,8 +375,23 @@ mod tests {
     #[case("data:image/png;base64")]
     #[case("data:image/png,not-base64!")]
     fn malformed_data_urls_name_their_index(#[case] data_url: &str) {
-        let error = decode_data_url(data_url, 2).unwrap_err();
+        let error = decode_upload(data_url, 2).unwrap_err();
         assert!(matches!(error, IngestError::BadDataUrl(2)));
+    }
+
+    #[rstest]
+    fn bare_base64_upload_shape_decodes_without_a_data_url_prefix() {
+        // Given the shape the bundle's file binding and the paste helper
+        // emit — `{name, mime, contents}` with the prefix stripped.
+        let bare = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\nbody");
+
+        // When decoding.
+        let (mime, bytes) = decode_upload(&bare, 0).expect("decodes");
+
+        // Then the bytes come back and the mime is the untrusted filler —
+        // sniffing decides the format.
+        assert_eq!(bytes, b"\x89PNG\r\n\x1a\nbody");
+        assert_eq!(mime, "application/octet-stream");
     }
 
     #[rstest]

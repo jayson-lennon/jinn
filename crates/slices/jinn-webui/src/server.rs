@@ -569,13 +569,12 @@ async fn attachment(
             let guard = shared.read_state();
             guard.session.get(&session_id).and_then(|session| {
                 session.history().iter().find_map(|entry| {
-                    (entry.id == entry_id).then_some(()).and_then(|()| {
-                        let jinn_core_types::ChatEntryKind::User { attachments, .. } = &entry.kind
-                        else {
-                            return None;
-                        };
-                        attachments.get(ordinal).cloned()
-                    })
+                    let () = (entry.id == entry_id).then_some(())?;
+                    let jinn_core_types::ChatEntryKind::User { attachments, .. } = &entry.kind
+                    else {
+                        return None;
+                    };
+                    attachments.get(ordinal).cloned()
                 })
             })
         };
@@ -598,12 +597,11 @@ async fn attachment(
         .flatten()
         .and_then(|snapshot| {
             snapshot.entries.iter().find_map(|entry| {
+                let () = (entry.id == entry_id).then_some(())?;
                 let jinn_core_types::ChatEntryKind::User { attachments, .. } = &entry.kind else {
                     return None;
                 };
-                (entry.id == entry_id)
-                    .then_some(())
-                    .and_then(|()| attachments.get(ordinal).cloned())
+                attachments.get(ordinal).cloned()
             })
         });
 

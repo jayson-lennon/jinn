@@ -296,11 +296,11 @@ async fn ingest_send_images(
     let mut attachments = Vec::new();
 
     // Composer uploads, in chip order.
-    for (index, data_url) in form.images.iter().enumerate() {
+    for (index, image) in form.images.iter().enumerate() {
         let converter = converter.clone();
-        let data_url = data_url.clone();
+        let payload = image.payload().to_owned();
         let ingested = tokio::task::spawn_blocking(move || {
-            crate::attachment::ingest_upload(&data_url, index, &converter)
+            crate::attachment::ingest_upload(&payload, index, &converter)
         })
         .await
         .map_err(|join| {
@@ -370,9 +370,35 @@ async fn fetch_image_url(url: &str) -> Result<Vec<u8>, crate::attachment::Ingest
 /// The shared HTTP client for URL-attachment fetches (rustls provider
 /// installed at process start; the same pinned reqwest shape the
 /// provider backends use).
+///
+/// The e2e tier's loopback TLS fixture serves a committed self-signed
+/// cert; when `JINN_WEBUI_TEST_ROOT_CERT` names a PEM file the client
+/// trusts it *in addition to* the system roots. The var is a test-only
+/// knob read here at client construction — production never sets it,
+/// and the standard trust store is always in place, so this cannot
+/// weaken a real fetch.
 fn http_client() -> &'static reqwest::Client {
     static CLIENT: std::sync::LazyLock<reqwest::Client> =
-        std::sync::LazyLock::new(reqwest::Client::new);
+        std::sync::LazyLock::new(|| match std::env::var("JINN_WEBUI_TEST_ROOT_CERT") {
+            Ok(path) => {
+                let pem = match std::fs::read(&path) {
+                    Ok(pem) => pem,
+                    Err(error) => {
+                        tracing::warn!(%path, %error, what = "image-fetch-client",
+                            "test root cert unreadable; using system roots only");
+                        return reqwest::Client::new();
+                    }
+                };
+                match reqwest::Certificate::from_pem(&pem) {
+                    Ok(cert) => reqwest::Client::builder()
+                        .add_root_certificate(cert)
+                        .build()
+                        .unwrap_or_else(|_e| reqwest::Client::new()),
+                    Err(_) => reqwest::Client::new(),
+                }
+            }
+            Err(_) => reqwest::Client::new(),
+        });
     &CLIENT
 }
 

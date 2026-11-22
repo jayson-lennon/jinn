@@ -1322,7 +1322,7 @@ mod actions {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri(&format!("/web/attachment/{id}/{entry_id}/0"))
+                    .uri(format!("/web/attachment/{id}/{entry_id}/0"))
                     .body(Body::empty())
                     .expect("request builds"),
             )
@@ -1444,7 +1444,7 @@ mod actions {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri(&format!("/web/attachment/{id}/{entry_id}/0"))
+                    .uri(format!("/web/attachment/{id}/{entry_id}/0"))
                     .body(Body::empty())
                     .expect("request builds"),
             )

@@ -88,6 +88,12 @@ pub fn app_js_versioned_path() -> String {
 }
 
 /// The image-attach helper's `/vendor/` URL — `paste.<hash>.js`.
+///
+/// # Panics
+///
+/// Panics when the helper is not a manifest row — a contract break
+/// caught at the first page render, in tests, not in the wild.
+#[must_use]
 #[expect(
     clippy::expect_used,
     reason = "a missing row is a contract break that must panic loudly at the \

@@ -186,6 +186,27 @@ impl TranscriptModel {
     }
 }
 
+/// Appends one `<img>` per attachment beneath the entry text, each served
+/// by the immutable attachment route — never a data: URI (the fragments
+/// must stay byte-small; the settle push would otherwise carry every
+/// image on every convergence).
+fn append_attachment_images(
+    body: &mut String,
+    entry: &ChatEntry,
+    session_id: &SessionId,
+    attachments: &[jinn_provider::Attachment],
+) {
+    use std::fmt::Write as _;
+    for (ordinal, attachment) in attachments.iter().enumerate() {
+        let media_type = escape_html(attachment.media_type());
+        let _ = write!(
+            body,
+            "<img class=\"attachment\" src=\"{ATTACHMENT_PREFIX}{session_id}/{}/{}\" alt=\"attached {media_type}\">",
+            entry.id, ordinal,
+        );
+    }
+}
+
 /// Projects one chat entry into its rendered form.
 ///
 /// Every kind renders (see [`is_renderable`]): disclosures for tool
@@ -204,15 +225,7 @@ pub fn render_entry(entry: &ChatEntry, session_id: &SessionId) -> RenderedEntry 
             // fragments must stay byte-small; the settle push would
             // otherwise carry every image on every convergence).
             let mut body = render_markdown(display);
-            for (ordinal, attachment) in attachments.iter().enumerate() {
-                body.push_str(&format!(
-                    "<img class=\"attachment\" src=\"{ATTACHMENT_PREFIX}{session_id}/{}/{}\" \
-                     alt=\"attached {}\">",
-                    entry.id,
-                    ordinal,
-                    escape_html(attachment.media_type()),
-                ));
-            }
+            append_attachment_images(&mut body, entry, session_id, attachments);
             ("user", body, None, false, None)
         }
         ChatEntryKind::Assistant(text) => ("assistant", render_markdown(text), None, false, None),

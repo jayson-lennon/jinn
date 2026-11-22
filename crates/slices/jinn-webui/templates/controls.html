@@ -13,7 +13,7 @@
             data-on:keydown="evt.key === 'Enter' && !evt.shiftKey && (evt.preventDefault() || true) && ($text.trim().length > 0 || $images.length > 0) && @post('{{ send_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, text: $text, images: $images}})"></textarea>
   <label class="attach" id="{{ attach_button_id }}" title="Attach an image">
     <input type="file" id="{{ file_input_id }}" accept="image/*" multiple
-           data-on:change="window.jinnAttachFiles($el.files) && ($el.value = '')">
+           data-on:change="window.jinnAttachFiles(el.files) && (el.value = '')">
     +
   </label>
   {%- if busy -%}
