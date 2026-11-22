@@ -107,6 +107,9 @@ details.disclosure .body { padding: 4px 12px 10px; white-space: pre-wrap;
 .badge.failure { background: #422; color: var(--err); }
 .badge.pending { background: #334; color: var(--muted); }
 #streaming .tok-thinking { color: var(--muted); font-style: italic; }
+.entry img.attachment { display: block; max-width: 320px; max-height: 240px;
+                        border-radius: 6px; margin: 8px 0 2px;
+                        border: 1px solid var(--border); }
 "#;
 
 /// The model selection rendered as the label a reader recognizes.
@@ -137,6 +140,7 @@ pub fn transcript_full_fragment(
         &model_label(session.model_selection()),
         session.phase().as_str(),
         session.is_bot(),
+        session_id,
     );
     crate::templates::render(&crate::templates::TranscriptTemplate {
         entries: transcript.entries,

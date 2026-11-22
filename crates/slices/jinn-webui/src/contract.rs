@@ -672,6 +672,10 @@ pub const TRANSCRIPT_ROUTE: &str = "/web/transcript/{id}";
 /// Route pattern — the model-picker fragment.
 pub const MODEL_PICKER_ROUTE: &str = "/web/model-picker/{id}";
 
+/// Route pattern — one attachment's image bytes: the session, the entry
+/// that carries it, and the attachment's ordinal within that entry.
+pub const ATTACHMENT_ROUTE: &str = "/web/attachment/{session}/{entry}/{ordinal}";
+
 /// Route pattern — the refresh-models action (`POST`): publishes
 /// `RefreshModels` and returns the current button fragment.
 pub const MODELS_REFRESH_ROUTE: &str = "/web/models/refresh";
@@ -718,6 +722,11 @@ pub const TRANSCRIPT_PREFIX: &str = "/web/transcript/";
 
 /// The path prefix client code builds model-picker URLs from.
 pub const MODEL_PICKER_PREFIX: &str = "/web/model-picker/";
+
+/// The path prefix the transcript renderer builds attachment `<img>`
+/// URLs from — `/web/attachment/{session}/{entry}/` + ordinal. Rendered
+/// HTML only: no client code composes these (the fragments do).
+pub const ATTACHMENT_PREFIX: &str = "/web/attachment/";
 
 /// The vendor mount the client's script tag and the asset table use.
 pub const VENDOR_PREFIX: &str = "/vendor/";
@@ -839,6 +848,7 @@ pub const CLIENT_PATHS: &[&str] = &[
     STREAM_PREFIX,
     TRANSCRIPT_PREFIX,
     MODEL_PICKER_PREFIX,
+    ATTACHMENT_PREFIX,
     MODEL_FILTER_QUERY_PARAM,
     MODELS_REFRESH_PATH,
     SESSION_NEW_LIFECYCLE_QUERY_PARAM,

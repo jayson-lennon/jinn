@@ -24,12 +24,15 @@
 //! tail in the phases a stream produces, so `since=N` returning
 //! entries at `N..` stays coherent between pull and push.
 
+use jinn_core_types::SessionId;
 use jinn_core_types::chat_entry::ChatEntry;
 use jinn_core_types::chat_entry::ChatEntryKind;
 use jinn_core_types::tool_result_status::ToolResultStatus;
 use pulldown_cmark::Event;
 use pulldown_cmark::Options;
 use pulldown_cmark::Parser;
+
+use crate::contract::ATTACHMENT_PREFIX;
 
 /// Escapes text for inclusion in HTML — the one escaping function the
 /// slice renders through. Fragments built anywhere else call this, so
@@ -126,13 +129,14 @@ impl TranscriptModel {
         model: &str,
         phase: &str,
         is_bot: bool,
+        session_id: &SessionId,
     ) -> Self {
         Self {
             title: title.unwrap_or("Untitled Session").to_owned(),
             model: model.to_owned(),
             phase: phase.to_owned(),
             is_bot,
-            entries: render_history(history),
+            entries: render_history(history, session_id),
         }
     }
 
@@ -146,13 +150,14 @@ impl TranscriptModel {
         model: &str,
         phase: &str,
         is_bot: bool,
+        session_id: &SessionId,
     ) -> Self {
         Self {
             title: title.unwrap_or("Untitled Session").to_owned(),
             model: model.to_owned(),
             phase: phase.to_owned(),
             is_bot,
-            entries: render_history(&snapshot.entries),
+            entries: render_history(&snapshot.entries, session_id),
         }
     }
 
@@ -187,10 +192,28 @@ impl TranscriptModel {
 /// calls/results and thinking, prose for everything else, and
 /// transients as muted one-shot notices (the refresh summary table).
 #[must_use]
-pub fn render_entry(entry: &ChatEntry) -> RenderedEntry {
+pub fn render_entry(entry: &ChatEntry, session_id: &SessionId) -> RenderedEntry {
     let (class, body, summary, is_disclosure, tool_status) = match &entry.kind {
-        ChatEntryKind::User { display, .. } => {
-            ("user", render_markdown(display), None, false, None)
+        ChatEntryKind::User {
+            display,
+            attachments,
+            ..
+        } => {
+            // Attached images render inline beneath the text, each served
+            // by the immutable attachment route — never a data: URI (the
+            // fragments must stay byte-small; the settle push would
+            // otherwise carry every image on every convergence).
+            let mut body = render_markdown(display);
+            for (ordinal, attachment) in attachments.iter().enumerate() {
+                body.push_str(&format!(
+                    "<img class=\"attachment\" src=\"{ATTACHMENT_PREFIX}{session_id}/{}/{}\" \
+                     alt=\"attached {}\">",
+                    entry.id,
+                    ordinal,
+                    escape_html(attachment.media_type()),
+                ));
+            }
+            ("user", body, None, false, None)
         }
         ChatEntryKind::Assistant(text) => ("assistant", render_markdown(text), None, false, None),
         ChatEntryKind::Actor { source, text } => (
@@ -335,10 +358,10 @@ pub fn summarize_arguments(arguments: &str, max: usize) -> String {
 
 /// Filters and renders a history slice — the one entry loop.
 #[must_use]
-pub fn render_history(history: &[ChatEntry]) -> Vec<RenderedEntry> {
+pub fn render_history(history: &[ChatEntry], session_id: &SessionId) -> Vec<RenderedEntry> {
     history
         .iter()
         .filter(|e| is_renderable(e))
-        .map(render_entry)
+        .map(|entry| render_entry(entry, session_id))
         .collect()
 }
