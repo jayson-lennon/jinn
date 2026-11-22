@@ -1101,7 +1101,11 @@ async fn mcp_toggle(
     .map_err(|error| fail(error.status(), error.sentence()))?;
     Ok(SseAction::new(vec![element_patch_inner(
         format!("#{}", crate::contract::MCP_MODAL_ID),
-        crate::regions::mcp_servers::modal_fragment(&shared, &form.session_id)?,
+        crate::regions::mcp_servers::modal_fragment(
+            &shared,
+            &form.session_id,
+            form.filter.as_deref().unwrap_or_default(),
+        )?,
     )]))
 }
 
@@ -1115,6 +1119,10 @@ struct ToolsToggleForm {
     session_id: String,
     /// The tool name, exactly as a rendered row carries it.
     tool: String,
+    /// The client's current filter text, echoed into the response's
+    /// rendered rows (absent or empty renders unfiltered).
+    #[serde(default)]
+    filter: Option<String>,
 }
 
 /// The revert POST's body: the open-time snapshot the dismissal posts
@@ -1152,11 +1160,15 @@ async fn tools_toggle(
     // must not re-execute the stamp's `data-init` nor nest a second
     // modal inside the open one. The fragment carries the rows
     // container itself, so the patch replaces it (an inner patch would
-    // nest a second `#tools-rows`).
+    // nest a second `#tools-rows`). The client's current filter rides
+    // the form and echoes into the rendered rows — the stale-fragment
+    // rule extends to the filtered view (an unfiltered response would
+    // flash rows the user filtered out).
     Ok(SseAction::new(vec![
         PatchElements::new(crate::regions::tools::rows_fragment(
             &shared,
             &form.session_id,
+            form.filter.as_deref().unwrap_or_default(),
         )?)
         .selector(crate::contract::TOOLS_ROWS_SELECTOR.to_owned())
         .mode(ElementPatchMode::Replace)
@@ -1201,7 +1213,11 @@ async fn skill_toggle(
         .map_err(|error| fail(error.status(), error.sentence()))?;
     Ok(SseAction::new(vec![element_patch_inner(
         format!("#{}", crate::contract::SKILL_MODAL_ID),
-        crate::regions::skills::modal_fragment(&shared, &form.session_id)?,
+        crate::regions::skills::modal_fragment(
+            &shared,
+            &form.session_id,
+            form.filter.as_deref().unwrap_or_default(),
+        )?,
     )]))
 }
 
@@ -1234,7 +1250,11 @@ async fn skill_load(
     Ok(SseAction::new(vec![
         element_patch_inner(
             format!("#{}", crate::contract::SKILL_MODAL_ID),
-            crate::regions::skills::modal_fragment(&shared, &form.session_id)?,
+            crate::regions::skills::modal_fragment(
+                &shared,
+                &form.session_id,
+                form.filter.as_deref().unwrap_or_default(),
+            )?,
         ),
         element_patch_inner(
             format!("#{}", crate::contract::TRANSCRIPT_ID),

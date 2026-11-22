@@ -169,3 +169,24 @@ test("typing into the filter keeps the modal open, Escape closes it", async ({
   await page.keyboard.press("Escape");
   await expect(modal).toBeHidden();
 });
+
+test("the filter input renders themed, not browser-default", async ({ page }) => {
+  // Given the picker open.
+  await openSession(page);
+  await page.locator(sel.PICKER_BUTTON).click();
+  const modal = page.locator(sel.PICKER_MODAL);
+  await expect(modal).toBeVisible();
+
+  // Then the filter input computes the stylesheet's dark background
+  // and border — the regression this pins is the class rule that
+  // never reached the element, leaving a browser-default white box.
+  const styles = await page
+    .locator(sel.PICKER_FILTER)
+    .evaluate((input) => {
+      const cs = getComputedStyle(input);
+      return { background: cs.backgroundColor, border: cs.borderStyle };
+    });
+  expect(styles.border).toBe("solid");
+  expect(styles.background).not.toBe("rgba(0, 0, 0, 0)");
+  expect(styles.background).not.toBe("rgb(255, 255, 255)");
+});

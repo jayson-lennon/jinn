@@ -193,3 +193,81 @@ test("the landing page's menu carries no skills item", async ({ page }) => {
   await expect(page.locator(sel.MENU_ITEM_SKILLS)).toHaveCount(0);
   await expect(page.locator(sel.MENU_ITEM_SESSIONS)).toBeVisible();
 });
+
+test("typing in the filter narrows the rows server-side with marked runs", async ({
+  page,
+}) => {
+  // Given the modal open with the scratch skill listed.
+  const modal = await openSkillsModal(page);
+  const row = page.locator(sel.SKILL_ROW(sel.SKILL));
+  await expect(row).toBeVisible();
+
+  // When typing a matching prefix with real keypresses (fill()
+  // dispatches no keydown, and typing must not dismiss the modal).
+  await page.locator(sel.SKILL_FILTER).click();
+  await page.keyboard.type(sel.SKILL.slice(0, 3));
+
+  // Then the row is still visible with a marked run — the server
+  // filtered and highlighted it.
+  await expect(row).toBeVisible();
+  await expect(row.locator("mark").first()).toHaveText(
+    sel.SKILL.slice(0, 3),
+  );
+
+  // And the input keeps what was typed (a re-pull never wipes it).
+  await expect(page.locator(sel.SKILL_FILTER)).toHaveValue(
+    sel.SKILL.slice(0, 3),
+  );
+
+  // And Escape dismisses the modal.
+  await page.keyboard.press("Escape");
+  await expect(modal).toBeHidden();
+});
+
+test("a toggle under a filter keeps the filtered view with the input intact", async ({
+  page,
+}) => {
+  // Given the modal open and a filter typed.
+  await openSkillsModal(page);
+  const query = sel.SKILL.slice(0, 3);
+  await page.locator(sel.SKILL_FILTER).click();
+  await page.keyboard.type(query);
+  const row = page.locator(sel.SKILL_ROW(sel.SKILL));
+  await expect(row.locator("mark").first()).toHaveText(query);
+
+  // When toggling the filtered-in row.
+  await row.click();
+
+  // Then the row re-renders disabled but still filtered in, and the
+  // input still carries the query — the toggle response rendered the
+  // view the user was looking at.
+  await expect(row).toBeVisible();
+  await expect(row).not.toHaveClass(/skill-row-enabled/);
+  await expect(page.locator(sel.SKILL_FILTER)).toHaveValue(query);
+
+  // And Escape dismisses (the plain skills modal has no revert).
+  await page.keyboard.press("Escape");
+  await expect(page.locator(sel.SKILL_MODAL).first()).toBeHidden();
+
+  // And reopening shows the unfiltered rows with the toggle kept (the
+  // filter is view-local; the enablement was committed). The reopen
+  // rides the still-armed re-pull effect, so wait for the pull to
+  // land — the input resets when the fresh fragment replaces the
+  // host, not at the click.
+  await page.locator(sel.MENU_BUTTON).click();
+  await page.locator(sel.MENU_ITEM_SKILLS).click();
+  const reopened = page.locator(sel.SKILL_MODAL);
+  await expect(reopened).toBeVisible();
+  await expect(page.locator(sel.SKILL_FILTER)).toHaveValue("", {
+    timeout: 10_000,
+  });
+  await expect(page.locator(sel.SKILL_ROW(sel.SKILL))).not.toHaveClass(
+    /skill-row-enabled/,
+  );
+  // Restore the spec's shared-state invariant: re-enable.
+  await page.locator(sel.SKILL_ROW(sel.SKILL)).click();
+  await expect(page.locator(sel.SKILL_ROW(sel.SKILL))).toHaveClass(
+    /skill-row-enabled/,
+    { timeout: 10_000 },
+  );
+});

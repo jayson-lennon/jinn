@@ -255,13 +255,12 @@ mod menu_region_tests {
             (contract::MENU_ITEM_THEME_DARK_ID, "dark"),
             (contract::MENU_ITEM_THEME_SYSTEM_ID, "system"),
         ] {
-            let item = html
-                .split_once(&format!("id=\"{id}\""))
-                .map(|(_, rest)| {
-                    rest.split_once('>')
-                        .map_or(String::new(), |(tag, _)| tag.to_owned())
-                })
-                .unwrap_or_default();
+            let item =
+                html.split_once(&format!("id=\"{id}\""))
+                    .map_or_else(String::new, |(_, rest)| {
+                        rest.split_once('>')
+                            .map_or_else(String::new, |(tag, _)| tag.to_owned())
+                    });
             assert!(
                 item.contains(&format!("'{}'", contract::THEME_PATH)),
                 "{id} posts to the theme endpoint: {item}"

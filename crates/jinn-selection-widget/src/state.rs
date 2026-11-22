@@ -444,3 +444,61 @@ fn match_label_terms(
     all_byte_indices.dedup();
     Some((total_score, all_byte_indices))
 }
+
+/// One run of a label's text: a whole number of grapheme clusters, and
+/// whether the filter matched it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextRun {
+    /// The run's text.
+    pub text: String,
+    /// Whether this run matched the filter (render highlighted).
+    pub matched: bool,
+}
+
+/// Splits `text` into [`TextRun`]s of matched and plain text, cutting on
+/// grapheme-cluster boundaries — the shared presentation partner of
+/// [`fuzzy_filter`].
+///
+/// `matched` holds **sorted** byte offsets into `text` (the positions
+/// [`fuzzy_filter`] returns for one label). An offset takes effect only
+/// when it lands exactly on a grapheme boundary; an offset inside a
+/// multi-byte cluster (SkimMatcherV2 matches per `char`, and a grapheme
+/// may group chars) or beyond the text is absorbed into the surrounding
+/// plain run. An empty `matched` or empty `text` yields one plain run.
+///
+/// This is the single splitting definition every rendered surface shares:
+/// a surface cutting a label into per-field runs remaps the offsets to
+/// each field's own slice and calls this per field, so highlight runs
+/// cannot drift between surfaces.
+#[must_use]
+pub fn split_matched_runs(text: &str, matched: &[usize]) -> Vec<TextRun> {
+    if matched.is_empty() || text.is_empty() {
+        return vec![TextRun {
+            text: text.to_owned(),
+            matched: false,
+        }];
+    }
+    let mut runs = Vec::new();
+    let mut current = String::new();
+    let mut in_match = false;
+    for (byte_offset, grapheme) in text.grapheme_indices(true) {
+        let is_matched = matched.binary_search(&byte_offset).is_ok();
+        if is_matched != in_match {
+            if !current.is_empty() {
+                runs.push(TextRun {
+                    text: std::mem::take(&mut current),
+                    matched: in_match,
+                });
+            }
+            in_match = is_matched;
+        }
+        current.push_str(grapheme);
+    }
+    if !current.is_empty() {
+        runs.push(TextRun {
+            text: current,
+            matched: in_match,
+        });
+    }
+    runs
+}

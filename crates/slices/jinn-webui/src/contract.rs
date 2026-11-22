@@ -471,6 +471,14 @@ pub const MCP_ROWS_ID: &str = "mcp-rows";
 /// server holds.
 pub const MCP_SERVER_DATA_ATTR: &str = "data-webui-server";
 
+/// The MCP modal's filter input — every keystroke re-queries the pull
+/// with the filter applied server-side (the persona/model pattern).
+pub const MCP_FILTER_ID: &str = "mcp-filter";
+
+/// The MCP filter text signal — bound to the filter input, read by the
+/// tick effect's re-pull URL, and echoed by the toggle POST's response.
+pub const SIGNAL_MCP_FILTER: &str = "mcpfilter";
+
 /// The MCP modal's open toggle (view-local signal).
 pub const SIGNAL_MCP_OPEN: &str = "mcpOpen";
 
@@ -529,6 +537,17 @@ pub const TOOLS_REVERT_STAMP_ID: &str = "tools-revert-stamp";
 /// The attribute a tools row carries its tool name in — the toggle
 /// POST's payload field, validated against the rows the modal renders.
 pub const TOOL_NAME_DATA_ATTR: &str = "data-webui-tool";
+
+/// The tools modal's filter input — every keystroke re-queries the
+/// **rows** pull with the filter applied server-side (the rows-only
+/// retarget is the revert guarantee; the modal skeleton and the stamp
+/// are never re-rendered by filtering).
+pub const TOOLS_FILTER_ID: &str = "tools-filter";
+
+/// The tools filter text signal — bound to the filter input, read by
+/// the tick effect's rows re-pull URL, and echoed by the toggle POST's
+/// response.
+pub const SIGNAL_TOOLS_FILTER: &str = "toolsfilter";
 
 /// The tools modal's open toggle (view-local signal).
 pub const SIGNAL_TOOLS_OPEN: &str = "toolsOpen";
@@ -617,6 +636,16 @@ pub const SKILL_NAME_DATA_ATTR: &str = "data-webui-skill";
 /// target the load POST rides, distinct from the row's own toggle
 /// click.
 pub const SKILL_LOAD_CLASS: &str = "skill-row-load";
+
+/// The skills modal's filter input — every keystroke re-queries the
+/// pull with the filter applied server-side (the persona/model
+/// pattern).
+pub const SKILL_FILTER_ID: &str = "skills-filter";
+
+/// The skills filter text signal — bound to the filter input, read by
+/// the tick effect's re-pull URL, and echoed by the toggle and load
+/// POSTs' responses.
+pub const SIGNAL_SKILLS_FILTER: &str = "skillsfilter";
 
 /// The skills modal's open toggle (view-local signal).
 pub const SIGNAL_SKILLS_OPEN: &str = "skillsOpen";
@@ -807,12 +836,14 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_MENU_MCP,
     MCP_MODAL_HOST_ID,
     MCP_MODAL_ID,
+    MCP_FILTER_ID,
     MCP_ROWS_ID,
     MCP_SERVER_DATA_ATTR,
     ACTION_MCP_TOGGLE,
     MENU_ITEM_TOOLS_ID,
     TOOLS_MODAL_HOST_ID,
     TOOLS_MODAL_ID,
+    TOOLS_FILTER_ID,
     TOOLS_ROWS_ID,
     TOOLS_REVERT_STAMP_ID,
     TOOL_NAME_DATA_ATTR,
@@ -821,6 +852,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_MENU_SKILLS,
     SKILL_MODAL_HOST_ID,
     SKILL_MODAL_ID,
+    SKILL_FILTER_ID,
     SKILL_ROWS_ID,
     SKILL_NAME_DATA_ATTR,
     SKILL_LOAD_CLASS,
