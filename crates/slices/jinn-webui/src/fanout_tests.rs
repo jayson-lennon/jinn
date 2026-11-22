@@ -515,6 +515,65 @@ async fn session_setup_completed_pushes_a_transcript_convergence_for_that_sessio
     );
 }
 
+#[rstest::rstest]
+#[tokio::test]
+async fn a_chat_entry_submitted_pushes_a_transcript_convergence_for_that_session() {
+    // Given a fan-out actor, a subscriber, and a seeded session with
+    // the entry whose submission the event announces (the queue drain
+    // or idle dispatch pushed it before publishing).
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    if let Some(session) = state.write().session.get_mut(&id) {
+        session.push_entry(jinn_core_types::ChatEntry::user("queued words"));
+    }
+
+    // When the entry-submitted event lands.
+    actor.on_chat_entry_submitted(&jinn_chat_input_msg::ChatEntrySubmitted {
+        session_id: id.clone(),
+        entry: jinn_core_types::ChatEntry::user("queued words"),
+    });
+
+    // Then the pushed envelope is a transcript-full convergence for
+    // that session — cursor 0, full replace, carrying the entry — and
+    // nothing else rides the event (no controls push: the composer's
+    // single writer is untouched).
+    let envelope = rx.try_recv().expect("the transcript push");
+    assert_eq!(envelope.kind, SseKind::TranscriptFull);
+    assert_eq!(envelope.session_id, id);
+    assert_eq!(envelope.cursor, 0);
+    assert!(envelope.html.contains("queued words"), "{}", envelope.html);
+    assert!(
+        rx.try_recv().is_err(),
+        "no other push rides the entry submission"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_entry_submission_flushes_the_partial_buffer_before_the_convergence() {
+    // Given tokens buffered for a live session mid-stream.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    actor.append_token(&token(&id, "partial"));
+
+    // When an entry-submitted event lands (the dispatch that drains a
+    // queued message, mid-stream).
+    actor.on_chat_entry_submitted(&jinn_chat_input_msg::ChatEntrySubmitted {
+        session_id: id.clone(),
+        entry: jinn_core_types::ChatEntry::user("queued words"),
+    });
+
+    // Then the partial flush lands BEFORE the convergence replace —
+    // the reverse order would let a later FlushTick re-append the
+    // buffered tokens on top of the full render for one batch window.
+    let first = rx.try_recv().expect("partial flush");
+    assert_eq!(first.kind, SseKind::Chat, "flush first");
+    assert!(first.html.contains("partial"), "{}", first.html);
+    let second = rx.try_recv().expect("convergence render");
+    assert_eq!(second.kind, SseKind::TranscriptFull, "convergence second");
+    assert!(rx.try_recv().is_err(), "exactly two pushes per event");
+}
+
 // ── The unread mark: set on an unseen settle ────────────────────────
 
 /// A phase-change event naming the transition.

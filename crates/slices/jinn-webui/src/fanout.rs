@@ -233,6 +233,14 @@ impl WebUiFanoutActor {
             // fragments only.
             .handles::<jinn_session_lifecycle_msg::SessionCreated>()
             .handles::<jinn_session_lifecycle_msg::SessionSetupCompleted>()
+            // An entry landed in history (idle-direct dispatch, queue
+            // drain, or an explicit push): the transcript-full
+            // convergence push carries it to the page within one batch
+            // window — the visibility path for a message queued while
+            // busy, whose optimistic entry the settle's convergence
+            // render wiped. A broadcast-legal Event; the handler pushes
+            // the region's convergence fragment only.
+            .handles::<jinn_chat_input_msg::ChatEntrySubmitted>()
             .handles::<FlushTick>()
             // Arms the first flush ~1 tick after spawn; the chain
             // self-perpetuates from the handler.
@@ -672,6 +680,42 @@ impl WebUiFanoutActor {
             html: transcript_html,
         });
     }
+
+    /// A chat entry landed in history: flush the session's pending
+    /// token buffer first, then push the transcript-full convergence.
+    /// Synchronous work only; `async` is the `MsgHandler::handle`
+    /// signature's shape, dropped here.
+    ///
+    /// The flush runs **before** the replace for the same reason a
+    /// settle flushes first: the dispatch that published this event
+    /// follows a convergence render (a settle push or this push) with
+    /// an inner replace that would otherwise re-append any tokens still
+    /// buffered when a later `FlushTick` lands it. The convergence push
+    /// itself is the settle's transcript shape — cursor 0, the region's
+    /// guard render, an idempotent full replace — so it restores a
+    /// queued message's wiped optimistic entry and cannot double an
+    /// entry the send POST's optimistic append already added.
+    ///
+    /// This fires on ordinary sends too (the idle-direct dispatch
+    /// publishes the same event); the convergence render makes that a
+    /// harmless overlap, exactly like the setup-completed path above.
+    pub(crate) fn on_chat_entry_submitted(
+        &mut self,
+        msg: &jinn_chat_input_msg::ChatEntrySubmitted,
+    ) {
+        self.flush_session(&msg.session_id, 0);
+        let transcript_html = {
+            let guard = self.state.read();
+            crate::region::owner_of(SseKind::TranscriptFull)
+                .map_or_default(|region| region.render(&msg.session_id, &guard))
+        };
+        self.broadcast(SseEnvelope {
+            kind: SseKind::TranscriptFull,
+            session_id: msg.session_id.clone(),
+            cursor: 0,
+            html: transcript_html,
+        });
+    }
 }
 
 /// The settle push order: every region's `settle_kinds` flattened in
@@ -875,5 +919,15 @@ impl MsgHandler<jinn_session_lifecycle_msg::SessionSetupCompleted> for WebUiFano
         _ctx: &mut MsgCtx<'_>,
     ) {
         self.on_session_setup_completed(msg);
+    }
+}
+
+impl MsgHandler<jinn_chat_input_msg::ChatEntrySubmitted> for WebUiFanoutActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_chat_input_msg::ChatEntrySubmitted,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        self.on_chat_entry_submitted(msg);
     }
 }
