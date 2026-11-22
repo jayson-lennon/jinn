@@ -365,6 +365,39 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
 
 #[rstest::rstest]
 #[test]
+fn the_composer_advertises_no_keyboard_send_in_either_phase() {
+    // Given idle and busy controls fragments.
+    let idle = templates::render(&templates::ControlsTemplate::with_contract(
+        "00000000-0000-0000-0000-000000000000".to_owned(),
+        false,
+    ))
+    .expect("idle controls render");
+    let busy = templates::render(&templates::ControlsTemplate::with_contract(
+        "00000000-0000-0000-0000-000000000000".to_owned(),
+        true,
+    ))
+    .expect("busy controls render");
+
+    // Then neither phase renders an element-level keydown binding —
+    // mobile soft keyboards fire Enter for newlines, so sending rides
+    // the button's click alone.
+    for fragment in [&idle, &busy] {
+        assert!(
+            !fragment.contains("data-on:keydown"),
+            "the composer must not bind keydown; sending is click-only: \
+             {fragment}"
+        );
+        // And the placeholder names no keys — no hint about an
+        // interaction the composer does not have.
+        assert!(
+            fragment.contains("placeholder=\"Message…\""),
+            "the placeholder must be hint-free: {fragment}"
+        );
+    }
+}
+
+#[rstest::rstest]
+#[test]
 fn the_model_picker_names_the_action_the_client_maps_to_the_model_endpoint() {
     // Given a model-picker modal with one available row.
     let fragment = templates::render(&templates::ModelRowTemplate::from_filtered(
