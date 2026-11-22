@@ -990,6 +990,56 @@ async fn corrective_dump_argument_fails_before_the_server_call() {
     );
 }
 
+/// An `ExecuteTool` whose dump_to_path names a discard sink (`/dev/null`,
+/// the observed misreading) fails with the corrective contract text before
+/// the stub server is invoked — same rejection as the boolean spelling.
+#[rstest::rstest]
+#[tokio::test]
+async fn discard_sink_dump_argument_fails_before_the_server_call() {
+    // Given an McpActor wired to the stub server and a completion recorder.
+    let harness = TestHarness::new().await;
+    let recorder = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+    let session_id = SessionId::new();
+    let dir = jinn_testutil::tempdir();
+    let cwd = dir.path.as_path().to_string_lossy().into_owned();
+    let (_services, _actor_path) = spawn_actor_against_stub(&harness, &session_id).await;
+
+    // When calling echo with dump_to_path naming /dev/null.
+    let tool_call = ToolCall {
+        id: "tc_discard_sink".into(),
+        name: "mcp__stub__echo".into(),
+        arguments: r#"{"message": "never echoed", "dump_to_path": "/dev/null"}"#.to_owned(),
+    };
+    harness
+        .publish(ExecuteTool {
+            turn: fixture_turn(),
+            session_id: session_id.clone(),
+            tool_call,
+            dispatched_at: jiff::Timestamp::now(),
+            max_output_lines: None,
+            max_output_bytes: None,
+            cwd: Some(cwd),
+        })
+        .await;
+
+    // Then the published result fails with the corrective text naming the
+    // discard sink — a failure message the echo server could never produce.
+    let messages = await_recorded(&recorder, 1, Duration::from_secs(3)).await;
+    assert_eq!(messages.len(), 1, "got: {messages:?}");
+    let result = &messages[0].result;
+    assert!(!result.success, "{result:?}");
+    assert!(
+        result.content.contains("dump_to_path"),
+        "expected the corrective contract text, got: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("discard sink"),
+        "expected the discard-sink teaching, got: {}",
+        result.content
+    );
+}
+
 /// An `ExecuteTool` carrying `dump_to_path` without a cwd skips the dump —
 /// the published result is the plain server response, never a wrong path.
 #[rstest::rstest]

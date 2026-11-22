@@ -113,7 +113,7 @@ fn sse_envelope_serializes_its_kind_for_the_wire() {
     let id = SessionId::new();
     let envelopes = (
         SseEnvelope {
-            kind: SseKind::Chat,
+            kind: SseKind::Streaming,
             session_id: id.clone(),
             cursor: 3,
             html: "<span>x</span>".to_owned(),
@@ -143,9 +143,12 @@ fn sse_envelope_serializes_its_kind_for_the_wire() {
 
     // Then the kind serializes under its kebab-case name and the
     // cursor rides along; the other kinds name themselves distinctly.
-    assert!(json.contains("\"kind\":\"chat\""), "{json}");
+    assert!(json.contains("\"kind\":\"streaming\""), "{json}");
     assert!(json.contains("\"cursor\":3"), "{json}");
-    assert_ne!(SseKind::Chat.event_name(), SseKind::Controls.event_name());
+    assert_ne!(
+        SseKind::Streaming.event_name(),
+        SseKind::Controls.event_name()
+    );
     assert_ne!(
         SseKind::Sessions.event_name(),
         SseKind::TranscriptFull.event_name()

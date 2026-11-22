@@ -585,13 +585,16 @@ async fn the_model_picker_refresh_post_answers_over_the_wire_without_blocking() 
         .await
         .expect("refresh post completes");
 
-    // Then it answers 200 with the status wrapper inside a patch
-    // elements body (no discovery happens in the harness — a blocking
-    // POST would hang), and never the modal.
+    // Then it answers 200 with the button inside a patch elements
+    // body (no discovery happens in the harness — a blocking POST
+    // would hang), and never the modal.
     assert_eq!(response.status(), 200);
     let body = response.text().await.expect("body reads");
     assert!(
-        body.contains(&format!("id=\"{}\"", crate::contract::MODEL_STATUS_ID)),
+        body.contains(&format!(
+            "id=\"{}\"",
+            crate::contract::MODEL_PICKER_BUTTON_ID
+        )),
         "{body}"
     );
     assert!(
@@ -626,10 +629,11 @@ async fn the_page_shell_carries_the_status_wrapper_and_the_modal_host() {
         .expect("the request completes");
     let body = response.text().await.expect("body reads");
 
-    // Then the shell carries the status wrapper (label + picker inside
-    // it) and the modal host — the two hosts the client swaps into.
+    // Then the shell carries the model area (the picker button inside
+    // its host span) and the modal host — the two hosts the client
+    // swaps into.
     assert!(
-        body.contains(&format!("id=\"{}\"", crate::contract::MODEL_STATUS_ID)),
+        body.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_ID)),
         "{body}"
     );
     assert!(

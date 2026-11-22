@@ -62,11 +62,8 @@ fn row(session_id: jinn_core_types::SessionId, title: &str, active: bool) -> Ses
 /// `GET /web/session/{id}` serves.
 fn rendered_page() -> String {
     let sessions = sessions_fragment_of(&[]);
-    let transcript = templates::render(&templates::TranscriptTemplate {
-        entries: Vec::new(),
-        start: 0,
-    })
-    .expect("an empty transcript renders");
+    let transcript = templates::render(&templates::TranscriptTemplate::new(Vec::new(), 0))
+        .expect("an empty transcript renders");
     let controls = templates::render(&templates::ControlsTemplate::with_contract(
         "00000000-0000-0000-0000-000000000000".to_owned(),
         false,
@@ -77,11 +74,6 @@ fn rendered_page() -> String {
         String::new(),
     ))
     .expect("an empty picker renders");
-    let model = templates::render(&templates::ModelStatusTemplate::with_contract(
-        String::new(),
-        button,
-    ))
-    .expect("an empty status wrapper renders");
     templates::render(&templates::PageTemplate {
         style: {
             let leaked: &'static str = Box::leak(templates::page_style().into_boxed_str());
@@ -93,7 +85,8 @@ fn rendered_page() -> String {
         sessions_html: sessions,
         transcript_html: transcript,
         controls_html: controls,
-        status_html: model,
+        button_html: button,
+        picker_host_id: contract::MODEL_PICKER_ID,
         menu_html: crate::regions::menu::menu_fragment("00000000-0000-0000-0000-000000000000"),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
@@ -265,7 +258,8 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         sessions_html: sessions,
         transcript_html: String::new(),
         controls_html: String::new(),
-        status_html: String::new(),
+        button_html: String::new(),
+        picker_host_id: contract::MODEL_PICKER_ID,
         menu_html: crate::regions::menu::menu_fragment(&id.to_string()),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
@@ -343,15 +337,75 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
     ))
     .expect("busy controls render");
 
-    // Then the idle fragment binds send (its endpoint spelled from
-    // the contract) and the busy one binds cancel.
+    // Then the idle fragment binds send alone (its endpoint spelled
+    // from the contract) and the busy one binds cancel.
     assert!(
         idle.contains(&format!("@post('{}'", contract::SEND_PATH)),
         "{idle}"
     );
     assert!(
+        !idle.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_QUEUE
+        )),
+        "the idle fragment renders no queue button: {idle}"
+    );
+    assert!(
         busy.contains(&format!("@post('{}'", contract::CANCEL_PATH)),
         "{busy}"
+    );
+    // And the busy fragment's queue button posts the send endpoint —
+    // the same wire the idle send button uses, so a busy-phase enqueue
+    // is the session actor's routing decision, not a new route — and
+    // no send action is named (send and queue are distinct values).
+    assert!(
+        busy.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_QUEUE
+        )),
+        "{busy}"
+    );
+    assert!(
+        busy.contains(&format!("@post('{}'", contract::SEND_PATH)),
+        "{busy}"
+    );
+    assert!(
+        !busy.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_SEND
+        )),
+        "send and queue are distinct action values: {busy}"
+    );
+    // And the queue button precedes the cancel button in the busy
+    // fragment's DOM order, while the idle fragment names neither.
+    let busy_queue_at = busy
+        .find(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_QUEUE
+        ))
+        .expect("queue action present");
+    let busy_cancel_at = busy
+        .find(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_CANCEL
+        ))
+        .expect("cancel action present");
+    assert!(
+        busy_queue_at < busy_cancel_at,
+        "queue button before cancel in the busy fragment: {busy}"
+    );
+    assert!(
+        !idle.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_CANCEL
+        )),
+        "{idle}"
     );
     // And the composer carries the input id the client reads the
     // message text from.
@@ -359,6 +413,39 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
         assert!(
             fragment.contains(&format!("id=\"{}\"", contract::INPUT_ID)),
             "{fragment}"
+        );
+    }
+}
+
+#[rstest::rstest]
+#[test]
+fn the_composer_advertises_no_keyboard_send_in_either_phase() {
+    // Given idle and busy controls fragments.
+    let idle = templates::render(&templates::ControlsTemplate::with_contract(
+        "00000000-0000-0000-0000-000000000000".to_owned(),
+        false,
+    ))
+    .expect("idle controls render");
+    let busy = templates::render(&templates::ControlsTemplate::with_contract(
+        "00000000-0000-0000-0000-000000000000".to_owned(),
+        true,
+    ))
+    .expect("busy controls render");
+
+    // Then neither phase renders an element-level keydown binding —
+    // mobile soft keyboards fire Enter for newlines, so sending rides
+    // the button's click alone.
+    for fragment in [&idle, &busy] {
+        assert!(
+            !fragment.contains("data-on:keydown"),
+            "the composer must not bind keydown; sending is click-only: \
+             {fragment}"
+        );
+        // And the placeholder names no keys — no hint about an
+        // interaction the composer does not have.
+        assert!(
+            fragment.contains("placeholder=\"Message…\""),
+            "the placeholder must be hint-free: {fragment}"
         );
     }
 }
@@ -839,7 +926,7 @@ fn every_sse_kind_maps_to_a_datastar_transport() {
     // Given every SSE kind the server can push (derived from the
     // enum, not a hand-maintained list).
     let kinds = [
-        jinn_webui_msg::SseKind::Chat,
+        jinn_webui_msg::SseKind::Streaming,
         jinn_webui_msg::SseKind::Controls,
         jinn_webui_msg::SseKind::Sessions,
         jinn_webui_msg::SseKind::Models,
