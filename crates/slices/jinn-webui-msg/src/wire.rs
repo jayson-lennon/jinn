@@ -126,6 +126,11 @@ pub struct McpToggleForm {
     /// The server name, exactly as a rendered row carries it (the
     /// `[mcp.<name>]` table key).
     pub server: String,
+    /// The client's current filter text, echoed into the response's
+    /// re-rendered modal (the stale-fragment rule extends to the
+    /// filtered view). Absent or empty renders unfiltered.
+    #[serde(default, alias = "filter")]
+    pub filter: Option<String>,
 }
 
 /// `POST /web/skills/toggle` — toggle one skill's enablement for a
@@ -147,6 +152,11 @@ pub struct SkillToggleForm {
     /// The skill name, exactly as a rendered row carries it (the
     /// frontmatter `name`).
     pub skill: String,
+    /// The client's current filter text, echoed into the response's
+    /// re-rendered modal (the stale-fragment rule extends to the
+    /// filtered view). Absent or empty renders unfiltered.
+    #[serde(default, alias = "filter")]
+    pub filter: Option<String>,
 }
 
 /// `POST /web/skills/load` — force-load a skill into a session's
@@ -166,6 +176,11 @@ pub struct SkillLoadForm {
     /// The skill name, exactly as a rendered row carries it (the
     /// frontmatter `name`).
     pub skill: String,
+    /// The client's current filter text, echoed into the response's
+    /// re-rendered modal (the stale-fragment rule extends to the
+    /// filtered view). Absent or empty renders unfiltered.
+    #[serde(default, alias = "filter")]
+    pub filter: Option<String>,
 }
 
 /// `POST /web/session/{id}/activate` — activate a session.

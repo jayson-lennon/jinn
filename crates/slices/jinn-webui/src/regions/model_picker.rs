@@ -271,9 +271,9 @@ pub const MODEL_PICKER_CSS: &str = r#"
                             max-height: 70vh; display: flex; flex-direction: column; }
 .model-picker-modal-head { display: flex; gap: 8px; padding: 10px;
                            border-bottom: 1px solid var(--border); }
-.model-picker-filter { flex: 1; background: var(--bg); color: var(--fg);
-                       border: 1px solid var(--border); border-radius: 6px;
-                       padding: 6px 8px; font: inherit; }
+#model-picker-filter { flex: 1; background: var(--bg); color: var(--fg);
+                      border: 1px solid var(--border); border-radius: 6px;
+                      padding: 6px 8px; font: inherit; }
 .model-picker-refresh { background: var(--panel); color: var(--fg);
                         border: 1px solid var(--border); border-radius: 6px;
                         padding: 6px 10px; font: inherit; cursor: pointer; }

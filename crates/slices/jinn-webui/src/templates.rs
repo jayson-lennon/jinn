@@ -280,9 +280,8 @@ pub struct PageTemplate {
     pub controls_html: String,
     /// The menu fragment (hamburger + panel), rendered inline.
     pub menu_html: String,
-    /// The seeded unread count — the sessions button's attention
-    /// signal value at boot (the include of `page_root.html` shares
-    /// this struct's context).
+    /// The render-time unread-mark count — the menu's sessions
+    /// button badge's seeded value.
     pub sessions_attention: usize,
     /// `/vendor/` — the script tag's URL prefix.
     pub vendor_prefix: &'static str,
@@ -339,6 +338,9 @@ pub struct PageTemplate {
     /// The menu scrim's id — the static shell overlay behind the
     /// slide-in menu panel (stacked above the drawer scrim).
     pub menu_scrim_id: &'static str,
+    /// The session-switch interstitial's id — the loading overlay a
+    /// session-row click raises; static shell markup like the scrims.
+    pub switch_overlay_id: &'static str,
     /// The viewed session's stream URL, empty on the landing page —
     /// the `data-init` `@get` binds to it; the runtime keeps the
     /// fetch-stream open (with retries) for the page's lifetime and
@@ -366,7 +368,12 @@ impl PageTemplate {
     /// The no-session landing page: sessions list only, every other
     /// region empty, cursor zero.
     #[must_use]
-    pub fn landing(sessions_html: String, menu_html: String, attention_count: usize, web_theme: String) -> Self {
+    pub fn landing(
+        sessions_html: String,
+        menu_html: String,
+        attention_count: usize,
+        web_theme: String,
+    ) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
@@ -399,6 +406,7 @@ impl PageTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             stream_url: String::new(),
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
@@ -461,6 +469,7 @@ impl PageTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
@@ -535,6 +544,8 @@ pub struct PageRootTemplate {
     pub drawer_scrim_id: &'static str,
     /// The menu scrim's id.
     pub menu_scrim_id: &'static str,
+    /// The session-switch interstitial's id.
+    pub switch_overlay_id: &'static str,
     /// The sessions pull's route — the list's effect re-pulls it.
     pub sessions_route: &'static str,
     /// The activate POST's route prefix — the rename editor's target.
@@ -543,8 +554,8 @@ pub struct PageRootTemplate {
     /// the `data-init` `@get` binding the root carries on session
     /// pages, so a navigation patch re-opens the stream by itself.
     pub stream_url: String,
-    /// The seeded unread count — the sessions button's attention
-    /// signal value at boot, correct before any push arrives.
+    /// The render-time unread-mark count — the menu's sessions
+    /// button badge's seeded value in the root's signal seed.
     pub sessions_attention: usize,
     /// The persisted color mode seeding the `webTheme` signal — the
     /// same value the full page render seeds.
@@ -569,7 +580,7 @@ impl PageRootTemplate {
         controls_html: String,
         button_html: String,
         menu_html: String,
-        sessions_attention: usize,
+        attention_count: usize,
         web_theme: String,
     ) -> Self {
         Self {
@@ -601,9 +612,11 @@ impl PageRootTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
+            sessions_attention: attention_count,
             web_theme,
         }
     }
@@ -851,9 +864,12 @@ pub struct MenuTemplate {
     pub skills_picker_url: String,
     /// The skills modal host's CSS selector — the pull's swap target.
     pub skills_modal_host_selector: &'static str,
-    /// The seeded unread count for the sessions button's badge and
-    /// attention class — the render-time size of the instance's
-    /// unread-mark set.
+    /// The titlebar sessions button's id — the drawer toggle with its
+    /// unread badge.
+    pub sessions_button_id: &'static str,
+    /// The badge span's id — the unread count.
+    pub sessions_button_count_id: &'static str,
+    /// The render-time unread-mark count — the badge's seeded value.
     pub attention_count: usize,
     /// The theme control's host id — the segmented Light/Dark/System
     /// control at the panel's tail (mode binds app-wide, not
@@ -910,6 +926,9 @@ impl MenuTemplate {
             menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
             skills_picker_url: format!("{}{viewed_session}", contract::SKILL_PICKER_PREFIX),
             skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
+            sessions_button_id: contract::SESSIONS_BUTTON_ID,
+            sessions_button_count_id: contract::SESSIONS_BUTTON_COUNT_ID,
+            sessions_attention: attention_count,
             menu_item_theme_id: contract::MENU_ITEM_THEME_ID,
             menu_item_theme_light_id: contract::MENU_ITEM_THEME_LIGHT_ID,
             menu_item_theme_dark_id: contract::MENU_ITEM_THEME_DARK_ID,
@@ -1273,16 +1292,23 @@ impl PersonaModalTemplate {
 
 /// One MCP server row of the MCP servers modal: the shared row
 /// builder's output (the TUI inspector consumes the same builder)
-/// plus the contract hooks the toggle POST needs. The status badge's
-/// class and label derive from the row's connection status — the
-/// TUI's `ServerRowState::derive` semantics verbatim (`None`/starting
-/// → "starting", running → "running", dead → "dead"), never
-/// re-derived here.
+/// plus the contract hooks the toggle POST needs and the
+/// filter-highlight segments. The status badge's class and label
+/// derive from the row's connection status — the TUI's
+/// `ServerRowState::derive` semantics verbatim (`None`/starting →
+/// "starting", running → "running", dead → "dead"), never re-derived
+/// here.
 #[derive(Template)]
 #[template(path = "mcp_row.html")]
 pub struct McpRowTemplate {
     /// The shared builder's row data.
     pub row: jinn_mcp_msg::McpServerRow,
+    /// The name field split into matched/plain runs from the fuzzy
+    /// filter — matched runs render in `<mark>`. One plain run of the
+    /// full text when there is no filter.
+    pub name_segments: Vec<jinn_selection_widget::TextRun>,
+    /// The description field, split like `name_segments`.
+    pub description_segments: Vec<jinn_selection_widget::TextRun>,
     /// The attribute a row names its server with — the toggle POST's
     /// payload field.
     pub server_attr: &'static str,
@@ -1297,21 +1323,28 @@ pub struct McpRowTemplate {
     pub status_class: &'static str,
     /// The status badge's label.
     pub status_label: &'static str,
+    /// The filter text signal's name — the row's toggle POST echoes it
+    /// so the response renders the filtered view.
+    pub filter_signal: &'static str,
 }
 
 impl McpRowTemplate {
-    /// Builds the template from a shared-builder row: the badge is the
-    /// msg crate's shared derivation — enablement first (a disabled
-    /// server reads `off` even when the runtime cell still holds the
-    /// killed connection's last report), then the connection status
-    /// with no-report rendered as `starting`.
+    /// Builds the template from a filtered shared-builder row: the
+    /// badge is the msg crate's shared derivation — enablement first
+    /// (a disabled server reads `off` even when the runtime cell still
+    /// holds the killed connection's last report), then the connection
+    /// status with no-report rendered as `starting`.
     #[must_use]
-    pub fn from_row(row: jinn_mcp_msg::McpServerRow) -> Self {
-        let badge = jinn_mcp_msg::McpRowBadge::derive(row.enabled, row.status);
+    pub fn from_filtered(filtered: jinn_mcp_msg::FilteredMcpRow) -> Self {
+        let segments = filtered.row.segments(&filtered.match_indices);
+        let badge = jinn_mcp_msg::McpRowBadge::derive(filtered.row.enabled, filtered.row.status);
         let status_label = badge.label();
         let status_class = status_label;
         Self {
-            row,
+            row: filtered.row,
+            name_segments: segments.name,
+            description_segments: segments.description,
+            filter_signal: contract::SIGNAL_MCP_FILTER,
             server_attr: contract::MCP_SERVER_DATA_ATTR,
             action_attr: contract::ACTION_DATA_ATTR,
             toggle_action: contract::ACTION_MCP_TOGGLE,
@@ -1322,19 +1355,28 @@ impl McpRowTemplate {
     }
 }
 
-/// The MCP modal: the overlay with the unfiltered TUI-parity rows.
-/// Rendered into the MCP modal host by the GET pull; the client
-/// toggles its visibility, and the `mcpTick` effect re-pulls the rows
-/// when the coordinator's stored event lands (the modelsTick
-/// pattern). The rows arrive pre-rendered (each [`McpRowTemplate`]
-/// renders first — the shape the persona modal's rows use).
+/// The MCP modal: the overlay with the filter input and the filtered
+/// TUI-parity rows. Rendered into the MCP modal host by the GET pull
+/// (with the filter applied server-side); the client toggles its
+/// visibility, and the `mcpTick` effect re-pulls the rows when the
+/// coordinator's stored event lands (the modelsTick pattern). The
+/// rows arrive pre-rendered (each [`McpRowTemplate`] renders first —
+/// the shape the persona modal's rows use).
 #[derive(Template)]
 #[template(path = "mcp_modal.html")]
 pub struct McpModalTemplate {
     /// The pre-rendered rows.
     pub rows: Vec<String>,
+    /// The filter text the rows were rendered with (the input's
+    /// initial value, so a re-pull keeps what the user typed).
+    pub filter: String,
     /// The modal overlay's id.
     pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The filter text signal's name — the input binds it; the rows
+    /// effect reads it.
+    pub filter_signal: &'static str,
     /// The rows container's id.
     pub rows_id: &'static str,
     /// The modal host span's id — the pull's swap target.
@@ -1346,10 +1388,13 @@ pub struct McpModalTemplate {
 impl McpModalTemplate {
     /// Builds the template with the contract's hooks filled.
     #[must_use]
-    pub fn with_contract(rows: Vec<String>) -> Self {
+    pub fn with_contract(rows: Vec<String>, filter: String) -> Self {
         Self {
             rows,
+            filter,
             modal_id: contract::MCP_MODAL_ID,
+            filter_id: contract::MCP_FILTER_ID,
+            filter_signal: contract::SIGNAL_MCP_FILTER,
             rows_id: contract::MCP_ROWS_ID,
             modal_host_id: contract::MCP_MODAL_HOST_ID,
             picker_route: contract::MCP_PICKER_PREFIX,
@@ -1357,15 +1402,25 @@ impl McpModalTemplate {
     }
 }
 
-/// One row of the tools modal: the TUI picker's ✓/✗ enablement mark
-/// rendered as HTML. The row is a plain render over the shared
-/// vocabulary's [`jinn_tools_msg::WebToolRow`] — no badge, no status:
-/// the tool list has no runtime half to report on.
+/// One row of the tools modal: the TUI picker's ✓/✓ enablement mark
+/// rendered as HTML. The row renders the shared vocabulary's
+/// [`jinn_tools_msg::WebToolRow`] with its filter-highlight segments
+/// — no badge, no status: the tool list has no runtime half to report
+/// on.
 #[derive(Template)]
 #[template(path = "tools_row.html")]
 pub struct ToolsRowTemplate {
     /// The shared vocabulary's row data.
     pub row: jinn_tools_msg::WebToolRow,
+    /// The name field split into matched/plain runs from the fuzzy
+    /// filter — matched runs render in `<mark>`. One plain run of the
+    /// full text when there is no filter.
+    pub name_segments: Vec<jinn_selection_widget::TextRun>,
+    /// The description field, split like `name_segments`.
+    pub description_segments: Vec<jinn_selection_widget::TextRun>,
+    /// The filter text signal's name — the row's toggle POST echoes it
+    /// so the response renders the filtered view.
+    pub filter_signal: &'static str,
     /// The attribute a row names its tool with — the toggle POST's
     /// payload field.
     pub tool_attr: &'static str,
@@ -1378,11 +1433,15 @@ pub struct ToolsRowTemplate {
 }
 
 impl ToolsRowTemplate {
-    /// Builds the template from a shared-vocabulary row.
+    /// Builds the template from a filtered shared-vocabulary row.
     #[must_use]
-    pub fn from_row(row: jinn_tools_msg::WebToolRow) -> Self {
+    pub fn from_filtered(filtered: jinn_tools_msg::FilteredWebToolRow) -> Self {
+        let segments = filtered.row.segments(&filtered.match_indices);
         Self {
-            row,
+            row: filtered.row,
+            name_segments: segments.name,
+            description_segments: segments.description,
+            filter_signal: contract::SIGNAL_TOOLS_FILTER,
             tool_attr: contract::TOOL_NAME_DATA_ATTR,
             action_attr: contract::ACTION_DATA_ATTR,
             toggle_action: contract::ACTION_TOOLS_TOGGLE,
@@ -1443,8 +1502,16 @@ impl ToolsRowsTemplate {
 pub struct ToolsModalTemplate {
     /// The pre-rendered rows.
     pub rows: Vec<String>,
+    /// The filter text the rows were rendered with (the input's
+    /// initial value, so a re-pull keeps what the user typed).
+    pub filter: String,
     /// The modal overlay's id.
     pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The filter text signal's name — the input binds it; the rows
+    /// effect reads it.
+    pub filter_signal: &'static str,
     /// The rows container's id.
     pub rows_id: &'static str,
     /// The revert snapshot's stamp element id.
@@ -1470,6 +1537,7 @@ impl ToolsModalTemplate {
     #[must_use]
     pub fn with_contract(
         rows: Vec<String>,
+        filter: String,
         snapshot: Option<&jinn_core_types::NameFilter>,
         viewed_session: &str,
     ) -> Self {
@@ -1486,7 +1554,10 @@ impl ToolsModalTemplate {
         );
         Self {
             rows,
+            filter,
             modal_id: contract::TOOLS_MODAL_ID,
+            filter_id: contract::TOOLS_FILTER_ID,
+            filter_signal: contract::SIGNAL_TOOLS_FILTER,
             rows_id: contract::TOOLS_ROWS_ID,
             revert_stamp_id: contract::TOOLS_REVERT_STAMP_ID,
             revert_snapshot,
@@ -1499,10 +1570,11 @@ impl ToolsModalTemplate {
 
 /// One skill row of the skills modal: the discovered [`Skill`][skill]
 /// stamped with the contract hooks the toggle and load POSTs need,
-/// plus the enablement mark, source badge, and loaded state the TUI
-/// picker's row vocabulary mirrors. Built from the msg-crate `Skill`
-/// plus session accessors — never the TUI's `SkillEntry` (that carries
-/// the theme and feeds ratatui line rendering).
+/// plus the enablement mark, filter-highlight segments, source badge,
+/// and loaded state the TUI picker's row vocabulary mirrors. Built
+/// from the msg crate's filtered skill rows — never the TUI's
+/// `SkillEntry` (that carries the theme and feeds ratatui line
+/// rendering).
 ///
 /// [skill]: jinn_skills_msg::Skill
 #[derive(Template)]
@@ -1513,6 +1585,12 @@ pub struct SkillRowTemplate {
     /// Whether the skill passes the session's current filter — the
     /// enabled mark (● vs ○, the TUI marker vocabulary).
     pub enabled: bool,
+    /// The name field split into matched/plain runs from the fuzzy
+    /// filter — matched runs render in `<mark>`. One plain run of the
+    /// full text when there is no filter.
+    pub name_segments: Vec<jinn_selection_widget::TextRun>,
+    /// The description field, split like `name_segments`.
+    pub description_segments: Vec<jinn_selection_widget::TextRun>,
     /// The source badge's class suffix (`project`/`global`); global
     /// skills render no badge, the TUI badge rule.
     pub source_class: &'static str,
@@ -1521,6 +1599,9 @@ pub struct SkillRowTemplate {
     /// Whether the row renders a source badge — global skills render
     /// none (the TUI badge rule), project skills badge.
     pub has_source_badge: bool,
+    /// The filter text signal's name — the row's toggle and load
+    /// POSTs echo it so the responses render the filtered view.
+    pub filter_signal: &'static str,
     /// The attribute a row names its skill with — the toggle and load
     /// POSTs' payload field.
     pub skill_attr: &'static str,
@@ -1539,11 +1620,13 @@ pub struct SkillRowTemplate {
 }
 
 impl SkillRowTemplate {
-    /// Builds the template from the discovered skill and the session's
+    /// Builds the template from a filtered skill and the session's
     /// enablement read: the source badge follows the TUI badge rule
     /// (project-scoped skills badge, global skills do not).
     #[must_use]
-    pub fn from_skill(skill: jinn_skills_msg::Skill, enabled: bool) -> Self {
+    pub fn from_filtered(filtered: jinn_skills_msg::FilteredSkillRow, enabled: bool) -> Self {
+        let segments = filtered.segments();
+        let skill = filtered.skill;
         let (source_class, source_label, has_source_badge) = match &skill.source {
             jinn_skills_msg::SkillSource::Project { .. } => ("project", "project", true),
             jinn_skills_msg::SkillSource::Global => ("global", "", false),
@@ -1551,6 +1634,9 @@ impl SkillRowTemplate {
         Self {
             skill,
             enabled,
+            name_segments: segments.name,
+            description_segments: segments.description,
+            filter_signal: contract::SIGNAL_SKILLS_FILTER,
             source_class,
             source_label,
             has_source_badge,
@@ -1565,8 +1651,9 @@ impl SkillRowTemplate {
     }
 }
 
-/// The skills modal: the overlay with the unfiltered TUI-parity rows.
-/// Rendered into the skills modal host by the GET pull; the client
+/// The skills modal: the overlay with the filter input and the
+/// filtered TUI-parity rows. Rendered into the skills modal host by
+/// the GET pull (with the filter applied server-side); the client
 /// toggles its visibility, and the `skillsTick` effect re-pulls the
 /// rows when a discovery scan reports (the mcpTick pattern —
 /// discovery lands async after the modal can be opened). The rows
@@ -1577,8 +1664,16 @@ impl SkillRowTemplate {
 pub struct SkillModalTemplate {
     /// The pre-rendered rows.
     pub rows: Vec<String>,
+    /// The filter text the rows were rendered with (the input's
+    /// initial value, so a re-pull keeps what the user typed).
+    pub filter: String,
     /// The modal overlay's id.
     pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The filter text signal's name — the input binds it; the rows
+    /// effect reads it.
+    pub filter_signal: &'static str,
     /// The rows container's id.
     pub rows_id: &'static str,
     /// The modal host span's id — the pull's swap target.
@@ -1591,10 +1686,13 @@ pub struct SkillModalTemplate {
 impl SkillModalTemplate {
     /// Builds the template with the contract's hooks filled.
     #[must_use]
-    pub fn with_contract(rows: Vec<String>) -> Self {
+    pub fn with_contract(rows: Vec<String>, filter: String) -> Self {
         Self {
             rows,
+            filter,
             modal_id: contract::SKILL_MODAL_ID,
+            filter_id: contract::SKILL_FILTER_ID,
+            filter_signal: contract::SIGNAL_SKILLS_FILTER,
             rows_id: contract::SKILL_ROWS_ID,
             modal_host_id: contract::SKILL_MODAL_HOST_ID,
             picker_route: contract::SKILL_PICKER_PREFIX,

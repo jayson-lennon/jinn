@@ -68,8 +68,13 @@ highlights:
   click — no staging, no confirm). Dismissing with `Esc` or an overlay
   click **reverts** to the filter the session held when the modal
   opened, absence included. The item does not render on the landing
-  page (nothing is viewed there), and there is no filter box or
-  context-cost figure on the web surface — those stay TUI-only.
+  page (nothing is viewed there), and there is no context-cost figure
+  on the web surface — that stays TUI-only. A text filter bar (styled
+  like the persona and model filters') narrows the rows server-side on
+  every keystroke with the matches highlighted; toggling under a
+  filter keeps the filtered view, and the revert still restores the
+  filter held at open. The tools, skills, MCP-server, persona, and
+  model modals all carry this filter bar.
   Rows update live while the modal is open: when an MCP server
   connects or disconnects for the session, the server pushes a signal
   and the open modal re-fetches its rows in place (the same

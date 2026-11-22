@@ -88,6 +88,7 @@ fn rendered_page() -> String {
         button_html: button,
         picker_host_id: contract::MODEL_PICKER_ID,
         menu_html: crate::regions::menu::menu_fragment("00000000-0000-0000-0000-000000000000", 0),
+        sessions_attention: 0,
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
@@ -108,6 +109,7 @@ fn rendered_page() -> String {
         menu_id: contract::MENU_ID,
         drawer_scrim_id: contract::DRAWER_SCRIM_ID,
         menu_scrim_id: contract::MENU_SCRIM_ID,
+        switch_overlay_id: contract::SWITCH_OVERLAY_ID,
         stream_url: String::new(),
         sessions_attention: 0,
         sessions_route: contract::SESSIONS_ROUTE,
@@ -189,9 +191,9 @@ fn the_page_shell_carries_the_webapp_install_links() {
         format!("{}icon-favicon-32.png\"", contract::VENDOR_PREFIX),
         format!("{}icon-apple-touch-180.png\"", contract::VENDOR_PREFIX),
     ];
-    for marker in markers {
+    for marker in &markers {
         assert!(
-            page.contains(&marker),
+            page.contains(marker.as_str()),
             "the page head must reference {marker}; got: {page}"
         );
     }
@@ -264,6 +266,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         button_html: String::new(),
         picker_host_id: contract::MODEL_PICKER_ID,
         menu_html: crate::regions::menu::menu_fragment(&id.to_string(), 0),
+        sessions_attention: 0,
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
@@ -284,6 +287,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         menu_id: contract::MENU_ID,
         drawer_scrim_id: contract::DRAWER_SCRIM_ID,
         menu_scrim_id: contract::MENU_SCRIM_ID,
+        switch_overlay_id: contract::SWITCH_OVERLAY_ID,
         stream_url: String::new(),
         sessions_attention: 0,
         sessions_route: contract::SESSIONS_ROUTE,
@@ -766,11 +770,11 @@ async fn every_document_level_keydown_dismissal_guards_on_escape() {
         .expect("the persona modal renders");
     let model = crate::regions::model_picker::modal_fragment(&shared, &session_id, "")
         .expect("the model modal renders");
-    let mcp = crate::regions::mcp_servers::modal_fragment(&shared, &session_id)
+    let mcp = crate::regions::mcp_servers::modal_fragment(&shared, &session_id, "")
         .expect("the mcp modal renders");
-    let skills = crate::regions::skills::modal_fragment(&shared, &session_id)
+    let skills = crate::regions::skills::modal_fragment(&shared, &session_id, "")
         .expect("the skills modal renders");
-    let tools = crate::regions::tools::modal_fragment(&shared, &session_id)
+    let tools = crate::regions::tools::modal_fragment(&shared, &session_id, "")
         .expect("the tools modal renders");
     let config = {
         use jinn_config::{ConfigLayer, InMemoryConfigStorage};
@@ -843,7 +847,7 @@ async fn the_tools_modal_keydown_dismissal_keeps_the_revert_post_inside_the_guar
     // revert POST as part of closing.
     let shared = test_shared();
     let session_id = seed_session(&shared);
-    let html = crate::regions::tools::modal_fragment(&shared, &session_id)
+    let html = crate::regions::tools::modal_fragment(&shared, &session_id, "")
         .expect("the tools modal renders");
 
     // When extracting the dismissal's guarded expression.
@@ -1052,5 +1056,139 @@ fn the_shipped_bundle_is_the_self_contained_datastar_runtime() {
     assert!(
         source.contains("export{"),
         "the dist's ESM tail is expected"
+    );
+}
+
+// ── The session-switch interstitial ─────────────────────────────────
+
+#[rstest::rstest]
+#[test]
+fn the_page_shell_seeds_the_switching_signal_on_both_page_shapes() {
+    // Given the fully rendered page shells for the landing page and a
+    // session page — the two shapes a fresh render serves.
+    let landing = templates::render(&templates::PageTemplate::landing(
+        sessions_fragment_of(&[]),
+        crate::regions::menu::menu_fragment("", 0),
+        0,
+        "system".to_owned(),
+    ))
+    .expect("the landing page renders");
+    let session_page = rendered_page();
+    let marker = "switching: false";
+
+    // Then both shapes seed the interstitial signal false in the
+    // root's data-signals — a signal an expression references but the
+    // seed omits throws at bind time and silently kills every
+    // expression on the element.
+    for (shape, page) in [("landing", &landing), ("session", &session_page)] {
+        assert!(
+            page.contains(marker),
+            "the {shape} page must seed `switching: false` in the signal set: {page}"
+        );
+    }
+}
+
+#[rstest::rstest]
+#[test]
+fn the_switch_interstitial_renders_hidden_and_signal_bound_in_the_page_shell() {
+    // Given the fully rendered page shell.
+    let page = rendered_page();
+
+    // Then the interstitial element exists with the contract's id,
+    // rendered server-side hidden (no visible flash before the
+    // runtime binds — the scrims' pattern), and its visibility rides
+    // the switching signal.
+    assert!(
+        page.contains(&format!("id=\"{}\"", contract::SWITCH_OVERLAY_ID)),
+        "the interstitial id is missing from the page shell: {page}"
+    );
+    let overlay_pos = page
+        .find(&format!("id=\"{}\"", contract::SWITCH_OVERLAY_ID))
+        .expect("the interstitial renders");
+    let overlay = page
+        .get(overlay_pos..(overlay_pos + 600).min(page.len()))
+        .unwrap_or_default();
+    assert!(
+        overlay.contains(" hidden"),
+        "the interstitial must render hidden server-side (no boot flash): {overlay}"
+    );
+    assert!(
+        overlay.contains("$switching"),
+        "the interstitial's visibility must ride the switching signal: {overlay}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_switch_interstitial_is_inert_markup_with_no_dismissal_path() {
+    // Given the fully rendered page shell.
+    let page = rendered_page();
+    let start = page
+        .find(&format!("id=\"{}\"", contract::SWITCH_OVERLAY_ID))
+        .expect("the interstitial renders");
+    let overlay = page
+        .get(start..(start + 600).min(page.len()))
+        .unwrap_or_default();
+
+    // Then the overlay carries no click handler — the activation
+    // response's page swap re-seeding the signal is the ONLY clear
+    // path (no manual dismissal, no timer, no fetch-event listener).
+    assert!(
+        !overlay.contains("data-on:click"),
+        "the interstitial must carry no dismissal handler: {overlay}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_session_row_suppresses_the_viewed_session_and_raises_the_signal_before_posting() {
+    // Given a sessions fragment with one row (active or not — the
+    // expression is identical; only the id differs).
+    let id = jinn_core_types::SessionId::new();
+    let fragment = sessions_fragment_of(&[row(id.clone(), "Switch source", false)]);
+
+    // Then the row's click expression checks the viewed-session
+    // signal against the row's id first (the viewed row fires
+    // nothing), raises the interstitial signal ahead of the POST
+    // (no round trip first), and posts the activate endpoint with
+    // the row's id.
+    assert!(
+        fragment.contains(&format!("$viewedSession === '{id}'")),
+        "the row must compare the viewed-session signal against its id: {fragment}"
+    );
+    assert!(
+        fragment.contains(&format!(
+            "$switching = true && @post('{}{id}/activate'",
+            contract::SESSION_PAGE_PREFIX
+        )),
+        "the row must raise the signal ahead of the activate POST: {fragment}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_switch_overlay_css_stacks_above_the_menu_panel_and_hides_by_default() {
+    // Given the sessions region's stylesheet — the sheet the overlay's
+    // rules travel in.
+    let css = crate::regions::sessions::SIDEBAR_CSS;
+
+    // Then the overlay is a fixed full-viewport layer above the menu
+    // panel's z-index (70), and its hidden rule keeps it inert at
+    // boot — the same shape the drawer and menu scrims pin.
+    assert!(
+        css.contains("#switch-overlay { position: fixed; inset: 0;"),
+        "the overlay is a fixed full-viewport layer: {css}"
+    );
+    assert!(
+        css.contains("z-index: 80"),
+        "the overlay stacks above the menu panel (70): {css}"
+    );
+    assert!(
+        css.contains("#switch-overlay[hidden]"),
+        "the overlay's hidden rule keeps it inert at boot: {css}"
+    );
+    assert!(
+        css.contains(".switch-spinner") && css.contains("webui-spin"),
+        "the overlay's spinner reuses the shared spin keyframes: {css}"
     );
 }

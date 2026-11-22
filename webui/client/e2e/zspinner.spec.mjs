@@ -23,6 +23,9 @@ import { baseUrl } from "./run.mjs";
  */
 async function createSession(page) {
   const before = page.url();
+  const beforeId = await page
+    .locator(sel.PAGE_ROOT)
+    .getAttribute(sel.PAGE_SESSION_ATTR);
   await page.locator(sel.MENU_BUTTON).click();
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   const modal = page.locator(sel.SESSION_NEW_MODAL);
@@ -31,8 +34,13 @@ async function createSession(page) {
   const root = page.locator(sel.PAGE_ROOT);
   // The swap signal: the response closes the menu (a signal patch)
   // before it replaces #page-root, so menu-hidden alone can race the
-  // swap. The URL pushState happens with the swap — wait for it.
+  // swap. The URL pushState happens with the swap — wait for it, and
+  // for the root's id to actually change (either fact alone can race).
   await expect(page).not.toHaveURL(before);
+  await expect(root).not.toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    beforeId ?? "",
+  );
   await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
   const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
   if (!createdId) {
@@ -104,9 +112,11 @@ test("a turn in another session spins its row on this page", async ({
     .getAttribute(sel.PAGE_SESSION_ATTR);
   const sessionB = await createSession(page);
   // Creation activated B instance-wide; re-activate A deterministically
-  // by the row click, and WAIT for the swap's pushState — the click
-  // dispatches an async activate POST, and a page load racing it can
-  // abort the request before the activation lands.
+  // by the ROW CLICK (a page render views without activating, and the
+  // mark only lands on a session that is not the active one), and WAIT
+  // for the swap's pushState — the click dispatches an async activate
+  // POST, and a page load racing it can abort the request before the
+  // activation lands.
   await page.locator(sel.SESSION_ROW_BY_ID(sessionA)).click();
   await expect(page).toHaveURL(
     new RegExp(`${sel.SESSION_PAGE_PATH.replace("/", "/")}${sessionA}`),
@@ -126,14 +136,15 @@ test("a turn in another session spins its row on this page", async ({
   // row click would activate whichever session sorts first and race
   // the mark), the turn runs, and A's page is not touched again.
   const pageB = await page.context().newPage();
+  // B's tab opens by URL, never by openSession: openSession clicks a
+  // row, ACTIVATING whichever session sorts first and silently
+  // flipping the map's active pointer while A is supposed to stay the
+  // active one. A URL render views B without touching activation.
   await pageB.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionB}`);
   await expect(pageB.locator(sel.PAGE_ROOT)).toHaveAttribute(
     sel.PAGE_SESSION_ATTR,
     sessionB,
   );
-  // The new page needs its own stream connection before a pushed
-  // spinner can reach it.
-  await pageB.locator(sel.SESSION_ROW_BY_ID(sessionB)).waitFor();
   await startBusyTurn(pageB);
 
   // Then B's row spins on A's page — without any reload of A — and

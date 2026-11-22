@@ -114,17 +114,31 @@ test("unavailable rows are inert: no switch action, modal stays open", async ({
 test("refresh shows the busy state and clears it when the cache lands", async ({
   page,
 }) => {
-  // Given the picker open with a filter typed.
+  // Given the picker open with a filter typed — and the refresh POST
+  // held, so the busy window is deterministic (the scratch backend
+  // answers in milliseconds; an unheld assertion races the clear).
   await openSession(page);
   await page.locator(sel.PICKER_BUTTON).click();
   const refresh = page.locator(sel.PICKER_REFRESH);
   await page.locator(sel.PICKER_FILTER).fill("sample");
+  let releaseRefresh;
+  const gate = new Promise((resolve) => {
+    releaseRefresh = resolve;
+  });
+  await page.route("**/models/refresh", async (route) => {
+    await gate;
+    await route.continue();
+  });
 
   // When clicking refresh.
   await refresh.click();
 
   // Then the button entered its busy state (disabled + aria-busy)…
   await expect(refresh).toHaveAttribute("aria-busy", "true");
+
+  // When the held response lands.
+  releaseRefresh();
+
   // …and the `models` SSE event cleared it, rows intact, filter kept.
   await expect(refresh).not.toHaveAttribute("aria-busy", /.+/);
   await expect(page.locator(sel.PICKER_ROW(MODEL_ID))).toBeVisible();
@@ -154,4 +168,25 @@ test("typing into the filter keeps the modal open, Escape closes it", async ({
   // And Escape dismisses it.
   await page.keyboard.press("Escape");
   await expect(modal).toBeHidden();
+});
+
+test("the filter input renders themed, not browser-default", async ({ page }) => {
+  // Given the picker open.
+  await openSession(page);
+  await page.locator(sel.PICKER_BUTTON).click();
+  const modal = page.locator(sel.PICKER_MODAL);
+  await expect(modal).toBeVisible();
+
+  // Then the filter input computes the stylesheet's dark background
+  // and border — the regression this pins is the class rule that
+  // never reached the element, leaving a browser-default white box.
+  const styles = await page
+    .locator(sel.PICKER_FILTER)
+    .evaluate((input) => {
+      const cs = getComputedStyle(input);
+      return { background: cs.backgroundColor, border: cs.borderStyle };
+    });
+  expect(styles.border).toBe("solid");
+  expect(styles.background).not.toBe("rgba(0, 0, 0, 0)");
+  expect(styles.background).not.toBe("rgb(255, 255, 255)");
 });

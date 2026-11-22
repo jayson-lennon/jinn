@@ -204,3 +204,78 @@ test("the landing page's menu carries no tools item", async ({ page }) => {
   await expect(page.locator(sel.MENU_ITEM_TOOLS)).toHaveCount(0);
   await expect(page.locator(sel.MENU_ITEM_SESSIONS)).toBeVisible();
 });
+
+test("typing in the filter narrows the rows with marked runs", async ({
+  page,
+}) => {
+  // Given the tools modal open with the builtin tool listed.
+  await openToolsModal(page);
+  const row = page.locator(sel.TOOL_ROW(TOOL));
+  await expect(row).toBeVisible();
+  const query = TOOL.slice(0, 3);
+
+  // When typing a matching prefix with real keypresses (fill()
+  // dispatches no keydown, and typing must not dismiss the modal).
+  await page.locator(sel.TOOLS_FILTER).click();
+  await page.keyboard.type(query);
+
+  // Then the row is still visible with a marked run — the rows route
+  // filtered and highlighted it. The final keystroke's re-pull races
+  // the assertion: an in-flight pull from an earlier keystroke can
+  // land after it, so wait for the input to settle at the full query
+  // before reading the marks.
+  await expect(page.locator(sel.TOOLS_FILTER)).toHaveValue(query);
+  await expect(row).toBeVisible();
+  await expect(row.locator("mark").first()).toHaveText(query);
+
+  // And Escape dismisses the modal.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(sel.TOOLS_MODAL)).toBeHidden();
+});
+
+test("a toggle under a filter keeps the filtered view and reverts to the open-time state", async ({
+  page,
+}) => {
+  // Given the tools modal open, a filter typed, and the tool's
+  // open-time state captured (the serial tier leaves `get_time` off;
+  // this spec must not assume either state).
+  await openToolsModal(page);
+  const row = page.locator(sel.TOOL_ROW(TOOL));
+  const offBefore = await row.evaluate(
+    (el) => el.classList.contains("tools-row-off"),
+  );
+  const query = TOOL.slice(0, 3);
+  await page.locator(sel.TOOLS_FILTER).click();
+  await page.keyboard.type(query);
+  // The final keystroke's re-pull races the mark: an in-flight pull
+  // from an earlier keystroke can land after it, so wait for the
+  // input to settle at the full query before reading the marks.
+  await expect(page.locator(sel.TOOLS_FILTER)).toHaveValue(query);
+  await expect(row.locator("mark").first()).toHaveText(query);
+
+  // When toggling the filtered-in row.
+  await row.click();
+
+  // Then the row re-renders flipped but still filtered in, the input
+  // intact — the rows-only response rendered the filtered view and
+  // never touched the revert stamp.
+  await expect(row).toBeVisible();
+  if (offBefore) {
+    await expect(row).not.toHaveClass(/tools-row-off/);
+  } else {
+    await expect(row).toHaveClass(/tools-row-off/);
+  }
+  await expect(page.locator(sel.TOOLS_FILTER)).toHaveValue(query);
+
+  // And Escape reverts: reopening shows the unfiltered rows back in
+  // the open-time state — the snapshot survived the filtering.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(sel.TOOLS_MODAL)).toBeHidden();
+  const reopened = await openToolsModal(page);
+  await expect(reopened).toBeVisible();
+  await expect(page.locator(sel.TOOLS_FILTER)).toHaveValue("");
+  const offRestored = await page
+    .locator(sel.TOOL_ROW(TOOL))
+    .evaluate((el) => el.classList.contains("tools-row-off"));
+  expect(offRestored).toBe(offBefore);
+});

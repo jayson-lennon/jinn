@@ -11,11 +11,19 @@
 //! (`jinn_mcp_msg::build_rows` over the `[mcp.<name>]` config
 //! section, the viewed session's enabled set, and the MCP runtime
 //! cell's effective status projection) — the same builder the TUI
-//! inspector consumes, sorted case-insensitively by name, unfiltered.
-//! Singleton servers read the effective projection, not the
-//! per-session bucket: a running singleton read naively would show
-//! perpetually "starting" (the bug `refresh_inspector_snapshot`
-//! documents and works around).
+//! inspector consumes, sorted case-insensitively by name. Singleton
+//! servers read the effective projection, not the per-session bucket:
+//! a running singleton read naively would show perpetually "starting"
+//! (the bug `refresh_inspector_snapshot` documents and works around).
+//!
+//! The modal carries the persona/model filter bar: the pull takes an
+//! optional `?filter=` and applies the shared fuzzy filter
+//! ([`jinn_mcp_msg::filter_rows`], the TUI inspector's match core over
+//! `{name} {description}`) before rendering, with matched runs marked.
+//! The filter narrows the view, never the accepted set (a toggle
+//! validates against the configured set regardless of the view). The
+//! toggle response echoes the client's filter back and renders the
+//! filtered view.
 //!
 //! The modal fragment renders the row list for the viewed session —
 //! name, launch summary, enabled mark, live status badge. A toggle
@@ -35,9 +43,11 @@
 //! gesture); this region owns the modal fragment and its pull.
 
 use axum::extract::Path as AxPath;
+use axum::extract::Query as AxQuery;
 use axum::extract::State as AxumState;
 use jinn_mcp_msg::McpServerRow;
 use jinn_webui_msg::SseKind;
+use serde::Deserialize;
 
 use crate::region::RegionParts;
 use crate::region::RegionPull;
@@ -100,10 +110,20 @@ impl WebRegion for McpServersRegion {
     }
 }
 
-/// `GET /web/mcp-servers/{id}` — the MCP servers modal fragment. The
-/// client pulls this on open (the menu item) and on every `mcpTick`
-/// bump; the server renders every configured server's current row,
-/// so the wire always carries the live picture.
+/// The pull's query: the optional `filter` parameter — the shared
+/// fuzzy filter over server name and description.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct McpFilterQuery {
+    /// The filter text; absent or empty renders every row.
+    #[serde(default)]
+    pub filter: Option<String>,
+}
+
+/// `GET /web/mcp-servers/{id}?filter=…` — the MCP servers modal
+/// fragment. The client pulls this on open (the menu item), on every
+/// filter keystroke, and on every `mcpTick` bump; the server renders
+/// every configured server's current row, so the wire always carries
+/// the live picture.
 ///
 /// # Errors
 ///
@@ -111,9 +131,11 @@ impl WebRegion for McpServersRegion {
 async fn pull_handler(
     AxumState(shared): AxumState<crate::server::ServerShared>,
     AxPath(session_id): AxPath<String>,
+    AxQuery(query): AxQuery<McpFilterQuery>,
 ) -> Result<crate::server::Fragment, crate::server::HandlerError> {
+    let filter = query.filter.unwrap_or_default();
     Ok(
-        crate::server::Fragment::new(modal_fragment(&shared, &session_id)?)
+        crate::server::Fragment::new(modal_fragment(&shared, &session_id, &filter)?)
             .with_swap(crate::contract::MCP_MODAL_HOST_SELECTOR, "inner"),
     )
 }
@@ -173,8 +195,10 @@ fn server_rows(shared: &crate::server::ServerShared, session_id: &str) -> Vec<Mc
     jinn_mcp_msg::build_rows(&servers, &enabled, &statuses)
 }
 
-/// The modal fragment: the overlay with the unfiltered TUI-parity
-/// rows — name, launch summary, enabled mark, live status badge.
+/// The modal fragment: the overlay with the filter input and the
+/// filtered TUI-parity rows — name, launch summary, enabled mark,
+/// live status badge. The filter narrows the view only: a toggle's
+/// accepted set stays the whole configured set.
 ///
 /// # Errors
 ///
@@ -182,11 +206,12 @@ fn server_rows(shared: &crate::server::ServerShared, session_id: &str) -> Vec<Mc
 pub(crate) fn modal_fragment(
     shared: &crate::server::ServerShared,
     session_id: &str,
+    filter: &str,
 ) -> Result<String, crate::server::HandlerError> {
-    let rows: Vec<String> = server_rows(shared, session_id)
+    let rows: Vec<String> = jinn_mcp_msg::filter_rows(&server_rows(shared, session_id), filter)
         .into_iter()
-        .map(|row| {
-            crate::templates::render(&crate::templates::McpRowTemplate::from_row(row))
+        .map(|filtered| {
+            crate::templates::render(&crate::templates::McpRowTemplate::from_filtered(filtered))
                 .unwrap_or_else(|error| {
                     tracing::warn!(%error, what = "mcp-row", "webui template render failed; \
                          skipping the row");
@@ -194,8 +219,11 @@ pub(crate) fn modal_fragment(
                 })
         })
         .collect();
-    crate::templates::render(&crate::templates::McpModalTemplate::with_contract(rows))
-        .map_err(|error| crate::server::map_render_error(&error))
+    crate::templates::render(&crate::templates::McpModalTemplate::with_contract(
+        rows,
+        filter.to_owned(),
+    ))
+    .map_err(|error| crate::server::map_render_error(&error))
 }
 
 /// The MCP region's stylesheet: the modal overlay and the rows. The
@@ -210,7 +238,11 @@ pub const MCP_CSS: &str = r#"
 .mcp-modal-inner { background: var(--panel); border: 1px solid var(--border);
                    border-radius: 8px; width: min(560px, 92vw);
                    max-height: 70vh; display: flex; flex-direction: column; }
-.mcp-modal-head { padding: 10px; border-bottom: 1px solid var(--border); }
+.mcp-modal-head { display: flex; gap: 8px; padding: 10px;
+                  border-bottom: 1px solid var(--border); }
+#mcp-filter { flex: 1; background: var(--bg); color: var(--fg);
+              border: 1px solid var(--border); border-radius: 6px;
+              padding: 6px 8px; font: inherit; }
 #mcp-rows { overflow-y: auto; padding: 4px 0; }
 .mcp-row { display: flex; gap: 8px; padding: 7px 12px; cursor: pointer;
            align-items: baseline; }
@@ -228,8 +260,11 @@ pub const MCP_CSS: &str = r#"
                                            border-color: var(--err); }
 .mcp-row.mcp-row-enabled .mcp-row-name { font-weight: 600; }
 .mcp-row.mcp-row-enabled .mcp-row-marker { color: var(--accent); }
+.mcp-row mark { background: transparent; color: var(--accent);
+                font-weight: 600; }
 @media (max-width: 767px) {
   .mcp-row { min-height: 40px; padding: 10px 12px; }
+  #mcp-filter { min-height: 40px; }
 }
 "#;
 

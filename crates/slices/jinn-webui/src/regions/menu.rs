@@ -136,9 +136,9 @@ pub const MENU_CSS: &str = r#"
                    padding: 6px 10px; font: inherit; line-height: 1;
                    cursor: pointer; font-size: 15px; }
 #sessions-button:hover { border-color: var(--accent); }
-#sessions-button.attention { background: #e3b341; border-color: #e3b341;
-                             color: #14161a; }
-#sessions-button-count { display: none; background: #e3b341; color: #14161a;
+#sessions-button.attention { background: var(--mark); border-color: var(--mark);
+                             color: var(--on-fill); }
+#sessions-button-count { display: none; background: var(--mark); color: var(--on-fill);
                          border-radius: 9px; padding: 1px 7px;
                          font-size: 12px; font-weight: 600; line-height: 1.4;
                          align-self: center; }
@@ -255,13 +255,12 @@ mod menu_region_tests {
             (contract::MENU_ITEM_THEME_DARK_ID, "dark"),
             (contract::MENU_ITEM_THEME_SYSTEM_ID, "system"),
         ] {
-            let item = html
-                .split_once(&format!("id=\"{id}\""))
-                .map(|(_, rest)| {
-                    rest.split_once('>')
-                        .map_or(String::new(), |(tag, _)| tag.to_owned())
-                })
-                .unwrap_or_default();
+            let item =
+                html.split_once(&format!("id=\"{id}\""))
+                    .map_or_else(String::new, |(_, rest)| {
+                        rest.split_once('>')
+                            .map_or_else(String::new, |(tag, _)| tag.to_owned())
+                    });
             assert!(
                 item.contains(&format!("'{}'", contract::THEME_PATH)),
                 "{id} posts to the theme endpoint: {item}"
@@ -596,8 +595,8 @@ mod menu_region_tests {
             "the attention fill rule exists: {css}"
         );
         assert!(
-            css.contains("#e3b341") && css.contains("#14161a"),
-            "the fill is the unread rows' grammar: {css}"
+            css.contains("var(--mark)") && css.contains("var(--on-fill)"),
+            "the fill is the unread rows' grammar (tokenized): {css}"
         );
         assert!(
             css.contains("@media (min-width: 768px)"),

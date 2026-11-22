@@ -378,28 +378,10 @@ test("Escape closes an open menu when the drawer is closed", async ({
   await expectSidebarOffCanvas(page);
 });
 
-test("selecting a session row closes the drawer via the page swap", async ({
-  page,
-}) => {
-  // Given the session page with the drawer open — the only state a
-  // phone user can click a row from.
-  await openBootedSession(page);
-  await openDrawer(page);
-
-  // When selecting a session row (the activate page swap replaces the
-  // whole root).
-  await page.locator(sel.SESSION_ROW).first().click();
-  await expect(page).toHaveURL(new RegExp(sel.SESSION_PAGE_PATH));
-  await expect(page.locator(sel.PAGE_ROOT)).toBeVisible();
-
-  // Then the fresh page root carries no drawer-open class and the
-  // sidebar is back off-canvas — the swap is the structural reset.
-  await expect(page.locator(sel.PAGE_ROOT)).not.toHaveClass(
-    new RegExp(sel.DRAWER_OPEN_CLASS),
-  );
-  await expectSidebarOffCanvas(page);
-  await expect(page.locator(sel.DRAWER_SCRIM)).not.toBeVisible();
-});
+// The row-click drawer-close test lives in zswitch.spec.mjs: a row
+// click must target a NON-viewed session (the viewed row is inert),
+// which needs a second session — this file sorts before the specs
+// that create one.
 
 // ── Geometry claims (End States 5–7) at phone widths ────────────────
 

@@ -123,6 +123,7 @@ test("creating a session lands on the new session's page", async ({ page }) => {
   const beforeId = await page.locator(sel.PAGE_ROOT).getAttribute(
     sel.PAGE_SESSION_ATTR,
   );
+  const rowsBefore = await page.locator(sel.SESSION_ROW).count();
   await page.locator(sel.MENU_BUTTON).click();
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   const modal = page.locator(sel.SESSION_NEW_MODAL);
@@ -133,7 +134,9 @@ test("creating a session lands on the new session's page", async ({ page }) => {
 
   // Then the page swapped wholesale to the created session's page:
   // the root's session id changed, the URL tracks it, the modal is
-  // gone, and the sidebar lists two sessions.
+  // gone, and the sidebar grew by exactly one row (a delta, not an
+  // absolute count — the serial tier's shared db may hold sessions
+  // created by specs sorting before this one).
   await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
   await expect(modal).toHaveCount(0);
   const root = page.locator(sel.PAGE_ROOT);
@@ -144,5 +147,5 @@ test("creating a session lands on the new session's page", async ({ page }) => {
   await expect(page).toHaveURL(
     new RegExp(`${sel.SESSION_PAGE_PATH.replace("/", "/")}${createdId}`),
   );
-  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(2);
+  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(rowsBefore + 1);
 });

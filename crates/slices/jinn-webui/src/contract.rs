@@ -278,6 +278,10 @@ pub const SIGNAL_MODELS_TICK: &str = "modelsTick";
 /// list's effect re-pulls with the active filter (pushed lists are
 /// signal-only: the pull remains the renderer).
 pub const SIGNAL_SESSIONS_TICK: &str = "sessionsTick";
+/// The titlebar sessions button's unread count — seeded at page
+/// render and pushed alongside every sessions tick. The button's
+/// attention class and its badge's visibility/text both key off it.
+pub const SIGNAL_SESSIONS_ATTENTION: &str = "sessionsAttention";
 
 /// The titlebar sessions button's unread count — seeded at page
 /// render and pushed alongside every sessions tick. The button's
@@ -290,6 +294,34 @@ pub const SIGNAL_SESSIONS_ATTENTION: &str = "sessionsAttention";
 /// bound signals are single lowercase tokens (the expressions that
 /// read them spell the same token).
 pub const SIGNAL_SESSIONS_FILTER: &str = "sessionsfilter";
+/// The titlebar's sessions button — beside the hamburger inside the
+/// `#menu` span. One tap toggles the session drawer at every width;
+/// below 768px it is the drawer's primary opener, at ≥768px the CSS
+/// hides it (the sidebar is already static there). Wears the
+/// [`SESSIONS_ATTENTION_CLASS`] and carries the
+/// [`SESSIONS_BUTTON_COUNT_ID`] badge while the instance's unread
+/// mark set is non-empty.
+pub const SESSIONS_BUTTON_ID: &str = "sessions-button";
+
+/// The sessions button's count badge — the number of sessions wearing
+/// the unread mark. Hidden by the attention signal when the count is
+/// zero.
+pub const SESSIONS_BUTTON_COUNT_ID: &str = "sessions-button-count";
+
+/// The class the client applies to [`SESSIONS_BUTTON_ID`] while the
+/// unread count is above zero — the yellow fill, the same gold the
+/// unread rows wear. Deliberately **not** in [`DOM_CONSTANTS`]: the
+/// drawer-open precedent — a class applied by signal evaluation is
+/// client state, and membership would assert a fresh-render fact the
+/// served markup does not carry (the binding attribute names the
+/// signal, not the class).
+pub const SESSIONS_ATTENTION_CLASS: &str = "attention";
+/// The session-switch interstitial flag — set true by a session-row
+/// click that names a different session than the one viewed, ahead of
+/// its activate POST. The activation response's wholesale page-root
+/// swap re-seeds the signal false, which is the interstitial's only
+/// clear path (no timer, no fetch-event listener).
+pub const SIGNAL_SWITCHING: &str = "switching";
 /// The viewed session's id (the page root's data attribute at boot).
 pub const SIGNAL_VIEWED_SESSION: &str = "viewedSession";
 /// The inline rename editor's draft title.
@@ -321,6 +353,17 @@ pub const DRAWER_SCRIM_ID: &str = "drawer-scrim";
 /// referential gate. Stacks above the drawer scrim (A6): the menu is
 /// the entry surface.
 pub const MENU_SCRIM_ID: &str = "menu-scrim";
+
+/// The session-switch interstitial — the full-viewport loading
+/// overlay shown while an activate POST triggered by a session-row
+/// click is in flight (the `switching` signal drives its visibility).
+/// Static shell markup inside `#page-root`, mirrored `hidden` like
+/// the drawer and menu scrims, present in every fresh render — a
+/// [`DOM_CONSTANTS`] member held by the referential gate. Stacks
+/// above the menu panel (the topmost surface), since the click that
+/// raises it may come from the drawer or the menu panel and must
+/// cover both.
+pub const SWITCH_OVERLAY_ID: &str = "switch-overlay";
 
 // ── New-session modal ───────────────────────────────────────────────
 
@@ -456,6 +499,14 @@ pub const MCP_ROWS_ID: &str = "mcp-rows";
 /// server holds.
 pub const MCP_SERVER_DATA_ATTR: &str = "data-webui-server";
 
+/// The MCP modal's filter input — every keystroke re-queries the pull
+/// with the filter applied server-side (the persona/model pattern).
+pub const MCP_FILTER_ID: &str = "mcp-filter";
+
+/// The MCP filter text signal — bound to the filter input, read by the
+/// tick effect's re-pull URL, and echoed by the toggle POST's response.
+pub const SIGNAL_MCP_FILTER: &str = "mcpfilter";
+
 /// The MCP modal's open toggle (view-local signal).
 pub const SIGNAL_MCP_OPEN: &str = "mcpOpen";
 
@@ -514,6 +565,17 @@ pub const TOOLS_REVERT_STAMP_ID: &str = "tools-revert-stamp";
 /// The attribute a tools row carries its tool name in — the toggle
 /// POST's payload field, validated against the rows the modal renders.
 pub const TOOL_NAME_DATA_ATTR: &str = "data-webui-tool";
+
+/// The tools modal's filter input — every keystroke re-queries the
+/// **rows** pull with the filter applied server-side (the rows-only
+/// retarget is the revert guarantee; the modal skeleton and the stamp
+/// are never re-rendered by filtering).
+pub const TOOLS_FILTER_ID: &str = "tools-filter";
+
+/// The tools filter text signal — bound to the filter input, read by
+/// the tick effect's rows re-pull URL, and echoed by the toggle POST's
+/// response.
+pub const SIGNAL_TOOLS_FILTER: &str = "toolsfilter";
 
 /// The tools modal's open toggle (view-local signal).
 pub const SIGNAL_TOOLS_OPEN: &str = "toolsOpen";
@@ -602,6 +664,16 @@ pub const SKILL_NAME_DATA_ATTR: &str = "data-webui-skill";
 /// target the load POST rides, distinct from the row's own toggle
 /// click.
 pub const SKILL_LOAD_CLASS: &str = "skill-row-load";
+
+/// The skills modal's filter input — every keystroke re-queries the
+/// pull with the filter applied server-side (the persona/model
+/// pattern).
+pub const SKILL_FILTER_ID: &str = "skills-filter";
+
+/// The skills filter text signal — bound to the filter input, read by
+/// the tick effect's re-pull URL, and echoed by the toggle and load
+/// POSTs' responses.
+pub const SIGNAL_SKILLS_FILTER: &str = "skillsfilter";
 
 /// The skills modal's open toggle (view-local signal).
 pub const SIGNAL_SKILLS_OPEN: &str = "skillsOpen";
@@ -792,12 +864,14 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_MENU_MCP,
     MCP_MODAL_HOST_ID,
     MCP_MODAL_ID,
+    MCP_FILTER_ID,
     MCP_ROWS_ID,
     MCP_SERVER_DATA_ATTR,
     ACTION_MCP_TOGGLE,
     MENU_ITEM_TOOLS_ID,
     TOOLS_MODAL_HOST_ID,
     TOOLS_MODAL_ID,
+    TOOLS_FILTER_ID,
     TOOLS_ROWS_ID,
     TOOLS_REVERT_STAMP_ID,
     TOOL_NAME_DATA_ATTR,
@@ -806,6 +880,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_MENU_SKILLS,
     SKILL_MODAL_HOST_ID,
     SKILL_MODAL_ID,
+    SKILL_FILTER_ID,
     SKILL_ROWS_ID,
     SKILL_NAME_DATA_ATTR,
     SKILL_LOAD_CLASS,
@@ -813,6 +888,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_SKILL_LOAD,
     DRAWER_SCRIM_ID,
     MENU_SCRIM_ID,
+    SWITCH_OVERLAY_ID,
     MENU_ITEM_THEME_ID,
     MENU_ITEM_THEME_LIGHT_ID,
     MENU_ITEM_THEME_DARK_ID,

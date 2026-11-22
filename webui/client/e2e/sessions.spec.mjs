@@ -12,13 +12,16 @@ import * as sel from "./selectors.mjs";
 import { baseUrl } from "./run.mjs";
 
 test("sidebar lists the boot session as a row", async ({ page }) => {
-  // Given a freshly booted scratch jinn.
+  // Given the scratch jinn — by this spec's alphabetical position the
+  // serial tier may hold earlier-created sessions (the mobile pivot
+  // creates one), so the count is a lower bound, not a pin.
   // When navigating to the page root.
   await page.goto(`${baseUrl()}/web`);
 
-  // Then exactly one row renders, with a non-empty title.
+  // Then at least one row renders, with a non-empty title.
   const rows = page.locator(sel.SESSION_ROW);
-  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toBeAttached();
+  await expect(rows.first().locator(".stitle")).toBeVisible();
   const title = rows.first().locator(".stitle");
   await expect(title).toBeVisible();
   const text = await title.innerText();
@@ -28,9 +31,9 @@ test("sidebar lists the boot session as a row", async ({ page }) => {
 });
 
 test("sessions filter narrows the list", async ({ page }) => {
-  // Given the page root with its one boot-session row.
+  // Given the page root with its rows (at least the boot session's).
   await page.goto(`${baseUrl()}/web`);
-  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(1);
+  await expect(page.locator(sel.SESSION_ROW).first()).toBeAttached();
 
   // When filtering for a string no title contains.
   const filter = page.locator(sel.SESSIONS_FILTER);
