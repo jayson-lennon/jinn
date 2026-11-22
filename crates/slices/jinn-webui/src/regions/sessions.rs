@@ -206,6 +206,13 @@ fn unread_marks_of(guard: &StateReadGuard<'_>) -> Option<jinn_webui_msg::UnreadS
         .map(|cell| cell.read().clone())
 }
 
+/// The instance's unread-mark count — the sessions button's seeded
+/// signal value and its badge number. Zero when no registry is
+/// attached, by the same signal-not-correctness rule the marks follow.
+pub(crate) fn unread_count_of(guard: &StateReadGuard<'_>) -> usize {
+    unread_marks_of(guard).map_or(0, |marks| marks.count())
+}
+
 /// The sessions-list fragment from a state guard — the fan-out's
 /// refresh shape.
 ///

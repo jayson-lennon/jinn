@@ -65,6 +65,12 @@ export const SESSION_PAGE_PATH = "/web/session/";
 export const MENU = "#menu";
 /** The hamburger button id (`wire.MENU_BUTTON_ID`). */
 export const MENU_BUTTON = "#menu-button";
+/** The titlebar sessions button id (`wire.SESSIONS_BUTTON_ID`). */
+export const SESSIONS_BUTTON = "#sessions-button";
+/** The sessions button's count badge id (`wire.SESSIONS_BUTTON_COUNT_ID`). */
+export const SESSIONS_BUTTON_COUNT = "#sessions-button-count";
+/** The sessions button's attention class (`wire.SESSIONS_ATTENTION_CLASS`). */
+export const SESSIONS_ATTENTION_CLASS = "attention";
 /** The menu's item panel id (`wire.MENU_PANEL_ID`). */
 export const MENU_PANEL = "#menu-panel";
 /** The menu scrim id (`wire.MENU_SCRIM_ID`). */

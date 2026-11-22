@@ -114,6 +114,10 @@ pub struct PageTemplate {
     pub controls_html: String,
     /// The menu fragment (hamburger + panel), rendered inline.
     pub menu_html: String,
+    /// The seeded unread count — the sessions button's attention
+    /// signal value at boot (the include of `page_root.html` shares
+    /// this struct's context).
+    pub sessions_attention: usize,
     /// `/vendor/` — the script tag's URL prefix.
     pub vendor_prefix: &'static str,
     /// The client bundle's cache-busting URL inside `/vendor/`
@@ -186,7 +190,7 @@ impl PageTemplate {
     /// The no-session landing page: sessions list only, every other
     /// region empty, cursor zero.
     #[must_use]
-    pub fn landing(sessions_html: String, menu_html: String) -> Self {
+    pub fn landing(sessions_html: String, menu_html: String, attention_count: usize) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
@@ -197,6 +201,7 @@ impl PageTemplate {
             controls_html: String::new(),
             status_html: String::new(),
             menu_html,
+            sessions_attention: attention_count,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
@@ -238,6 +243,7 @@ impl PageTemplate {
         controls_html: String,
         status_html: String,
         menu_html: String,
+        attention_count: usize,
     ) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
@@ -249,6 +255,7 @@ impl PageTemplate {
             controls_html,
             status_html,
             menu_html,
+            sessions_attention: attention_count,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
@@ -346,6 +353,9 @@ pub struct PageRootTemplate {
     /// the `data-init` `@get` binding the root carries on session
     /// pages, so a navigation patch re-opens the stream by itself.
     pub stream_url: String,
+    /// The seeded unread count — the sessions button's attention
+    /// signal value at boot, correct before any push arrives.
+    pub sessions_attention: usize,
 }
 
 impl PageRootTemplate {
@@ -362,6 +372,7 @@ impl PageRootTemplate {
         controls_html: String,
         status_html: String,
         menu_html: String,
+        sessions_attention: usize,
     ) -> Self {
         Self {
             session_id: session_id.to_owned(),
@@ -372,6 +383,7 @@ impl PageRootTemplate {
             controls_html,
             status_html,
             menu_html,
+            sessions_attention,
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -554,6 +566,10 @@ impl ControlsTemplate {
 pub struct MenuTemplate {
     /// The menu region's host container id.
     pub menu_id: &'static str,
+    /// The titlebar sessions button's id.
+    pub sessions_button_id: &'static str,
+    /// The sessions button's count badge id.
+    pub sessions_button_count_id: &'static str,
     /// The hamburger button's id.
     pub menu_button_id: &'static str,
     /// The item panel's id.
@@ -611,6 +627,10 @@ pub struct MenuTemplate {
     pub skills_picker_url: String,
     /// The skills modal host's CSS selector — the pull's swap target.
     pub skills_modal_host_selector: &'static str,
+    /// The seeded unread count for the sessions button's badge and
+    /// attention class — the render-time size of the instance's
+    /// unread-mark set.
+    pub attention_count: usize,
 }
 
 impl MenuTemplate {
@@ -618,11 +638,16 @@ impl MenuTemplate {
     ///
     /// `viewed_session` is the page's viewed session id — empty on the
     /// landing page, which omits the persona item entirely.
+    /// `attention_count` seeds the sessions button's unread count —
+    /// the render-time fact the live signal updates between renders.
     #[must_use]
-    pub fn with_contract(viewed_session: &str) -> Self {
+    pub fn with_contract(viewed_session: &str, attention_count: usize) -> Self {
         Self {
             menu_id: contract::MENU_ID,
+            sessions_button_id: contract::SESSIONS_BUTTON_ID,
+            sessions_button_count_id: contract::SESSIONS_BUTTON_COUNT_ID,
             menu_button_id: contract::MENU_BUTTON_ID,
+            attention_count,
             menu_panel_id: contract::MENU_PANEL_ID,
             menu_item_sessions_id: contract::MENU_ITEM_SESSIONS_ID,
             menu_item_new_session_id: contract::MENU_ITEM_NEW_SESSION_ID,

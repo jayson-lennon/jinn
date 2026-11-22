@@ -2320,7 +2320,7 @@ mod rename_actions {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn rename_push_and_response_carry_the_same_merged_list() {
+    async fn rename_response_carries_the_merged_list_and_push_names_the_count() {
         // Given a live session, one store-only archived row the live
         // map never carries, and a subscriber to the fan-out's push.
         let (state, _audit, mut rx, router) = harness_with_archived_row_and_receiver();
@@ -2340,21 +2340,17 @@ mod rename_actions {
         )
         .await;
 
-        // Then the push the handler emitted carries the archived row
-        // too — the same merged shape the response serves. A push of
-        // the live-only shape would wipe the archived row from every
-        // connected sidebar one frame before the response restores it.
+        // Then the response the handler emitted carries the archived
+        // row — the merged shape the GET pull serves (the element
+        // patch the initiating page's sidebar swaps). The addressed
+        // push is signal-only now: its payload is the unread count,
+        // and the receiving pages re-pull the list themselves.
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("Archived from last run"), "{body}");
         let envelope = rx.try_recv().expect("the rename push");
         assert_eq!(envelope.kind, jinn_webui_msg::SseKind::Sessions);
         assert_eq!(envelope.session_id, id);
-        assert!(
-            envelope.html.contains("Archived from last run"),
-            "push must carry the merged list, got: {}",
-            envelope.html
-        );
-        assert!(envelope.html.contains("Fresh rename"), "{}", envelope.html);
+        assert_eq!(envelope.html, "0", "the payload is the count: {envelope:?}");
         // And exactly one sessions push went out — no duplicate frames
         // for the same refresh.
         assert!(rx.try_recv().is_err());
@@ -2489,6 +2485,55 @@ mod stream_catchup {
         assert!(body.contains("event: datastar-patch-elements"), "{body}");
         assert!(body.contains("id: 1"), "{body}");
         assert!(body.contains("hello"), "{body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_stream_route_opens_with_a_sessions_signal_convergence_patch() {
+        // Given a live session and one other session wearing the
+        // unread mark (seeded through the harness registry — the same
+        // cell the fan-out writes).
+        let (state, _audit, slices, router) = harness();
+        let id = seed_session(&state);
+        let other = seed_session(&state);
+        let marks = slices
+            .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+            .expect("the unread-mark cell resolves");
+        marks.update(|m| {
+            m.mark(other);
+        });
+
+        // When opening the stream, then bounding the read.
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/web/stream/{id}"))
+                    .header("last-event-id", "0")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("response");
+        let body = aggregate_body(response.into_body()).await;
+
+        // Then the stream opens with a patch-signals frame carrying
+        // the current attention count — the heal for a page whose
+        // render raced a mark transition (the activation edge: the
+        // clear wave can broadcast before the navigating client's new
+        // stream subscribes).
+        let patch = body
+            .split("event: datastar-patch-signals")
+            .nth(1)
+            .expect("a patch-signals frame after the connect");
+        assert!(
+            patch.contains(&format!(
+                "\"{}\": 1",
+                crate::contract::SIGNAL_SESSIONS_ATTENTION
+            )),
+            "{patch}"
+        );
     }
 
     /// Polls the body with bounded reads — enough for the

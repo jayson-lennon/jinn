@@ -192,6 +192,29 @@ pub const ACTION_SESSION_CREATE: &str = "session-create";
 /// exactly what makes a page swap reset the drawer structurally.
 pub const DRAWER_OPEN_CLASS: &str = "drawer-open";
 
+/// The titlebar's sessions button — beside the hamburger inside the
+/// `#menu` span. One tap toggles the session drawer at every width;
+/// below 768px it is the drawer's primary opener, at ≥768px the CSS
+/// hides it (the sidebar is already static there). Wears the
+/// [`SESSIONS_ATTENTION_CLASS`] and carries the
+/// [`SESSIONS_BUTTON_COUNT_ID`] badge while the instance's unread
+/// mark set is non-empty.
+pub const SESSIONS_BUTTON_ID: &str = "sessions-button";
+
+/// The sessions button's count badge — the number of sessions wearing
+/// the unread mark. Hidden by the attention signal when the count is
+/// zero.
+pub const SESSIONS_BUTTON_COUNT_ID: &str = "sessions-button-count";
+
+/// The class the client applies to [`SESSIONS_BUTTON_ID`] while the
+/// unread count is above zero — the yellow fill, the same gold the
+/// unread rows wear. Deliberately **not** in [`DOM_CONSTANTS`]: the
+/// drawer-open precedent — a class applied by signal evaluation is
+/// client state, and membership would assert a fresh-render fact the
+/// served markup does not carry (the binding attribute names the
+/// signal, not the class).
+pub const SESSIONS_ATTENTION_CLASS: &str = "attention";
+
 /// The menu's action name — the one item's action attribute value.
 pub const ACTION_MENU_SESSIONS: &str = "menu-sessions";
 
@@ -231,6 +254,11 @@ pub const SIGNAL_CHAT_TICK: &str = "chatTick";
 /// list's effect re-pulls with the active filter (pushed lists are
 /// signal-only: the pull remains the renderer).
 pub const SIGNAL_SESSIONS_TICK: &str = "sessionsTick";
+
+/// The titlebar sessions button's unread count — seeded at page
+/// render and pushed alongside every sessions tick. The button's
+/// attention class and its badge's visibility/text both key off it.
+pub const SIGNAL_SESSIONS_ATTENTION: &str = "sessionsAttention";
 
 /// The sessions filter's signal — bound by the filter input's
 /// `data-bind`. HTML attribute names are ASCII case-insensitive, so a
@@ -712,6 +740,8 @@ pub const DOM_CONSTANTS: &[&str] = &[
     MENU_ID,
     MENU_BUTTON_ID,
     MENU_PANEL_ID,
+    SESSIONS_BUTTON_ID,
+    SESSIONS_BUTTON_COUNT_ID,
     MENU_ITEM_SESSIONS_ID,
     MENU_ITEM_NEW_SESSION_ID,
     MENU_ITEM_PERSONA_ID,

@@ -35,6 +35,7 @@ use jinn_kernel::State;
 use jinn_slices::PhaseView;
 use jinn_slices::bus::BusService;
 use jinn_webui_msg::SseEnvelope;
+use jinn_webui_msg::SseKind;
 use jinn_webui_msg::TranscriptQuery;
 use std::convert::Infallible;
 use std::time::Duration;
@@ -255,13 +256,21 @@ async fn overlay_reset_patches(
         ))
         .map_err(|e| fail(500, e.to_string()))?;
     let model_html = crate::regions::model_picker::status_fragment(shared, &id.to_string())?;
-    let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
+    let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
     // The root fragment — NOT the full page shell. The runtime morphs
     // element patches; a document-shaped patch (DOCTYPE + <html>) is
     // parsed as a whole document and its fight with the live page
     // leaves the old subtree's stray nodes alive. The root div alone
     // replaces cleanly (and its data-signals seed resets every
     // transient overlay signal atomically).
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     let page = crate::templates::render(&crate::templates::PageRootTemplate::session(
         &id.to_string(),
         view.transcript.title.clone(),
@@ -271,6 +280,7 @@ async fn overlay_reset_patches(
         controls_html,
         model_html,
         menu_html,
+        attention_count,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(vec![
@@ -544,12 +554,17 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
 /// `GET /web` — the landing page: sessions list, no transcript.
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
     let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     // No viewed session on the landing page — the menu renders without
     // the persona item.
-    let menu_html = crate::regions::menu::menu_fragment("");
+    let menu_html = crate::regions::menu::menu_fragment("", attention_count);
     let html = crate::templates::render(&crate::templates::PageTemplate::landing(
         sessions_html,
         menu_html,
+        attention_count,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(Page::new(html))
@@ -576,7 +591,11 @@ async fn page_session(
         ))
         .map_err(|e| fail(500, e.to_string()))?;
     let model_html = crate::regions::model_picker::status_fragment(&shared, &session_id)?;
-    let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
+    let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         &session_id,
         view.transcript.title.clone(),
@@ -586,6 +605,7 @@ async fn page_session(
         controls_html,
         model_html,
         menu_html,
+        attention_count,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(Page::new(html))
@@ -1082,6 +1102,21 @@ async fn activate(
     // Validate the path id (the page render re-parses it; this check
     // makes a malformed id a 400 before the switch publishes).
     parse_session_id(&session_id)?;
+    // Wait out the fan-out's activation wave before rendering: the
+    // store sets the active id, then the fan-out actor processes the
+    // load-completed event — clearing the activated session's unread
+    // mark and fanning the sessions signal. `wait_for_activation`
+    // returns the moment the active id flips, which can beat the
+    // fan-out's clear; a response rendered in between seeds the
+    // swapped page with the pre-clear count, and the clear wave —
+    // broadcast before this client's new stream subscribes — never
+    // reaches it. Awaiting the wave itself (a bounded peek at the
+    // fan-out's own broadcast, not a sleep) orders the response after
+    // the clear, so the swap seed and the stream-connect convergence
+    // patch both read post-clear truth. The timeout bounds a
+    // no-mark activation (nothing to clear, no wave worth waiting
+    // for): the render falls through with whatever is current.
+    await_activation_wave(&shared, &session_id).await;
     // A page render for the activated session. The load is async (the
     // store actor hydrates it), so a just-archived session may not be
     // in live state yet; the render falls through to the store and
@@ -1150,9 +1185,13 @@ async fn rename(
     // those events change only live state, and their next pull or
     // page render carries the store truth.)
     let list_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     shared
         .fanout
-        .push_sessions_refresh_from(&id, list_html.clone());
+        .push_sessions_refresh_from(&id, attention_count);
     // The initiating page's sidebar is the response's element patch;
     // its titlebar text and tab title follow from the two signal
     // patches (the title span and the document title both bind
@@ -1171,6 +1210,40 @@ async fn rename(
 }
 
 // ── SSE ─────────────────────────────────────────────────────────────
+
+/// How long [`await_activation_wave`] waits for the fan-out's
+/// activation wave before rendering the response anyway. The happy
+/// path is the fan-out actor's dispatch latency (microseconds); the
+/// budget only ever binds on a wedged actor or an activation with no
+/// list fan to wait for.
+const ACTIVATION_WAVE_BUDGET: Duration = Duration::from_millis(250);
+
+/// Peeks the fan-out's broadcast for the next sessions envelope
+/// addressed to `session_id` — the activation wave
+/// [`crate::fanout::WebUiFanoutActor`] fans on every load-completed —
+/// so the activation response renders after the fan-out's mark-clear
+/// instead of racing it. Subscriber-side only: this reads the fan-out's
+/// output; the mark cell keeps its single writer.
+async fn await_activation_wave(shared: &ServerShared, session_id: &str) {
+    let mut rx = shared.fanout.subscribe();
+    let deadline = tokio::time::Instant::now() + ACTIVATION_WAVE_BUDGET;
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return;
+        }
+        match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Ok(envelope))
+                if envelope.kind == SseKind::Sessions
+                    && envelope.session_id.to_string() == session_id =>
+            {
+                return;
+            }
+            Ok(Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => {}
+            Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) | Err(_) => return,
+        }
+    }
+}
 
 /// The canonical page URL for one session id — the navigation
 /// response's `pushState` target.
@@ -1244,6 +1317,37 @@ async fn stream(
     // counts its own sessions pushes — the tick signal bumps per
     // connection, never globally.
     let rx = shared.fanout.subscribe();
+    // Sessions-signal convergence: one patch on connect carrying the
+    // current unread count, the same heal the transcript's catch-up
+    // snapshot performs for entries. The page render seeded the badge
+    // at request time, but a mark transition can land between that
+    // render and this connect (activation of a marked session is the
+    // sharp edge: the fan-out's clear wave races the browser's
+    // navigation), and a broadcast is fire-and-forget — a wave fired
+    // before this stream subscribed never re-arrives. The connect
+    // patch closes that window for the badge; the tick rides it so the
+    // client's list also converges on connect.
+    let converge: Vec<Result<SseEvent, Infallible>> = {
+        let attention = {
+            let guard = shared.read_state();
+            crate::regions::sessions::unread_count_of(&guard)
+        };
+        crate::push::sdk_events_of(
+            &SseEnvelope {
+                kind: SseKind::Sessions,
+                session_id: id.clone(),
+                cursor: 0,
+                html: attention.to_string(),
+            },
+            0,
+        )
+        .map_or_default(|events| {
+            events
+                .into_iter()
+                .map(|event| Ok(event.write_as_axum_sse_event()))
+                .collect()
+        })
+    };
     let session_filter = id.clone();
     let tick = std::sync::atomic::AtomicU64::new(0);
     let live = tokio_stream::wrappers::BroadcastStream::new(rx)
@@ -1274,7 +1378,11 @@ async fn stream(
                 std::vec::IntoIter<Result<axum::response::sse::Event, Infallible>>,
             >
     }));
-    let stream = futures::StreamExt::chain(catchup, live).flatten();
+    let stream = futures::StreamExt::chain(
+        futures::stream::iter(vec![futures::stream::iter(converge)]),
+        futures::StreamExt::chain(catchup, live),
+    )
+    .flatten();
     Sse::new(stream)
         .keep_alive(KeepAlive::new().interval(SSE_KEEPALIVE).text("keepalive"))
         .into_response()
