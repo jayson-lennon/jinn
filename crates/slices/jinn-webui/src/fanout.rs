@@ -4,30 +4,43 @@
 //! command routes to one declarant, an event broadcasts) and pushes
 //! rendered fragments onto a [`tokio::sync::broadcast`] channel. Each
 //! connected SSE endpoint holds a receiver; connect = subscribe,
-//! disconnect = drop. The channel is the whole of the actor's state
-//! beyond the per-session token batch buffers — transport state only:
-//! it owns nothing authoritative, never replays, and a crash loses
-//! nothing. The pull endpoint is the correctness dependency.
+//! disconnect = drop. The channel plus the per-session streaming state
+//! are the whole of the actor's non-authoritative state — transport
+//! and display state only: it owns nothing authoritative, never
+//! replays, and a crash loses nothing. The pull endpoint is the
+//! correctness dependency.
 //!
-//! Token batching: `StreamToken`s arrive per-delta while pages want
-//! low-frequency fragments, so tokens accumulate per session in an
-//! HTML buffer and flush on a self-addressed 150 ms tick as one `chat`
-//! fragment. When a session settles to `Idle` the partial buffer
-//! flushes **first**, then the regions' settle fragments follow in
-//! registry order — the ordering that keeps the last tokens from
-//! appearing twice (once appended, once in the full render) and the
-//! convergence push that heals any drift between an incremental page
-//! and the real history (rewinds, cancels, partial-entry edge cases).
-//! The fan-out names no region: settle pushes resolve through
-//! [`crate::region`]'s registry, so a new region contributes pushes by
-//! declaring settle kinds, never by editing this module.
+//! Streaming: `StreamToken`s arrive per-delta while pages want
+//! low-frequency fragments. The actor holds each session's
+//! **settled boundary** — the rendered-entry count captured when the
+//! session's phase flipped Idle→working — and, on the self-addressed
+//! 150 ms tick, renders the turn's in-flight tail (`boundary..end` of
+//! the history) through the same transcript projection the settled
+//! transcript uses, pushing it as one `streaming` envelope that the
+//! wire seam wholesale-replaces into the page's `#streaming`
+//! container. A flush whose rendered tail is unchanged from the last
+//! pushed tail pushes nothing (the quiet-stretch skip). When a session
+//! settles to `Idle` the boundary is cleared **before** the regions'
+//! settle fragments push in registry order — the transcript's
+//! convergence push then carries the whole turn (rendered through the
+//! boundary-free projection) and structurally empties the streaming
+//! container, so no entry renders twice and nothing is lost. Thinking
+//! entries render open in the tail (the reasoning is what is being
+//! watched) and collapsed in the settled render; the same projection
+//! serves both through [`crate::transcript::render_entry_streaming`].
+//!
+//! An untracked session renders as if idle — full transcript, empty
+//! streaming container — the safe degrade direction: convergence at
+//! the settle heals it, never duplication. The fan-out names no
+//! region: settle pushes resolve through [`crate::region`]'s registry,
+//! so a new region contributes pushes by declaring settle kinds, never
+//! by editing this module.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use jinn_core_types::SessionId;
-use jinn_inference_msg::StreamToken;
 use jinn_kernel::State;
 use jinn_provider_selection_msg::ModelCacheStored;
 use jinn_session_msg::SessionOrigin;
@@ -64,10 +77,58 @@ pub struct FlushTick;
 
 impl jinn_slices::BusMessage for FlushTick {}
 
-/// The fan-out's shared handle: what an SSE endpoint subscribes to.
+/// The per-session settled-boundary map: for each session with a live
+/// turn whose start the fan-out observed, the rendered-entry count the
+/// settled transcript already carried. Display state behind a mutex —
+/// its loss degrades to a full render (never duplication), and the
+/// settle clears the entry as the settle's convergence push lands.
+///
+/// **Single writer:** the fan-out actor (`capture_boundary`,
+/// `clear_boundary`). The render paths read only, through the shared
+/// handle.
+#[derive(Clone, Default)]
+pub struct StreamingBoundaries {
+    inner: Arc<parking_lot::Mutex<HashMap<SessionId, usize>>>,
+}
+
+impl StreamingBoundaries {
+    /// The session's boundary, `None` when untracked.
+    #[must_use]
+    pub fn get(&self, session_id: &SessionId) -> Option<usize> {
+        self.inner.lock().get(session_id).copied()
+    }
+
+    /// Captures the boundary as the session's current rendered-entry
+    /// count. Actor-only (the sole writer).
+    fn set(&self, session_id: &SessionId, boundary: usize) {
+        self.inner.lock().insert(session_id.clone(), boundary);
+    }
+
+    /// Clears the session's boundary. Actor-only (the sole writer).
+    fn clear(&self, session_id: &SessionId) {
+        self.inner.lock().remove(session_id);
+    }
+}
+
+/// One session's snapshot for the tail render: the in-flight entries
+/// (`boundary..end`) and the boundary itself — taken under one short
+/// read guard.
+struct TailSnapshot {
+    entries: Vec<crate::transcript::RenderedEntry>,
+    boundary: usize,
+}
+
+/// The fan-out's shared handle: what an SSE endpoint subscribes to and
+/// what the HTTP render paths read the streaming boundaries through.
 #[derive(Clone)]
 pub struct FanoutHandle {
     tx: Arc<broadcast::Sender<SseEnvelope>>,
+    /// The per-session settled-boundary map, shared with the actor.
+    /// The actor is the sole writer; the HTTP paths (page fill,
+    /// catch-up, the pull) read it to split settled from in-flight
+    /// entries. Losing it degrades to full-render — never to
+    /// duplication.
+    boundaries: StreamingBoundaries,
 }
 
 impl FanoutHandle {
@@ -76,6 +137,16 @@ impl FanoutHandle {
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<SseEnvelope> {
         self.tx.subscribe()
+    }
+
+    /// The session's settled boundary: the rendered-entry count the
+    /// settled transcript already carried when the live turn began.
+    /// `None` when the session is not mid-turn (or its boundary was
+    /// never observed) — the caller renders the whole history and an
+    /// empty streaming container.
+    #[must_use]
+    pub fn settled_boundary(&self, session_id: &SessionId) -> Option<usize> {
+        self.boundaries.get(session_id)
     }
 
     /// Pushes a refreshed sessions signal to every page,
@@ -146,9 +217,14 @@ pub struct WebUiFanoutActor {
     state: State,
     /// The broadcast end every SSE connection subscribes through.
     tx: Arc<broadcast::Sender<SseEnvelope>>,
-    /// One partially-accumulated token buffer per session: the HTML
-    /// appended since the last flush.
-    pending: HashMap<SessionId, String>,
+    /// The per-session settled-boundary map, shared with the handle.
+    /// This actor is the map's sole writer.
+    boundaries: StreamingBoundaries,
+    /// The last tail HTML each session was pushed, kept beside the
+    /// boundary so a flush tick whose rendered tail is unchanged
+    /// pushes nothing (the quiet-stretch skip). Cleared with the
+    /// boundary at settle.
+    last_tail: HashMap<SessionId, String>,
     /// The unread-mark cell's write handle — the fan-out is the sole
     /// writer of the mark (set on an unseen settle, cleared on
     /// activation of the marked session). Resolved once in the webui's
@@ -191,22 +267,31 @@ impl WebUiFanoutActor {
         let (tx, _rx) = broadcast::channel(BROADCAST_CAPACITY);
         let tx = Arc::new(tx);
         let actor_tx = tx.clone();
+        let handle_boundaries = StreamingBoundaries::default();
+        let actor_boundaries = handle_boundaries.clone();
 
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(ActorPath::new(WEBUI_FANOUT_NAME))
             .init_with(move || {
                 let tx = actor_tx.clone();
                 let state = state.clone();
+                let boundaries = actor_boundaries.clone();
                 Box::pin(async move {
                     Ok(Self {
                         state,
                         tx,
-                        pending: HashMap::new(),
+                        boundaries,
+                        last_tail: HashMap::new(),
                         unread_marks: unread_marks.clone(),
                     })
                 })
             })
-            .handles::<StreamToken>()
+            // No `.handles::<StreamToken>()`: the tokens are already in
+            // the session's history when the next flush tick reads it,
+            // and the boundary map (populated by the phase-change
+            // handler below) decides which sessions have a tail to
+            // render. Buffering the token deltas was the old transport's
+            // job; the tail re-render needs only the tick.
             .handles::<SessionPhaseChanged>()
             .handles::<SessionLoadCompleted>()
             .handles::<SessionArchived>()
@@ -234,13 +319,24 @@ impl WebUiFanoutActor {
             // fragments only.
             .handles::<jinn_session_lifecycle_msg::SessionCreated>()
             .handles::<jinn_session_lifecycle_msg::SessionSetupCompleted>()
+            // An entry landed in history (idle-direct dispatch, queue
+            // drain, or an explicit push): the transcript-full
+            // convergence push carries it to the page within one batch
+            // window — the visibility path for a message queued while
+            // busy, whose optimistic entry the settle's convergence
+            // render wiped. A broadcast-legal Event; the handler pushes
+            // the region's convergence fragment only.
+            .handles::<jinn_chat_input_msg::ChatEntrySubmitted>()
             .handles::<FlushTick>()
             // Arms the first flush ~1 tick after spawn; the chain
             // self-perpetuates from the handler.
             .kickoff(FlushTick, FLUSH_INTERVAL)
             .start();
 
-        FanoutHandle { tx }
+        FanoutHandle {
+            tx,
+            boundaries: handle_boundaries,
+        }
     }
 
     /// Builds an actor over the given state with its own broadcast
@@ -257,7 +353,8 @@ impl WebUiFanoutActor {
             Self {
                 state,
                 tx: Arc::new(tx),
-                pending: HashMap::new(),
+                boundaries: StreamingBoundaries::default(),
+                last_tail: HashMap::new(),
                 unread_marks,
             },
             rx,
@@ -276,6 +373,7 @@ impl WebUiFanoutActor {
     pub(crate) fn handle(&self) -> FanoutHandle {
         FanoutHandle {
             tx: self.tx.clone(),
+            boundaries: self.boundaries.clone(),
         }
     }
 
@@ -295,12 +393,18 @@ impl WebUiFanoutActor {
         (handle.clone(), handle.subscribe())
     }
 
-    /// Flushes one session's buffer with a cursor of zero. Test-only:
-    /// production flushes stamp the session's real entry count via
-    /// `flush_all`.
+    /// Flushes every tracked session's tail. Test-only: the same body
+    /// the flush tick handler runs, without the re-arm.
     #[cfg(test)]
-    pub(crate) fn flush_for_test(&mut self, session_id: &SessionId) {
-        self.flush_session(session_id, 0);
+    pub(crate) fn flush_for_test(&mut self) {
+        self.flush_all();
+    }
+
+    /// Flushes ONE session's tail. Test-only: the per-session seam the
+    /// scoping tests drive.
+    #[cfg(test)]
+    pub(crate) fn flush_session_tail_for_test(&mut self, session_id: &SessionId) {
+        self.flush_session_tail(session_id);
     }
 
     /// Pushes one envelope to every connected page. Send failures are
@@ -310,59 +414,84 @@ impl WebUiFanoutActor {
         let _ = self.tx.send(envelope);
     }
 
-    /// Appends rendered token HTML to a session's buffer.
-    pub(crate) fn append_token(&mut self, token: &StreamToken) {
-        use std::fmt::Write as _;
-        let span_class = if token.is_thinking {
-            "tok-thinking"
-        } else {
-            "tok-text"
-        };
-        // The token text is escaped verbatim: token deltas are raw text
-        // fragments, not markup.
-        let escaped = crate::transcript::escape_html(&token.token);
-        let entry = self.pending.entry(token.session_id.clone()).or_default();
-        let _ = write!(entry, "<span class=\"{span_class}\">{escaped}</span>");
+    /// Reads the tail snapshot for one session: the in-flight entries
+    /// rendered with thinking disclosures open (the streaming
+    /// disclosure rule), everything else collapsed. `None` when the
+    /// session is untracked (no live turn observed) — the caller
+    /// pushes nothing for it. One short read guard; the cursor
+    /// coordinate space is the rendered count (`is_renderable`-
+    /// filtered), the same space every cursor uses.
+    fn tail_snapshot(&self, session_id: &SessionId) -> Option<TailSnapshot> {
+        let boundary = self.boundaries.get(session_id)?;
+        let guard = self.state.read();
+        let session = guard.session.get(session_id)?;
+        let entries: Vec<_> = session
+            .history()
+            .iter()
+            .filter(|e| crate::transcript::is_renderable(e))
+            .skip(boundary)
+            .map(|e| crate::transcript::render_entry_streaming(e, true))
+            .collect();
+        drop(guard);
+        Some(TailSnapshot { entries, boundary })
     }
 
-    /// Flushes one session's buffered tokens as a `chat` fragment
-    /// stamped with the session's current rendered-entry count.
-    pub(crate) fn flush_session(&mut self, session_id: &SessionId, cursor: usize) {
-        if let Some(html) = self.pending.remove(session_id) {
-            // An empty buffer flushes nothing: there is no fragment to
-            // append, and an empty `beforeend` swap would be noise.
-            if !html.is_empty() {
-                self.broadcast(SseEnvelope {
-                    kind: SseKind::Chat,
-                    session_id: session_id.clone(),
-                    cursor,
-                    html,
-                });
+    /// Flushes one session's streaming tail: renders `boundary..end`
+    /// through the real projection (one [`EntryTemplate`][tmpl] per
+    /// entry, the catch-up shape) and pushes it as one `streaming`
+    /// envelope whose cursor parks at the boundary. A tail identical
+    /// to the last pushed one pushes nothing (the quiet-stretch
+    /// skip), and an untracked session pushes nothing.
+    ///
+    /// [tmpl]: crate::templates::EntryTemplate
+    fn flush_session_tail(&mut self, session_id: &SessionId) {
+        let Some(snapshot) = self.tail_snapshot(session_id) else {
+            // Untracked: nothing in flight was observed for this
+            // session — degrade to silence (the settle's convergence
+            // push is the correctness backstop).
+            return;
+        };
+        let mut html = String::new();
+        for (offset, entry) in snapshot.entries.iter().enumerate() {
+            let template = crate::templates::EntryTemplate {
+                entry: entry.clone(),
+                index: snapshot.boundary + offset,
+            };
+            match crate::templates::render(&template) {
+                Ok(rendered) => html.push_str(&rendered),
+                Err(error) => {
+                    tracing::warn!(%error, what = "streaming-tail", "webui template render failed; \
+                         skipping this flush");
+                    return;
+                }
             }
         }
+        if self
+            .last_tail
+            .get(session_id)
+            .is_some_and(|last| *last == html)
+        {
+            // Unchanged tail — nothing new rendered since the last
+            // push; keep the 150 ms tick from churning the DOM during
+            // long quiet stretches.
+            return;
+        }
+        self.last_tail.insert(session_id.clone(), html.clone());
+        self.broadcast(SseEnvelope {
+            kind: SseKind::Streaming,
+            session_id: session_id.clone(),
+            cursor: snapshot.boundary,
+            html,
+        });
     }
 
-    /// Flushes every buffered session, reading each one's entry count
-    /// for the cursor stamp. One state read per buffered session; the
-    /// guard drops before the broadcast (no await under it). The stamp
-    /// is the RENDERED entry count — the cursor's coordinate space is
-    /// the filtered transcript, so raw history length (which counts
-    /// transients the transcript drops) would drift clients' cursors
-    /// and corrupt every reconnect after one.
+    /// Flushes every tracked session's tail. One state read per
+    /// tracked session; the guard drops before the broadcast (no
+    /// await under it).
     fn flush_all(&mut self) {
-        let ids: Vec<SessionId> = self.pending.keys().cloned().collect();
+        let ids: Vec<SessionId> = self.boundaries.inner.lock().keys().cloned().collect();
         for session_id in ids {
-            let cursor = {
-                let guard = self.state.read();
-                guard.session.get(&session_id).map_or(0, |session| {
-                    session
-                        .history()
-                        .iter()
-                        .filter(|e| crate::transcript::is_renderable(e))
-                        .count()
-                })
-            };
-            self.flush_session(&session_id, cursor);
+            self.flush_session_tail(&session_id);
         }
     }
 
@@ -385,12 +514,51 @@ impl WebUiFanoutActor {
         self.unread_marks.update(|marks| marks.clear(session_id))
     }
 
-    /// Settles a session to idle: flush the partial token buffer FIRST,
+    /// The boundary-aware full-transcript fragment for one session,
+    /// under one short read guard: the settled prefix when a turn is
+    /// in flight (these pushes land mid-turn, where a full render
+    /// would double the tail the streaming container shows), the whole
+    /// history otherwise. The settle path does NOT use this — its
+    /// boundary is already cleared when it renders, so
+    /// [`Self::settle_to_idle`]'s registry render carries everything.
+    fn settled_transcript_fragment(&self, session_id: &SessionId) -> String {
+        let boundary = self.boundaries.get(session_id);
+        let guard = self.state.read();
+        let Some(session) = guard.session.get(session_id) else {
+            return String::new();
+        };
+        let transcript = crate::transcript::TranscriptModel::from_live(
+            session.history(),
+            session.title(),
+            &crate::regions::transcript::model_label(session.model_selection()),
+            session.phase().as_str(),
+            session.is_bot(),
+        );
+        drop(guard);
+        let entries = match boundary {
+            Some(boundary) => transcript
+                .entries
+                .get(..boundary.min(transcript.len()))
+                .map_or_else(
+                    || transcript.entries.clone(),
+                    <[crate::transcript::RenderedEntry]>::to_vec,
+                ),
+            None => transcript.entries,
+        };
+        crate::templates::render(&crate::templates::TranscriptTemplate::new(entries, 0))
+            .unwrap_or_default()
+    }
+
+    /// Settles a session to idle: clear the settled boundary FIRST,
     /// then the regions' settle fragments in registry order — the
-    /// transcript's convergence push (cursor 0 — the client re-bases on
-    /// it) then the composer's idle controls. The ordering keeps the
-    /// final tokens from appearing twice (once appended, once in the
-    /// full render), and the full push is the convergence backstop that
+    /// transcript's convergence push (cursor 0 — the client re-bases
+    /// on it) then the composer's idle controls. The convergence push
+    /// is the whole turn's visibility path: rendered through the
+    /// boundary-free projection it carries every entry once, and its
+    /// trailing empty `#streaming` container empties the streamed tail
+    /// structurally — the ordering keeps the in-flight entries from
+    /// appearing twice (once in the tail container, once in the full
+    /// render), and the full push is the convergence backstop that
     /// heals drift after rewinds, cancels, or partial-entry edges.
     ///
     /// A Sessions envelope (when the sessions region declares a settle
@@ -403,7 +571,12 @@ impl WebUiFanoutActor {
         reason = "bootstrap assertion: the conformance gate guarantees every settle kind one owning region; a None here is a registry bug that must abort, not skip a push"
     )]
     pub(crate) fn settle_to_idle(&mut self, session_id: &SessionId) {
-        self.flush_session(session_id, 0);
+        // The boundary dies before the settle renders: the convergence
+        // push must render the whole history (not stop at the old
+        // boundary), and the tail-skip state must not survive into the
+        // next turn.
+        self.boundaries.clear(session_id);
+        self.last_tail.remove(session_id);
         for kind in settle_push_kinds() {
             let html = {
                 let guard = self.state.read();
@@ -505,13 +678,10 @@ impl WebUiFanoutActor {
     /// cannot render TUI-parity rows; the client answers the push by
     /// re-pulling the picker's GET route with its current filter. Rows
     /// always arrive by pull — the pull endpoint remains the
-    /// correctness dependency. The transcript envelope is the region's
-    /// guard render (cursor 0, full replace — the convergence shape).
-    #[expect(
-        clippy::expect_used,
-        reason = "bootstrap assertion: the conformance gate guarantees the transcript kind \
-                  exactly one owning region; a None here is a registry bug that must abort"
-    )]
+    /// correctness dependency. The transcript envelope is the
+    /// boundary-aware render (cursor 0, full replace — the convergence
+    /// shape): mid-turn it carries the settled prefix, so the swap
+    /// never doubles the tail the streaming container shows.
     pub(crate) fn push_models_changed(&mut self, stored_at: jiff::Timestamp) {
         let ids: Vec<SessionId> = self
             .state
@@ -522,14 +692,7 @@ impl WebUiFanoutActor {
             .cloned()
             .collect();
         for session_id in ids {
-            let transcript_html = {
-                let guard = self.state.read();
-                crate::region::owner_of(SseKind::TranscriptFull)
-                    .expect(
-                        "a transcript-full kind has exactly one owning region (conformance gate)",
-                    )
-                    .render(&session_id, &guard)
-            };
+            let transcript_html = self.settled_transcript_fragment(&session_id);
             // The `models` event is a signal, but the data line must
             // carry bytes: the browser discards an SSE event whose data
             // buffer is empty at dispatch (WHATWG stream spec — the
@@ -673,13 +836,11 @@ impl WebUiFanoutActor {
         // shape a settle's convergence uses. This is NOT
         // `settle_to_idle`: the session is not settling phases here,
         // and flipping the composer controls would lie about the
-        // session's state.
+        // session's state. The render is boundary-aware — a setup
+        // completing while a turn is in flight must not double the
+        // tail.
         let session_id = &msg.session_id;
-        let transcript_html = {
-            let guard = self.state.read();
-            crate::region::owner_of(SseKind::TranscriptFull)
-                .map_or_default(|region| region.render(session_id, &guard))
-        };
+        let transcript_html = self.settled_transcript_fragment(session_id);
         self.broadcast(SseEnvelope {
             kind: SseKind::TranscriptFull,
             session_id: session_id.clone(),
@@ -687,11 +848,45 @@ impl WebUiFanoutActor {
             html: transcript_html,
         });
     }
+
+    /// A chat entry landed in history: push the transcript-full
+    /// convergence for the session. Synchronous work only; `async` is
+    /// the `MsgHandler::handle` signature's shape, dropped here.
+    ///
+    /// This is the visibility path for a message queued while busy:
+    /// its optimistic entry is wiped by the settle's convergence
+    /// render before the real entry exists in history, and this push
+    /// restores it at the dispatch that drains the queue — within one
+    /// batch window, no reload.
+    ///
+    /// The render is boundary-aware (the settled fragment, not the
+    /// whole history): a drain dispatching while the current turn's
+    /// tail is still streaming must not swallow the in-flight entries
+    /// the `streaming` pushes are showing, and must not re-render them
+    /// into the settled region — that is the settle's job, one render,
+    /// ordered after the boundary clear.
+    ///
+    /// It fires on ordinary idle-direct sends too (the same event);
+    /// the boundary-aware fragment makes that a harmless overlap —
+    /// exactly the settled region's current content — like the
+    /// setup-completed path above.
+    pub(crate) fn on_chat_entry_submitted(
+        &mut self,
+        msg: &jinn_chat_input_msg::ChatEntrySubmitted,
+    ) {
+        let transcript_html = self.settled_transcript_fragment(&msg.session_id);
+        self.broadcast(SseEnvelope {
+            kind: SseKind::TranscriptFull,
+            session_id: msg.session_id.clone(),
+            cursor: 0,
+            html: transcript_html,
+        });
+    }
 }
 
 /// The settle push order: every region's `settle_kinds` flattened in
-/// registry order. The partial token flush (above) runs before these;
-/// the transcript's convergence push precedes the composer's idle
+/// registry order. The boundary clear (above) runs before these; the
+/// transcript's convergence push precedes the composer's idle
 /// controls. A new region contributes its own settle kinds by
 /// declaring them — no edit here.
 fn settle_push_kinds() -> Vec<SseKind> {
@@ -708,12 +903,6 @@ impl MsgHandler<FlushTick> for WebUiFanoutActor {
     }
 }
 
-impl MsgHandler<StreamToken> for WebUiFanoutActor {
-    async fn handle(&mut self, msg: &StreamToken, _ctx: &mut MsgCtx<'_>) {
-        self.append_token(msg);
-    }
-}
-
 impl MsgHandler<SessionPhaseChanged> for WebUiFanoutActor {
     async fn handle(&mut self, msg: &SessionPhaseChanged, _ctx: &mut MsgCtx<'_>) {
         self.on_phase_changed(msg);
@@ -724,6 +913,12 @@ impl WebUiFanoutActor {
     /// The phase-change body, split out of the `MsgHandler` impl so
     /// tests can drive it without fabricating trouper-internal
     /// `MsgCtx` values (the same seam `settle_to_idle` exposes).
+    ///
+    /// The settled boundary is captured at the Idle→working flip: the
+    /// rendered-entry count of the history the projection write
+    /// (which lands before the event, the production order) has not
+    /// yet been joined by the turn's entries. Every subsequent flush
+    /// tick renders only entries past it.
     ///
     /// The sessions list carries the session's working state as the
     /// row spinner, so the list must refresh exactly when that state
@@ -740,6 +935,23 @@ impl WebUiFanoutActor {
 
         // Busy: swap the composer control to cancel immediately.
         if msg.new_phase != PhaseView::Idle {
+            // Turn start (Idle→working): capture the settled boundary
+            // — the rendered count the history holds right now. The
+            // boundary lives from here until the settle clears it.
+            if working_flipped {
+                let boundary = {
+                    let guard = self.state.read();
+                    guard.session.get(&msg.session_id).map_or(0, |session| {
+                        session
+                            .history()
+                            .iter()
+                            .filter(|e| crate::transcript::is_renderable(e))
+                            .count()
+                    })
+                };
+                self.boundaries.set(&msg.session_id, boundary);
+                self.last_tail.remove(&msg.session_id);
+            }
             self.push_busy_controls(&msg.session_id);
             if working_flipped {
                 self.refresh_all_sessions_lists();
@@ -896,5 +1108,15 @@ impl MsgHandler<jinn_session_lifecycle_msg::SessionSetupCompleted> for WebUiFano
         _ctx: &mut MsgCtx<'_>,
     ) {
         self.on_session_setup_completed(msg);
+    }
+}
+
+impl MsgHandler<jinn_chat_input_msg::ChatEntrySubmitted> for WebUiFanoutActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_chat_input_msg::ChatEntrySubmitted,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        self.on_chat_entry_submitted(msg);
     }
 }
