@@ -169,6 +169,26 @@ pub const SIDEBAR_CSS: &str = r#"
                           animation: webui-spin .8s linear infinite; }
 .srow.active .working { border-color: #14161a; border-top-color: transparent; }
 .srow.unread .working { border-color: #14161a; border-top-color: transparent; }
+/* The switch interstitial: the full-viewport loading overlay a
+   session-row click raises (the switching signal drives it) until the
+   activation response's page swap re-seeds the signal. Stacked above
+   the menu panel (z-index 70) — the click may come from the drawer or
+   the menu, and the overlay must cover both. Static shell markup,
+   hidden by default like the scrims; the click-through it blocks is
+   the point: a second activate mid-switch must not fire. */
+#switch-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65);
+                  z-index: 80; display: flex; align-items: center;
+                  justify-content: center; }
+#switch-overlay[hidden] { display: none; }
+.switch-card { background: var(--panel); border: 1px solid var(--border);
+               border-radius: 8px; padding: 18px 26px;
+               display: flex; flex-direction: column; align-items: center;
+               gap: 12px; }
+.switch-spinner { display: inline-block; width: 18px; height: 18px;
+                  border: 3px solid var(--accent); border-top-color: transparent;
+                  border-radius: 50%;
+                  animation: webui-spin .8s linear infinite; }
+.switch-label { color: var(--fg); font-size: 14px; }
 @media (max-width: 767px) {
   #sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: min(80vw, 320px);
              z-index: 40; transform: translateX(-100%); transition: transform .25s ease; }
@@ -204,6 +224,15 @@ fn unread_marks_of(guard: &StateReadGuard<'_>) -> Option<jinn_webui_msg::UnreadS
     slices
         .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
         .map(|cell| cell.read().clone())
+}
+
+/// The unread-mark count for the given session map — the titlebar
+/// sessions button's badge number. Zero when no registry is attached
+/// (no registry means no mark write paths, so the count degrades to
+/// zero rather than failing — the same signal-not-correctness rule
+/// [`unread_marks_of`] follows).
+pub(crate) fn unread_count_of(guard: &StateReadGuard<'_>) -> usize {
+    unread_marks_of(guard).map_or(0, |marks| marks.count())
 }
 
 /// The sessions-list fragment from a state guard — the fan-out's

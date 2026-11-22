@@ -1,5 +1,5 @@
 <div id="{{ page_root_id }}" {{ page_session_attr }}="{{ session_id }}"
-     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, chatTick: 0, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '' }"
+     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, chatTick: 0, switching: false, sessionsAttention: {{ sessions_attention }}, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '' }"
      data-class:drawer-open="$drawerOpen"
      data-on:keydown__document="evt.key === 'Escape' && ($menuOpen ? $menuOpen = false : ($drawerOpen ? $drawerOpen = false : undefined))">
   <nav id="sidebar">
@@ -34,6 +34,12 @@
        data-on:click="$drawerOpen = false"></div>
   <div id="{{ menu_scrim_id }}" data-attr:hidden="$menuOpen ? null : true" hidden
        data-on:click="$menuOpen = false"></div>
+  <div id="{{ switch_overlay_id }}" data-attr:hidden="$switching ? null : true" hidden>
+    <div class="switch-card">
+      <span class="switch-spinner"></span>
+      <span class="switch-label">Loading session…</span>
+    </div>
+  </div>
   {% if stream_url != "" %}
   <span data-init="@get('{{ stream_url }}', {openWhenHidden: true, retryMaxCount: Infinity, requestCancellation: 'cleanup'})"></span>
   {% endif %}

@@ -664,6 +664,7 @@ mod tests {
             Some(pid),
             "child is not group leader"
         );
+        let pgid = pid;
 
         // When killing the session and joining the pump.
         session.kill();
@@ -671,11 +672,14 @@ mod tests {
 
         // Then no `sleep 65` process survived the group signal. The kernel
         // reaps the killed group asynchronously, so the wait is on the
-        // survivors' absence with a deadline — a fixed sleep would only
-        // guess at how long the reap takes, and the "no survivors" claim
-        // would fail in the direction that makes the assertion pass for the
-        // wrong reason.
-        let mut survivors = jinn_testutil::platform::find_orphans("sleep 65", "sleep");
+        // survivors' absence within the session's own group with a deadline
+        // — a fixed sleep would only guess at how long the reap takes, and
+        // the "no survivors" claim would fail in the direction that makes
+        // the assertion pass for the wrong reason. The group scope keeps an
+        // unrelated host process running the same command line out of the
+        // oracle.
+        let mut survivors =
+            jinn_testutil::platform::find_orphans_in_group("sleep 65", "sleep", pgid as i32);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while !survivors.is_empty() {
             assert!(
@@ -683,7 +687,8 @@ mod tests {
                 "expected no 'sleep 65', found: {survivors:?}"
             );
             tokio::time::sleep(Duration::from_millis(50)).await;
-            survivors = jinn_testutil::platform::find_orphans("sleep 65", "sleep");
+            survivors =
+                jinn_testutil::platform::find_orphans_in_group("sleep 65", "sleep", pgid as i32);
         }
     }
 
@@ -737,16 +742,24 @@ mod tests {
             &shell_for_tests(),
         )
         .expect("spawn sleep");
+        // The group the session's kill addresses: the child is its own
+        // group leader in the pty, captured before the drop.
+        let pgid = session
+            .foreground_group()
+            .expect("child is not group leader");
 
         // When dropping the session (the guard's whole point).
         drop(session);
 
         // Then the sleep is gone. The kernel reaps the killed child
-        // asynchronously, so the wait is on the survivors' absence with a
-        // deadline — a fixed sleep would only guess at how long the reap
-        // takes, and the "the sleep is gone" claim would fail in the
-        // direction that makes the assertion pass for the wrong reason.
-        let mut survivors = jinn_testutil::platform::find_orphans("sleep 66", "sleep");
+        // asynchronously, so the wait is on the survivors' absence within
+        // the session's own group with a deadline — a fixed sleep would
+        // only guess at how long the reap takes, and the "the sleep is
+        // gone" claim would fail in the direction that makes the assertion
+        // pass for the wrong reason. The group scope keeps an unrelated
+        // host process running the same command line out of the oracle.
+        let mut survivors =
+            jinn_testutil::platform::find_orphans_in_group("sleep 66", "sleep", pgid as i32);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while !survivors.is_empty() {
             assert!(
@@ -754,7 +767,8 @@ mod tests {
                 "expected no 'sleep 66', found: {survivors:?}"
             );
             tokio::time::sleep(Duration::from_millis(50)).await;
-            survivors = jinn_testutil::platform::find_orphans("sleep 66", "sleep");
+            survivors =
+                jinn_testutil::platform::find_orphans_in_group("sleep 66", "sleep", pgid as i32);
         }
     }
 
