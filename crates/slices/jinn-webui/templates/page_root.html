@@ -1,5 +1,5 @@
 <div id="{{ page_root_id }}" {{ page_session_attr }}="{{ session_id }}"
-     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, chatTick: 0, switching: false, sessionsAttention: {{ sessions_attention }}, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '' }"
+     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, chatTick: 0, switching: false, sessionsAttention: {{ sessions_attention }}, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '', webTheme: '{{ web_theme }}' }"
      data-class:drawer-open="$drawerOpen"
      data-on:keydown__document="evt.key === 'Escape' && ($menuOpen ? $menuOpen = false : ($drawerOpen ? $drawerOpen = false : undefined))">
   <nav id="sidebar">
@@ -15,7 +15,7 @@
       <span class="t" {% if !session_title_id.is_empty() %}id="{{ session_title_id }}" data-on:click="$titleEditing = true"{% endif %}>{% if !session_title_id.is_empty() %}<span data-show="!$titleEditing" data-text="$title">{{ title }}</span><input data-show="$titleEditing" data-bind:title data-model-modifiers.trim
              data-on:keydown="evt.key === 'Enter' && ($titleCommitting || ($title.trim().length > 0 && ($titleCommitting = true) !== undefined && @post('{{ session_page_path }}' + $viewedSession + '/rename', {contentType: 'json', payload: {title: $title}})) !== undefined) || evt.key === 'Escape' && ($title = '{{ title }}', $titleEditing = false) !== undefined && evt.preventDefault()"
              data-on:blur="$titleCommitting || ($titleEditing = false, $title = '{{ title }}') !== undefined">{% else %}{{ title }}{% endif %}</span>
-      {{ status_html|safe }}
+      <span id="{{ picker_host_id }}">{{ button_html|safe }}</span>
     </div>
     <span id="{{ modal_host_id }}"></span>
     <span id="{{ session_new_host_id }}"></span>
@@ -24,8 +24,7 @@
     <span id="{{ tools_modal_host_id }}"></span>
     <span id="{{ skills_modal_host_id }}"></span>
     <div id="{{ transcript_wrap_id }}" data-ref:transcriptwrap
-         data-init="$transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })"
-         data-effect="$chatTick && $transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })">
+         data-init="$transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })">
       <div id="{{ transcript_id }}" {{ cursor_attr }}="{{ cursor }}">{{ transcript_html|safe }}</div>
     </div>
     <div id="{{ controls_id }}">{{ controls_html|safe }}</div>

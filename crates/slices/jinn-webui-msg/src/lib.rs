@@ -22,7 +22,7 @@ pub use unread::webui_unread_slot;
 pub use wire::{
     CancelForm, CreateSessionForm, McpToggleForm, ModelForm, ModelsRefreshForm, PersonaForm,
     RenameForm, SendForm, SessionListItem, SessionNewQuery, SessionsQuery, SkillLoadForm,
-    SkillToggleForm, SseEnvelope, SseKind, SwitchForm, TranscriptQuery,
+    SkillToggleForm, SseEnvelope, SseKind, SwitchForm, ThemeForm, TranscriptQuery,
 };
 
 #[cfg(test)]

@@ -256,7 +256,7 @@ pub(crate) fn rows_fragment(
 /// modal geometry mirrors the MCP modal's (the same overlay language,
 /// at the same stack level); the rows carry the TUI picker's ✓/✗ mark.
 pub const TOOLS_CSS: &str = r#"
-.tools-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+.tools-modal { position: fixed; inset: 0; background: var(--scrim);
              display: flex; align-items: flex-start;
              justify-content: center; padding-top: 10vh; z-index: 40; }
 .tools-modal[hidden] { display: none; }
@@ -267,7 +267,7 @@ pub const TOOLS_CSS: &str = r#"
 #tools-rows { overflow-y: auto; padding: 4px 0; }
 .tools-row { display: flex; gap: 8px; padding: 7px 12px; cursor: pointer;
            align-items: baseline; }
-.tools-row:hover { background: #23272f; }
+.tools-row:hover { background: var(--bg-hover); }
 .tools-row .tools-row-marker { width: 1.2em; color: var(--accent); }
 .tools-row .tools-row-summary { color: var(--muted); flex: 1; }
 .tools-row.tools-row-off .tools-row-marker { color: var(--muted); opacity: .7; }

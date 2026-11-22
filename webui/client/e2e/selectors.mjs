@@ -29,18 +29,23 @@ export const PAGE_ROOT = "#page-root";
 export const PAGE_SESSION_ATTR = "data-webui-session";
 /** The transcript entry container id (`wire.TRANSCRIPT_ID`). */
 export const TRANSCRIPT = "#transcript";
+/** The transcript's scroll container id (`wire.TRANSCRIPT_WRAP_ID`). */
+export const TRANSCRIPT_WRAP = "#transcript-wrap";
 /** One transcript entry's article element and its kind class. */
 export const ENTRY = (kind) => `article.entry.${kind}`;
 /** The composer textarea id (`wire.INPUT_ID`). */
 export const INPUT = "#input";
+/** The composer container id (`wire.COMPOSER_ID`). */
+export const COMPOSER = "#composer";
 /** The composer send button (action = `wire.ACTION_SEND`). */
 export const SEND_BUTTON = '[data-webui-action="send"]';
 /** The composer cancel button (action = `wire.ACTION_CANCEL`). */
 export const CANCEL_BUTTON = '[data-webui-action="cancel"]';
+/** The composer queue button (action = `wire.ACTION_QUEUE`) — busy
+ * fragment only, rendered before the cancel button. */
+export const QUEUE_BUTTON = '[data-webui-action="queue"]';
 /** The streaming spinner id (`wire.BUSY_SPINNER_ID`). */
 export const BUSY_SPINNER = "#busy-spinner";
-/** The titlebar's `.m` model label span. */
-export const MODEL_LABEL = "#model-status .m";
 /** The model-picker button id (`wire.MODEL_PICKER_BUTTON_ID`). */
 export const PICKER_BUTTON = "#model-picker-button";
 /** The modal overlay id (`wire.MODEL_PICKER_MODAL_ID`). */
@@ -85,6 +90,16 @@ export const MENU_ITEM_PERSONA = "#menu-item-persona";
 export const MENU_ITEM_MCP = "#menu-item-mcp";
 /** The menu's tools item id (`wire.MENU_ITEM_TOOLS_ID`). */
 export const MENU_ITEM_TOOLS = "#menu-item-tools";
+/** The menu's theme control host id (`wire.MENU_ITEM_THEME_ID`). */
+export const MENU_ITEM_THEME = "#menu-item-theme";
+/** The theme control's option id, by mode. */
+export const THEME_OPTION = (mode) => `#menu-item-theme-${mode}`;
+/** The active option's class (`wire.THEME_ACTIVE_CLASS`). */
+export const THEME_ACTIVE_CLASS = "theme-active";
+/** The theme POST's endpoint (`wire.THEME_PATH`). */
+export const THEME_PATH = "/web/theme";
+/** The document's `data-theme` attribute — the mode hook the CSS keys. */
+export const DATA_THEME_ATTR = "data-theme";
 /** The MCP modal overlay id (`wire.MCP_MODAL_ID`). */
 export const MCP_MODAL = "#mcp-modal";
 /** The MCP modal's host span id (`wire.MCP_MODAL_HOST_ID`). */

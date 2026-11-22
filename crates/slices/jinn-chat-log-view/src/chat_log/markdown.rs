@@ -340,14 +340,14 @@ mod tests {
         }
 
         // When rendering it again, as the chat log does every streamed frame.
-        // Sampled per [`TIMED_SAMPLES`], for the reason documented there.
         let mut elapsed = Duration::MAX;
-        for _ in 0..TIMED_SAMPLES {
+        for _ in 0..SAMPLE_RUNS {
             let started = Instant::now();
             let second = render_markdown(&markdown, WIDTH, &theme);
             elapsed = elapsed.min(started.elapsed());
             // And each warm render matches the cold one.
             assert_eq!(first, second);
+            // And the floor already shows through — no point sampling on.
             if elapsed < MAX_RECORDED_RERENDER {
                 break;
             }
@@ -355,11 +355,12 @@ mod tests {
 
         // Then the repeat render did not recompile any grammar's highlight
         // query, which is what used to cost tens of milliseconds *per code
-        // block*. Recompilation would put this far above the ~122ms this
-        // document costs warm with its configurations already built.
+        // block*. Recompilation would put every sample far above the
+        // ~122ms this document costs warm with its configurations already
+        // built, so no sample within the budget can ever appear.
         assert!(
             elapsed < MAX_RECORDED_RERENDER,
-            "a warm re-render must reuse compiled highlighters, best of {TIMED_SAMPLES} took {elapsed:?}"
+            "a warm re-render must reuse compiled highlighters, best of {SAMPLE_RUNS} took {elapsed:?}"
         );
     }
 
@@ -379,23 +380,23 @@ mod tests {
     /// be finishing on another thread.
     const WARMUP_RUNS: usize = 3;
 
-    /// Timed runs the measurement takes the best of.
+    /// Timed runs a wall-clock measurement may take before giving up.
     ///
     /// One sample of a wall-clock measurement is a statement about the machine
     /// as much as the code. Under a parallel `cargo test` the OS may preempt
     /// the render thread mid-parse, which turned a ~8ms render into a 120ms
-    /// one and failed this test intermittently — three times in one session,
-    /// each passing in isolation. Taking the minimum discards exactly those
-    /// preemptions: the render's own cost is the floor, and a scheduler
-    /// interruption can only ever add to it. The measurement therefore keeps
-    /// sampling — bounded by this ceiling — until the floor has shown itself
-    /// under the budget, stopping early the moment it has; a fixed best-of-5
-    /// could still lose when every one of its few samples was preempted by
-    /// the suite's own parallelism on a loaded box.
-    const TIMED_SAMPLES: usize = 25;
+    /// one and failed these tests on hosts running sibling builds — min-of-5
+    /// still bet on one clean sample landing inside five tries, and that bet
+    /// loses on a permanently busy machine. So the timing tests *poll*:
+    /// each render is sampled, the loop stops early once a sample lands
+    /// under the ceiling (the render's own cost is the floor; a scheduler
+    /// interruption can only ever add to it), and the cap only serves the
+    /// failure direction — a true regression pushes every sample over the
+    /// ceiling, so it fails after the cap exactly as min-of-5 would have.
+    const SAMPLE_RUNS: usize = 50;
 
     #[rstest::rstest]
-    #[timeout(Duration::from_secs(3))]
+    #[timeout(Duration::from_secs(30))]
     fn a_typical_streamed_response_renders_inside_a_frame() {
         // Given a realistic streamed response: a real code block plus prose.
         let theme = jinn_theme::default_theme();
@@ -407,15 +408,12 @@ mod tests {
         }
 
         // When re-rendering it warm, which is what a streaming frame does.
-        // Sampled per [`TIMED_SAMPLES`]: the budget is asserted against the
-        // render's own cost — the floor — so the loop stops the moment a
-        // sample lands under it and otherwise keeps sampling (bounded)
-        // until the floor has had a fair chance to show itself.
         let mut elapsed = Duration::MAX;
-        for _ in 0..TIMED_SAMPLES {
+        for _ in 0..SAMPLE_RUNS {
             let started = Instant::now();
             let _ = render_markdown(&markdown, WIDTH, &theme);
             elapsed = elapsed.min(started.elapsed());
+            // And the floor already shows through — no point sampling on.
             if elapsed < FRAME_BUDGET {
                 break;
             }
@@ -425,7 +423,7 @@ mod tests {
         // inside the redraw budget the throttle is pacing against.
         assert!(
             elapsed < FRAME_BUDGET,
-            "a typical streamed response must render inside one frame, best of {TIMED_SAMPLES} took {elapsed:?}"
+            "a typical streamed response must render inside one frame, best of {SAMPLE_RUNS} took {elapsed:?}"
         );
     }
 
@@ -439,7 +437,7 @@ mod tests {
     /// user actually is.
     ///
     /// Sibling to [`MAX_RECORDED_RERENDER`], which governs the same
-    /// measurement on a 465KB document. Both are asserted as a best-of-N, for
-    /// the reason given on [`TIMED_RUNS`].
+    /// measurement on a 465KB document. Both are asserted by sampling up to
+    /// the cap, for the reason given on [`SAMPLE_RUNS`].
     const FRAME_BUDGET: Duration = Duration::from_millis(33);
 }

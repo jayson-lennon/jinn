@@ -82,6 +82,9 @@ mod serve_tests;
 #[cfg(test)]
 mod smoke_tests;
 
+#[cfg(test)]
+mod transcript_tests;
+
 use error_stack::ResultExt as _;
 use jinn_kernel::State;
 use jinn_slices::SliceHost;
@@ -233,3 +236,6 @@ mod session_new_tests;
 
 #[cfg(test)]
 mod sessions_list_tests;
+
+#[cfg(test)]
+mod palette_tests;

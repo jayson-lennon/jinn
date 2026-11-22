@@ -133,27 +133,27 @@ pub const SIDEBAR_CSS: &str = r#"
               color: var(--muted); padding: 12px 14px 4px; margin: 0; }
 #sessions { overflow-y: auto; flex: 1; min-height: 0; }
 #sessions-filter { margin: 4px 10px 8px; padding: 5px 8px; font: inherit; font-size: 13px;
-                   color: var(--fg); background: #14161a; border: 1px solid var(--border);
+                   color: var(--fg); background: var(--bg); border: 1px solid var(--border);
                    border-radius: 5px; width: calc(100% - 20px); }
 #sessions-filter:focus { outline: none; border-color: var(--accent); }
 .srow { display: block; padding: 8px 14px; color: var(--fg); text-decoration: none;
         border-bottom: 1px solid var(--border); cursor: pointer; }
-.srow:hover { background: #23272f; }
+.srow:hover { background: var(--bg-hover); }
 .srow.active { background: var(--accent); }
-.srow.active .stitle { color: #14161a; font-weight: 600; }
-.srow.active .smeta { color: #14161a; }
+.srow.active .stitle { color: var(--on-accent); font-weight: 600; }
+.srow.active .smeta { color: var(--on-accent); }
 /* The unread mark: a settle landed while another session was viewed.
    Placed after `.active` so equal specificity resolves in unread's
    favor should the two classes ever co-occur (flag discipline keeps
    them apart; the CSS is the backstop). */
-.srow.unread { background: #e3b341; }
-.srow.unread .stitle { color: #14161a; }
-.srow.unread .smeta { color: #3d3320; }
+.srow.unread { background: var(--mark); }
+.srow.unread .stitle { color: var(--on-fill); }
+.srow.unread .smeta { color: var(--on-mark-muted); }
 .srow .stitle { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .srow .smeta { font-size: 11px; color: var(--muted); }
-.srow.bot .smeta::after { content: " · bot"; color: #d4a72c; }
-.srow.active .smeta::after { color: #14161a; }
-.srow.unread .smeta::after { color: #3d3320; }
+.srow.bot .smeta::after { content: " · bot"; color: var(--bot); }
+.srow.active .smeta::after { color: var(--on-accent); }
+.srow.unread .smeta::after { color: var(--on-mark-muted); }
 /* The working spinner: the row-level mark that a turn is in flight —
    streaming, tools, or cancelling, one class for all three (the busy
    definition is PhaseView::is_working; the web list never re-derives
@@ -167,8 +167,8 @@ pub const SIDEBAR_CSS: &str = r#"
                           border: 2px solid var(--accent); border-top-color: transparent;
                           border-radius: 50%;
                           animation: webui-spin .8s linear infinite; }
-.srow.active .working { border-color: #14161a; border-top-color: transparent; }
-.srow.unread .working { border-color: #14161a; border-top-color: transparent; }
+.srow.active .working { border-color: var(--on-accent); border-top-color: transparent; }
+.srow.unread .working { border-color: var(--on-fill); border-top-color: transparent; }
 /* The switch interstitial: the full-viewport loading overlay a
    session-row click raises (the switching signal drives it) until the
    activation response's page swap re-seeds the signal. Stacked above
@@ -176,7 +176,7 @@ pub const SIDEBAR_CSS: &str = r#"
    the menu, and the overlay must cover both. Static shell markup,
    hidden by default like the scrims; the click-through it blocks is
    the point: a second activate mid-switch must not fire. */
-#switch-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65);
+#switch-overlay { position: fixed; inset: 0; background: var(--scrim);
                   z-index: 80; display: flex; align-items: center;
                   justify-content: center; }
 #switch-overlay[hidden] { display: none; }
@@ -193,7 +193,7 @@ pub const SIDEBAR_CSS: &str = r#"
   #sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: min(80vw, 320px);
              z-index: 40; transform: translateX(-100%); transition: transform .25s ease; }
   #page-root.drawer-open #sidebar { transform: translateX(0); }
-  #drawer-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 30;
+  #drawer-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 30;
                   display: block; }
   #drawer-scrim[hidden] { display: none; }
   .srow { padding: 12px 14px; }
