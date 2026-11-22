@@ -774,11 +774,28 @@ async fn a_chat_entry_submitted_pushes_a_transcript_convergence_for_that_session
 
 #[rstest::rstest]
 #[tokio::test]
-async fn an_entry_submission_flushes_the_partial_buffer_before_the_convergence() {
-    // Given tokens buffered for a live session mid-stream.
+async fn an_entry_submission_mid_stream_renders_only_the_settled_region() {
+    // Given a fan-out actor tracking a mid-stream session: a boundary
+    // captured at turn start over one settled entry, with the
+    // in-flight entries pushed after the capture (the streaming
+    // tail's content).
     let (mut actor, mut rx, state, _marks) = fixture();
     let id = seed_session(&state);
-    actor.append_token(&token(&id, "partial"));
+    if let Some(session) = state.write().session.get_mut(&id) {
+        session.push_entry(jinn_core_types::ChatEntry::user("settled words"));
+    }
+    actor.on_phase_changed(&phase_change(&id, PhaseView::Idle, PhaseView::Streaming));
+    // The turn start's own pushes (busy controls + sidebar) are not
+    // this event's; drain them so the assertions see only what the
+    // entry submission fans.
+    while rx.try_recv().is_ok() {}
+    // The in-flight tail: entries that postdate the boundary capture.
+    {
+        let mut guard = state.write();
+        let session = guard.session.get_mut(&id).expect("seeded session");
+        session.push_entry(jinn_core_types::ChatEntry::assistant("in-flight"));
+        session.push_entry(jinn_core_types::ChatEntry::assistant("streamed in later"));
+    }
 
     // When an entry-submitted event lands (the dispatch that drains a
     // queued message, mid-stream).
@@ -787,15 +804,21 @@ async fn an_entry_submission_flushes_the_partial_buffer_before_the_convergence()
         entry: jinn_core_types::ChatEntry::user("queued words"),
     });
 
-    // Then the partial flush lands BEFORE the convergence replace —
-    // the reverse order would let a later FlushTick re-append the
-    // buffered tokens on top of the full render for one batch window.
-    let first = rx.try_recv().expect("partial flush");
-    assert_eq!(first.kind, SseKind::Chat, "flush first");
-    assert!(first.html.contains("partial"), "{}", first.html);
-    let second = rx.try_recv().expect("convergence render");
-    assert_eq!(second.kind, SseKind::TranscriptFull, "convergence second");
-    assert!(rx.try_recv().is_err(), "exactly two pushes per event");
+    // Then the convergence render carries the settled region's
+    // boundary slice — the entries the settled transcript already
+    // showed — and swallows neither the newer in-flight entries (they
+    // stay the streaming tail's job until the settle) nor anything
+    // else (no controls push; no streaming push here).
+    let envelope = rx.try_recv().expect("the transcript push");
+    assert_eq!(envelope.kind, SseKind::TranscriptFull);
+    assert_eq!(envelope.cursor, 0);
+    assert!(envelope.html.contains("settled words"), "{}", envelope.html);
+    assert!(
+        !envelope.html.contains("in-flight"),
+        "the boundary slices the in-flight tail out: {}",
+        envelope.html
+    );
+    assert!(rx.try_recv().is_err(), "exactly one push per event");
 }
 
 // ── The unread mark: set on an unseen settle ────────────────────────

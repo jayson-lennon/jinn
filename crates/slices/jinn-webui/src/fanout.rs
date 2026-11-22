@@ -834,34 +834,32 @@ impl WebUiFanoutActor {
         });
     }
 
-    /// A chat entry landed in history: flush the session's pending
-    /// token buffer first, then push the transcript-full convergence.
-    /// Synchronous work only; `async` is the `MsgHandler::handle`
-    /// signature's shape, dropped here.
+    /// A chat entry landed in history: push the transcript-full
+    /// convergence for the session. Synchronous work only; `async` is
+    /// the `MsgHandler::handle` signature's shape, dropped here.
     ///
-    /// The flush runs **before** the replace for the same reason a
-    /// settle flushes first: the dispatch that published this event
-    /// follows a convergence render (a settle push or this push) with
-    /// an inner replace that would otherwise re-append any tokens still
-    /// buffered when a later `FlushTick` lands it. The convergence push
-    /// itself is the settle's transcript shape — cursor 0, the region's
-    /// guard render, an idempotent full replace — so it restores a
-    /// queued message's wiped optimistic entry and cannot double an
-    /// entry the send POST's optimistic append already added.
+    /// This is the visibility path for a message queued while busy:
+    /// its optimistic entry is wiped by the settle's convergence
+    /// render before the real entry exists in history, and this push
+    /// restores it at the dispatch that drains the queue — within one
+    /// batch window, no reload.
     ///
-    /// This fires on ordinary sends too (the idle-direct dispatch
-    /// publishes the same event); the convergence render makes that a
-    /// harmless overlap, exactly like the setup-completed path above.
+    /// The render is boundary-aware (the settled fragment, not the
+    /// whole history): a drain dispatching while the current turn's
+    /// tail is still streaming must not swallow the in-flight entries
+    /// the `streaming` pushes are showing, and must not re-render them
+    /// into the settled region — that is the settle's job, one render,
+    /// ordered after the boundary clear.
+    ///
+    /// It fires on ordinary idle-direct sends too (the same event);
+    /// the boundary-aware fragment makes that a harmless overlap —
+    /// exactly the settled region's current content — like the
+    /// setup-completed path above.
     pub(crate) fn on_chat_entry_submitted(
         &mut self,
         msg: &jinn_chat_input_msg::ChatEntrySubmitted,
     ) {
-        self.flush_session(&msg.session_id, 0);
-        let transcript_html = {
-            let guard = self.state.read();
-            crate::region::owner_of(SseKind::TranscriptFull)
-                .map_or_default(|region| region.render(&msg.session_id, &guard))
-        };
+        let transcript_html = self.settled_transcript_fragment(&msg.session_id);
         self.broadcast(SseEnvelope {
             kind: SseKind::TranscriptFull,
             session_id: msg.session_id.clone(),
