@@ -12,7 +12,9 @@ use jinn_core_types::FilterMode;
 use jinn_core_types::NameFilter;
 use jinn_core_types::ToolDefinition;
 
-use crate::web_tool_rows::{WebToolRow, bot_sees_tool, committed_tool_filter, modal_rows};
+use crate::web_tool_rows::{
+    WebToolRow, bot_sees_tool, committed_tool_filter, filter_rows, modal_rows,
+};
 
 /// Ordinary built-ins every session keeps, bot or not.
 const ORDINARY_TOOL_NAMES: &[&str] = &["read", "bash", "grep"];
@@ -380,4 +382,129 @@ fn committing_all_on_rows_yields_an_empty_deny_filter() {
     // state the TUI confirm reaches from an untouched picker.
     assert!(filter.names.is_empty());
     assert_eq!(filter.mode, FilterMode::Deny);
+}
+
+// ---------------------------------------------------------------------------
+// filter_rows — the web modal's shared fuzzy filter
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[test]
+fn filter_rows_with_empty_filter_passes_every_row_through_in_order() {
+    // Given rows in their sorted order.
+    let rows = modal_rows(&defs(&["bash", "grep", "read"]), "openrouter", false, false, None);
+
+    // When filtering with an empty query.
+    let filtered = filter_rows(&rows, "");
+
+    // Then every row passes through in input order with no match
+    // indices — nothing is highlighted on an empty filter.
+    assert_eq!(filtered.len(), 3);
+    assert!(filtered.iter().all(|row| row.match_indices.is_empty()));
+    assert_eq!(filtered[0].row.name, "bash");
+    assert_eq!(filtered[2].row.name, "read");
+}
+
+#[rstest::rstest]
+#[test]
+fn filter_rows_narrows_to_matching_rows_ordered_by_score() {
+    // Given rows whose names share a query prefix to different degrees.
+    let rows = modal_rows(
+        &defs(&["read", "read_image", "grep"]),
+        "openrouter",
+        false,
+        false,
+        None,
+    );
+
+    // When filtering for "read".
+    let filtered = filter_rows(&rows, "read");
+
+    // Then only the two rows whose search text matches remain, ordered
+    // by the shared core's score (exact name first), with match
+    // indices present.
+    let names: Vec<&str> = filtered.iter().map(|row| row.row.name.as_str()).collect();
+    assert_eq!(names, vec!["read", "read_image"]);
+    assert!(filtered.iter().all(|row| !row.match_indices.is_empty()));
+}
+
+#[rstest::rstest]
+#[test]
+fn filter_rows_matches_the_description_field_too() {
+    // Given a row whose distinguishing text lives in its description.
+    let rows = {
+        let mut definitions = defs(&["alpha"]);
+        definitions.push(ToolDefinition {
+            name: "beta".to_owned(),
+            description: "read a file from the workspace".to_owned(),
+            parameters: serde_json::json!({ "type": "object" }),
+            prompt_snippet: None,
+            prompt_guidelines: vec![],
+            server_tool_type: None,
+        });
+        modal_rows(&definitions, "openrouter", false, false, None)
+    };
+
+    // When filtering for the description-only word "workspace".
+    let filtered = filter_rows(&rows, "workspace");
+
+    // Then exactly the beta row remains — the search text spans both
+    // fields, the TUI's `"{name} {description}"` closure.
+    let names: Vec<&str> = filtered.iter().map(|row| row.row.name.as_str()).collect();
+    assert_eq!(names, vec!["beta"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn segments_split_the_match_indices_across_both_fields() {
+    // Given a filtered row whose match spans the name and the
+    // description.
+    let rows = modal_rows(&defs(&["read"]), "openrouter", false, false, None);
+    let filtered = filter_rows(&rows, "readd");
+    let row = &filtered[0];
+
+    // When splitting into per-field runs.
+    let segments = row.row.segments(&row.match_indices);
+
+    // Then the name's matched run covers the whole name, and the
+    // description's runs reconstruct its text exactly with at least one
+    // matched run — the indices remapped into description-local
+    // offsets, wherever the match core placed them.
+    let name_text: String = segments.name.iter().map(|run| run.text.as_str()).collect();
+    assert_eq!(name_text, "read");
+    assert!(segments.name[0].matched);
+    let desc_rebuilt: String = segments
+        .description
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(desc_rebuilt, "read description");
+    assert!(segments.description.iter().any(|run| run.matched));
+}
+
+#[rstest::rstest]
+#[test]
+fn segments_keep_the_separator_unhighlighted() {
+    // Given a row and its search text — the separator offset (the
+    // space at `name_len`) must belong to neither field.
+    let rows = modal_rows(&defs(&["ab"]), "openrouter", false, false, None);
+    let row = &rows[0];
+    let name_len = row.name.len();
+
+    // When splitting with only the separator offset marked.
+    let segments = row.segments(&[name_len]);
+
+    // Then neither field carries a matched run — the separator's
+    // offset maps into neither the name's range nor the description's.
+    assert!(segments.name.iter().all(|run| !run.matched));
+    assert!(segments.description.iter().all(|run| !run.matched));
+    // And both fields still reconstruct whole.
+    let name_rebuilt: String = segments.name.iter().map(|run| run.text.as_str()).collect();
+    let desc_rebuilt: String = segments
+        .description
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(name_rebuilt, "ab");
+    assert_eq!(desc_rebuilt, "ab description");
 }

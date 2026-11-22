@@ -18,6 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::McpConnectionStatus;
+use jinn_selection_widget::split_matched_runs;
 
 /// The display state of one server's status badge — the shared
 /// derivation both surfaces render from.
@@ -131,6 +132,99 @@ pub fn build_rows(
         .collect();
     rows.sort_by_key(|row| row.name.to_lowercase());
     rows
+}
+
+impl McpServerRow {
+    /// The row's search text: name then description — the TUI MCP
+    /// inspector's own search closure (`"{name} {description}"`), so a
+    /// query filters the web modal identically.
+    #[must_use]
+    pub fn search_text(&self) -> String {
+        format!("{} {}", self.name, self.description)
+    }
+
+    /// Splits the row's two text fields into matched/plain runs from the
+    /// filter's match indices.
+    ///
+    /// The indices are byte offsets into [`Self::search_text`] (name
+    /// occupies `[0, name_len)`, the single-byte space separator sits at
+    /// `name_len`, the description starts at `name_len + 1`); offsets on
+    /// the separator belong to neither field. Runs cut on grapheme
+    /// boundaries via the shared splitter.
+    #[must_use]
+    pub fn segments(&self, match_indices: &[usize]) -> McpRowSegments {
+        let name_len = self.name.len();
+        let desc_offset = name_len.saturating_add(1); // the space separator
+        let name_hits: Vec<usize> = match_indices
+            .iter()
+            .copied()
+            .filter(|&i| i < name_len)
+            .collect();
+        let desc_hits: Vec<usize> = match_indices
+            .iter()
+            .copied()
+            .filter_map(|i| i.checked_sub(desc_offset))
+            .collect();
+        McpRowSegments {
+            name: split_matched_runs(&self.name, &name_hits),
+            description: split_matched_runs(&self.description, &desc_hits),
+        }
+    }
+}
+
+/// One row's two text fields, each split into matched/plain runs.
+///
+/// Presentation-free: the web stamps `<mark>` on matched runs, the TUI
+/// stamps a highlight background.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpRowSegments {
+    /// The name field's runs, in display order.
+    pub name: Vec<jinn_selection_widget::TextRun>,
+    /// The description field's runs, in display order.
+    pub description: Vec<jinn_selection_widget::TextRun>,
+}
+
+/// One fuzzy-filtered MCP server row: the row plus where its search
+/// text matched.
+#[derive(Debug, Clone)]
+pub struct FilteredMcpRow {
+    /// The matched row, in filter display order.
+    pub row: McpServerRow,
+    /// Sorted, deduplicated byte offsets into the row's search text
+    /// that the filter matched. Empty when the filter is empty.
+    pub match_indices: Vec<usize>,
+}
+
+/// The shared fuzzy filter over MCP server rows — the same match core
+/// the TUI inspector routes through.
+///
+/// Every whitespace-separated term of `filter` must fuzzy-match the
+/// row's search text (`jinn_selection_widget::fuzzy_filter`,
+/// [`SkimMatcherV2`] with per-term AND logic); matches order by
+/// cumulative score descending, ties by input order. An empty filter
+/// returns the rows unchanged (the caller's sort order) with no ranges.
+#[must_use]
+pub fn filter_rows(rows: &[McpServerRow], filter: &str) -> Vec<FilteredMcpRow> {
+    if filter.is_empty() {
+        return rows
+            .iter()
+            .map(|row| FilteredMcpRow {
+                row: row.clone(),
+                match_indices: Vec::new(),
+            })
+            .collect();
+    }
+    let labels: Vec<String> = rows.iter().map(McpServerRow::search_text).collect();
+    let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    jinn_selection_widget::fuzzy_filter(&label_refs, filter)
+        .into_iter()
+        .filter_map(|matched| {
+            rows.get(matched.index).map(|row| FilteredMcpRow {
+                row: row.clone(),
+                match_indices: matched.match_indices,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -267,5 +361,96 @@ mod tests {
         // When reading its label.
         // Then the label is the lowercase word both surfaces render.
         assert_eq!(badge.label(), label);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn filter_rows_with_empty_filter_passes_every_row_through_in_order() {
+        // Given rows in their case-insensitive sorted order.
+        let rows = build_rows(&servers(), &BTreeSet::new(), &BTreeMap::new());
+
+        // When filtering with an empty query.
+        let filtered = filter_rows(&rows, "");
+
+        // Then every row passes through in input order with no match
+        // indices — nothing is highlighted on an empty filter.
+        assert_eq!(filtered.len(), 3);
+        assert!(filtered.iter().all(|row| row.match_indices.is_empty()));
+        assert_eq!(filtered[0].row.name, "alpha");
+        assert_eq!(filtered[2].row.name, "Weather");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn filter_rows_narrows_to_matching_rows() {
+        // Given rows where only one matches the query.
+        let rows = build_rows(&servers(), &BTreeSet::new(), &BTreeMap::new());
+
+        // When filtering for "weather".
+        let filtered = filter_rows(&rows, "weather");
+
+        // Then exactly the matching row remains, with match indices
+        // present.
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].row.name, "Weather");
+        assert!(!filtered[0].match_indices.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn filter_rows_matches_the_description_field_too() {
+        // Given rows whose distinguishing text lives in a description.
+        let rows = build_rows(&servers(), &BTreeSet::new(), &BTreeMap::new());
+
+        // When filtering for the description-only word "browser".
+        let filtered = filter_rows(&rows, "jinn mcp");
+
+        // Then exactly the browser row remains — the search text spans
+        // both fields, the TUI's `"{name} {description}"` closure.
+        let names: Vec<&str> = filtered.iter().map(|f| f.row.name.as_str()).collect();
+        assert_eq!(names, vec!["browser"]);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn segments_reconstruct_both_fields_and_mark_the_name() {
+        // Given a filtered row whose name matches.
+        let rows = build_rows(&servers(), &BTreeSet::new(), &BTreeMap::new());
+        let filtered = filter_rows(&rows, "alpha");
+
+        // When splitting into per-field runs.
+        let segments = filtered[0].row.segments(&filtered[0].match_indices);
+
+        // Then the name is one wholly matched run, and the description's
+        // runs reconstruct its text exactly (the match core placed the
+        // whole query in the name; nothing is asserted about where its
+        // overflow would land).
+        assert_eq!(segments.name.len(), 1);
+        assert!(segments.name[0].matched);
+        let desc_rebuilt: String = segments
+            .description
+            .iter()
+            .map(|run| run.text.as_str())
+            .collect();
+        assert_eq!(desc_rebuilt, "alpha-server");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn segments_keep_the_separator_unhighlighted() {
+        // Given a row and its search text — the separator offset (the
+        // space at `name_len`) must belong to neither field.
+        let rows = build_rows(&servers(), &BTreeSet::new(), &BTreeMap::new());
+        let row = &rows[0];
+        let name_len = row.name.len();
+
+        // When splitting with only the separator offset marked.
+        let segments = row.segments(&[name_len]);
+
+        // Then neither field carries a matched run — the separator's
+        // offset maps into neither the name's range nor the
+        // description's.
+        assert!(segments.name.iter().all(|run| !run.matched));
+        assert!(segments.description.iter().all(|run| !run.matched));
     }
 }
