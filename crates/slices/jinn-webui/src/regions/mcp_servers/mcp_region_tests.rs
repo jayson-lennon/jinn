@@ -388,8 +388,11 @@ async fn the_modal_renders_the_filter_input_bound_to_its_signal() {
         "the input binds the filter signal: {html}"
     );
     assert!(
-        html.contains("?filter=' + encodeURIComponent("),
-        "the effect re-pulls with a filter param: {html}"
+        html.contains(&format!(
+            "data-effect__debounce.150ms=\"$mcpOpen && ($mcpTick + ' ' + ${}",
+            contract::SIGNAL_MCP_FILTER
+        )),
+        "the effect debounce-pulls on tick and filter changes: {html}"
     );
 }
 

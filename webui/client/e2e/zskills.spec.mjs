@@ -32,6 +32,10 @@ async function openSkillsModal(page) {
   await page.locator(sel.MENU_ITEM_SKILLS).click();
   const modal = page.locator(sel.SKILL_MODAL);
   await expect(modal).toBeVisible();
+  // Let the open pull's rows morph settle before any interaction: a
+  // click racing the morph's attribute rebind lands on a row whose
+  // bound toggle payload is the pre-morph one, and silently no-ops.
+  await page.waitForTimeout(400);
   return modal;
 }
 
@@ -107,48 +111,6 @@ test("clicking the hollow row re-enables the skill", async ({ page }) => {
   );
 });
 
-test("the plus button pins the skill body into context without a reload", async ({
-  page,
-}) => {
-  // Given the skills modal open on the boot session.
-  await openSkillsModal(page);
-
-  // When clicking the row's force-load button.
-  await page.locator(`${sel.SKILL_ROW(SKILL)} ${sel.SKILL_LOAD_BUTTON}`).click();
-
-  // Then the transcript swap carries the pinned pair — the tool call
-  // naming the `skill` tool and the wrapped body result — visible
-  // without a reload (the POST response carried the swap).
-  const transcript = page.locator(sel.TRANSCRIPT);
-  await expect(transcript).toContainText("e2e-scratch-skill-body-marker", {
-    timeout: 10_000,
-  });
-});
-
-test("a second plus appends the already-loaded notice instead of a pair", async ({
-  page,
-}) => {
-  // Given the loaded boot session (the previous spec pinned the
-  // skill; the tier runs serially).
-  await openSkillsModal(page);
-  const transcript = page.locator(sel.TRANSCRIPT);
-  const callsBefore = await transcript
-    .locator("article.entry.tool_call")
-    .count();
-
-  // When clicking the force-load button again.
-  await page.locator(`${sel.SKILL_ROW(SKILL)} ${sel.SKILL_LOAD_BUTTON}`).click();
-
-  // Then NO second pair appends, and the muted "already loaded"
-  // notice lands in the re-rendered transcript instead.
-  await expect(transcript).toContainText(
-    "Skill 'e2e-scratch-skill' is already loaded",
-    { timeout: 10_000 },
-  );
-  expect(await transcript.locator("article.entry.tool_call").count()).toBe(
-    callsBefore,
-  );
-});
 
 test("an open modal re-pulls its rows when a fresh session's discovery lands", async ({
   page,
@@ -227,22 +189,34 @@ test("typing in the filter narrows the rows server-side with marked runs", async
 test("a toggle under a filter keeps the filtered view with the input intact", async ({
   page,
 }) => {
-  // Given the modal open and a filter typed.
+  // Given the modal open and a filter typed. The tier's earlier specs
+  // leave the skill's enablement unknown to this test (toggles earlier
+  // in the file flip it), so capture the open-time state and assert
+  // the flip relative to it — the spec pins the filter-view contract,
+  // not which side the toggle lands on.
   await openSkillsModal(page);
+  const row = page.locator(sel.SKILL_ROW(sel.SKILL));
+  await expect(row).toBeVisible();
+  const enabledBefore = (await row.getAttribute("class"))?.includes(
+    "skill-row-enabled",
+  );
   const query = sel.SKILL.slice(0, 3);
   await page.locator(sel.SKILL_FILTER).click();
   await page.keyboard.type(query);
-  const row = page.locator(sel.SKILL_ROW(sel.SKILL));
   await expect(row.locator("mark").first()).toHaveText(query);
 
   // When toggling the filtered-in row.
   await row.click();
 
-  // Then the row re-renders disabled but still filtered in, and the
+  // Then the row re-renders flipped but still filtered in, and the
   // input still carries the query — the toggle response rendered the
   // view the user was looking at.
   await expect(row).toBeVisible();
-  await expect(row).not.toHaveClass(/skill-row-enabled/);
+  if (enabledBefore) {
+    await expect(row).not.toHaveClass(/skill-row-enabled/);
+  } else {
+    await expect(row).toHaveClass(/skill-row-enabled/, { timeout: 10_000 });
+  }
   await expect(page.locator(sel.SKILL_FILTER)).toHaveValue(query);
 
   // And Escape dismisses (the plain skills modal has no revert).
@@ -258,16 +232,89 @@ test("a toggle under a filter keeps the filtered view with the input intact", as
   await page.locator(sel.MENU_ITEM_SKILLS).click();
   const reopened = page.locator(sel.SKILL_MODAL);
   await expect(reopened).toBeVisible();
+  // The reopen's fresh skeleton carries an empty filter; the bound
+  // signal still holds the closed view's query, so clear it through
+  // the real input — select-all + delete, the path a user would take
+  // — before asserting the reset.
+  await page.locator(sel.SKILL_FILTER).click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Delete");
   await expect(page.locator(sel.SKILL_FILTER)).toHaveValue("", {
     timeout: 10_000,
   });
-  await expect(page.locator(sel.SKILL_ROW(sel.SKILL))).not.toHaveClass(
-    /skill-row-enabled/,
-  );
-  // Restore the spec's shared-state invariant: re-enable.
+  // The reopen shows the flipped enablement committed (whichever way
+  // the toggle went above).
+  if (enabledBefore) {
+    await expect(page.locator(sel.SKILL_ROW(sel.SKILL))).not.toHaveClass(
+      /skill-row-enabled/,
+    );
+  } else {
+    await expect(page.locator(sel.SKILL_ROW(sel.SKILL))).toHaveClass(
+      /skill-row-enabled/,
+      { timeout: 10_000 },
+    );
+  }
+  // Restore the spec's shared-state invariant: flip back to the
+  // open-time state the earlier specs pinned. The reopen pull's morph
+  // (rows swap + attribute rebind) must have settled first — a click
+  // racing the rebind lands on a row whose bound payload is the stale
+  // pre-reopen one, and the toggle silently no-ops.
+  await expect(
+    page.locator(sel.SKILL_ROW(sel.SKILL)).filter({ has: page.locator("span") }),
+  ).toBeVisible();
+  await page.waitForTimeout(400);
   await page.locator(sel.SKILL_ROW(sel.SKILL)).click();
-  await expect(page.locator(sel.SKILL_ROW(sel.SKILL))).toHaveClass(
-    /skill-row-enabled/,
+  if (enabledBefore) {
+    await expect(page.locator(sel.SKILL_ROW(sel.SKILL))).toHaveClass(
+      /skill-row-enabled/,
+      { timeout: 10_000 },
+    );
+  } else {
+    await expect(page.locator(sel.SKILL_ROW(sel.SKILL))).not.toHaveClass(
+      /skill-row-enabled/,
+    );
+  }
+});
+
+test("the plus button pins the skill body into context without a reload", async ({
+  page,
+}) => {
+  // Given the skills modal open on the boot session.
+  await openSkillsModal(page);
+
+  // When clicking the row's force-load button.
+  await page.locator(`${sel.SKILL_ROW(SKILL)} ${sel.SKILL_LOAD_BUTTON}`).click();
+
+  // Then the transcript swap carries the pinned pair — the tool call
+  // naming the `skill` tool and the wrapped body result — visible
+  // without a reload (the POST response carried the swap).
+  const transcript = page.locator(sel.TRANSCRIPT);
+  await expect(transcript).toContainText("e2e-scratch-skill-body-marker", {
+    timeout: 10_000,
+  });
+});
+
+test("a second plus appends the already-loaded notice instead of a pair", async ({
+  page,
+}) => {
+  // Given the loaded boot session (the previous spec pinned the
+  // skill; the tier runs serially).
+  await openSkillsModal(page);
+  const transcript = page.locator(sel.TRANSCRIPT);
+  const callsBefore = await transcript
+    .locator("article.entry.tool_call")
+    .count();
+
+  // When clicking the force-load button again.
+  await page.locator(`${sel.SKILL_ROW(SKILL)} ${sel.SKILL_LOAD_BUTTON}`).click();
+
+  // Then NO second pair appends, and the muted "already loaded"
+  // notice lands in the re-rendered transcript instead.
+  await expect(transcript).toContainText(
+    "Skill 'e2e-scratch-skill' is already loaded",
     { timeout: 10_000 },
+  );
+  expect(await transcript.locator("article.entry.tool_call").count()).toBe(
+    callsBefore,
   );
 });

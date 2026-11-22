@@ -81,7 +81,7 @@ async fn run() -> Result<(), SpikeError> {
 
     println!("binary: {}", executable.display());
 
-    let scratch = std::env::temp_dir().join("oopif-spike-profile");
+    let scratch = tempfile::env::temp_dir().join("oopif-spike-profile");
     let _ = std::fs::remove_dir_all(&scratch);
 
     println!("launching scratch chromium…");

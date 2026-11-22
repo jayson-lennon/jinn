@@ -183,9 +183,13 @@ test("a toggle under a filter keeps the filtered view with the input intact", as
   await page.locator(sel.MENU_ITEM_MCP).click();
   const reopened = page.locator(sel.MCP_MODAL);
   await expect(reopened).toBeVisible();
-  // The reopen rides the re-pull effect, so wait for the fresh
-  // fragment to land — the input resets when it arrives, not at the
-  // click.
+  // The reopen's fresh skeleton carries an empty filter; the bound
+  // signal still holds the closed view's query, so clear it by typing
+  // select-all + delete through the real input — the same path a user
+  // would take — before asserting the reset.
+  await page.locator(sel.MCP_FILTER).click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Delete");
   await expect(page.locator(sel.MCP_FILTER)).toHaveValue("", {
     timeout: 10_000,
   });

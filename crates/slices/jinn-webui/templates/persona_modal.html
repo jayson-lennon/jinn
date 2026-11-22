@@ -3,6 +3,6 @@
      data-on:click="evt.target === evt.currentTarget && ($personaModalOpen = false)"><div class="persona-modal-inner"
      data-on:keydown__document="evt.key === 'Escape' && ($personaModalOpen = false)"><div class="persona-modal-head"><input id="{{ filter_id }}" type="text" value="{{ filter }}" autocomplete="off" placeholder="filter personas…"
            data-bind:personafilter></div><div id="{{ rows_id }}"
-      data-effect="($personafilter + ' ' + $personaTick).trim() && $personaModalOpen && @get('{{ picker_route }}' + $viewedSession + '?filter=' + encodeURIComponent($personafilter || ''), {selector: '#{{ modal_host_id }}', openWhenHidden: true})"
+      data-effect__debounce.150ms="($personafilter + ' ' + $personaTick).trim() && $personaModalOpen && @get('{{ picker_route }}' + $viewedSession, {selector: '#{{ modal_host_id }}', openWhenHidden: true})"
 
     >{% for row in rows %}{{ row|safe }}{% endfor %}</div></div></div>

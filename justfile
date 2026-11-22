@@ -635,16 +635,20 @@ webui-smoke:
 # crashed or aborted run never reached teardown leaves the whole
 # session alive. Every process in the chain carries the scratch root
 # in its cmdline (`--db-path /tmp/jinn-webui-e2e/...`), so one pkill
-# pattern reaches jinn and its script/fish wrappers alike. Not
-# parallel-safe: it kills any concurrent e2e suite.
+# pattern reaches jinn and its script/fish wrappers alike. The pattern
+# is scoped to this worktree's slug (harness.mjs derives the same one
+# from the repo root's basename), so a concurrent e2e suite in another
+# worktree is untouched — two suites in the SAME worktree still kill
+# each other.
 webui-e2e-clean:
     #!/usr/bin/env bash
     set -euo pipefail
-    E2E_PAT='--db-path /tmp/jinn-webui-e2e/'
+    SLUG="$(basename {{justfile_directory()}})"
+    E2E_PAT="--db-path /tmp/jinn-webui-e2e/${SLUG}/"
     pkill -TERM -f -- "$E2E_PAT" 2>/dev/null || true
     sleep 0.5
     pkill -KILL -f -- "$E2E_PAT" 2>/dev/null || true
-    rm -rf /tmp/jinn-webui-e2e/run-*
+    rm -rf "/tmp/jinn-webui-e2e/${SLUG}/run-"*
     echo '==> webui-e2e-clean green'
 
 # Full-stack webui e2e: build the real binary, boot it against a

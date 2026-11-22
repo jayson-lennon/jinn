@@ -22,6 +22,7 @@
 //! click delegation and the [`crate::contract::SESSIONS_ID`] swap.
 
 use axum::extract::Query as AxQuery;
+use axum::extract::RawQuery;
 use axum::extract::State as AxumState;
 use jinn_kernel::common::state::StateReadGuard;
 use jinn_picker::make_items_with_hooks;
@@ -238,16 +239,20 @@ pub const SIDEBAR_CSS: &str = r#"
 async fn pull_handler(
     AxumState(shared): AxumState<ServerShared>,
     AxQuery(query): AxQuery<SessionsQuery>,
+    RawQuery(raw): RawQuery,
 ) -> Result<Fragment, HandlerError> {
-    Ok(Fragment::new(
-        sessions_fragment(
-            &shared,
-            query.filter_text(),
-            query.viewed_session().as_ref(),
-        )
-        .await?,
-    )
-    .with_swap("#sessions", "inner"))
+    // The filter rides the signal dump (our debounce rewrite); the
+    // viewed id rides the explicit param main added for the blue-row
+    // render. Both degrade gracefully when absent.
+    let viewed = query.viewed_session();
+    let viewed = viewed.as_ref();
+    let q = crate::server::filter_from_query_or_signal(
+        query.q.clone(),
+        raw.as_deref(),
+        crate::contract::SIGNAL_SESSIONS_FILTER,
+    );
+    let q = (!q.is_empty()).then_some(q.as_str());
+    Ok(Fragment::new(sessions_fragment(&shared, q, viewed).await?).with_swap("#sessions", "inner"))
 }
 
 /// The unread marks for the given session map: the shared cell's

@@ -29,8 +29,16 @@ const REPO_ROOT = path.resolve(here, "..", "..", "..");
 const BIN_PATH = path.join(REPO_ROOT, "target", "debug", "jinn");
 /** The scratch luau script the `[mcp.echo]` entry serves. */
 const MCP_ECHO_SCRIPT = path.join(here, "mcp-echo-tool.lua");
-/** Where the scratch roots are created. */
-const TMP_BASE = path.join(os.tmpdir(), "jinn-webui-e2e");
+/**
+ * The scratch roots live one level deeper, under this worktree's slug —
+ * the sweep in `just webui-e2e-clean` matches the slug-scoped cmdline
+ * pattern, so it can only ever kill this worktree's processes. Two
+ * worktrees running the e2e tier concurrently no longer kill each
+ * other mid-suite.
+ */
+const WORKTREE_SLUG = path.basename(REPO_ROOT);
+/** Where the scratch roots are created — per-worktree scoped. */
+export const TMP_BASE = path.join(os.tmpdir(), "jinn-webui-e2e", WORKTREE_SLUG);
 
 /** How long to wait for the bind before declaring boot failed. */
 const BIND_TIMEOUT_MS = 30_000;

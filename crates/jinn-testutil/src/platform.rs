@@ -389,7 +389,7 @@ pub fn idle_command(seconds: u64) -> (&'static str, Vec<String>) {
 )]
 #[must_use]
 pub fn local_cwd() -> std::path::PathBuf {
-    std::env::temp_dir()
+    tempfile::env::temp_dir()
 }
 
 #[cfg(test)]
@@ -532,8 +532,19 @@ mod tests {
             return;
         };
 
-        // When scanning for processes carrying the marker.
-        let found = find_orphans(&marker, "tail");
+        // When scanning for processes carrying the marker. A freshly
+        // spawned child may not have exec'd yet under suite parallelism,
+        // so the scan is bounded-retried — the observable behavior
+        // (the child carries the marker in its cmdline) is stable once
+        // it has exec'd.
+        let found = {
+            let scan = || find_orphans(&marker, "tail");
+            if crate::wait::poll_until(std::time::Duration::from_secs(2), || !scan().is_empty()) {
+                scan()
+            } else {
+                Vec::new()
+            }
+        };
 
         // Then the child is found.
         let _ = child.kill();

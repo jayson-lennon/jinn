@@ -320,3 +320,24 @@ async fn a_script_that_registers_nothing_fails_the_handshake_with_a_clear_stderr
     };
     assert!(message.contains("registered no tools"), "got {message}");
 }
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_live_healthy_child_completes_the_connect_with_its_tools() {
+    // Given a script registering one tool, served by the real binary.
+    let script = ServeScript::with_source(
+        r#"
+jinn.tool(
+  { name = "ping", description = "pings", input = { type = "object", properties = {} } },
+  function(_args) return "pong" end
+)
+"#,
+    );
+
+    // When connecting to the live, healthy child.
+    let client = connect(&script.path, &[]).await;
+
+    // Then the connection is live and advertises the registered tool.
+    let tools = client.list_tools().await.expect("list tools");
+    assert!(tools.iter().any(|tool| tool.name == "ping"));
+}

@@ -44,6 +44,7 @@
 
 use axum::extract::Path as AxPath;
 use axum::extract::Query as AxQuery;
+use axum::extract::RawQuery;
 use axum::extract::State as AxumState;
 use jinn_core_types::NameFilter;
 use jinn_tools_msg::WebToolRow;
@@ -168,8 +169,13 @@ pub(crate) async fn rows_pull_handler(
     AxumState(shared): AxumState<crate::server::ServerShared>,
     AxPath(session_id): AxPath<String>,
     AxQuery(query): AxQuery<ToolsFilterQuery>,
+    RawQuery(raw): RawQuery,
 ) -> Result<crate::server::Fragment, crate::server::HandlerError> {
-    let filter = query.filter.unwrap_or_default();
+    let filter = crate::server::filter_from_query_or_signal(
+        query.filter,
+        raw.as_deref(),
+        crate::contract::SIGNAL_TOOLS_FILTER,
+    );
     // The fragment carries its own rows container, so the swap
     // replaces that element rather than its inner HTML — an inner swap
     // would nest a second `#tools-rows` inside the open one.

@@ -3654,6 +3654,7 @@ dependencies = [
  "rustls 0.23.45",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "toml 0.8.23",
  "tracing",
@@ -3892,6 +3893,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "toml 0.8.23",
  "toml_edit 0.22.27",
@@ -4109,6 +4111,7 @@ dependencies = [
  "marked-path",
  "rstest",
  "serde",
+ "tempfile",
  "trouper",
 ]
 
@@ -4501,6 +4504,7 @@ dependencies = [
  "rustls 0.23.45",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "toml 0.8.23",
  "tracing",
@@ -5137,6 +5141,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "tempfile",
  "trouper",
 ]
 
@@ -5193,6 +5198,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
  "trouper",
  "unicode-segmentation",
@@ -5269,6 +5275,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
  "wherror",
 ]
@@ -6037,6 +6044,7 @@ dependencies = [
  "datastar",
  "error-stack",
  "flate2",
+ "form_urlencoded",
  "futures",
  "http-body-util",
  "image",

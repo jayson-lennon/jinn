@@ -158,7 +158,7 @@ impl std::fmt::Debug for TestRoot {
 )]
 #[must_use]
 pub fn volume_root() -> MarkedPathBuf<Absolute> {
-    let temp = std::env::temp_dir();
+    let temp = tempfile::env::temp_dir();
     let root = temp
         .ancestors()
         .last()

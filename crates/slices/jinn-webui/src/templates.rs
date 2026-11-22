@@ -1422,16 +1422,22 @@ pub struct McpModalTemplate {
     pub filter_signal: &'static str,
     /// The rows container's id.
     pub rows_id: &'static str,
-    /// The modal host span's id — the pull's swap target.
+    /// The modal host span's id — the open pull's swap target.
     pub modal_host_id: &'static str,
-    /// The MCP pull's route prefix — the tick effect's `@get` target.
+    /// The MCP pull's route prefix — the menu item's `@get` target.
     pub picker_route: &'static str,
+    /// The rows-fragment pull's URL prefix — the modal effect's `@get`
+    /// target is `<prefix><viewed session id>`.
+    pub rows_url: String,
+    /// The rows container's CSS selector — the modal effect's swap
+    /// target (never the modal host: the input must not re-render).
+    pub rows_selector: &'static str,
 }
 
 impl McpModalTemplate {
     /// Builds the template with the contract's hooks filled.
     #[must_use]
-    pub fn with_contract(rows: Vec<String>, filter: String) -> Self {
+    pub fn with_contract(rows: Vec<String>, filter: String, viewed_session: &str) -> Self {
         Self {
             rows,
             filter,
@@ -1441,6 +1447,34 @@ impl McpModalTemplate {
             rows_id: contract::MCP_ROWS_ID,
             modal_host_id: contract::MCP_MODAL_HOST_ID,
             picker_route: contract::MCP_PICKER_PREFIX,
+            rows_url: format!("{}{viewed_session}", contract::MCP_ROWS_PREFIX),
+            rows_selector: contract::MCP_ROWS_SELECTOR,
+        }
+    }
+}
+
+/// The MCP modal's rows fragment: the filtered rows alone, rendered
+/// into the rows container by the modal effect's re-pull and the
+/// toggle POST — never the skeleton, so the filter input is never
+/// re-rendered (a re-render would reset it to the pull's query
+/// mid-typing).
+#[derive(Template)]
+#[template(path = "mcp_rows.html")]
+pub struct McpRowsTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+}
+
+impl McpRowsTemplate {
+    /// Builds the template: the contract's rows id filled, the rows
+    /// pre-rendered by the region.
+    #[must_use]
+    pub fn with_contract(rows: Vec<String>) -> Self {
+        Self {
+            rows,
+            rows_id: contract::MCP_ROWS_ID,
         }
     }
 }
@@ -1719,17 +1753,23 @@ pub struct SkillModalTemplate {
     pub filter_signal: &'static str,
     /// The rows container's id.
     pub rows_id: &'static str,
-    /// The modal host span's id — the pull's swap target.
+    /// The modal host span's id — the open pull's swap target.
     pub modal_host_id: &'static str,
-    /// The skills pull's route prefix — the tick effect's `@get`
+    /// The skills pull's route prefix — the menu item's `@get`
     /// target.
     pub picker_route: &'static str,
+    /// The rows-fragment pull's URL prefix — the modal effect's `@get`
+    /// target is `<prefix><viewed session id>`.
+    pub rows_url: String,
+    /// The rows container's CSS selector — the modal effect's swap
+    /// target (never the modal host: the input must not re-render).
+    pub rows_selector: &'static str,
 }
 
 impl SkillModalTemplate {
     /// Builds the template with the contract's hooks filled.
     #[must_use]
-    pub fn with_contract(rows: Vec<String>, filter: String) -> Self {
+    pub fn with_contract(rows: Vec<String>, filter: String, viewed_session: &str) -> Self {
         Self {
             rows,
             filter,
@@ -1739,6 +1779,34 @@ impl SkillModalTemplate {
             rows_id: contract::SKILL_ROWS_ID,
             modal_host_id: contract::SKILL_MODAL_HOST_ID,
             picker_route: contract::SKILL_PICKER_PREFIX,
+            rows_url: format!("{}{viewed_session}", contract::SKILL_ROWS_PREFIX),
+            rows_selector: contract::SKILL_ROWS_SELECTOR,
+        }
+    }
+}
+
+/// The skills modal's rows fragment: the filtered rows alone, rendered
+/// into the rows container by the modal effect's re-pull and the
+/// toggle/load POSTs — never the skeleton, so the filter input is
+/// never re-rendered (a re-render would reset it to the pull's query
+/// mid-typing).
+#[derive(Template)]
+#[template(path = "skill_rows.html")]
+pub struct SkillRowsTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+}
+
+impl SkillRowsTemplate {
+    /// Builds the template: the contract's rows id filled, the rows
+    /// pre-rendered by the region.
+    #[must_use]
+    pub fn with_contract(rows: Vec<String>) -> Self {
+        Self {
+            rows,
+            rows_id: contract::SKILL_ROWS_ID,
         }
     }
 }

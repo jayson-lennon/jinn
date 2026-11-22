@@ -49,6 +49,7 @@
 
 use axum::extract::Path as AxPath;
 use axum::extract::Query as AxQuery;
+use axum::extract::RawQuery;
 use axum::extract::State as AxumState;
 use jinn_skills_msg::Skill;
 use jinn_webui_msg::SseKind;
@@ -136,6 +137,36 @@ async fn pull_handler(
     )
 }
 
+/// `GET /web/skills/rows/{id}?filter=…` — the modal effect's re-pull
+/// target. It answers with the **rows fragment only**, swapping the
+/// rows container inside the open modal: the skeleton (and the filter
+/// input it carries) is never re-rendered, so a slow pull from an
+/// earlier keystroke landing mid-typing cannot reset the input to
+/// that pull's stale query — the keystroke-drop bug.
+///
+/// # Errors
+///
+/// Returns the render error; the caller maps it to a 500.
+pub(crate) async fn rows_pull_handler(
+    AxumState(shared): AxumState<crate::server::ServerShared>,
+    AxPath(session_id): AxPath<String>,
+    AxQuery(query): AxQuery<SkillFilterQuery>,
+    RawQuery(raw): RawQuery,
+) -> Result<crate::server::Fragment, crate::server::HandlerError> {
+    let filter = crate::server::filter_from_query_or_signal(
+        query.filter,
+        raw.as_deref(),
+        crate::contract::SIGNAL_SKILLS_FILTER,
+    );
+    // The fragment carries its own rows container, so the swap
+    // replaces that element rather than its inner HTML — an inner swap
+    // would nest a second `#skills-rows` inside the open one.
+    Ok(
+        crate::server::Fragment::new(rows_fragment(&shared, &session_id, &filter)?)
+            .with_swap(crate::contract::SKILL_ROWS_SELECTOR, "outer"),
+    )
+}
+
 /// The pull's query: the optional `filter` parameter — the shared
 /// fuzzy filter over skill name and description.
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -207,32 +238,61 @@ pub(crate) fn modal_fragment(
     session_id: &str,
     filter: &str,
 ) -> Result<String, crate::server::HandlerError> {
+    crate::templates::render(&crate::templates::SkillModalTemplate::with_contract(
+        rendered_rows(shared, session_id, filter),
+        filter.to_owned(),
+        session_id,
+    ))
+    .map_err(|error| crate::server::map_render_error(&error))
+}
+
+/// The filtered rows, pre-rendered — the modal and rows fragments'
+/// shared body. Enablement is paired at render (the filter narrows
+/// the view; the accepted set stays the whole discovered set).
+fn rendered_rows(
+    shared: &crate::server::ServerShared,
+    session_id: &str,
+    filter: &str,
+) -> Vec<String> {
     let sorted = sorted_rows(shared, session_id);
     let enabled_by_name: std::collections::BTreeMap<&str, bool> = sorted
         .iter()
         .map(|(skill, enabled)| (skill.name.as_str(), *enabled))
         .collect();
-    let rows: Vec<String> =
-        jinn_skills_msg::filter_skills(&sorted_skills(shared, session_id), filter)
-            .into_iter()
-            .map(|filtered| {
-                let enabled = enabled_by_name
-                    .get(filtered.skill.name.as_str())
-                    .copied()
-                    .unwrap_or(false);
-                crate::templates::render(&crate::templates::SkillRowTemplate::from_filtered(
-                    filtered, enabled,
-                ))
-                .unwrap_or_else(|error| {
-                    tracing::warn!(%error, what = "skill-row", "webui template render failed; \
-                         skipping the row");
-                    String::new()
-                })
+    jinn_skills_msg::filter_skills(&sorted_skills(shared, session_id), filter)
+        .into_iter()
+        .map(|filtered| {
+            let enabled = enabled_by_name
+                .get(filtered.skill.name.as_str())
+                .copied()
+                .unwrap_or(false);
+            crate::templates::render(&crate::templates::SkillRowTemplate::from_filtered(
+                filtered, enabled,
+            ))
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, what = "skill-row", "webui template render failed; \
+                     skipping the row");
+                String::new()
             })
-            .collect();
-    crate::templates::render(&crate::templates::SkillModalTemplate::with_contract(
-        rows,
-        filter.to_owned(),
+        })
+        .collect()
+}
+
+/// The rows fragment: the filtered rows alone under their container —
+/// the modal effect's re-pull and the toggle/load POSTs' swap body.
+/// Never the skeleton: the filter input must not re-render
+/// mid-typing.
+///
+/// # Errors
+///
+/// Returns the render error; the caller maps it to a 500.
+pub(crate) fn rows_fragment(
+    shared: &crate::server::ServerShared,
+    session_id: &str,
+    filter: &str,
+) -> Result<String, crate::server::HandlerError> {
+    crate::templates::render(&crate::templates::SkillRowsTemplate::with_contract(
+        rendered_rows(shared, session_id, filter),
     ))
     .map_err(|error| crate::server::map_render_error(&error))
 }

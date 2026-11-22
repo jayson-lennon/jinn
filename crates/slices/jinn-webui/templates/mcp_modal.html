@@ -1,8 +1,7 @@
 <div id="{{ modal_id }}" class="mcp-modal"
      data-attr:hidden="$mcpOpen ? null : true" hidden
+     data-effect__debounce.150ms="$mcpOpen && ($mcpTick + ' ' + ${{ filter_signal }} + ' ' + $mcpOpen).trim() && @get('{{ rows_url }}', {selector: '{{ rows_selector }}', openWhenHidden: true})"
      data-on:click="evt.target === evt.currentTarget && ($mcpOpen = false)"><div class="mcp-modal-inner"
      data-on:keydown__document="evt.key === 'Escape' && ($mcpOpen = false)"><div class="mcp-modal-head"><input id="{{ filter_id }}" type="text" value="{{ filter }}" autocomplete="off" placeholder="filter servers…"
            data-bind:{{ filter_signal }}></div><div id="{{ rows_id }}"
-      data-effect="($mcpTick + ' ' + ${{ filter_signal }} + ' ' + $mcpOpen).trim() && $mcpOpen && @get('{{ picker_route }}' + $viewedSession + '?filter=' + encodeURIComponent(${{ filter_signal }} || ''), {selector: '#{{ modal_host_id }}', openWhenHidden: true})"
-
     >{% for row in rows %}{{ row|safe }}{% endfor %}</div></div></div>

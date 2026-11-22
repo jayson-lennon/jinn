@@ -13,6 +13,7 @@
     reason = "test assertions need expect/panic to state what went wrong"
 )]
 
+use marked_path::MarkedPathAccess as _;
 use rmcp::model::{CallToolRequestParams, CallToolResponse, ContentBlock, ListToolsResult};
 use serde_json::{Value, json};
 
@@ -43,6 +44,9 @@ fn install_crypto_provider() {
 struct HermeticRoot {
     _lock: std::sync::MutexGuard<'static, ()>,
     previous: Option<std::ffi::OsString>,
+    /// Owns the temp directory a `dead` root's file lives in; dropped
+    /// after the env restore, so nothing leaks between runs.
+    _owned_dir: Option<jinn_testutil::JinnTempDir>,
 }
 
 /// The env var the daemon client's discovery reads.
@@ -70,6 +74,11 @@ impl Drop for HermeticRoot {
 
 impl HermeticRoot {
     fn set(root: &std::path::Path) -> Self {
+        Self::set_owned(root, None)
+    }
+
+    /// [`Self::set`], carrying the temp directory that owns `root`.
+    fn set_owned(root: &std::path::Path, owned: Option<jinn_testutil::JinnTempDir>) -> Self {
         let lock = PATHS_ROOT_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -80,22 +89,22 @@ impl HermeticRoot {
         Self {
             _lock: lock,
             previous,
+            _owned_dir: owned,
         }
     }
 
     /// A root that is a file: every paths operation under it fails
     /// immediately.
     fn dead() -> Self {
-        let root = std::env::temp_dir().join("jinn-browser-mcp-hermetic");
-        let _ = std::fs::remove_dir_all(&root);
+        let dir = jinn_testutil::tempdir();
+        let root = dir.path.as_path().join("root");
         std::fs::write(&root, b"not a directory").expect("hermetic root written");
-        Self::set(&root)
+        Self::set_owned(root.as_path(), Some(dir))
     }
 
     /// A real temp root whose browser registry names `port` — the
     /// mockito-backed fake daemon.
     fn registry(port: u16) -> (Self, jinn_testutil::TestRoot) {
-        use marked_path::MarkedPathAccess as _;
         let root = jinn_testutil::TestRoot::new();
         let paths = jinn_common::app_paths::AppPaths::new_in(&root.path().as_marked_path());
         let registry_path = paths.browser_daemons_path();

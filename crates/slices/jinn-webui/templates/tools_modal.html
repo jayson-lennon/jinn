@@ -1,6 +1,6 @@
 <span id="{{ revert_stamp_id }}" data-init="$toolsRevert = {{ revert_snapshot }}"></span><div id="{{ modal_id }}" class="tools-modal"
      data-attr:hidden="$toolsOpen ? null : true" hidden
-     data-effect="($toolsTick + ' ' + $toolsOpen).trim() && $toolsOpen && @get('{{ rows_url }}?filter=' + encodeURIComponent(${{ filter_signal }} || ''), {selector: '{{ rows_selector }}', openWhenHidden: true})"
+     data-effect__debounce.150ms="$toolsOpen && ($toolsTick + ' ' + ${{ filter_signal }} + ' ' + $toolsOpen).trim() && @get('{{ rows_url }}', {selector: '{{ rows_selector }}', openWhenHidden: true})"
      data-on:click="evt.target === evt.currentTarget && ($toolsOpen && @post('{{ revert_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, snapshot: $toolsRevert}}) !== undefined, $toolsOpen = false, $toolsRevert = null) !== undefined"><div class="tools-modal-inner"
      data-on:keydown__document="evt.key === 'Escape' && ($toolsOpen && ($toolsOpen && @post('{{ revert_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, snapshot: $toolsRevert}}) !== undefined, $toolsOpen = false, $toolsRevert = null) !== undefined)"><div class="tools-modal-head"><input id="{{ filter_id }}" type="text" value="{{ filter }}" autocomplete="off" placeholder="filter tools…"
            data-bind:{{ filter_signal }}></div><div id="{{ rows_id }}"

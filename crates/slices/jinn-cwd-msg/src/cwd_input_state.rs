@@ -93,7 +93,7 @@ pub enum CwdResolution {
 #[must_use]
 pub fn tilde_home() -> MarkedPathBuf<Absolute> {
     let home = dirs::home_dir()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir()));
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| tempfile::env::temp_dir()));
     MarkedPathBuf::<Absolute>::new(home).expect("home and cwd are absolute")
 }
 

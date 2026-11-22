@@ -39,7 +39,7 @@ pub fn default_persist() -> bool {
 pub fn default_cwd() -> MarkedPathBuf<Absolute> {
     // `.` has always meant "the launch directory" — resolve it now so the
     // field is absolute for the session's whole life.
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
+    let cwd = std::env::current_dir().unwrap_or_else(|_| tempfile::env::temp_dir());
     MarkedPathBuf::<Absolute>::new(cwd).expect("cwd and temp dir are absolute")
 }
 

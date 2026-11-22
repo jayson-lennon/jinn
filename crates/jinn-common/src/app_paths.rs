@@ -86,7 +86,7 @@ impl Default for AppPaths {
     reason = "platform-impossible: OS cwds and temp paths are absolute"
 )]
 fn cwd_absolute() -> MarkedPathBuf<Absolute> {
-    let candidate = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
+    let candidate = std::env::current_dir().unwrap_or_else(|_| tempfile::env::temp_dir());
     MarkedPathBuf::<Absolute>::new(candidate).expect("cwd and temp dir are absolute")
 }
 

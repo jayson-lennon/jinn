@@ -36,6 +36,7 @@ axum = { version = "0.8", optional = true }
 futures = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 
+tempfile = { workspace = true }
 [dev-dependencies]
 jinn-testutil = { workspace = true }
 rstest = { workspace = true }
