@@ -244,16 +244,15 @@ async fn pull_handler(
     // The filter rides the signal dump (our debounce rewrite); the
     // viewed id rides the explicit param main added for the blue-row
     // render. Both degrade gracefully when absent.
+    let viewed = query.viewed_session();
+    let viewed = viewed.as_ref();
     let q = crate::server::filter_from_query_or_signal(
-        query.q,
+        query.q.clone(),
         raw.as_deref(),
         crate::contract::SIGNAL_SESSIONS_FILTER,
     );
     let q = (!q.is_empty()).then_some(q.as_str());
-    let viewed = query.viewed_session();
-    let viewed = viewed.as_ref();
-    Ok(Fragment::new(sessions_fragment(&shared, q, viewed).await?)
-        .with_swap("#sessions", "inner"))
+    Ok(Fragment::new(sessions_fragment(&shared, q, viewed).await?).with_swap("#sessions", "inner"))
 }
 
 /// The unread marks for the given session map: the shared cell's
