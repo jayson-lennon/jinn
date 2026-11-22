@@ -900,7 +900,7 @@ async fn a_watched_settle_still_fans_the_flip_wave() {
     assert!(rx.try_recv().is_err(), "one wave, nothing else");
 }
 
-// ── The unread mark: cleared on activation ──────────────────────────
+// ── The unread mark: cleared when the session is viewed ─────────────
 
 #[rstest::rstest]
 #[tokio::test]
@@ -919,9 +919,9 @@ async fn activating_a_marked_session_clears_it_and_refreshes_every_list() {
     // Drain the mark transition's traffic before observing the clear.
     while let Ok(_envelope) = rx.try_recv() {}
 
-    // When Foo becomes the active session and its load completes.
-    assert!(state.write().session.set_active(foo.clone()), "activates");
-    actor.on_load_completed(&jinn_session_store_msg::SessionLoadCompleted {
+    // When the activation event for Foo lands (the store actor
+    // publishes it on every activation — disk load or in-memory).
+    actor.on_active_session_changed(&jinn_kernel::protocol::system::ActiveSessionChanged {
         session_id: foo.clone(),
     });
 
@@ -947,6 +947,81 @@ async fn activating_a_marked_session_clears_it_and_refreshes_every_list() {
         !last_html.contains("unread"),
         "the post-clear fragment is clean: {last_html}"
     );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn opening_a_marked_session_page_clears_its_mark() {
+    // Given a marked session Foo and an active session Bar — Foo's
+    // mark landed without any activation anywhere.
+    let (mut actor, mut rx, state, marks) = fixture();
+    let foo = seed_session(&state);
+    let bar = seed_session(&state);
+    assert!(state.write().session.set_active(bar.clone()), "activates");
+    actor.on_phase_changed(&phase_change(
+        &foo,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+    assert!(marks.read().is_marked(&foo), "precondition: Foo is marked");
+    while let Ok(_envelope) = rx.try_recv() {}
+
+    // When a page arrives at Foo — the GET page render's event, which
+    // activates nothing.
+    actor.on_session_page_opened(&jinn_webui_msg::SessionPageOpened {
+        session_id: foo.clone(),
+    });
+
+    // Then the mark is gone: opening the page IS the viewing, no
+    // activation required.
+    assert!(!marks.read().is_marked(&foo));
+    let live = state.read().session.sessions().len();
+    let mut sessions_envelopes = 0;
+    while let Ok(envelope) = rx.try_recv() {
+        if envelope.kind == SseKind::Sessions {
+            sessions_envelopes += 1;
+        }
+    }
+    assert_eq!(
+        sessions_envelopes,
+        live + 1,
+        "the addressed refresh plus one envelope per live session"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_second_clear_of_the_same_session_fans_nothing() {
+    // Given a marked session whose clear already landed.
+    let (mut actor, mut rx, state, marks) = fixture();
+    let foo = seed_session(&state);
+    actor.on_phase_changed(&phase_change(
+        &foo,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+    assert!(marks.read().is_marked(&foo), "precondition: Foo is marked");
+    actor.on_active_session_changed(&jinn_kernel::protocol::system::ActiveSessionChanged {
+        session_id: foo.clone(),
+    });
+    assert!(!marks.read().is_marked(&foo));
+    while let Ok(_envelope) = rx.try_recv() {}
+
+    // When the same activation event arrives again (a TUI switch
+    // landing on an already-active session, say).
+    actor.on_active_session_changed(&jinn_kernel::protocol::system::ActiveSessionChanged {
+        session_id: foo.clone(),
+    });
+
+    // Then the transition gate keeps the re-clear quiet — one
+    // addressed refresh for the event, no per-live-session fan.
+    let mut sessions_envelopes = 0;
+    while let Ok(envelope) = rx.try_recv() {
+        if envelope.kind == SseKind::Sessions {
+            sessions_envelopes += 1;
+        }
+    }
+    assert_eq!(sessions_envelopes, 1, "addressed refresh only, no fan");
 }
 
 #[rstest::rstest]
@@ -978,13 +1053,41 @@ async fn a_background_tree_member_keeps_its_mark_on_load() {
         session_id: foo.clone(),
     });
 
-    // Then Foo keeps its mark — its entries are still unviewed; only
-    // activation clears. (Baz is untouched too.)
+    // Then Foo keeps its mark — a load-completed refreshes the list
+    // only; the clear lives on the viewed events (activation, page
+    // arrival), and nobody viewed Foo. (Baz is untouched too.)
     assert!(
         marks.read().is_marked(&foo),
         "a background member keeps its mark"
     );
     assert!(marks.read().is_marked(&baz));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_tui_activation_event_clears_a_mark_that_never_touched_the_web() {
+    // Given a marked session Foo and an active session Bar.
+    let (mut actor, _rx, state, marks) = fixture();
+    let foo = seed_session(&state);
+    let bar = seed_session(&state);
+    assert!(state.write().session.set_active(bar.clone()), "activates");
+    actor.on_phase_changed(&phase_change(
+        &foo,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+    assert!(marks.read().is_marked(&foo), "precondition: Foo is marked");
+
+    // When the TUI switches to Foo — the kernel's intent handler
+    // publishes the same ActiveSessionChanged event the store actor
+    // does, so the fan-out needs no TUI-specific path.
+    actor.on_active_session_changed(&jinn_kernel::protocol::system::ActiveSessionChanged {
+        session_id: foo.clone(),
+    });
+
+    // Then the mark is gone — activation anywhere in the instance is
+    // the viewing fact, whatever surface drove it.
+    assert!(!marks.read().is_marked(&foo));
 }
 
 /// The marks set through the state's attached registry — the read side
