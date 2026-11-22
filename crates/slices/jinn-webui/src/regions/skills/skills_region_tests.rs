@@ -183,7 +183,7 @@ async fn the_modal_lists_every_discovered_skill_in_case_insensitive_order() {
     discover(&state, &id, discovered(&dir));
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the modal overlay and rows container render, and every
     // discovered skill gets a row — unfiltered — in case-insensitive
@@ -231,7 +231,7 @@ async fn every_row_carries_mark_name_description_and_source_badge() {
     discover(&state, &id, vec![skill]);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the row carries the description text and the project
     // badge (the TUI badge rule), and the force-load button with its
@@ -271,7 +271,7 @@ async fn a_global_skill_renders_no_source_badge() {
     discover(&state, &id, vec![skill]);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the row carries no source badge — the TUI badge rule
     // (project skills badge, global skills do not).
@@ -299,7 +299,7 @@ async fn the_enabled_mark_lands_on_exactly_the_permitted_skills() {
     });
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the enabled class lands on exactly the permitted rows
     // (alpha and zeta), and the withheld row wears the hollow mark.
@@ -325,7 +325,7 @@ async fn an_absent_filter_permits_every_row() {
     discover(&state, &id, discovered(&dir));
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then every row is enabled — an absent filter inherits permit-
     // all, so the e2e's fresh-boot skill renders enabled.
@@ -343,7 +343,7 @@ async fn a_session_that_died_mid_view_renders_an_empty_modal() {
     let (_state, shared) = harness();
 
     // When rendering the modal for that id.
-    let html = super::modal_fragment(&shared, "00000000-0000-0000-0000-000000000000")
+    let html = super::modal_fragment(&shared, "00000000-0000-0000-0000-000000000000", "")
         .expect("the modal renders");
 
     // Then the overlay and empty rows container render, with no rows

@@ -170,7 +170,7 @@ async fn the_modal_lists_every_configured_server_in_the_shared_order() {
     let id = seed_session(&state);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then every configured server renders — unfiltered, one row per
     // server — in the shared builder's case-insensitive order, each
@@ -206,7 +206,7 @@ async fn the_enabled_mark_lands_on_exactly_the_viewed_sessions_servers() {
     enable(&state, &id, "alpha");
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the enabled class lands on exactly the alpha row (the
     // filled mark rides the same row), and no other row wears it.
@@ -229,7 +229,7 @@ async fn an_enabled_server_without_a_reported_status_shows_starting() {
     enable(&state, &id, "alpha");
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the alpha row's badge reads `starting` — the TUI's
     // derivation for None (no report yet), verbatim.
@@ -248,7 +248,7 @@ async fn a_disabled_server_shows_off() {
     let id = seed_session(&state);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then every row's badge reads `off` — a disabled server is not
     // coming up, so `starting` would lie about it.
@@ -277,7 +277,7 @@ async fn a_disabled_server_with_a_stale_cell_report_still_shows_off() {
     });
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the row reads `off` — enablement is the stated truth and it
     // is synchronous; the cell's stale report never overrules it.
@@ -305,7 +305,7 @@ async fn a_singletons_badge_reads_the_effective_projection() {
     });
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the singleton's badge reads `running` — the effective
     // projection (the per-session bucket would show starting forever,
@@ -332,7 +332,7 @@ async fn a_per_session_status_overrides_the_projection_for_that_session() {
     });
 
     // When rendering the modal for `id`.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the badge reads `dead` — the viewed session's own report,
     // not another session's.
@@ -351,7 +351,7 @@ async fn the_modal_renders_zero_rows_for_an_empty_config() {
     let id = seed_session(&state);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the overlay and rows container still render (the pull never
     // fails on an empty section) with zero row divs.

@@ -188,7 +188,7 @@ async fn the_modal_lists_the_registry_rows_in_the_shared_order() {
     seed_registry(&state, &["Grep", "bash", "edit"]);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the modal overlay and rows container render, the rows come
     // in the shared vocabulary's case-insensitive order, and each
@@ -230,7 +230,7 @@ async fn the_enabled_marks_read_the_session_s_live_filter() {
     set_filter(&state, &id, Some(NameFilter::deny(["Grep".to_owned()])));
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then exactly the withheld row renders off — the mark is the
     // live filter's verdict, not the registry's.
@@ -263,7 +263,7 @@ async fn an_allow_filter_marks_its_unlisted_rows_off() {
     );
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the unpermitted row renders off and the permitted one on —
     // the live filter decides, not its mode.
@@ -286,7 +286,7 @@ async fn a_session_without_a_filter_renders_every_row_on() {
     seed_registry(&state, &["bash", "edit"]);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then nothing renders off — absence withholds nothing.
     assert_eq!(
@@ -305,7 +305,7 @@ async fn a_non_bot_session_is_offered_no_bot_tool_row() {
     seed_registry(&state, &["bash", "conclude", "notify_parent"]);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then only the ordinary tool has a row — the shared gate, not a
     // web-private copy, decides.
@@ -341,7 +341,7 @@ async fn a_standalone_bot_is_offered_conclude_but_not_notify_parent() {
     seed_registry(&state, &["bash", "conclude", "notify_parent"]);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then `conclude` has a row and `notify_parent` does not — the
     // gate's parentless-bot rule, shared with the TUI.
@@ -367,8 +367,8 @@ async fn an_unknown_session_and_an_empty_registry_render_zero_rows_without_error
     let id = seed_session(&state);
 
     // When rendering the modal for both.
-    let empty = super::modal_fragment(&shared, &id.to_string()).expect("empty registry renders");
-    let unknown = super::modal_fragment(&shared, "00000000-0000-0000-0000-00000000dead")
+    let empty = super::modal_fragment(&shared, &id.to_string(), "").expect("empty registry renders");
+    let unknown = super::modal_fragment(&shared, "00000000-0000-0000-0000-00000000dead", "")
         .expect("unknown session renders");
 
     // Then both render the modal shell with zero rows — the pull
@@ -396,7 +396,7 @@ async fn the_open_pull_stamps_the_open_time_filter_into_the_revert_stamp() {
     set_filter(&state, &id, Some(filter.clone()));
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the fragment carries the revert stamp whose init patches
     // the snapshot signal with the open-time filter's JSON — mode and
@@ -431,7 +431,7 @@ async fn an_absent_filter_stamps_null_into_the_revert_stamp() {
     seed_registry(&state, &["bash"]);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the stamp patches null — absence restored as absence.
     let stamp = html
@@ -452,7 +452,7 @@ async fn every_row_click_posts_to_the_toggle_path_naming_its_tool() {
     seed_registry(&state, &["bash", "edit"]);
 
     // When rendering the modal.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then each row's click posts the toggle endpoint with a payload
     // naming only that row's tool (the wire names what the user
@@ -476,7 +476,7 @@ async fn the_modal_ships_hidden_and_closes_on_the_open_signal() {
     let id = seed_session(&state);
 
     // When rendering it.
-    let html = super::modal_fragment(&shared, &id.to_string()).expect("the modal renders");
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
 
     // Then the overlay is visibility-owned by the open signal and
     // ships hidden — a fresh pull never shows the modal unbidden — and
