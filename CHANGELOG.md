@@ -7,6 +7,7 @@
 - (webui) Adjust rendering to more closely match TUI transcript.
 - (webui) Enter key no longer sends a prompt.
 - (webui) Add a new `Q` (queue) button to queue a message while session is working.
+- (webui) Remove extraneous model indicator next to the model button.
 - Remove `#generate-persona` prompt.
 - Agents should avoid using `dump_to_path` more often.
   - Blocked using `/dev/null` and similar "null" paths for `dump_to_path`
