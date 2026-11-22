@@ -738,6 +738,11 @@ pub const VENDOR_PREFIX: &str = "/vendor/";
 /// in-repo regenerates them.
 pub const VENDOR_APP_JS: &str = "datastar.js";
 
+/// The image-attach helper's served filename inside `/vendor/` — the
+/// one authored script besides the bundle (see `VENDOR_APP_JS` for why
+/// the vendor tree is committed input).
+pub const VENDOR_PASTE_JS: &str = "paste.js";
+
 /// The contract's DOM-targeting constants: id, attribute, class, and
 /// action names. The referential-integrity gate renders the page and
 /// asserts each of these appears in the HTML.

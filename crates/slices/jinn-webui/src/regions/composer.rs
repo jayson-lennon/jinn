@@ -84,6 +84,21 @@ pub const COMPOSER_CSS: &str = r#"
 #composer button { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
                    padding: 0 22px; font: inherit; cursor: pointer; }
 #composer button.cancel { background: var(--err); }
+#image-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel);
+        border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
+.chip img { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; display: block; }
+.chip-name { font-size: 12px; color: var(--muted); max-width: 140px; overflow: hidden;
+             text-overflow: ellipsis; white-space: nowrap; }
+.chip-x { background: transparent; color: var(--muted); border: 0; font: inherit;
+          cursor: pointer; padding: 0 2px; line-height: 1; }
+.chip-x:hover { color: var(--err); }
+#composer .attach { align-self: center; background: var(--panel); color: var(--fg);
+                    border: 1px solid var(--border); border-radius: 6px;
+                    font: inherit; font-size: 18px; line-height: 1; padding: 8px 12px;
+                    cursor: pointer; user-select: none; }
+#composer .attach:hover { border-color: var(--accent); }
+#composer .attach input[type="file"] { display: none; }
 @media (max-width: 767px) {
   #composer { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
   #composer textarea { font-size: 16px; min-height: 40px; height: 64px; }

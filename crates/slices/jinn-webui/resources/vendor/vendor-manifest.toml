@@ -47,3 +47,13 @@ encoding = "identity"
 served = "icon-favicon-32.png"
 sha256 = "a33d1392db343d86494349839d72b3aa60f2354f185d5d247663b0427f93a4d4"
 encoding = "identity"
+
+# The composer's image-attach helper — one authored script, not build
+# output. Paste has no declarative path (Datastar expressions are
+# synchronous; a clipboard FileReader is not), so this file plus the
+# bundle is the page's whole client. Re-pin its sha256 by hand on any
+# edit.
+[[assets]]
+served = "paste.js"
+sha256 = "3fc011c244d1163fdb6c0acc83691507a9d6a0bccdf65394a13db18e12012dee"
+encoding = "identity"
