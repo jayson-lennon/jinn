@@ -46,8 +46,6 @@ export const CANCEL_BUTTON = '[data-webui-action="cancel"]';
 export const QUEUE_BUTTON = '[data-webui-action="queue"]';
 /** The streaming spinner id (`wire.BUSY_SPINNER_ID`). */
 export const BUSY_SPINNER = "#busy-spinner";
-/** The titlebar's `.m` model label span. */
-export const MODEL_LABEL = "#model-status .m";
 /** The model-picker button id (`wire.MODEL_PICKER_BUTTON_ID`). */
 export const PICKER_BUTTON = "#model-picker-button";
 /** The modal overlay id (`wire.MODEL_PICKER_MODAL_ID`). */

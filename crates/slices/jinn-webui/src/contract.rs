@@ -63,13 +63,7 @@ pub const MODEL_PICKER_MODAL_HOST_ID: &str = "model-picker-modal-host";
 /// in the templates name.
 pub const MODEL_PICKER_MODAL_HOST_SELECTOR: &str = "#model-picker-modal-host";
 
-/// The titlebar's model-status wrapper — the static `.m` label span
-/// and the picker container rendered together as one fragment, so a
-/// model switch re-renders both in one swap and the two can never
-/// disagree after a switch.
-pub const MODEL_STATUS_ID: &str = "model-status";
-
-/// The model-picker's button — the titlebar control that opens the
+/// The titlebar's model-picker button — the control that opens the
 /// modal; its label is the viewed session's current model.
 pub const MODEL_PICKER_BUTTON_ID: &str = "model-picker-button";
 
@@ -160,8 +154,8 @@ pub const SESSION_TITLE_ID: &str = "session-title";
 
 /// The titlebar's menu region — the hamburger button's host span,
 /// rendered left of the session title. The panel renders inside this
-/// host too (a static fragment, like the model-status wrapper), so
-/// the region owns one container on the page.
+/// host too (a static fragment, like the model-picker button's host),
+/// so the region owns one container on the page.
 pub const MENU_ID: &str = "menu";
 
 /// The menu's hamburger button — the titlebar control that opens the
@@ -695,7 +689,6 @@ pub const DOM_CONSTANTS: &[&str] = &[
     CONTROLS_ID,
     MODEL_PICKER_ID,
     MODEL_PICKER_MODAL_HOST_ID,
-    MODEL_STATUS_ID,
     BUSY_SPINNER_ID,
     COMPOSER_ID,
     INPUT_ID,

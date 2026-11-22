@@ -865,11 +865,14 @@ mod actions {
         .await;
 
         // Then the bus names ProviderSwitch and the response is the
-        // status wrapper (label + button together).
+        // re-rendered titlebar button.
         assert_eq!(status, StatusCode::OK);
         assert_eq!(audit_count(&audit, "ProviderSwitch"), 1);
         assert!(
-            body.contains(&format!("id=\"{}\"", crate::contract::MODEL_STATUS_ID)),
+            body.contains(&format!(
+                "id=\"{}\"",
+                crate::contract::MODEL_PICKER_BUTTON_ID
+            )),
             "{body}"
         );
     }
@@ -890,26 +893,29 @@ mod actions {
         )
         .await;
 
-        // Then the response's titlebar label AND button text name the
-        // picked model — the fragment is rendered from state that
-        // already holds the pick, never one switch behind (the
-        // stale-label bug: the bus is async, so a fragment rendered off
-        // a not-yet-applied command named the PREVIOUS model, and the
-        // button only caught up on the next interaction).
+        // Then the response's button text names the picked model —
+        // the fragment is rendered from state that already holds the
+        // pick, never one switch behind (the stale-label bug: the bus
+        // is async, so a fragment rendered off a not-yet-applied
+        // command named the PREVIOUS model, and the button only caught
+        // up on the next interaction).
         assert_eq!(status, StatusCode::OK);
         assert!(
             body.contains("openai/gpt-4o"),
             "the switch response must name the picked model: {body}"
         );
-        // And the label span and the button agree with each other.
-        let label = body
-            .split("<span class=\"m\">")
-            .nth(1)
-            .and_then(|rest| rest.split("</span>").next())
+        // And the button text agrees with the pick.
+        let button = body
+            .split_once(&format!(
+                "id=\"{}\"",
+                crate::contract::MODEL_PICKER_BUTTON_ID
+            ))
+            .and_then(|(_, rest)| rest.split_once('>'))
+            .and_then(|(_, rest)| rest.split('<').next())
             .unwrap_or_default();
         assert_eq!(
-            label, "openai/gpt-4o",
-            "the .m label must name the picked model: {body}"
+            button, "openai/gpt-4o",
+            "the button text must name the picked model: {body}"
         );
     }
 

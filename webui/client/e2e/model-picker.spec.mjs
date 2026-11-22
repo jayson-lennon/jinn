@@ -5,8 +5,8 @@
 //! model, `sample`, so the "current promoted" and "switch" specs
 //! pivot on it: switching to the only model is a no-op switch, which
 //! is exactly the right exercise — the request round-trips the server,
-//! and the client must re-render the button and the `.m` label even
-//! when the model does not change.
+//! and the client must re-render the button even when the model does
+//! not change.
 
 import { expect, test } from "@playwright/test";
 import { openSession } from "./nav.mjs";
@@ -53,7 +53,7 @@ test("fuzzy filter highlights matches with a mark", async ({ page }) => {
   await expect(modelSpan).toContainText("sample");
 });
 
-test("switching from the inner model-name span re-renders the label", async ({
+test("switching from the inner model-name span re-renders the button", async ({
   page,
 }) => {
   // Given the picker open on the boot session.
@@ -68,10 +68,9 @@ test("switching from the inner model-name span re-renders the label", async ({
 
   // Then the modal closes.
   await expect(modal).not.toBeVisible();
-  // And the button and the titlebar's `.m` label both carry the
-  // switched model immediately (the sync-write fix's pin).
-  await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(/sample/);
-  await expect(page.locator(sel.MODEL_LABEL)).toHaveText(MODEL_ID);
+  // And the button carries the switched model immediately (the
+  // sync-write fix's pin — the button is the model display now).
+  await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(MODEL_ID);
 });
 
 test("clicking the backdrop closes the picker", async ({ page }) => {
@@ -109,7 +108,7 @@ test("unavailable rows are inert: no switch action, modal stays open", async ({
   // And clicking it leaves the modal open and the model unchanged.
   await unavailable.click();
   await expect(modal).toBeVisible();
-  await expect(page.locator(sel.MODEL_LABEL)).toHaveText(MODEL_ID);
+  await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(MODEL_ID);
 });
 
 test("refresh shows the busy state and clears it when the cache lands", async ({

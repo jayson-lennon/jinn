@@ -265,7 +265,7 @@ async fn overlay_reset_patches(
             view.phase != PhaseView::Idle.as_str(),
         ))
         .map_err(|e| fail(500, e.to_string()))?;
-    let model_html = crate::regions::model_picker::status_fragment(shared, &id.to_string())?;
+    let model_html = crate::regions::model_picker::button_fragment(shared, &id.to_string())?;
     let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
     // The root fragment — NOT the full page shell. The runtime morphs
     // element patches; a document-shaped patch (DOCTYPE + <html>) is
@@ -660,7 +660,7 @@ async fn page_session(
             view.phase != PhaseView::Idle.as_str(),
         ))
         .map_err(|e| fail(500, e.to_string()))?;
-    let model_html = crate::regions::model_picker::status_fragment(&shared, &session_id)?;
+    let model_html = crate::regions::model_picker::button_fragment(&shared, &session_id)?;
     let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         &session_id,
@@ -884,10 +884,8 @@ async fn cancel(
 }
 
 /// `POST /web/model` — switch a session's model. Responds with the
-/// re-rendered titlebar **status wrapper** (the `.m` label and the
-/// button together, so both displays update in one swap); the modal
-/// closes on the client — a stale modal must not survive the switch it
-/// caused.
+/// re-rendered titlebar button; the modal closes on the client — a
+/// stale modal must not survive the switch it caused.
 async fn model(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<WebForm<jinn_webui_msg::ModelForm>, HandlerError>,
@@ -904,15 +902,15 @@ async fn model(
     )
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
-    // The titlebar status wrapper swaps in one inner patch (the `.m`
-    // label and the button together — the wrapper exists so a switch
-    // never leaves the label stale); the modal-close is a signal
-    // patch, not an element patch: the modal's visibility is
-    // signal-driven.
+    // The titlebar's model area swaps in one inner patch (the bare
+    // button into the page shell's `#model-picker` host — the payload
+    // must never be the button's own host-span render, which would
+    // nest a duplicate id); the modal-close is a signal patch, not an
+    // element patch: the modal's visibility is signal-driven.
     Ok(SseAction::new(vec![
         element_patch_inner(
-            format!("#{}", crate::contract::MODEL_STATUS_ID),
-            crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
+            format!("#{}", crate::contract::MODEL_PICKER_ID),
+            crate::regions::model_picker::button_fragment(&shared, &form.session_id)?,
         ),
         signal_patch(&[(
             crate::contract::SIGNAL_MODAL_OPEN,
@@ -1153,13 +1151,13 @@ async fn refresh_models(
     crate::delivery::handle_refresh_models(shared.bus(), &form.session_id)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    // Status wrapper now; rows arrive with the discovery fan-out's
-    // `models` push (a signal tick — the open modal's effect re-pulls
-    // its rows). The spinner clears when the tick lands (the
-    // browser's own effect on the tick signal).
+    // Button now; rows arrive with the discovery fan-out's `models`
+    // push (a signal tick — the open modal's effect re-pulls its
+    // rows). The spinner clears when the tick lands (the browser's
+    // own effect on the tick signal).
     Ok(SseAction::new(vec![element_patch_inner(
-        format!("#{}", crate::contract::MODEL_STATUS_ID),
-        crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
+        format!("#{}", crate::contract::MODEL_PICKER_ID),
+        crate::regions::model_picker::button_fragment(&shared, &form.session_id)?,
     )]))
 }
 

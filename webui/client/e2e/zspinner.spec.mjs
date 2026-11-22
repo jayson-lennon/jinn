@@ -51,7 +51,7 @@ async function selectModel(page) {
   await page.locator(sel.PICKER_BUTTON).click();
   await expect(page.locator(sel.PICKER_MODAL)).toBeVisible();
   await page.locator(sel.PICKER_ROW_MODEL_SPAN(sel.MODEL_ID)).click();
-  await expect(page.locator(sel.MODEL_LABEL)).toHaveText(sel.MODEL_ID);
+  await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(sel.MODEL_ID);
 }
 
 /**
