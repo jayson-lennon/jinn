@@ -149,26 +149,27 @@ impl FanoutHandle {
         self.boundaries.get(session_id)
     }
 
-    /// Pushes a refreshed sessions-list fragment to every page,
+    /// Pushes a refreshed sessions signal to every page,
     /// addressed to the named session — from **outside** the actor.
     ///
     /// A synchronous HTTP handler (the rename POST) must push without
     /// publishing anything the fan-out subscribes to: the only command
     /// it could publish, `PersistSession`, routes to the store actor,
     /// so there is no command whose arrival means "refresh the list".
-    /// The caller renders the fragment — the **merged** list shape the
-    /// GET pull serves, never the actor's live-only refresh — and
-    /// hands the rendered markup here; a push whose shape differs from
-    /// the surrounding pulls reads as rows vanishing then returning.
+    /// The handle holds no state (it is a bare sender seam), so the
+    /// caller reads the current unread-mark count under its own guard
+    /// and hands it in — the push's payload (the addressed Sessions
+    /// kind is signal-only at the wire; the receiving pages re-pull
+    /// the list).
     ///
     /// Send failures are the no-receiver case — no page is connected —
     /// and are not errors.
-    pub(crate) fn push_sessions_refresh_from(&self, session_id: &SessionId, html: String) {
+    pub(crate) fn push_sessions_refresh_from(&self, session_id: &SessionId, attention: usize) {
         let _ = self.tx.send(SseEnvelope {
             kind: SseKind::Sessions,
             session_id: session_id.clone(),
             cursor: 0,
-            html,
+            html: attention.to_string(),
         });
     }
 
@@ -559,6 +560,12 @@ impl WebUiFanoutActor {
     /// appearing twice (once in the tail container, once in the full
     /// render), and the full push is the convergence backstop that
     /// heals drift after rewinds, cancels, or partial-entry edges.
+    ///
+    /// A Sessions envelope (when the sessions region declares a settle
+    /// kind) carries the unread-mark count in its payload, not a
+    /// fragment — the kind is signal-only at the wire. The count read
+    /// shares the settle's guard so the stamped number and the
+    /// rendered fragments agree.
     #[expect(
         clippy::expect_used,
         reason = "bootstrap assertion: the conformance gate guarantees every settle kind one owning region; a None here is a registry bug that must abort, not skip a push"
@@ -573,9 +580,13 @@ impl WebUiFanoutActor {
         for kind in settle_push_kinds() {
             let html = {
                 let guard = self.state.read();
-                let region = crate::region::owner_of(kind)
-                    .expect("a settle kind has exactly one owning region (conformance gate)");
-                region.render(session_id, &guard)
+                if kind == SseKind::Sessions {
+                    crate::regions::sessions::unread_count_of(&guard).to_string()
+                } else {
+                    let region = crate::region::owner_of(kind)
+                        .expect("a settle kind has exactly one owning region (conformance gate)");
+                    region.render(session_id, &guard)
+                }
             };
             self.broadcast(SseEnvelope {
                 kind,
@@ -602,31 +613,35 @@ impl WebUiFanoutActor {
     }
 
     /// Pushes a refreshed sessions-list fragment to every page — the
-    /// sessions region's guard render.
+    /// sessions region's guard render. The Sessions kind is
+    /// signal-only at the wire (the client re-pulls the list with its
+    /// active filter), so the envelope's payload field carries the
+    /// current unread-mark count — the titlebar sessions button's
+    /// live update — and no fragment is rendered here.
     pub(crate) fn push_sessions_refresh(&mut self, session_id: &SessionId) {
-        let html = {
+        let attention = {
             let guard = self.state.read();
-            crate::regions::sessions::sessions_live_fragment(&guard)
+            crate::regions::sessions::unread_count_of(&guard)
         };
         self.broadcast(SseEnvelope {
             kind: SseKind::Sessions,
             session_id: session_id.clone(),
             cursor: 0,
-            html,
+            html: attention.to_string(),
         });
     }
 
-    /// Pushes a refreshed sessions-list fragment to **every** live
+    /// Pushes a refreshed sessions-list signal to **every** live
     /// session's stream — one addressed `sessions` envelope per live
     /// session id, the `push_models_changed` shape.
     ///
-    /// The sessions fragment is page-global (one list, every viewer),
+    /// The sessions signal is page-global (one list, every viewer),
     /// but the SSE endpoint filters per stream: an addressed push
     /// reaches only the page viewing that session, and the
     /// interesting mark transitions happen on pages viewing *other*
     /// sessions. So a set-or-clear transition loops every live
-    /// session id with one render feeding every envelope — the list
-    /// does not vary by viewer.
+    /// session id — the payload is the unread-mark count, which does
+    /// not vary by viewer.
     fn refresh_all_sessions_lists(&mut self) {
         let ids: Vec<SessionId> = self
             .state
@@ -636,16 +651,16 @@ impl WebUiFanoutActor {
             .keys()
             .cloned()
             .collect();
-        let html = {
+        let attention = {
             let guard = self.state.read();
-            crate::regions::sessions::sessions_live_fragment(&guard)
+            crate::regions::sessions::unread_count_of(&guard)
         };
         for session_id in ids {
             self.broadcast(SseEnvelope {
                 kind: SseKind::Sessions,
                 session_id,
                 cursor: 0,
-                html: html.clone(),
+                html: attention.to_string(),
             });
         }
     }

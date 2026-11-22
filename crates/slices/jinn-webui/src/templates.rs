@@ -280,6 +280,9 @@ pub struct PageTemplate {
     pub controls_html: String,
     /// The menu fragment (hamburger + panel), rendered inline.
     pub menu_html: String,
+    /// The render-time unread-mark count — the menu's sessions
+    /// button badge's seeded value.
+    pub sessions_attention: usize,
     /// `/vendor/` — the script tag's URL prefix.
     pub vendor_prefix: &'static str,
     /// The client bundle's cache-busting URL inside `/vendor/`
@@ -335,6 +338,9 @@ pub struct PageTemplate {
     /// The menu scrim's id — the static shell overlay behind the
     /// slide-in menu panel (stacked above the drawer scrim).
     pub menu_scrim_id: &'static str,
+    /// The session-switch interstitial's id — the loading overlay a
+    /// session-row click raises; static shell markup like the scrims.
+    pub switch_overlay_id: &'static str,
     /// The viewed session's stream URL, empty on the landing page —
     /// the `data-init` `@get` binds to it; the runtime keeps the
     /// fetch-stream open (with retries) for the page's lifetime and
@@ -362,7 +368,12 @@ impl PageTemplate {
     /// The no-session landing page: sessions list only, every other
     /// region empty, cursor zero.
     #[must_use]
-    pub fn landing(sessions_html: String, menu_html: String, web_theme: String) -> Self {
+    pub fn landing(
+        sessions_html: String,
+        menu_html: String,
+        attention_count: usize,
+        web_theme: String,
+    ) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
@@ -374,6 +385,7 @@ impl PageTemplate {
             button_html: String::new(),
             picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
+            sessions_attention: attention_count,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
@@ -394,6 +406,7 @@ impl PageTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             stream_url: String::new(),
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
@@ -421,6 +434,7 @@ impl PageTemplate {
         controls_html: String,
         button_html: String,
         menu_html: String,
+        attention_count: usize,
         web_theme: String,
     ) -> Self {
         Self {
@@ -434,6 +448,7 @@ impl PageTemplate {
             button_html,
             picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
+            sessions_attention: attention_count,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
@@ -454,6 +469,7 @@ impl PageTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
@@ -528,6 +544,8 @@ pub struct PageRootTemplate {
     pub drawer_scrim_id: &'static str,
     /// The menu scrim's id.
     pub menu_scrim_id: &'static str,
+    /// The session-switch interstitial's id.
+    pub switch_overlay_id: &'static str,
     /// The sessions pull's route — the list's effect re-pulls it.
     pub sessions_route: &'static str,
     /// The activate POST's route prefix — the rename editor's target.
@@ -536,6 +554,9 @@ pub struct PageRootTemplate {
     /// the `data-init` `@get` binding the root carries on session
     /// pages, so a navigation patch re-opens the stream by itself.
     pub stream_url: String,
+    /// The render-time unread-mark count — the menu's sessions
+    /// button badge's seeded value in the root's signal seed.
+    pub sessions_attention: usize,
     /// The persisted color mode seeding the `webTheme` signal — the
     /// same value the full page render seeds.
     pub web_theme: String,
@@ -559,6 +580,7 @@ impl PageRootTemplate {
         controls_html: String,
         button_html: String,
         menu_html: String,
+        attention_count: usize,
         web_theme: String,
     ) -> Self {
         Self {
@@ -589,9 +611,11 @@ impl PageRootTemplate {
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
+            switch_overlay_id: contract::SWITCH_OVERLAY_ID,
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
+            sessions_attention: attention_count,
             web_theme,
         }
     }
@@ -835,6 +859,13 @@ pub struct MenuTemplate {
     pub skills_picker_url: String,
     /// The skills modal host's CSS selector — the pull's swap target.
     pub skills_modal_host_selector: &'static str,
+    /// The titlebar sessions button's id — the drawer toggle with its
+    /// unread badge.
+    pub sessions_button_id: &'static str,
+    /// The badge span's id — the unread count.
+    pub sessions_button_count_id: &'static str,
+    /// The render-time unread-mark count — the badge's seeded value.
+    pub sessions_attention: usize,
     /// The theme control's host id — the segmented Light/Dark/System
     /// control at the panel's tail (mode binds app-wide, not
     /// per-session, so it renders on the landing page too).
@@ -860,7 +891,7 @@ impl MenuTemplate {
     /// `viewed_session` is the page's viewed session id — empty on the
     /// landing page, which omits the persona item entirely.
     #[must_use]
-    pub fn with_contract(viewed_session: &str) -> Self {
+    pub fn with_contract(viewed_session: &str, attention_count: usize) -> Self {
         Self {
             menu_id: contract::MENU_ID,
             menu_button_id: contract::MENU_BUTTON_ID,
@@ -885,6 +916,9 @@ impl MenuTemplate {
             menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
             skills_picker_url: format!("{}{viewed_session}", contract::SKILL_PICKER_PREFIX),
             skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
+            sessions_button_id: contract::SESSIONS_BUTTON_ID,
+            sessions_button_count_id: contract::SESSIONS_BUTTON_COUNT_ID,
+            sessions_attention: attention_count,
             menu_item_theme_id: contract::MENU_ITEM_THEME_ID,
             menu_item_theme_light_id: contract::MENU_ITEM_THEME_LIGHT_ID,
             menu_item_theme_dark_id: contract::MENU_ITEM_THEME_DARK_ID,

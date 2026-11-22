@@ -268,7 +268,11 @@ async fn overlay_reset_patches(
         ))
         .map_err(|e| fail(500, e.to_string()))?;
     let model_html = crate::regions::model_picker::button_fragment(shared, &id.to_string())?;
-    let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
+    let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
     let web_theme = persisted_web_theme(shared);
     // The root fragment — NOT the full page shell. The runtime morphs
     // element patches; a document-shaped patch (DOCTYPE + <html>) is
@@ -276,6 +280,10 @@ async fn overlay_reset_patches(
     // leaves the old subtree's stray nodes alive. The root div alone
     // replaces cleanly (and its data-signals seed resets every
     // transient overlay signal atomically).
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     let page = crate::templates::render(&crate::templates::PageRootTemplate::session(
         &id.to_string(),
         view.transcript.title.clone(),
@@ -285,6 +293,7 @@ async fn overlay_reset_patches(
         controls_html,
         model_html,
         menu_html,
+        attention_count,
         web_theme,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
@@ -620,13 +629,18 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
 /// `GET /web` — the landing page: sessions list, no transcript.
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
     let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     // No viewed session on the landing page — the menu renders without
     // the persona item.
-    let menu_html = crate::regions::menu::menu_fragment("");
+    let menu_html = crate::regions::menu::menu_fragment("", attention_count);
     let web_theme = persisted_web_theme(&shared);
     let html = crate::templates::render(&crate::templates::PageTemplate::landing(
         sessions_html,
         menu_html,
+        attention_count,
         web_theme,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
@@ -668,7 +682,11 @@ async fn page_session(
         ))
         .map_err(|e| fail(500, e.to_string()))?;
     let model_html = crate::regions::model_picker::button_fragment(&shared, &session_id)?;
-    let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
+    let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
     let web_theme = persisted_web_theme(&shared);
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         &session_id,
@@ -679,6 +697,7 @@ async fn page_session(
         controls_html,
         model_html,
         menu_html,
+        attention_count,
         web_theme,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
@@ -1042,8 +1061,13 @@ async fn persona(
             transcript_html,
         ));
     }
+    // The modal fragment's root carries the modal's own id, so an
+    // inner patch addressed at the modal would NEST a second copy
+    // inside it (Datastar reconciles nothing on an inner patch).
+    // The host is the pull's own swap target — the same address the
+    // menu item's `@get` fills — so the correction patch reuses it.
     events.push(element_patch_inner(
-        format!("#{}", crate::contract::PERSONA_MODAL_ID),
+        format!("#{}", crate::contract::PERSONA_MODAL_HOST_ID),
         crate::regions::persona_picker::modal_fragment(&shared, &form.session_id, "")?,
     ));
     events.push(signal_patch(&[(
@@ -1353,9 +1377,13 @@ async fn rename(
     // those events change only live state, and their next pull or
     // page render carries the store truth.)
     let list_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     shared
         .fanout
-        .push_sessions_refresh_from(&id, list_html.clone());
+        .push_sessions_refresh_from(&id, attention_count);
     // The initiating page's sidebar is the response's element patch;
     // its titlebar text and tab title follow from the two signal
     // patches (the title span and the document title both bind

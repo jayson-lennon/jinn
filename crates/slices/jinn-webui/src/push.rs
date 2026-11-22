@@ -14,7 +14,7 @@
 //! | Streaming      | PatchElements  | `#streaming`          | inner  |
 //! | TranscriptFull | PatchElements  | `#transcript`         | inner  |
 //! | Controls       | PatchElements  | `#composer-controls`  | inner  |
-//! | Sessions       | PatchSignals   | `sessionsTick` bump   | —      |
+//! | Sessions       | PatchSignals   | `sessionsTick` bump + `sessionsAttention` stamp | —      |
 //! | Models         | PatchSignals   | `modelsTick` stamp    | —      |
 //! | McpStatus      | PatchSignals   | `mcpTick` stamp       | —      |
 //! | Skills         | PatchSignals   | `skillsTick` stamp    | —      |
@@ -32,7 +32,9 @@
 //! unfiltered pushed list would un-filter the sidebar under the
 //! user's eyes). Models, McpStatus, Skills, and Tools keep the write
 //! timestamp as the payload (non-empty by construction — the dispatch
-//! contract), sessions bumps a counter.
+//! contract), sessions bumps a counter and stamps the unread-mark
+//! count in the same patch — the titlebar sessions button's live
+//! update, riding the list's one transport.
 //!
 //! The `id:` line is the reconnect-resume coordinate, and it is
 //! deliberately sparse. Only the catch-up events the stream endpoint
@@ -156,8 +158,14 @@ pub(crate) fn sdk_events_of(
         }
         SseKind::Sessions => Ok(vec![
             PatchSignals::new(format!(
-                "{{\"{}\": {sessions_tick}}}",
-                contract::SIGNAL_SESSIONS_TICK
+                "{{\"{}\": {sessions_tick}, \"{}\": {}}}",
+                contract::SIGNAL_SESSIONS_TICK,
+                contract::SIGNAL_SESSIONS_ATTENTION,
+                envelope.html.parse::<u64>().unwrap_or_else(|error| {
+                    tracing::warn!(%error, payload = %envelope.html, what = "sessions-attention",
+                            "unread-count payload did not parse; rendering zero");
+                    0
+                })
             ))
             .into_datastar_event(),
         ]),
@@ -279,16 +287,18 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn sessions_pushes_bump_the_tick_signal_and_drop_the_html() {
-        // Given a sessions refresh envelope (the fan-out renders the
-        // list into the html field; the browser must not receive it —
-        // the effect re-pulls with the active filter instead).
-        let event = sdk_events_of(&envelope(SseKind::Sessions, "<a>row</a>", 0), 3)
+    fn sessions_pushes_bump_the_tick_and_stamp_the_attention_count() {
+        // Given a sessions refresh envelope whose payload is the
+        // unread-mark count (the fan-out stamps it; the browser must
+        // not receive a fragment — the effect re-pulls the list with
+        // the active filter instead).
+        let event = sdk_events_of(&envelope(SseKind::Sessions, "2", 0), 3)
             .expect("a sessions push translates")
             .remove(0);
 
-        // Then the event is a signal patch bumping sessionsTick, and
-        // no list HTML rides it.
+        // Then the event is one signal patch bumping sessionsTick and
+        // stamping sessionsAttention with the payload, and no HTML
+        // rides it.
         let datastar::DatastarEvent {
             event: kind, data, ..
         } = event;
@@ -297,6 +307,34 @@ mod tests {
         assert!(joined.contains("signals {"), "{joined}");
         assert!(
             joined.contains(&format!("\"{}\": 3", contract::SIGNAL_SESSIONS_TICK)),
+            "{joined}"
+        );
+        assert!(
+            joined.contains(&format!("\"{}\": 2", contract::SIGNAL_SESSIONS_ATTENTION)),
+            "{joined}"
+        );
+        assert!(!joined.contains("<a>row</a>"), "{joined}");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_sessions_payload_that_is_not_a_count_renders_zero() {
+        // Given a sessions envelope whose payload does not parse as a
+        // count (a producer bug — the fallback must keep the page
+        // alive, never crash the stream).
+        let event = sdk_events_of(&envelope(SseKind::Sessions, "<a>row</a>", 0), 1)
+            .expect("a sessions push translates")
+            .remove(0);
+
+        // Then the attention signal lands at zero and the raw payload
+        // never reaches the wire.
+        let datastar::DatastarEvent {
+            event: kind, data, ..
+        } = event;
+        assert_eq!(kind, datastar::consts::EventType::PatchSignals);
+        let joined = data.join("\n");
+        assert!(
+            joined.contains(&format!("\"{}\": 0", contract::SIGNAL_SESSIONS_ATTENTION)),
             "{joined}"
         );
         assert!(!joined.contains("<a>row</a>"), "{joined}");

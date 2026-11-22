@@ -22,12 +22,21 @@ import { baseUrl } from "./run.mjs";
  * @returns {Promise<string>} the created session's id.
  */
 async function createSession(page) {
+  const beforeId = await page
+    .locator(sel.PAGE_ROOT)
+    .getAttribute(sel.PAGE_SESSION_ATTR);
   await page.locator(sel.MENU_BUTTON).click();
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   const modal = page.locator(sel.SESSION_NEW_MODAL);
   await expect(modal).toBeVisible();
   await page.locator(sel.SESSION_NEW_SUBMIT).click();
   const root = page.locator(sel.PAGE_ROOT);
+  // The create's swap is async: the id must CHANGE before this
+  // returns, or the caller reads the pre-create session.
+  await expect(root).not.toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    beforeId ?? "",
+  );
   await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
   const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
   if (!createdId) {
@@ -79,7 +88,10 @@ test("a turn in another session spins its row on this page", async ({
     .locator(sel.PAGE_ROOT)
     .getAttribute(sel.PAGE_SESSION_ATTR);
   const sessionB = await createSession(page);
-  await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionA}`);
+  // Re-open A by ROW CLICK, not by URL: a page render views without
+  // activating, and the settle's unread mark only lands on a session
+  // that is not the map-active one — A must be ACTIVE when B settles.
+  await page.locator(sel.SESSION_ROW_BY_ID(sessionA)).click();
   const root = page.locator(sel.PAGE_ROOT);
   await expect(root).toBeVisible();
   await expect(root).toHaveAttribute(sel.PAGE_SESSION_ATTR, sessionA);
@@ -93,15 +105,15 @@ test("a turn in another session spins its row on this page", async ({
   // page below; here we open B's page in a fresh tab, start the turn,
   // and come back to A's page without touching it again.
   const pageB = await page.context().newPage();
-  await openSession(pageB);
+  // B's tab opens by URL, never by openSession: openSession clicks a
+  // row, ACTIVATING whichever session sorts first and silently
+  // flipping the map's active pointer while A is supposed to stay the
+  // active one. A URL render views B without touching activation.
   await pageB.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionB}`);
   await expect(pageB.locator(sel.PAGE_ROOT)).toHaveAttribute(
     sel.PAGE_SESSION_ATTR,
     sessionB,
   );
-  // The new page needs its own stream connection before a pushed
-  // spinner can reach it.
-  await pageB.locator(sel.SESSION_ROW_BY_ID(sessionB)).waitFor();
   await startBusyTurn(pageB);
 
   // Then B's row spins on A's page — without any reload of A — and
@@ -131,6 +143,90 @@ test("a turn in another session spins its row on this page", async ({
     /unread/,
   );
   await pageB.close();
+});
+
+test.describe("the sessions button's attention lifecycle", () => {
+  // Phone viewport: the drawer steps need it — the sessions button is
+  // the drawer's opener below 768px and hidden above it.
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("the settle turns the sessions button's attention on and activation clears it", async ({
+    page,
+  }) => {
+  // Given two sessions: A (the boot session) and B (created through
+  // the modal); and neither marks attention while both sit idle — the
+  // button is neutral, the badge hidden. At phone width the rows live
+  // in the off-canvas drawer, so setup opens A by URL, creates B
+  // through the menu, then ACTIVATES A through the drawer (the mark
+  // keys off the map's active pointer, which a URL render never
+  // moves).
+  await page.goto(`${baseUrl()}/web`);
+  await expect(page.locator(sel.SESSION_ROW).first()).toBeAttached();
+  const sessionA = await page
+    .locator(sel.SESSION_ROW)
+    .first()
+    .getAttribute(sel.SESSION_ID_ATTR);
+  await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionA}`);
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    sessionA,
+  );
+  const sessionB = await createSession(page);
+  await page.locator(sel.SESSIONS_BUTTON).click();
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
+    new RegExp(sel.DRAWER_OPEN_CLASS),
+  );
+  await page.locator(sel.SESSION_ROW_BY_ID(sessionA)).click();
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    sessionA,
+  );
+  const button = page.locator(sel.SESSIONS_BUTTON);
+  await expect(button).not.toHaveClass(
+    new RegExp(sel.SESSIONS_ATTENTION_CLASS),
+  );
+  await expect(page.locator(sel.SESSIONS_BUTTON_COUNT)).toBeHidden();
+
+  // When B runs a turn in its own tab and settles (the settle lands
+  // while A is viewed — the unseen-settle mark).
+  const pageB = await page.context().newPage();
+  // B's tab opens by URL (see test 1's note): openSession would
+  // activate whichever row sorts first, flipping the active pointer
+  // the unread mark keys off.
+  await pageB.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionB}`);
+  await expect(pageB.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    sessionB,
+  );
+  await startBusyTurn(pageB);
+  await expect(page.locator(sel.SESSION_ROW_BY_ID(sessionB))).toHaveClass(
+    /unread/,
+    { timeout: 10_000 },
+  );
+
+  // Then A's button wears the attention class and the badge reads 1 —
+  // pushed live, no reload of A.
+  await expect(button).toHaveClass(new RegExp(sel.SESSIONS_ATTENTION_CLASS));
+  await expect(page.locator(sel.SESSIONS_BUTTON_COUNT)).toHaveText("1");
+
+  // And when A activates B (the row click through the drawer — the
+  // real path a finger performs), the mark clears and the button
+  // goes neutral with the badge hidden again.
+  await page.locator(sel.SESSIONS_BUTTON).click();
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
+    new RegExp(sel.DRAWER_OPEN_CLASS),
+  );
+  await page.locator(sel.SESSION_ROW_BY_ID(sessionB)).click();
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    sessionB,
+  );
+  await expect(page.locator(sel.SESSIONS_BUTTON)).not.toHaveClass(
+    new RegExp(sel.SESSIONS_ATTENTION_CLASS),
+  );
+    await expect(page.locator(sel.SESSIONS_BUTTON_COUNT)).toBeHidden();
+    await pageB.close();
+  });
 });
 
 test("cancelling the turn clears the row's spinner", async ({ page }) => {

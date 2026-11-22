@@ -614,37 +614,28 @@ async fn a_skills_loaded_event_pushes_one_skills_signal_per_live_session() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn the_handle_pushes_a_sessions_refresh_from_outside_the_actor() {
-    // Given a live session whose title a web rename just changed, and
-    // a subscriber to the actor's broadcast channel.
-    let (actor, mut rx, state, _marks) = fixture();
+async fn the_handle_pushes_a_sessions_attention_signal_from_outside_the_actor() {
+    // Given a live session and a subscriber to the actor's broadcast
+    // channel — the handle seam a synchronous HTTP handler uses.
+    let (actor, mut rx, state, marks) = fixture();
     let id = seed_session(&state);
-    state
-        .write()
-        .session
-        .get_mut(&id)
-        .expect("seeded session")
-        .set_title("Renamed from the web".to_owned());
+    marks.update(|cell_marks| cell_marks.mark(id.clone()));
 
-    // When an HTTP handler renders the live fragment under its own
-    // read guard and hands it to the handle (guard dropped first).
-    let html = {
+    // When an HTTP handler reads the current unread count under its
+    // own read guard and hands it to the handle (guard dropped first).
+    let attention = {
         let guard = state.read();
-        crate::regions::sessions::sessions_live_fragment(&guard)
+        crate::regions::sessions::unread_count_of(&guard)
     };
-    actor.handle().push_sessions_refresh_from(&id, html);
+    actor.handle().push_sessions_refresh_from(&id, attention);
 
     // Then exactly one sessions envelope arrives, addressed to the
-    // renamed session, carrying the new title — the push the other
-    // connected pages' sidebars refresh from.
+    // named session, carrying the count as its payload — the signal
+    // the connected pages' sessions buttons update from.
     let envelope = rx.try_recv().expect("handle-pushed sessions refresh");
     assert_eq!(envelope.kind, SseKind::Sessions);
     assert_eq!(envelope.session_id, id);
-    assert!(
-        envelope.html.contains("Renamed from the web"),
-        "{}",
-        envelope.html
-    );
+    assert_eq!(envelope.html, "1");
     assert!(rx.try_recv().is_err());
 }
 
@@ -838,8 +829,9 @@ fn phase_change(
 }
 
 /// Drains `count` sessions-list envelopes off the receiver, returning
-/// the last one's HTML (they all carry the same render).
-fn last_sessions_html(
+/// the last one's payload — the unread-count string (the Sessions
+/// kind is signal-only: the payload is the whole fact at the wire).
+fn last_sessions_payload(
     rx: &mut tokio::sync::broadcast::Receiver<SseEnvelope>,
     count: usize,
 ) -> String {
@@ -901,13 +893,13 @@ async fn an_unseen_settle_marks_the_session_and_refreshes_every_list() {
     ));
 
     // Then Foo's mark landed, and every live session's stream received
-    // one addressed sessions refresh carrying the unread class — the
-    // per-stream filter means an addressed push would miss the page
-    // viewing Bar, which is exactly where the news is.
+    // one addressed sessions signal whose payload names the count —
+    // the per-stream filter means an addressed push would miss the
+    // page viewing Bar, which is exactly where the news is.
     assert!(marks.read().is_marked(&foo), "the mark landed");
     assert!(!marks.read().is_marked(&bar));
-    let html = last_sessions_html(&mut rx, live);
-    assert!(html.contains("unread"), "the fragment marks Foo: {html}");
+    let payload = last_sessions_payload(&mut rx, live);
+    assert_eq!(payload, "1", "one mark, count one: {payload}");
     assert!(
         !marks_of(&state, &bar),
         "the active session is never marked"
@@ -1040,18 +1032,6 @@ async fn a_self_settle_from_idle_marks_nothing() {
 
 // ── The working flip: the sessions list refreshes only on it ────────
 
-/// Whether any rendered row's class list carries the working hook —
-/// token-parsed, the way the browser reads `class`.
-fn has_working_row(html: &str) -> bool {
-    html.split("class=\"").skip(1).any(|rest| {
-        rest.split('"')
-            .next()
-            .unwrap_or_default()
-            .split(' ')
-            .any(|part| part == crate::contract::WORKING_CLASS)
-    })
-}
-
 #[rstest::rstest]
 #[tokio::test]
 async fn a_working_flip_fans_one_refresh_to_every_live_session() {
@@ -1078,13 +1058,10 @@ async fn a_working_flip_fans_one_refresh_to_every_live_session() {
     ));
 
     // Then exactly one addressed sessions envelope per live session
-    // lands, and every copy renders the working class — the list
-    // refresh is the spinner's only live path.
-    let html = last_sessions_html(&mut rx, live);
-    assert!(
-        has_working_row(&html),
-        "the pushed fragment carries the spinner: {html}"
-    );
+    // lands — the list refresh is the spinner's only live path, and
+    // the payload is the (zero) unread count, not a fragment.
+    let payload = last_sessions_payload(&mut rx, live);
+    assert_eq!(payload, "0", "no marks, count zero: {payload}");
     assert!(
         rx.try_recv().is_err(),
         "one wave, nothing else: no extra envelopes after the fan"
@@ -1158,14 +1135,10 @@ async fn a_settling_unseen_session_fans_one_wave_carrying_both_facts() {
 
     // Then exactly `live` sessions envelopes land (the single shared
     // fan — not one wave for the flip and a second for the mark), and
-    // the fragment carries the mark while carrying no working class
-    // for Foo (the settle cleared it).
-    let html = last_sessions_html(&mut rx, live);
+    // the payload carries the count while the mark cell holds Foo.
+    let payload = last_sessions_payload(&mut rx, live);
     assert!(marks.read().is_marked(&foo), "the mark landed");
-    assert!(
-        html.contains("unread"),
-        "the shared fan carries the mark: {html}"
-    );
+    assert_eq!(payload, "1", "the shared fan carries the count: {payload}");
     assert!(
         rx.try_recv().is_err(),
         "one wave total — flip and mark share it: no extra envelopes"
@@ -1197,12 +1170,10 @@ async fn a_watched_settle_still_fans_the_flip_wave() {
     ));
 
     // Then the flip still fans one wave — the spinner clearing is a
-    // rendered fact regardless of who was watching.
-    let html = last_sessions_html(&mut rx, live);
-    assert!(
-        !has_working_row(&html),
-        "the settled fragment carries no spinner: {html}"
-    );
+    // rendered fact regardless of who was watching — and no mark was
+    // set (the payload count stays zero).
+    let payload = last_sessions_payload(&mut rx, live);
+    assert_eq!(payload, "0", "a watched settle marks nothing: {payload}");
     assert!(rx.try_recv().is_err(), "one wave, nothing else");
 }
 

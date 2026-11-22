@@ -114,17 +114,31 @@ test("unavailable rows are inert: no switch action, modal stays open", async ({
 test("refresh shows the busy state and clears it when the cache lands", async ({
   page,
 }) => {
-  // Given the picker open with a filter typed.
+  // Given the picker open with a filter typed — and the refresh POST
+  // held, so the busy window is deterministic (the scratch backend
+  // answers in milliseconds; an unheld assertion races the clear).
   await openSession(page);
   await page.locator(sel.PICKER_BUTTON).click();
   const refresh = page.locator(sel.PICKER_REFRESH);
   await page.locator(sel.PICKER_FILTER).fill("sample");
+  let releaseRefresh;
+  const gate = new Promise((resolve) => {
+    releaseRefresh = resolve;
+  });
+  await page.route("**/models/refresh", async (route) => {
+    await gate;
+    await route.continue();
+  });
 
   // When clicking refresh.
   await refresh.click();
 
   // Then the button entered its busy state (disabled + aria-busy)…
   await expect(refresh).toHaveAttribute("aria-busy", "true");
+
+  // When the held response lands.
+  releaseRefresh();
+
   // …and the `models` SSE event cleared it, rows intact, filter kept.
   await expect(refresh).not.toHaveAttribute("aria-busy", /.+/);
   await expect(page.locator(sel.PICKER_ROW(MODEL_ID))).toBeVisible();

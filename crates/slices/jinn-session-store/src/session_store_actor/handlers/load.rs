@@ -517,6 +517,15 @@ impl SessionStoreActor {
         // the session map, so it is the only place that knows what is loaded.
         if self.state.read().session.get(&payload.session_id).is_some() {
             self.on_activate_in_memory(ctx, payload);
+            // The completed event every other activation path publishes
+            // (restore, insert): the fan-out keys the "user has now
+            // viewed it" unread-mark clear to it, so a live-session
+            // switch that skips it strands the mark — the session the
+            // user just looked at stays unread forever.
+            self.publish(SessionLoadCompleted {
+                session_id: payload.session_id.clone(),
+            })
+            .await;
             return;
         }
 
