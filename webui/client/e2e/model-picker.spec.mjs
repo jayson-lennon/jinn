@@ -131,3 +131,28 @@ test("refresh shows the busy state and clears it when the cache lands", async ({
   await expect(page.locator(sel.PICKER_ROW(MODEL_ID))).toBeVisible();
   await expect(page.locator(sel.PICKER_FILTER)).toHaveValue("sample");
 });
+
+test("typing into the filter keeps the modal open, Escape closes it", async ({
+  page,
+}) => {
+  // Given the picker open.
+  await openSession(page);
+  await page.locator(sel.PICKER_BUTTON).click();
+  const modal = page.locator(sel.PICKER_MODAL);
+  await expect(modal).toBeVisible();
+
+  // When typing a fuzzy query with real keypresses — `fill()`
+  // dispatches no keydown events, which is exactly the blind spot
+  // that let an every-keystroke dismissal ship unnoticed.
+  await page.locator(sel.PICKER_FILTER).click();
+  await page.keyboard.type("spl");
+
+  // Then the modal is still open with the row filtered in — a
+  // keystroke must never dismiss the picker.
+  await expect(modal).toBeVisible();
+  await expect(page.locator(sel.PICKER_ROW(MODEL_ID))).toBeVisible();
+
+  // And Escape dismisses it.
+  await page.keyboard.press("Escape");
+  await expect(modal).toBeHidden();
+});

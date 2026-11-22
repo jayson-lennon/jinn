@@ -1,7 +1,7 @@
 <div id="{{ page_root_id }}" {{ page_session_attr }}="{{ session_id }}"
      data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '' }"
      data-class:drawer-open="$drawerOpen"
-     data-on:keydown__escape__document="$menuOpen ? $menuOpen = false : ($drawerOpen ? $drawerOpen = false : undefined)">
+     data-on:keydown__document="evt.key === 'Escape' && ($menuOpen ? $menuOpen = false : ($drawerOpen ? $drawerOpen = false : undefined))">
   <nav id="sidebar">
     <h2>Sessions</h2>
     <input id="{{ sessions_filter_input_id }}" type="text" placeholder="filter sessions…"
