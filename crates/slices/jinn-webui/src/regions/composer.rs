@@ -9,8 +9,10 @@
 //! busy.
 //!
 //! Browser half: the controls' Datastar bindings (`controls.html`) — the
-//! action-attribute delegation (send/cancel), the Enter-to-send
-//! binding, and the [`crate::contract::CONTROLS_ID`] swap.
+//! action-attribute delegation (send/cancel) and the
+//! [`crate::contract::CONTROLS_ID`] swap. The textarea carries no
+//! keydown binding on purpose: mobile soft keyboards use Enter for
+//! newlines, so sending rides the button's click alone.
 
 use jinn_kernel::common::state::StateReadGuard;
 use jinn_webui_msg::SseKind;

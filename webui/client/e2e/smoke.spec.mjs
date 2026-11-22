@@ -32,7 +32,8 @@ test("session page shows the model picker button in the titlebar", async ({
 
   // When reading the titlebar.
   // Then the model-picker button is visible and carries the boot
-  // model's label.
+  // model's label — the button is the model display (no second
+  // label rides beside it).
   await expect(page.locator(sel.PICKER_BUTTON)).toBeVisible();
-  await expect(page.locator(sel.MODEL_LABEL)).toHaveText(MODEL_ID);
+  await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(MODEL_ID);
 });

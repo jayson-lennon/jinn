@@ -298,15 +298,17 @@ pub struct SessionListItem {
 }
 
 /// The kind of SSE push — the event name the client dispatches on.
-/// The TypeScript mirror of [`SseKind::event_name`] lives in
-/// `webui/client/src/wire.ts`, and the drift test in this crate's
-/// `wire_tests` (plus the webui crate's `contract_tests`) fails when
-/// the two sides disagree.
+///
+/// No client source tree mirrors [`SseKind::event_name`]: the
+/// declarative Datastar attributes in the askama templates carry the
+/// ids and routes, and the server-side contract tests hold the
+/// vocabulary's integrity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SseKind {
-    /// Appended transcript HTML (`sse-swap="chat"`, `beforeend`).
-    Chat,
+    /// The in-flight turn's rendered tail, wholesale-replaced into the
+    /// transcript's streaming container at each flush tick.
+    Streaming,
     /// Re-rendered composer controls — the send↔cancel button.
     Controls,
     /// Re-rendered sessions list.
@@ -354,7 +356,7 @@ impl SseKind {
     #[must_use]
     pub const fn event_name(self) -> &'static str {
         match self {
-            Self::Chat => "chat",
+            Self::Streaming => "streaming",
             Self::Controls => "controls",
             Self::Sessions => "sessions",
             Self::Models => "models",
@@ -372,15 +374,21 @@ impl SseKind {
 /// session never receives another session's fragment. `cursor` is the
 /// rendered-entry index the payload advances the client to — it rides
 /// the SSE `id:` line, so a reconnect's `Last-Event-ID` resumes the
-/// pull exactly where the push left off.
+/// pull exactly where the push left off. A [`SseKind::Streaming`]
+/// envelope's cursor is its session's **settled boundary** — the count
+/// of entries the settled transcript already rendered when the turn
+/// began — never the live history's growing length: a replace-shaped
+/// push with a growing cursor reintroduces the reconnect re-append bug
+/// class the no-id rule on [`SseKind::TranscriptFull`] fixed.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct SseEnvelope {
     /// Which swap the payload lands under.
     pub kind: SseKind,
     /// The session the payload belongs to.
     pub session_id: SessionId,
-    /// The rendered-entry cursor after this payload (chat pushes only;
-    /// other kinds carry the current count).
+    /// The rendered-entry cursor after this payload (streaming pushes
+    /// carry the settled boundary; other kinds carry the current
+    /// count).
     pub cursor: usize,
     /// The server-rendered HTML fragment.
     pub html: String,
@@ -432,7 +440,7 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case(SseKind::Chat, "chat")]
+    #[case(SseKind::Streaming, "streaming")]
     #[case(SseKind::Controls, "controls")]
     #[case(SseKind::Sessions, "sessions")]
     #[case(SseKind::Models, "models")]

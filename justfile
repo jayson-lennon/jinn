@@ -629,6 +629,24 @@ webui-smoke:
     cargo test -p jinn-webui --lib smoke_tests
     echo '==> webui-smoke green'
 
+# Kill stray webui-e2e jinn runs and remove their scratch dirs.
+#
+# The e2e harness spawns jinn detached (setsid script -qfec) so a
+# crashed or aborted run never reached teardown leaves the whole
+# session alive. Every process in the chain carries the scratch root
+# in its cmdline (`--db-path /tmp/jinn-webui-e2e/...`), so one pkill
+# pattern reaches jinn and its script/fish wrappers alike. Not
+# parallel-safe: it kills any concurrent e2e suite.
+webui-e2e-clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    E2E_PAT='--db-path /tmp/jinn-webui-e2e/'
+    pkill -TERM -f -- "$E2E_PAT" 2>/dev/null || true
+    sleep 0.5
+    pkill -KILL -f -- "$E2E_PAT" 2>/dev/null || true
+    rm -rf /tmp/jinn-webui-e2e/run-*
+    echo '==> webui-e2e-clean green'
+
 # Full-stack webui e2e: build the real binary, boot it against a
 # scratch paths root with the sample (keyless, network-free) backend,
 # and drive the page with headless Playwright. Standalone by design —
@@ -638,6 +656,7 @@ webui-smoke:
 webui-e2e:
     #!/usr/bin/env bash
     set -euo pipefail
+    just webui-e2e-clean
     echo '==> cargo build --bin jinn'
     cargo build --bin jinn
     echo '==> npm ci (webui/client/e2e)'

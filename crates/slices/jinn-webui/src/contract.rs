@@ -35,6 +35,14 @@ pub const TRANSCRIPT_WRAP_ID: &str = "transcript-wrap";
 /// The transcript's entry container — chat appends here.
 pub const TRANSCRIPT_ID: &str = "transcript";
 
+/// The transcript's **streaming container** — the in-flight turn's
+/// rendered tail swaps here. The last child of [`TRANSCRIPT_ID`], so
+/// settled entries (above it) and streamed entries (inside it) never
+/// interleave; the `transcript-full` inner replace clears it
+/// structurally at every settle, because the full fragment carries the
+/// empty container as its own last child.
+pub const STREAMING_ID: &str = "streaming";
+
 /// The composer-controls container — send↔cancel swaps here.
 pub const CONTROLS_ID: &str = "composer-controls";
 
@@ -55,13 +63,7 @@ pub const MODEL_PICKER_MODAL_HOST_ID: &str = "model-picker-modal-host";
 /// in the templates name.
 pub const MODEL_PICKER_MODAL_HOST_SELECTOR: &str = "#model-picker-modal-host";
 
-/// The titlebar's model-status wrapper — the static `.m` label span
-/// and the picker container rendered together as one fragment, so a
-/// model switch re-renders both in one swap and the two can never
-/// disagree after a switch.
-pub const MODEL_STATUS_ID: &str = "model-status";
-
-/// The model-picker's button — the titlebar control that opens the
+/// The titlebar's model-picker button — the control that opens the
 /// modal; its label is the viewed session's current model.
 pub const MODEL_PICKER_BUTTON_ID: &str = "model-picker-button";
 
@@ -122,6 +124,12 @@ pub const ACTION_SEND: &str = "send";
 /// The cancel form's action name.
 pub const ACTION_CANCEL: &str = "cancel";
 
+/// The queue form's action name — the composer's queue button, shown
+/// beside cancel while the session is working. It posts the send
+/// endpoint verbatim (the session actor queues a busy-phase enqueue),
+/// so it is a value of [`ACTION_DATA_ATTR`], not a new route.
+pub const ACTION_QUEUE: &str = "queue";
+
 /// The model form's action name.
 pub const ACTION_MODEL: &str = "model";
 
@@ -146,8 +154,8 @@ pub const SESSION_TITLE_ID: &str = "session-title";
 
 /// The titlebar's menu region — the hamburger button's host span,
 /// rendered left of the session title. The panel renders inside this
-/// host too (a static fragment, like the model-status wrapper), so
-/// the region owns one container on the page.
+/// host too (a static fragment, like the model-picker button's host),
+/// so the region owns one container on the page.
 pub const MENU_ID: &str = "menu";
 
 /// The menu's hamburger button — the titlebar control that opens the
@@ -243,12 +251,6 @@ pub const SIGNAL_MODELS_REFRESHING: &str = "modelsRefreshing";
 /// modal's effect re-pulls its rows in response.
 pub const SIGNAL_MODELS_TICK: &str = "modelsTick";
 
-/// The transcript-append tick — bumped alongside every streamed
-/// transcript patch (append and full replace). The transcript wrap's
-/// scroll effect reads it: a change means the transcript grew, and a
-/// reader keeping watch on the tail scrolls to it. Purely a client
-/// reactive key — no surface reads its value.
-pub const SIGNAL_CHAT_TICK: &str = "chatTick";
 /// The sessions-list tick — every pushed list refresh bumps it; the
 /// list's effect re-pulls with the active filter (pushed lists are
 /// signal-only: the pull remains the renderer).
@@ -705,10 +707,10 @@ pub const DOM_CONSTANTS: &[&str] = &[
     SESSIONS_FILTER_INPUT_ID,
     TRANSCRIPT_WRAP_ID,
     TRANSCRIPT_ID,
+    STREAMING_ID,
     CONTROLS_ID,
     MODEL_PICKER_ID,
     MODEL_PICKER_MODAL_HOST_ID,
-    MODEL_STATUS_ID,
     BUSY_SPINNER_ID,
     COMPOSER_ID,
     INPUT_ID,
@@ -718,6 +720,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_DATA_ATTR,
     ACTION_SEND,
     ACTION_CANCEL,
+    ACTION_QUEUE,
     ACTION_MODEL,
     ACTION_REFRESH_MODELS,
     SESSION_ROW_CLASS,
