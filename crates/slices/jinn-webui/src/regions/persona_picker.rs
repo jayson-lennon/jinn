@@ -189,7 +189,7 @@ pub(crate) fn modal_fragment(
 /// (the same overlay language, at the same stack level); the rows add
 /// the active mark styling.
 pub const PERSONA_CSS: &str = r#"
-.persona-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+.persona-modal { position: fixed; inset: 0; background: var(--scrim);
                  display: flex; align-items: flex-start;
                  justify-content: center; padding-top: 10vh; z-index: 40; }
 .persona-modal[hidden] { display: none; }
@@ -203,12 +203,12 @@ pub const PERSONA_CSS: &str = r#"
                   padding: 6px 8px; font: inherit; }
 #persona-rows { overflow-y: auto; padding: 4px 0; }
 .persona-row { display: flex; gap: 8px; padding: 7px 12px; cursor: pointer; }
-.persona-row:hover { background: #23272f; }
+.persona-row:hover { background: var(--bg-hover); }
 .persona-row .persona-row-marker { width: 1.2em; color: var(--muted); }
 .persona-row .persona-row-description { color: var(--muted); }
 .persona-row mark { background: transparent; color: var(--accent);
                     font-weight: 600; }
-.persona-row.persona-row-active { background: #20242c; }
+.persona-row.persona-row-active { background: var(--bg-active); }
 .persona-row.persona-row-active .persona-row-name { font-weight: 600; }
 .persona-row.persona-row-active .persona-row-marker { color: var(--accent); }
 @media (max-width: 767px) {

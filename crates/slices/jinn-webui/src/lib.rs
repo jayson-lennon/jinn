@@ -236,3 +236,6 @@ mod session_new_tests;
 
 #[cfg(test)]
 mod sessions_list_tests;
+
+#[cfg(test)]
+mod palette_tests;

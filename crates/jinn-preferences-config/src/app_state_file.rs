@@ -55,6 +55,12 @@ pub struct AppStateFile {
     /// `profile.reasoning_effort`. `None` means "let the provider decide".
     #[serde(default)]
     pub reasoning_effort: Option<jinn_core_types::ReasoningEffort>,
+    /// The webui's color mode: `"light"`, `"dark"`, or `"system"`.
+    /// `None` means system — the page follows the OS
+    /// `prefers-color-scheme`. Independent of [`AppStateFile::theme_name`],
+    /// which names a TUI theme file the web never reads.
+    #[serde(default)]
+    pub web_theme: Option<String>,
 }
 
 /// Loads app state from a specific path.
@@ -144,6 +150,7 @@ mod tests {
             persona_name: Some("coder".to_owned()),
             sidebar_width: Some(40),
             reasoning_effort: Some(jinn_core_types::ReasoningEffort::High),
+            web_theme: Some("light".to_owned()),
         };
 
         // When serializing and deserializing.
@@ -238,6 +245,7 @@ theme_name = "gruvbox-dark"
             persona_name: None,
             sidebar_width: None,
             reasoning_effort: None,
+            web_theme: None,
         };
         assert_eq!(state, expected);
     }
@@ -263,5 +271,24 @@ theme_name = "gruvbox-dark"
 
         // Then reasoning_effort is None (provider decides).
         assert!(state.reasoning_effort.is_none());
+    }
+
+    #[rstest::rstest]
+    fn legacy_file_without_web_theme_deserializes_to_none() {
+        // Given a state file from an older version that lacks web_theme.
+        let dir = jinn_testutil::tempdir();
+        let path = dir
+            .path
+            .join("state.toml")
+            .expect("temp root joins a bare name");
+        std::fs::write(&path, "theme_name = \"gruvbox-dark\"\n").expect("write");
+
+        // When loading.
+        let state = load_app_state_from(&path).expect("load");
+
+        // Then web_theme is None (the web follows the OS scheme).
+        assert!(state.web_theme.is_none());
+        // And the TUI theme is untouched.
+        assert_eq!(state.theme_name.as_deref(), Some("gruvbox-dark"));
     }
 }
