@@ -1007,22 +1007,28 @@ impl MsgHandler<SessionLoadCompleted> for WebUiFanoutActor {
 impl WebUiFanoutActor {
     /// The load-completed body, split out for the same test seam.
     pub(crate) fn on_load_completed(&mut self, msg: &SessionLoadCompleted) {
-        // A session activation landed (from the web or the TUI — both
-        // ride the same command): refresh every page's sessions list.
-        self.push_sessions_refresh(&msg.session_id);
         // The "the user has now viewed it" clear, keyed to the active
         // id at handling time: a tree load publishes one completed
         // event per background member restored under a different
         // active id, and those members are still unviewed — clearing
         // them would erase the exact signal the mark exists for. Only
         // the session that IS the active one at this moment was viewed.
-        if active_session_id_of(&self.state) == msg.session_id && self.clear_unread(&msg.session_id)
-        {
-            // The addressed refresh above reaches only the activated
-            // session's stream — every OTHER page's sidebar still
-            // carries the yellow, and only a per-live-session fan
-            // clears it. The transition gate keeps a re-clear quiet.
+        // The clear runs BEFORE any fan so the wave the activation
+        // produces carries the post-clear count — the swap seed and
+        // the stream-connect convergence patch both read it, and a
+        // wave stamped pre-clear would leave the navigating client a
+        // stale badge no later wave revisits.
+        let cleared = active_session_id_of(&self.state) == msg.session_id
+            && self.clear_unread(&msg.session_id);
+        // Then refresh every page's sessions list — one fan serves
+        // both facts (the activation and, when it happened, the
+        // clear). The all-sessions wave covers the cleared mark on
+        // every other page's sidebar; the transition gate keeps a
+        // re-clear from fanning twice.
+        if cleared {
             self.refresh_all_sessions_lists();
+        } else {
+            self.push_sessions_refresh(&msg.session_id);
         }
     }
 }

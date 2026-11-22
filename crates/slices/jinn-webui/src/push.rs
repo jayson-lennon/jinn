@@ -12,6 +12,7 @@
 //! | kind           | event          | target                | mode   |
 //! |----------------|----------------|-----------------------|--------|
 //! | Streaming      | PatchElements  | `#streaming`          | inner  |
+//! | Chat           | PatchElements  | `#transcript`         | append |
 //! | TranscriptFull | PatchElements  | `#transcript`         | inner  |
 //! | Controls       | PatchElements  | `#composer-controls`  | inner  |
 //! | Sessions       | PatchSignals   | `sessionsTick` bump + `sessionsAttention` stamp | —      |

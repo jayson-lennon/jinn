@@ -1203,8 +1203,10 @@ async fn activating_a_marked_session_clears_it_and_refreshes_every_list() {
     });
 
     // Then the mark is gone, and every page's list refreshed without
-    // the unread class — one addressed refresh for the activated
-    // session plus one addressed envelope per live session id.
+    // the unread class — one addressed envelope per live session id
+    // (the clear runs first, so the single wave carries the post-clear
+    // count; a separate pre-clear addressed refresh would stamp a
+    // stale count the navigating client can never see corrected).
     assert!(!marks.read().is_marked(&foo));
     let live = state.read().session.sessions().len();
     let mut sessions_envelopes = 0;
@@ -1216,9 +1218,8 @@ async fn activating_a_marked_session_clears_it_and_refreshes_every_list() {
         }
     }
     assert_eq!(
-        sessions_envelopes,
-        live + 1,
-        "the addressed refresh plus one envelope per live session: got {sessions_envelopes}"
+        sessions_envelopes, live,
+        "one envelope per live session, carrying the post-clear count: got {sessions_envelopes}"
     );
     assert!(
         !last_html.contains("unread"),

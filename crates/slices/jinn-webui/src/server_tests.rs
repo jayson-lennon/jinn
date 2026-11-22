@@ -2598,6 +2598,55 @@ mod stream_catchup {
         assert!(body.contains("hello"), "{body}");
     }
 
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_stream_route_opens_with_a_sessions_signal_convergence_patch() {
+        // Given a live session and one other session wearing the
+        // unread mark (seeded through the harness registry — the same
+        // cell the fan-out writes).
+        let (state, _audit, slices, router) = harness();
+        let id = seed_session(&state);
+        let other = seed_session(&state);
+        let marks = slices
+            .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+            .expect("the unread-mark cell resolves");
+        marks.update(|m| {
+            m.mark(other);
+        });
+
+        // When opening the stream, then bounding the read.
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/web/stream/{id}"))
+                    .header("last-event-id", "0")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("response");
+        let body = aggregate_body(response.into_body()).await;
+
+        // Then the stream opens with a patch-signals frame carrying
+        // the current attention count — the heal for a page whose
+        // render raced a mark transition (the activation edge: the
+        // clear wave can broadcast before the navigating client's new
+        // stream subscribes).
+        let patch = body
+            .split("event: datastar-patch-signals")
+            .nth(1)
+            .expect("a patch-signals frame after the connect");
+        assert!(
+            patch.contains(&format!(
+                "\"{}\": 1",
+                crate::contract::SIGNAL_SESSIONS_ATTENTION
+            )),
+            "{patch}"
+        );
+    }
+
     /// Polls the body with bounded reads — enough for the
     /// stream yields its catch-up frames on the first polls.
     async fn aggregate_body(body: Body) -> String {

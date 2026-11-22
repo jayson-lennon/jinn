@@ -593,6 +593,7 @@ impl PageRootTemplate {
             button_html,
             picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
+            sessions_attention: attention_count,
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -615,7 +616,6 @@ impl PageRootTemplate {
             sessions_route: contract::SESSIONS_ROUTE,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
-            sessions_attention: attention_count,
             web_theme,
         }
     }
@@ -802,6 +802,10 @@ impl ControlsTemplate {
 pub struct MenuTemplate {
     /// The menu region's host container id.
     pub menu_id: &'static str,
+    /// The titlebar sessions button's id.
+    pub sessions_button_id: &'static str,
+    /// The sessions button's count badge id.
+    pub sessions_button_count_id: &'static str,
     /// The hamburger button's id.
     pub menu_button_id: &'static str,
     /// The item panel's id.
@@ -859,13 +863,8 @@ pub struct MenuTemplate {
     pub skills_picker_url: String,
     /// The skills modal host's CSS selector — the pull's swap target.
     pub skills_modal_host_selector: &'static str,
-    /// The titlebar sessions button's id — the drawer toggle with its
-    /// unread badge.
-    pub sessions_button_id: &'static str,
-    /// The badge span's id — the unread count.
-    pub sessions_button_count_id: &'static str,
     /// The render-time unread-mark count — the badge's seeded value.
-    pub sessions_attention: usize,
+    pub attention_count: usize,
     /// The theme control's host id — the segmented Light/Dark/System
     /// control at the panel's tail (mode binds app-wide, not
     /// per-session, so it renders on the landing page too).
@@ -890,11 +889,16 @@ impl MenuTemplate {
     ///
     /// `viewed_session` is the page's viewed session id — empty on the
     /// landing page, which omits the persona item entirely.
+    /// `attention_count` seeds the sessions button's unread count —
+    /// the render-time fact the live signal updates between renders.
     #[must_use]
     pub fn with_contract(viewed_session: &str, attention_count: usize) -> Self {
         Self {
             menu_id: contract::MENU_ID,
+            sessions_button_id: contract::SESSIONS_BUTTON_ID,
+            sessions_button_count_id: contract::SESSIONS_BUTTON_COUNT_ID,
             menu_button_id: contract::MENU_BUTTON_ID,
+            attention_count,
             menu_panel_id: contract::MENU_PANEL_ID,
             menu_item_sessions_id: contract::MENU_ITEM_SESSIONS_ID,
             menu_item_new_session_id: contract::MENU_ITEM_NEW_SESSION_ID,
@@ -916,9 +920,6 @@ impl MenuTemplate {
             menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
             skills_picker_url: format!("{}{viewed_session}", contract::SKILL_PICKER_PREFIX),
             skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
-            sessions_button_id: contract::SESSIONS_BUTTON_ID,
-            sessions_button_count_id: contract::SESSIONS_BUTTON_COUNT_ID,
-            sessions_attention: attention_count,
             menu_item_theme_id: contract::MENU_ITEM_THEME_ID,
             menu_item_theme_light_id: contract::MENU_ITEM_THEME_LIGHT_ID,
             menu_item_theme_dark_id: contract::MENU_ITEM_THEME_DARK_ID,

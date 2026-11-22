@@ -200,6 +200,29 @@ pub const ACTION_SESSION_CREATE: &str = "session-create";
 /// exactly what makes a page swap reset the drawer structurally.
 pub const DRAWER_OPEN_CLASS: &str = "drawer-open";
 
+/// The titlebar's sessions button — beside the hamburger inside the
+/// `#menu` span. One tap toggles the session drawer at every width;
+/// below 768px it is the drawer's primary opener, at ≥768px the CSS
+/// hides it (the sidebar is already static there). Wears the
+/// [`SESSIONS_ATTENTION_CLASS`] and carries the
+/// [`SESSIONS_BUTTON_COUNT_ID`] badge while the instance's unread
+/// mark set is non-empty.
+pub const SESSIONS_BUTTON_ID: &str = "sessions-button";
+
+/// The sessions button's count badge — the number of sessions wearing
+/// the unread mark. Hidden by the attention signal when the count is
+/// zero.
+pub const SESSIONS_BUTTON_COUNT_ID: &str = "sessions-button-count";
+
+/// The class the client applies to [`SESSIONS_BUTTON_ID`] while the
+/// unread count is above zero — the yellow fill, the same gold the
+/// unread rows wear. Deliberately **not** in [`DOM_CONSTANTS`]: the
+/// drawer-open precedent — a class applied by signal evaluation is
+/// client state, and membership would assert a fresh-render fact the
+/// served markup does not carry (the binding attribute names the
+/// signal, not the class).
+pub const SESSIONS_ATTENTION_CLASS: &str = "attention";
+
 /// The menu's action name — the one item's action attribute value.
 pub const ACTION_MENU_SESSIONS: &str = "menu-sessions";
 
@@ -266,28 +289,6 @@ pub const SIGNAL_SESSIONS_ATTENTION: &str = "sessionsAttention";
 /// bound signals are single lowercase tokens (the expressions that
 /// read them spell the same token).
 pub const SIGNAL_SESSIONS_FILTER: &str = "sessionsfilter";
-/// The titlebar's sessions button — beside the hamburger inside the
-/// `#menu` span. One tap toggles the session drawer at every width;
-/// below 768px it is the drawer's primary opener, at ≥768px the CSS
-/// hides it (the sidebar is already static there). Wears the
-/// [`SESSIONS_ATTENTION_CLASS`] and carries the
-/// [`SESSIONS_BUTTON_COUNT_ID`] badge while the instance's unread
-/// mark set is non-empty.
-pub const SESSIONS_BUTTON_ID: &str = "sessions-button";
-
-/// The sessions button's count badge — the number of sessions wearing
-/// the unread mark. Hidden by the attention signal when the count is
-/// zero.
-pub const SESSIONS_BUTTON_COUNT_ID: &str = "sessions-button-count";
-
-/// The class the client applies to [`SESSIONS_BUTTON_ID`] while the
-/// unread count is above zero — the yellow fill, the same gold the
-/// unread rows wear. Deliberately **not** in [`DOM_CONSTANTS`]: the
-/// drawer-open precedent — a class applied by signal evaluation is
-/// client state, and membership would assert a fresh-render fact the
-/// served markup does not carry (the binding attribute names the
-/// signal, not the class).
-pub const SESSIONS_ATTENTION_CLASS: &str = "attention";
 /// The session-switch interstitial flag — set true by a session-row
 /// click that names a different session than the one viewed, ahead of
 /// its activate POST. The activation response's wholesale page-root

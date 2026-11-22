@@ -308,6 +308,63 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
     );
 }
 
+#[rstest::rstest]
+#[test]
+fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
+    // Given the page shell rendered with an attention count of 4.
+    let id = jinn_core_types::SessionId::new();
+    let page = templates::render(&templates::PageTemplate {
+        style: {
+            let leaked: &'static str = Box::leak(templates::page_style().into_boxed_str());
+            leaked
+        },
+        session_id: id.to_string(),
+        title: "Seeded".to_owned(),
+        cursor: 0,
+        sessions_html: sessions_fragment_of(&[]),
+        transcript_html: String::new(),
+        controls_html: String::new(),
+        button_html: String::new(),
+        picker_host_id: contract::MODEL_PICKER_ID,
+        menu_html: crate::regions::menu::menu_fragment(&id.to_string(), 4),
+        vendor_prefix: contract::VENDOR_PREFIX,
+        app_js_versioned: crate::templates::app_js_versioned_path(),
+        page_root_id: contract::PAGE_ROOT_ID,
+        page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+        sessions_id: contract::SESSIONS_ID,
+        sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
+        modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
+        session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
+        persona_modal_host_id: contract::PERSONA_MODAL_HOST_ID,
+        mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
+        tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
+        skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
+        transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
+        transcript_id: contract::TRANSCRIPT_ID,
+        cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
+        controls_id: contract::CONTROLS_ID,
+        session_title_id: contract::SESSION_TITLE_ID,
+        menu_id: contract::MENU_ID,
+        drawer_scrim_id: contract::DRAWER_SCRIM_ID,
+        menu_scrim_id: contract::MENU_SCRIM_ID,
+        switch_overlay_id: contract::SWITCH_OVERLAY_ID,
+        stream_url: String::new(),
+        sessions_attention: 4,
+        sessions_route: contract::SESSIONS_ROUTE,
+        session_page_path: contract::SESSION_PAGE_PREFIX,
+        web_theme: "system".to_owned(),
+        theme_color: crate::templates::theme_color_for("system"),
+    })
+    .expect("the page shell renders");
+
+    // Then the signals block seeds sessionsAttention with that count —
+    // the button is correct at boot, before any push arrives.
+    assert!(
+        page.contains(&format!("{}: 4", contract::SIGNAL_SESSIONS_ATTENTION)),
+        "{page}"
+    );
+}
+
 // ── Fragment markup matches the client's selectors ──────────────────
 
 #[rstest::rstest]
