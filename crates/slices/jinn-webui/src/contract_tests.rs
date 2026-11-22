@@ -708,11 +708,11 @@ async fn every_document_level_keydown_dismissal_guards_on_escape() {
         .expect("the persona modal renders");
     let model = crate::regions::model_picker::modal_fragment(&shared, &session_id, "")
         .expect("the model modal renders");
-    let mcp = crate::regions::mcp_servers::modal_fragment(&shared, &session_id)
+    let mcp = crate::regions::mcp_servers::modal_fragment(&shared, &session_id, "")
         .expect("the mcp modal renders");
-    let skills = crate::regions::skills::modal_fragment(&shared, &session_id)
+    let skills = crate::regions::skills::modal_fragment(&shared, &session_id, "")
         .expect("the skills modal renders");
-    let tools = crate::regions::tools::modal_fragment(&shared, &session_id)
+    let tools = crate::regions::tools::modal_fragment(&shared, &session_id, "")
         .expect("the tools modal renders");
     let config = {
         use jinn_config::{ConfigLayer, InMemoryConfigStorage};
@@ -785,7 +785,7 @@ async fn the_tools_modal_keydown_dismissal_keeps_the_revert_post_inside_the_guar
     // revert POST as part of closing.
     let shared = test_shared();
     let session_id = seed_session(&shared);
-    let html = crate::regions::tools::modal_fragment(&shared, &session_id)
+    let html = crate::regions::tools::modal_fragment(&shared, &session_id, "")
         .expect("the tools modal renders");
 
     // When extracting the dismissal's guarded expression.
