@@ -6,6 +6,7 @@
             data-bind:text
             data-on:keydown="evt.key === 'Enter' && !evt.shiftKey && (evt.preventDefault() || true) && $text.trim().length > 0 && @post('{{ send_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, text: $text}})"></textarea>
   {%- if busy -%}
+  <button {{ action_attr }}="{{ queue_action }}" data-on:click="$text.trim().length > 0 && @post('{{ send_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, text: $text}})">{{ queue_label }}</button>
   <button class="cancel" {{ action_attr }}="{{ cancel_action }}" data-on:click="@post('{{ cancel_path }}', {contentType: 'json', payload: {sessionId: $viewedSession}})">{{ cancel_label }}</button>
   {%- else -%}
   <button {{ action_attr }}="{{ send_action }}" data-on:click="$text.trim().length > 0 && @post('{{ send_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, text: $text}})">{{ send_label }}</button>
