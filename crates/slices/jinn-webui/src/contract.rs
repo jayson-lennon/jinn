@@ -130,6 +130,12 @@ pub const ACTION_SEND: &str = "send";
 /// The cancel form's action name.
 pub const ACTION_CANCEL: &str = "cancel";
 
+/// The queue form's action name — the composer's queue button, shown
+/// beside cancel while the session is working. It posts the send
+/// endpoint verbatim (the session actor queues a busy-phase enqueue),
+/// so it is a value of [`ACTION_DATA_ATTR`], not a new route.
+pub const ACTION_QUEUE: &str = "queue";
+
 /// The model form's action name.
 pub const ACTION_MODEL: &str = "model";
 
@@ -699,6 +705,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_DATA_ATTR,
     ACTION_SEND,
     ACTION_CANCEL,
+    ACTION_QUEUE,
     ACTION_MODEL,
     ACTION_REFRESH_MODELS,
     SESSION_ROW_CLASS,

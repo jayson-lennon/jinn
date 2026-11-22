@@ -1,9 +1,13 @@
-//! Chat flow — send and cancel through the real stack.
+//! Chat flow — send, queue, and cancel through the real stack.
 //!
 //! The `sample` backend answers plain text instantly and streams
 //! `!response` word-by-word with 10–50 ms inter-token delays, so the
 //! send spec proves the SSE entry lands and the cancel spec has a
-//! genuinely in-flight turn to interrupt.
+//! genuinely in-flight turn to interrupt. The queue specs start a
+//! `!response` turn for the same short-but-real busy window and queue
+//! a plain-text message through the queue button: its answer dispatches
+//! after the stream settles, so the queued entry is visible in the
+//! transcript without a reload when it lands in history.
 
 import { expect, test } from "@playwright/test";
 import { openSession } from "./nav.mjs";
@@ -60,6 +64,83 @@ test("cancel mid-stream ends the turn and restores the send control", async ({
   await expect(
     page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY("error")}`)
   ).toContainText("Cancelled");
+});
+
+test("busy composer shows queue before cancel and idle shows send alone", async ({
+  page,
+}) => {
+  // Given the boot session open with an empty transcript (the busy
+  // window's settle must not race the idle-fragment assertion).
+  await openSession(page);
+
+  // Then the idle fragment carries the send button and neither busy
+  // control.
+  await expect(page.locator(sel.SEND_BUTTON)).toBeVisible();
+  await expect(page.locator(sel.QUEUE_BUTTON)).toHaveCount(0);
+  await expect(page.locator(sel.CANCEL_BUTTON)).toHaveCount(0);
+
+  // When a streamed turn starts (the ~1s sample stream holds the busy
+  // window).
+  await page.locator(sel.INPUT).fill("!response");
+  await page.locator(sel.SEND_BUTTON).click();
+
+  // Then the busy fragment carries both buttons, queue first — the
+  // DOM order the queue-then-cancel vocabulary is — and no send.
+  await expect(page.locator(sel.QUEUE_BUTTON)).toBeVisible();
+  const buttons = await page
+    .locator(`${sel.COMPOSER} button[data-webui-action]`)
+    .evaluateAll((nodes) =>
+      nodes.map((button) => button.getAttribute("data-webui-action"))
+    );
+  await expect(buttons).toEqual(["queue", "cancel"]);
+  await expect(page.locator(sel.SEND_BUTTON)).toHaveCount(0);
+
+  // And the turn settles naturally and the composer returns to the
+  // single send button.
+  await expect(page.locator(sel.SEND_BUTTON)).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.locator(sel.QUEUE_BUTTON)).toHaveCount(0);
+  await expect(page.locator(sel.CANCEL_BUTTON)).toHaveCount(0);
+});
+
+test("queueing while busy lands the message at the turn's end", async ({
+  page,
+}) => {
+  // Given the boot session open and a streamed turn in flight.
+  await openSession(page);
+  await page.locator(sel.INPUT).fill("!response");
+  await page.locator(sel.SEND_BUTTON).click();
+  await expect(page.locator(sel.QUEUE_BUTTON)).toBeVisible();
+
+  // When queueing a plain-text message through the queue button —
+  // it posts the send endpoint's form, so the reply arrives as an
+  // ordinary turn after the stream settles.
+  await page.locator(sel.INPUT).fill("queued follow-up");
+  await page.locator(sel.QUEUE_BUTTON).click();
+
+  // Then the optimistic entry cleared the composer's text and the
+  // composer stays busy (queue and cancel, no send) — the send
+  // endpoint's response is unchanged.
+  await expect(page.locator(sel.INPUT)).toHaveValue("");
+  await expect(page.locator(sel.SEND_BUTTON)).toHaveCount(0);
+
+  // And the queued message's answer lands in the transcript without a
+  // reload — after the first turn settles, the drain dispatches the
+  // queued entry and the entry-submitted convergence push carries it.
+  await expect(
+    page
+      .locator(`${sel.TRANSCRIPT} ${sel.ENTRY("user")}`)
+      .filter({ hasText: "queued follow-up" })
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(
+    page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY("assistant")}`).last()
+  ).toContainText("sample response", { timeout: 10_000 });
+
+  // And the composer returns to the single send button.
+  await expect(page.locator(sel.SEND_BUTTON)).toBeVisible({
+    timeout: 10_000,
+  });
 });
 
 test("pressing Enter in the composer sends nothing and inserts a newline", async ({

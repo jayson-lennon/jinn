@@ -340,15 +340,75 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
     ))
     .expect("busy controls render");
 
-    // Then the idle fragment binds send (its endpoint spelled from
-    // the contract) and the busy one binds cancel.
+    // Then the idle fragment binds send alone (its endpoint spelled
+    // from the contract) and the busy one binds cancel.
     assert!(
         idle.contains(&format!("@post('{}'", contract::SEND_PATH)),
         "{idle}"
     );
     assert!(
+        !idle.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_QUEUE
+        )),
+        "the idle fragment renders no queue button: {idle}"
+    );
+    assert!(
         busy.contains(&format!("@post('{}'", contract::CANCEL_PATH)),
         "{busy}"
+    );
+    // And the busy fragment's queue button posts the send endpoint —
+    // the same wire the idle send button uses, so a busy-phase enqueue
+    // is the session actor's routing decision, not a new route — and
+    // no send action is named (send and queue are distinct values).
+    assert!(
+        busy.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_QUEUE
+        )),
+        "{busy}"
+    );
+    assert!(
+        busy.contains(&format!("@post('{}'", contract::SEND_PATH)),
+        "{busy}"
+    );
+    assert!(
+        !busy.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_SEND
+        )),
+        "send and queue are distinct action values: {busy}"
+    );
+    // And the queue button precedes the cancel button in the busy
+    // fragment's DOM order, while the idle fragment names neither.
+    let busy_queue_at = busy
+        .find(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_QUEUE
+        ))
+        .expect("queue action present");
+    let busy_cancel_at = busy
+        .find(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_CANCEL
+        ))
+        .expect("cancel action present");
+    assert!(
+        busy_queue_at < busy_cancel_at,
+        "queue button before cancel in the busy fragment: {busy}"
+    );
+    assert!(
+        !idle.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_CANCEL
+        )),
+        "{idle}"
     );
     // And the composer carries the input id the client reads the
     // message text from.

@@ -529,6 +529,9 @@ pub struct ControlsTemplate {
     pub send_action: &'static str,
     /// The cancel action's contract name.
     pub cancel_action: &'static str,
+    /// The queue action's contract name — the busy fragment's second
+    /// button, posting the send endpoint (a busy-phase enqueue queues).
+    pub queue_action: &'static str,
     /// The send endpoint — the composer's `@post` target.
     pub send_path: &'static str,
     /// The cancel endpoint — the cancel button's `@post` target.
@@ -537,6 +540,8 @@ pub struct ControlsTemplate {
     pub send_label: &'static str,
     /// The cancel button's label.
     pub cancel_label: &'static str,
+    /// The queue button's label (busy fragment only).
+    pub queue_label: &'static str,
 }
 
 impl ControlsTemplate {
@@ -552,10 +557,12 @@ impl ControlsTemplate {
             action_attr: contract::ACTION_DATA_ATTR,
             send_action: contract::ACTION_SEND,
             cancel_action: contract::ACTION_CANCEL,
+            queue_action: contract::ACTION_QUEUE,
             send_path: contract::SEND_PATH,
             cancel_path: contract::CANCEL_PATH,
             send_label: "Send",
             cancel_label: "Cancel",
+            queue_label: "Q",
         }
     }
 }

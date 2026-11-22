@@ -318,6 +318,14 @@ impl WebUiFanoutActor {
             // fragments only.
             .handles::<jinn_session_lifecycle_msg::SessionCreated>()
             .handles::<jinn_session_lifecycle_msg::SessionSetupCompleted>()
+            // An entry landed in history (idle-direct dispatch, queue
+            // drain, or an explicit push): the transcript-full
+            // convergence push carries it to the page within one batch
+            // window — the visibility path for a message queued while
+            // busy, whose optimistic entry the settle's convergence
+            // render wiped. A broadcast-legal Event; the handler pushes
+            // the region's convergence fragment only.
+            .handles::<jinn_chat_input_msg::ChatEntrySubmitted>()
             .handles::<FlushTick>()
             // Arms the first flush ~1 tick after spawn; the chain
             // self-perpetuates from the handler.
@@ -825,6 +833,40 @@ impl WebUiFanoutActor {
             html: transcript_html,
         });
     }
+
+    /// A chat entry landed in history: push the transcript-full
+    /// convergence for the session. Synchronous work only; `async` is
+    /// the `MsgHandler::handle` signature's shape, dropped here.
+    ///
+    /// This is the visibility path for a message queued while busy:
+    /// its optimistic entry is wiped by the settle's convergence
+    /// render before the real entry exists in history, and this push
+    /// restores it at the dispatch that drains the queue — within one
+    /// batch window, no reload.
+    ///
+    /// The render is boundary-aware (the settled fragment, not the
+    /// whole history): a drain dispatching while the current turn's
+    /// tail is still streaming must not swallow the in-flight entries
+    /// the `streaming` pushes are showing, and must not re-render them
+    /// into the settled region — that is the settle's job, one render,
+    /// ordered after the boundary clear.
+    ///
+    /// It fires on ordinary idle-direct sends too (the same event);
+    /// the boundary-aware fragment makes that a harmless overlap —
+    /// exactly the settled region's current content — like the
+    /// setup-completed path above.
+    pub(crate) fn on_chat_entry_submitted(
+        &mut self,
+        msg: &jinn_chat_input_msg::ChatEntrySubmitted,
+    ) {
+        let transcript_html = self.settled_transcript_fragment(&msg.session_id);
+        self.broadcast(SseEnvelope {
+            kind: SseKind::TranscriptFull,
+            session_id: msg.session_id.clone(),
+            cursor: 0,
+            html: transcript_html,
+        });
+    }
 }
 
 /// The settle push order: every region's `settle_kinds` flattened in
@@ -1045,5 +1087,15 @@ impl MsgHandler<jinn_session_lifecycle_msg::SessionSetupCompleted> for WebUiFano
         _ctx: &mut MsgCtx<'_>,
     ) {
         self.on_session_setup_completed(msg);
+    }
+}
+
+impl MsgHandler<jinn_chat_input_msg::ChatEntrySubmitted> for WebUiFanoutActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_chat_input_msg::ChatEntrySubmitted,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        self.on_chat_entry_submitted(msg);
     }
 }

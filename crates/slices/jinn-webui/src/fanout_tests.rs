@@ -739,6 +739,88 @@ async fn session_setup_completed_pushes_a_transcript_convergence_for_that_sessio
     );
 }
 
+#[rstest::rstest]
+#[tokio::test]
+async fn a_chat_entry_submitted_pushes_a_transcript_convergence_for_that_session() {
+    // Given a fan-out actor, a subscriber, and a seeded session with
+    // the entry whose submission the event announces (the queue drain
+    // or idle dispatch pushed it before publishing).
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    if let Some(session) = state.write().session.get_mut(&id) {
+        session.push_entry(jinn_core_types::ChatEntry::user("queued words"));
+    }
+
+    // When the entry-submitted event lands.
+    actor.on_chat_entry_submitted(&jinn_chat_input_msg::ChatEntrySubmitted {
+        session_id: id.clone(),
+        entry: jinn_core_types::ChatEntry::user("queued words"),
+    });
+
+    // Then the pushed envelope is a transcript-full convergence for
+    // that session — cursor 0, full replace, carrying the entry — and
+    // nothing else rides the event (no controls push: the composer's
+    // single writer is untouched).
+    let envelope = rx.try_recv().expect("the transcript push");
+    assert_eq!(envelope.kind, SseKind::TranscriptFull);
+    assert_eq!(envelope.session_id, id);
+    assert_eq!(envelope.cursor, 0);
+    assert!(envelope.html.contains("queued words"), "{}", envelope.html);
+    assert!(
+        rx.try_recv().is_err(),
+        "no other push rides the entry submission"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_entry_submission_mid_stream_renders_only_the_settled_region() {
+    // Given a fan-out actor tracking a mid-stream session: a boundary
+    // captured at turn start over one settled entry, with the
+    // in-flight entries pushed after the capture (the streaming
+    // tail's content).
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    if let Some(session) = state.write().session.get_mut(&id) {
+        session.push_entry(jinn_core_types::ChatEntry::user("settled words"));
+    }
+    actor.on_phase_changed(&phase_change(&id, PhaseView::Idle, PhaseView::Streaming));
+    // The turn start's own pushes (busy controls + sidebar) are not
+    // this event's; drain them so the assertions see only what the
+    // entry submission fans.
+    while rx.try_recv().is_ok() {}
+    // The in-flight tail: entries that postdate the boundary capture.
+    {
+        let mut guard = state.write();
+        let session = guard.session.get_mut(&id).expect("seeded session");
+        session.push_entry(jinn_core_types::ChatEntry::assistant("in-flight"));
+        session.push_entry(jinn_core_types::ChatEntry::assistant("streamed in later"));
+    }
+
+    // When an entry-submitted event lands (the dispatch that drains a
+    // queued message, mid-stream).
+    actor.on_chat_entry_submitted(&jinn_chat_input_msg::ChatEntrySubmitted {
+        session_id: id.clone(),
+        entry: jinn_core_types::ChatEntry::user("queued words"),
+    });
+
+    // Then the convergence render carries the settled region's
+    // boundary slice — the entries the settled transcript already
+    // showed — and swallows neither the newer in-flight entries (they
+    // stay the streaming tail's job until the settle) nor anything
+    // else (no controls push; no streaming push here).
+    let envelope = rx.try_recv().expect("the transcript push");
+    assert_eq!(envelope.kind, SseKind::TranscriptFull);
+    assert_eq!(envelope.cursor, 0);
+    assert!(envelope.html.contains("settled words"), "{}", envelope.html);
+    assert!(
+        !envelope.html.contains("in-flight"),
+        "the boundary slices the in-flight tail out: {}",
+        envelope.html
+    );
+    assert!(rx.try_recv().is_err(), "exactly one push per event");
+}
+
 // ── The unread mark: set on an unseen settle ────────────────────────
 
 /// A phase-change event naming the transition.
