@@ -183,7 +183,12 @@ test("a toggle under a filter keeps the filtered view with the input intact", as
   await page.locator(sel.MENU_ITEM_MCP).click();
   const reopened = page.locator(sel.MCP_MODAL);
   await expect(reopened).toBeVisible();
-  await expect(page.locator(sel.MCP_FILTER)).toHaveValue("");
+  // The reopen rides the re-pull effect, so wait for the fresh
+  // fragment to land — the input resets when it arrives, not at the
+  // click.
+  await expect(page.locator(sel.MCP_FILTER)).toHaveValue("", {
+    timeout: 10_000,
+  });
   await expect(page.locator(sel.MCP_ROW(sel.MCP_SERVER))).toHaveClass(
     /mcp-row-enabled/,
   );
