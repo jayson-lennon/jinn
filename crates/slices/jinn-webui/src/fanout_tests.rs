@@ -1,8 +1,8 @@
-//! Fan-out actor tests: batching, per-session scoping, and the
-//! flush-before-full ordering on settle — driven through the actor's
-//! plain handler methods (`MsgHandler` impls are one-line delegations
-//! to these, and `MsgCtx` is trouper-internal so tests cannot fabricate
-//! one).
+//! Fan-out actor tests: the settled-boundary lifecycle, the tail
+//! replace, per-session scoping, and the boundary-clear-before-settle
+//! ordering — driven through the actor's plain handler methods
+//! (`MsgHandler` impls are one-line delegations to these, and
+//! `MsgCtx` is trouper-internal so tests cannot fabricate one).
 
 #![allow(
     clippy::expect_used,
@@ -10,8 +10,8 @@
     reason = "test assertions use expect/panic to state what went wrong"
 )]
 
-use jinn_inference_msg::StreamToken;
 use jinn_kernel::State;
+use jinn_slices::PhaseView;
 use jinn_slices::Slices;
 use jinn_slices::cell::TypedCell;
 use jinn_webui_msg::SseEnvelope;
@@ -44,16 +44,6 @@ fn fixture() -> (
     (actor, rx, state, marks)
 }
 
-fn token(session: &jinn_core_types::SessionId, text: &str) -> StreamToken {
-    StreamToken {
-        session_id: session.clone(),
-        index: 0,
-        token: text.to_owned(),
-        is_thinking: false,
-        dispatched_at: jiff::Timestamp::now(),
-    }
-}
-
 /// Inserts a fresh live session and returns its id.
 fn seed_session(state: &State) -> jinn_core_types::SessionId {
     let session = jinn_session_state::ChatSessionState::new();
@@ -62,63 +52,312 @@ fn seed_session(state: &State) -> jinn_core_types::SessionId {
     id
 }
 
-#[rstest::rstest]
-#[tokio::test]
-async fn buffered_tokens_flush_as_one_fragment_per_window() {
-    // Given a fan-out actor and a subscriber.
-    let (mut actor, mut rx, _state, _marks) = fixture();
-    let id = jinn_core_types::SessionId::new();
+/// Puts a session in a working phase the way production's turn ledger
+/// writes it (the projection write lands before the phase-change
+/// event) and drives the Idle→working phase change through the actor —
+/// the turn-start path that captures the settled boundary.
+fn start_turn(actor: &mut WebUiFanoutActor, state: &State, id: &jinn_core_types::SessionId) {
+    state
+        .write()
+        .session
+        .get_mut(id)
+        .expect("seeded session")
+        .begin_streaming();
+    actor.on_phase_changed(&phase_change(id, PhaseView::Idle, PhaseView::Streaming));
+}
 
-    // When three tokens land for the session and the window flushes.
-    actor.append_token(&token(&id, "hel"));
-    actor.append_token(&token(&id, "lo "));
-    actor.append_token(&token(&id, "world"));
-    actor.flush_for_test(&id);
-
-    // Then exactly one chat fragment arrives, carrying every token.
-    let first = rx.try_recv().expect("a flush is pending");
-    assert_eq!(first.kind, SseKind::Chat);
-    assert!(first.html.contains("hel"), "{}", first.html);
-    assert!(first.html.contains("world"), "{}", first.html);
-    assert!(rx.try_recv().is_err(), "exactly one fragment per window");
+/// Empties a receiver of already-observed envelopes. The phase-change
+/// paths broadcast composer controls and sessions-list refreshes
+/// beside the transcript kinds; a test asserting on one kind drains
+/// the channel first so stale envelopes from setup don't leak into
+/// its assertions.
+fn drain(rx: &mut tokio::sync::broadcast::Receiver<SseEnvelope>) {
+    while rx.try_recv().is_ok() {}
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn a_flushed_session_buffer_does_not_leak_into_the_next_window() {
-    // Given a session whose first window already flushed.
-    let (mut actor, mut rx, _state, _marks) = fixture();
-    let id = jinn_core_types::SessionId::new();
-    actor.append_token(&token(&id, "first"));
-    actor.flush_for_test(&id);
-    let _ = rx.try_recv().expect("first window flush");
+async fn the_turn_start_captures_the_settled_boundary() {
+    // Given a session holding two settled entries, and a subscriber.
+    let (mut actor, _rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    {
+        let mut guard = state.write();
+        let session = guard.session.get_mut(&id).expect("seeded session");
+        session.push_entry(jinn_core_types::ChatEntry::user("one"));
+        session.push_entry(jinn_core_types::ChatEntry::assistant("two"));
+    }
 
-    // When a second window flushes with no new tokens.
-    actor.flush_for_test(&id);
+    // When the turn starts (Idle → Streaming).
+    start_turn(&mut actor, &state, &id);
 
-    // Then nothing is broadcast — an empty flush is noise, not signal.
+    // Then the handle reports the boundary at the settled count.
+    assert_eq!(actor.handle().settled_boundary(&id), Some(2));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_flush_tick_renders_the_inflight_tail_through_the_real_projection() {
+    // Given a session whose turn started with two settled entries and
+    // then gained a streamed thinking entry.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    {
+        let mut guard = state.write();
+        let session = guard.session.get_mut(&id).expect("seeded session");
+        session.push_entry(jinn_core_types::ChatEntry::user("prompt"));
+        session.push_entry(jinn_core_types::ChatEntry::assistant("settled"));
+    }
+    start_turn(&mut actor, &state, &id);
+    let mut thinking = jinn_core_types::ChatEntry::assistant("");
+    thinking.kind = jinn_core_types::ChatEntryKind::Thinking("pondering the prompt".to_owned());
+    thinking.token_count = Some(2);
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .push_entry(thinking);
+    drain(&mut rx);
+
+    // When the flush tick runs.
+    actor.flush_for_test();
+
+    // Then exactly one streaming envelope lands: it names the session,
+    // its cursor parks at the boundary (2), its HTML carries ONLY the
+    // tail entry rendered as a real disclosure article — open (the
+    // in-flight disclosure rule), with the token-count summary — and
+    // none of the settled entries.
+    let envelope = rx.try_recv().expect("the streaming flush");
+    assert_eq!(envelope.kind, SseKind::Streaming);
+    assert_eq!(envelope.session_id, id);
+    assert_eq!(envelope.cursor, 2);
+    assert!(
+        envelope.html.contains("<article class=\"entry thinking\""),
+        "{}",
+        envelope.html
+    );
+    assert!(
+        envelope
+            .html
+            .contains("<details class=\"disclosure\" open>"),
+        "{}",
+        envelope.html
+    );
+    assert!(
+        envelope.html.contains("reasoning · ~2 tokens"),
+        "{}",
+        envelope.html
+    );
+    assert!(
+        !envelope.html.contains("settled"),
+        "no settled entry in the tail: {}",
+        envelope.html
+    );
+    assert!(
+        !envelope.html.contains("tok-"),
+        "no span-class HTML anywhere: {}",
+        envelope.html
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_tool_result_lands_in_the_next_ticks_tail_render() {
+    // Given a session mid-turn whose tail holds one tool call.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    start_turn(&mut actor, &state, &id);
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .push_entry(jinn_core_types::ChatEntry::tool_call(
+            "t1",
+            "read_file",
+            "/tmp/x",
+        ));
+    drain(&mut rx);
+
+    // When the tick flushes, then a tool result lands and the next
+    // tick flushes.
+    actor.flush_for_test();
+    let _ = rx.try_recv().expect("the first flush");
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .push_entry(jinn_core_types::ChatEntry::tool_result(
+            "t1",
+            "read_file",
+            "the file body",
+            jinn_core_types::ToolResultStatus::Success,
+        ));
+    actor.flush_for_test();
+
+    // Then the second flush carries BOTH tool entries — the in-flight
+    // tool loop is visible at the tick cadence, not only at settle —
+    // with the disclosures collapsed (only thinking opens mid-stream).
+    let envelope = rx.try_recv().expect("the second flush");
+    assert_eq!(envelope.kind, SseKind::Streaming);
+    assert!(envelope.html.contains("read_file"), "{}", envelope.html);
+    assert!(envelope.html.contains("the file body"), "{}", envelope.html);
+    assert!(
+        !envelope
+            .html
+            .contains("<details class=\"disclosure\" open>"),
+        "tool disclosures stay collapsed mid-stream: {}",
+        envelope.html
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_flush_tick_with_an_unchanged_tail_pushes_nothing() {
+    // Given a session mid-turn whose tail already flushed once.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    start_turn(&mut actor, &state, &id);
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .push_entry(jinn_core_types::ChatEntry::assistant("only so far"));
+    drain(&mut rx);
+    actor.flush_for_test();
+    let _ = rx.try_recv().expect("the first flush");
+
+    // When the next tick runs with no new content.
+    actor.flush_for_test();
+
+    // Then nothing is broadcast — the quiet-stretch skip keeps the
+    // tick from churning the DOM.
     assert!(rx.try_recv().is_err());
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn an_idle_settle_flushes_the_partial_buffer_before_the_full_render() {
-    // Given tokens buffered for a live session mid-stream.
+async fn a_session_with_no_observed_turn_start_flushes_nothing() {
+    // Given a session whose turn is in flight but whose start the
+    // fan-out never observed (the boot race: jinn started mid-turn).
     let (mut actor, mut rx, state, _marks) = fixture();
     let id = seed_session(&state);
-    actor.append_token(&token(&id, "partial"));
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .begin_streaming();
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .push_entry(jinn_core_types::ChatEntry::assistant("in-flight"));
+
+    // When the flush tick runs.
+    actor.flush_for_test();
+
+    // Then nothing is pushed — the safe degrade direction. The page
+    // renders as if idle and the settle's convergence push heals the
+    // tail; a push here would duplicate once the boundary exists.
+    assert!(rx.try_recv().is_err());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_idle_settle_clears_the_boundary_before_the_full_render() {
+    // Given a mid-turn session whose boundary is tracked.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    start_turn(&mut actor, &state, &id);
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .push_entry(jinn_core_types::ChatEntry::assistant("the whole turn"));
+    drain(&mut rx);
 
     // When the session settles to idle.
-    actor.settle_to_idle(&id);
+    actor.on_phase_changed(&phase_change(&id, PhaseView::Streaming, PhaseView::Idle));
 
-    // Then the partial fragment lands BEFORE the full-transcript push —
-    // the reverse order would render the final tokens twice.
-    let first = rx.try_recv().expect("partial flush");
-    assert_eq!(first.kind, SseKind::Chat, "flush first");
-    let second = rx.try_recv().expect("full render");
-    assert_eq!(second.kind, SseKind::TranscriptFull, "full render second");
-    let third = rx.try_recv().expect("idle controls");
-    assert_eq!(third.kind, SseKind::Controls, "controls last");
+    // Then the boundary is gone, and the convergence push lands FIRST
+    // in the settle sequence carrying the whole turn (the boundary was
+    // already cleared when it rendered), followed by the idle
+    // controls. No streaming envelope rides the settle. The seeded
+    // session is not the active one, so its settle also marks it
+    // unread — the trailing sessions refreshes are that mark's fan,
+    // not transcript pushes.
+    assert_eq!(actor.handle().settled_boundary(&id), None);
+    let first = rx.try_recv().expect("full render");
+    assert_eq!(first.kind, SseKind::TranscriptFull, "full render first");
+    assert!(first.html.contains("the whole turn"), "{}", first.html);
+    let second = rx.try_recv().expect("idle controls");
+    assert_eq!(second.kind, SseKind::Controls, "controls last");
+    while let Ok(envelope) = rx.try_recv() {
+        assert_eq!(
+            envelope.kind,
+            SseKind::Sessions,
+            "only the unread-mark's sessions refresh follows"
+        );
+    }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_settled_full_render_carries_no_open_disclosure_and_ends_with_the_container() {
+    // Given a mid-turn session with a streamed thinking entry.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    start_turn(&mut actor, &state, &id);
+    let mut thinking = jinn_core_types::ChatEntry::assistant("");
+    thinking.kind = jinn_core_types::ChatEntryKind::Thinking("reasoning away".to_owned());
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .push_entry(thinking);
+    drain(&mut rx);
+
+    // When the session settles.
+    actor.on_phase_changed(&phase_change(&id, PhaseView::Streaming, PhaseView::Idle));
+    let full = {
+        let mut found = None;
+        while let Ok(envelope) = rx.try_recv() {
+            if envelope.kind == SseKind::TranscriptFull {
+                found = Some(envelope);
+            }
+        }
+        found.expect("the convergence push")
+    };
+
+    // Then the full render carries the entry exactly once, as a
+    // COLLAPSED disclosure (no open attribute), and the fragment ends
+    // with the empty streaming container — the structural wipe.
+    let occurrences = full
+        .html
+        .matches("<article class=\"entry thinking\"")
+        .count();
+    assert_eq!(occurrences, 1, "{}", full.html);
+    assert!(
+        !full.html.contains("<details class=\"disclosure\" open>"),
+        "the settled render opens nothing: {}",
+        full.html
+    );
+    assert!(full.html.contains("reasoning away"), "{}", full.html);
+    assert!(
+        full.html.trim_end().ends_with(&format!(
+            "<div id=\"{}\"></div>",
+            crate::contract::STREAMING_ID
+        )),
+        "the fragment ends with the streaming container: {}",
+        full.html
+    );
 }
 
 #[rstest::rstest]
@@ -403,55 +642,40 @@ async fn the_handle_pushes_a_sessions_attention_signal_from_outside_the_actor() 
 #[rstest::rstest]
 #[tokio::test]
 async fn every_broadcast_names_its_own_session() {
-    // Given tokens for two sessions buffered on one actor.
-    let (mut actor, mut rx, _state, _marks) = fixture();
-    let a = jinn_core_types::SessionId::new();
-    let b = jinn_core_types::SessionId::new();
-    actor.append_token(&token(&a, "aaa"));
-    actor.append_token(&token(&b, "bbb"));
+    // Given two sessions mid-turn with distinct tails on one actor.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let a = seed_session(&state);
+    let b = seed_session(&state);
+    start_turn(&mut actor, &state, &a);
+    start_turn(&mut actor, &state, &b);
+    state
+        .write()
+        .session
+        .get_mut(&a)
+        .expect("seeded session")
+        .push_entry(jinn_core_types::ChatEntry::assistant("aaa"));
+    state
+        .write()
+        .session
+        .get_mut(&b)
+        .expect("seeded session")
+        .push_entry(jinn_core_types::ChatEntry::assistant("bbb"));
+    drain(&mut rx);
 
-    // When flushing session A.
-    actor.flush_for_test(&a);
+    // When flushing session A's tail.
+    actor.flush_session_tail_for_test(&a);
     let envelope = rx.try_recv().expect("session A flush");
 
-    // Then the envelope names A and carries A's tokens only — the SSE
+    // Then the envelope names A and carries A's tail only — the SSE
     // endpoint filters on this, so a page left on A never renders B.
     assert_eq!(envelope.session_id, a);
     assert!(envelope.html.contains("aaa"), "{}", envelope.html);
     assert!(!envelope.html.contains("bbb"), "{}", envelope.html);
-    // And B's buffer is untouched by A's flush.
-    actor.flush_for_test(&b);
+    // And B's tail is untouched by A's flush.
+    actor.flush_session_tail_for_test(&b);
     let envelope = rx.try_recv().expect("session B flush");
     assert_eq!(envelope.session_id, b);
     assert!(envelope.html.contains("bbb"), "{}", envelope.html);
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn thinking_tokens_render_in_the_thinking_span() {
-    // Given a thinking token and a text token buffered together.
-    let (mut actor, mut rx, _state, _marks) = fixture();
-    let id = jinn_core_types::SessionId::new();
-    let mut thinking = token(&id, "pondering");
-    thinking.is_thinking = true;
-
-    // When both flush.
-    actor.append_token(&thinking);
-    actor.append_token(&token(&id, "answer"));
-    actor.flush_for_test(&id);
-    let envelope = rx.try_recv().expect("flush");
-
-    // Then each token carries its own span class.
-    assert!(
-        envelope.html.contains("tok-thinking\">pondering"),
-        "{}",
-        envelope.html
-    );
-    assert!(
-        envelope.html.contains("tok-text\">answer"),
-        "{}",
-        envelope.html
-    );
 }
 
 #[rstest::rstest]
@@ -504,6 +728,88 @@ async fn session_setup_completed_pushes_a_transcript_convergence_for_that_sessio
         rx.try_recv().is_err(),
         "no controls push rides the setup completion"
     );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_chat_entry_submitted_pushes_a_transcript_convergence_for_that_session() {
+    // Given a fan-out actor, a subscriber, and a seeded session with
+    // the entry whose submission the event announces (the queue drain
+    // or idle dispatch pushed it before publishing).
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    if let Some(session) = state.write().session.get_mut(&id) {
+        session.push_entry(jinn_core_types::ChatEntry::user("queued words"));
+    }
+
+    // When the entry-submitted event lands.
+    actor.on_chat_entry_submitted(&jinn_chat_input_msg::ChatEntrySubmitted {
+        session_id: id.clone(),
+        entry: jinn_core_types::ChatEntry::user("queued words"),
+    });
+
+    // Then the pushed envelope is a transcript-full convergence for
+    // that session — cursor 0, full replace, carrying the entry — and
+    // nothing else rides the event (no controls push: the composer's
+    // single writer is untouched).
+    let envelope = rx.try_recv().expect("the transcript push");
+    assert_eq!(envelope.kind, SseKind::TranscriptFull);
+    assert_eq!(envelope.session_id, id);
+    assert_eq!(envelope.cursor, 0);
+    assert!(envelope.html.contains("queued words"), "{}", envelope.html);
+    assert!(
+        rx.try_recv().is_err(),
+        "no other push rides the entry submission"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_entry_submission_mid_stream_renders_only_the_settled_region() {
+    // Given a fan-out actor tracking a mid-stream session: a boundary
+    // captured at turn start over one settled entry, with the
+    // in-flight entries pushed after the capture (the streaming
+    // tail's content).
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    if let Some(session) = state.write().session.get_mut(&id) {
+        session.push_entry(jinn_core_types::ChatEntry::user("settled words"));
+    }
+    actor.on_phase_changed(&phase_change(&id, PhaseView::Idle, PhaseView::Streaming));
+    // The turn start's own pushes (busy controls + sidebar) are not
+    // this event's; drain them so the assertions see only what the
+    // entry submission fans.
+    while rx.try_recv().is_ok() {}
+    // The in-flight tail: entries that postdate the boundary capture.
+    {
+        let mut guard = state.write();
+        let session = guard.session.get_mut(&id).expect("seeded session");
+        session.push_entry(jinn_core_types::ChatEntry::assistant("in-flight"));
+        session.push_entry(jinn_core_types::ChatEntry::assistant("streamed in later"));
+    }
+
+    // When an entry-submitted event lands (the dispatch that drains a
+    // queued message, mid-stream).
+    actor.on_chat_entry_submitted(&jinn_chat_input_msg::ChatEntrySubmitted {
+        session_id: id.clone(),
+        entry: jinn_core_types::ChatEntry::user("queued words"),
+    });
+
+    // Then the convergence render carries the settled region's
+    // boundary slice — the entries the settled transcript already
+    // showed — and swallows neither the newer in-flight entries (they
+    // stay the streaming tail's job until the settle) nor anything
+    // else (no controls push; no streaming push here).
+    let envelope = rx.try_recv().expect("the transcript push");
+    assert_eq!(envelope.kind, SseKind::TranscriptFull);
+    assert_eq!(envelope.cursor, 0);
+    assert!(envelope.html.contains("settled words"), "{}", envelope.html);
+    assert!(
+        !envelope.html.contains("in-flight"),
+        "the boundary slices the in-flight tail out: {}",
+        envelope.html
+    );
+    assert!(rx.try_recv().is_err(), "exactly one push per event");
 }
 
 // ── The unread mark: set on an unseen settle ────────────────────────
@@ -871,7 +1177,7 @@ async fn a_watched_settle_still_fans_the_flip_wave() {
     assert!(rx.try_recv().is_err(), "one wave, nothing else");
 }
 
-// ── The unread mark: cleared on activation ──────────────────────────
+// ── The unread mark: cleared when the session is viewed ─────────────
 
 #[rstest::rstest]
 #[tokio::test]
@@ -890,15 +1196,17 @@ async fn activating_a_marked_session_clears_it_and_refreshes_every_list() {
     // Drain the mark transition's traffic before observing the clear.
     while let Ok(_envelope) = rx.try_recv() {}
 
-    // When Foo becomes the active session and its load completes.
-    assert!(state.write().session.set_active(foo.clone()), "activates");
-    actor.on_load_completed(&jinn_session_store_msg::SessionLoadCompleted {
+    // When the activation event for Foo lands (the store actor
+    // publishes it on every activation — disk load or in-memory).
+    actor.on_active_session_changed(&jinn_kernel::protocol::system::ActiveSessionChanged {
         session_id: foo.clone(),
     });
 
     // Then the mark is gone, and every page's list refreshed without
-    // the unread class — one addressed refresh for the activated
-    // session plus one addressed envelope per live session id.
+    // the unread class — one addressed envelope per live session id
+    // (the clear runs first, so the single wave carries the post-clear
+    // count; a separate pre-clear addressed refresh would stamp a
+    // stale count the navigating client can never see corrected).
     assert!(!marks.read().is_marked(&foo));
     let live = state.read().session.sessions().len();
     let mut sessions_envelopes = 0;
@@ -910,14 +1218,87 @@ async fn activating_a_marked_session_clears_it_and_refreshes_every_list() {
         }
     }
     assert_eq!(
-        sessions_envelopes,
-        live + 1,
-        "the addressed refresh plus one envelope per live session: got {sessions_envelopes}"
+        sessions_envelopes, live,
+        "one envelope per live session, carrying the post-clear count: got {sessions_envelopes}"
     );
     assert!(
         !last_html.contains("unread"),
         "the post-clear fragment is clean: {last_html}"
     );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn opening_a_marked_session_page_clears_its_mark() {
+    // Given a marked session Foo and an active session Bar — Foo's
+    // mark landed without any activation anywhere.
+    let (mut actor, mut rx, state, marks) = fixture();
+    let foo = seed_session(&state);
+    let bar = seed_session(&state);
+    assert!(state.write().session.set_active(bar.clone()), "activates");
+    actor.on_phase_changed(&phase_change(
+        &foo,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+    assert!(marks.read().is_marked(&foo), "precondition: Foo is marked");
+    while let Ok(_envelope) = rx.try_recv() {}
+
+    // When a page arrives at Foo — the GET page render's event, which
+    // activates nothing.
+    actor.on_session_page_opened(&jinn_webui_msg::SessionPageOpened {
+        session_id: foo.clone(),
+    });
+
+    // Then the mark is gone: opening the page IS the viewing, no
+    // activation required.
+    assert!(!marks.read().is_marked(&foo));
+    let live = state.read().session.sessions().len();
+    let mut sessions_envelopes = 0;
+    while let Ok(envelope) = rx.try_recv() {
+        if envelope.kind == SseKind::Sessions {
+            sessions_envelopes += 1;
+        }
+    }
+    assert_eq!(
+        sessions_envelopes, live,
+        "one envelope per live session, carrying the post-clear count"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_second_clear_of_the_same_session_fans_nothing() {
+    // Given a marked session whose clear already landed.
+    let (mut actor, mut rx, state, marks) = fixture();
+    let foo = seed_session(&state);
+    actor.on_phase_changed(&phase_change(
+        &foo,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+    assert!(marks.read().is_marked(&foo), "precondition: Foo is marked");
+    actor.on_active_session_changed(&jinn_kernel::protocol::system::ActiveSessionChanged {
+        session_id: foo.clone(),
+    });
+    assert!(!marks.read().is_marked(&foo));
+    while let Ok(_envelope) = rx.try_recv() {}
+
+    // When the same activation event arrives again (a TUI switch
+    // landing on an already-active session, say).
+    actor.on_active_session_changed(&jinn_kernel::protocol::system::ActiveSessionChanged {
+        session_id: foo.clone(),
+    });
+
+    // Then the transition gate keeps the re-clear quiet — one
+    // addressed refresh for the event, no per-live-session fan.
+    let mut sessions_envelopes = 0;
+    while let Ok(envelope) = rx.try_recv() {
+        if envelope.kind == SseKind::Sessions {
+            sessions_envelopes += 1;
+        }
+    }
+    assert_eq!(sessions_envelopes, 1, "addressed refresh only, no fan");
 }
 
 #[rstest::rstest]
@@ -949,13 +1330,41 @@ async fn a_background_tree_member_keeps_its_mark_on_load() {
         session_id: foo.clone(),
     });
 
-    // Then Foo keeps its mark — its entries are still unviewed; only
-    // activation clears. (Baz is untouched too.)
+    // Then Foo keeps its mark — a load-completed refreshes the list
+    // only; the clear lives on the viewed events (activation, page
+    // arrival), and nobody viewed Foo. (Baz is untouched too.)
     assert!(
         marks.read().is_marked(&foo),
         "a background member keeps its mark"
     );
     assert!(marks.read().is_marked(&baz));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_tui_activation_event_clears_a_mark_that_never_touched_the_web() {
+    // Given a marked session Foo and an active session Bar.
+    let (mut actor, _rx, state, marks) = fixture();
+    let foo = seed_session(&state);
+    let bar = seed_session(&state);
+    assert!(state.write().session.set_active(bar.clone()), "activates");
+    actor.on_phase_changed(&phase_change(
+        &foo,
+        jinn_slices::PhaseView::Streaming,
+        jinn_slices::PhaseView::Idle,
+    ));
+    assert!(marks.read().is_marked(&foo), "precondition: Foo is marked");
+
+    // When the TUI switches to Foo — the kernel's intent handler
+    // publishes the same ActiveSessionChanged event the store actor
+    // does, so the fan-out needs no TUI-specific path.
+    actor.on_active_session_changed(&jinn_kernel::protocol::system::ActiveSessionChanged {
+        session_id: foo.clone(),
+    });
+
+    // Then the mark is gone — activation anywhere in the instance is
+    // the viewing fact, whatever surface drove it.
+    assert!(!marks.read().is_marked(&foo));
 }
 
 /// The marks set through the state's attached registry — the read side

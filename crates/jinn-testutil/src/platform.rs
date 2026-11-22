@@ -124,9 +124,50 @@ pub fn find_orphans(marker: &str, exe_name: &str) -> Vec<String> {
     }
 }
 
+/// [`find_orphans`] scoped to one process group.
+///
+/// The host-wide scan answers "does a process like this exist anywhere on
+/// this machine", which is the wrong question for a kill assertion: any
+/// unrelated host process running the same command line — a supervisor's
+/// load waiter, a user's shell — matches the marker and makes a "no
+/// survivors" oracle never hold. A group-kill test's subjects are spawned
+/// as their own process group, so its assertion belongs to that group:
+/// the caller passes the pgid it captured before signalling.
+///
+/// Returns an empty vector when the platform cannot answer the question.
+#[must_use]
+pub fn find_orphans_in_group(marker: &str, exe_name: &str, pgid: i32) -> Vec<String> {
+    #[cfg(all(unix, target_os = "linux"))]
+    {
+        find_orphans_linux_in_group(marker, exe_name, pgid)
+    }
+    #[cfg(all(unix, not(target_os = "linux")))]
+    {
+        find_orphans_bsd_in_group(marker, exe_name, pgid)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (marker, exe_name, pgid);
+        Vec::new()
+    }
+}
+
 /// Linux implementation of [`find_orphans`]: scan `/proc` for the command line.
 #[cfg(all(unix, target_os = "linux"))]
 fn find_orphans_linux(marker: &str, exe_name: &str) -> Vec<String> {
+    find_orphans_linux_inner(marker, exe_name, None)
+}
+
+/// Linux implementation of [`find_orphans_in_group`]: same `/proc` scan,
+/// additionally filtered on the pgid (stat field 5, read from the same
+/// stat buffer the state check already parses).
+#[cfg(all(unix, target_os = "linux"))]
+fn find_orphans_linux_in_group(marker: &str, exe_name: &str, pgid: i32) -> Vec<String> {
+    find_orphans_linux_inner(marker, exe_name, Some(pgid))
+}
+
+#[cfg(all(unix, target_os = "linux"))]
+fn find_orphans_linux_inner(marker: &str, exe_name: &str, pgid: Option<i32>) -> Vec<String> {
     let mut found = Vec::new();
     let Ok(entries) = std::fs::read_dir("/proc") else {
         eprintln!("SKIP: /proc is not readable, cannot look for orphan {exe_name}");
@@ -143,15 +184,25 @@ fn find_orphans_linux(marker: &str, exe_name: &str) -> Vec<String> {
         let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
             continue;
         };
-        let Some(state) = stat
-            .rsplit(')')
-            .next()
-            .and_then(|rest| rest.split(' ').next())
-        else {
+        let Some(after_comm) = stat.rsplit(')').next() else {
+            continue;
+        };
+        let Some(state) = after_comm.split(' ').next() else {
             continue;
         };
         if state == "Z" {
             continue;
+        }
+        if let Some(want_pgid) = pgid {
+            // Fields after the parenthesized comm are space-separated
+            // starting at state (field 3); pgid is field 5, i.e. the
+            // second token after state.
+            let Some(got_pgid) = after_comm.split_whitespace().nth(2) else {
+                continue;
+            };
+            if got_pgid.parse::<i32>() != Ok(want_pgid) {
+                continue;
+            }
         }
         let Ok(cmdline) = std::fs::read_to_string(entry.path().join("cmdline")) else {
             continue;
@@ -166,6 +217,18 @@ fn find_orphans_linux(marker: &str, exe_name: &str) -> Vec<String> {
 /// BSD implementation of [`find_orphans`]: `pgrep` for candidates, `ps` for detail.
 #[cfg(all(unix, not(target_os = "linux")))]
 fn find_orphans_bsd(marker: &str, exe_name: &str) -> Vec<String> {
+    find_orphans_bsd_inner(marker, exe_name, None)
+}
+
+/// BSD implementation of [`find_orphans_in_group`]: same candidates,
+/// filtered on the pgid via `ps -o pgid=`.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn find_orphans_bsd_in_group(marker: &str, exe_name: &str, pgid: i32) -> Vec<String> {
+    find_orphans_bsd_inner(marker, exe_name, Some(pgid))
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn find_orphans_bsd_inner(marker: &str, exe_name: &str, pgid: Option<i32>) -> Vec<String> {
     let Ok(pids) = Command::new("pgrep").args(["-x", exe_name]).output() else {
         eprintln!("SKIP: pgrep is unavailable, cannot look for orphan {exe_name}");
         return Vec::new();
@@ -176,6 +239,14 @@ fn find_orphans_bsd(marker: &str, exe_name: &str) -> Vec<String> {
     for pid in String::from_utf8_lossy(&pids.stdout).split_whitespace() {
         if ps_field(pid, "state=") == "Z" {
             continue;
+        }
+        if let Some(want_pgid) = pgid {
+            let Some(got_pgid) = ps_field(pid, "pgid=").parse::<i32>().ok() else {
+                continue;
+            };
+            if got_pgid != want_pgid {
+                continue;
+            }
         }
         if ps_field(pid, "args=").contains(marker) {
             found.push(pid.to_owned());

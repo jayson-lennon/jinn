@@ -9,8 +9,10 @@
 //! busy.
 //!
 //! Browser half: the controls' Datastar bindings (`controls.html`) — the
-//! action-attribute delegation (send/cancel), the Enter-to-send
-//! binding, and the [`crate::contract::CONTROLS_ID`] swap.
+//! action-attribute delegation (send/cancel) and the
+//! [`crate::contract::CONTROLS_ID`] swap. The textarea carries no
+//! keydown binding on purpose: mobile soft keyboards use Enter for
+//! newlines, so sending rides the button's click alone.
 
 use jinn_kernel::common::state::StateReadGuard;
 use jinn_webui_msg::SseKind;
@@ -81,9 +83,9 @@ pub const COMPOSER_CSS: &str = r#"
 #composer textarea { flex: 1; background: var(--panel); color: var(--fg);
                      border: 1px solid var(--border); border-radius: 6px;
                      padding: 8px 10px; font: inherit; resize: none; height: 64px; }
-#composer button { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+#composer button { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 6px;
                    padding: 0 22px; font: inherit; cursor: pointer; }
-#composer button.cancel { background: var(--err); }
+#composer button.cancel { background: var(--err); color: var(--on-err); }
 #image-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel);
         border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }

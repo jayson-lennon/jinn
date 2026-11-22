@@ -348,6 +348,14 @@ jinn ships five: `default`, `catppuccin-mocha`, `nord-light`,
 `gruvbox-dark`, `sonokai`. They are reconciled into place on launch. See the
 default theme for the format.
 
+**The browser UI has its own theme toggle, independent of these**: the
+hamburger menu (top-left `☰`) carries a Light / Dark / System segmented
+control at the panel's tail. System (the default) follows the OS's
+`prefers-color-scheme`; Light and Dark pin the mode, and the choice
+persists in `state.toml` (`web_theme`) across reloads — it never touches
+the TUI theme picked here. A pick re-colors only the acting page; other
+open pages pick it up at their next render.
+
 ---
 
 ## 6. Workflows: repeatable procedures

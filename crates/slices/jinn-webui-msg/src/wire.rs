@@ -180,6 +180,11 @@ pub struct McpToggleForm {
     /// The server name, exactly as a rendered row carries it (the
     /// `[mcp.<name>]` table key).
     pub server: String,
+    /// The client's current filter text, echoed into the response's
+    /// re-rendered modal (the stale-fragment rule extends to the
+    /// filtered view). Absent or empty renders unfiltered.
+    #[serde(default, alias = "filter")]
+    pub filter: Option<String>,
 }
 
 /// `POST /web/skills/toggle` — toggle one skill's enablement for a
@@ -201,6 +206,11 @@ pub struct SkillToggleForm {
     /// The skill name, exactly as a rendered row carries it (the
     /// frontmatter `name`).
     pub skill: String,
+    /// The client's current filter text, echoed into the response's
+    /// re-rendered modal (the stale-fragment rule extends to the
+    /// filtered view). Absent or empty renders unfiltered.
+    #[serde(default, alias = "filter")]
+    pub filter: Option<String>,
 }
 
 /// `POST /web/skills/load` — force-load a skill into a session's
@@ -220,6 +230,11 @@ pub struct SkillLoadForm {
     /// The skill name, exactly as a rendered row carries it (the
     /// frontmatter `name`).
     pub skill: String,
+    /// The client's current filter text, echoed into the response's
+    /// re-rendered modal (the stale-fragment rule extends to the
+    /// filtered view). Absent or empty renders unfiltered.
+    #[serde(default, alias = "filter")]
+    pub filter: Option<String>,
 }
 
 /// `POST /web/session/{id}/activate` — activate a session.
@@ -245,6 +260,19 @@ pub struct RenameForm {
     /// The new title, applied trimmed (an empty-after-trim value is a
     /// 400 refusal, mirroring the TUI rename's own validation).
     pub title: String,
+}
+
+/// `POST /web/theme` — set the webui's color mode.
+///
+/// The body names only the chosen mode (`light`/`dark`/`system`);
+/// anything else is a 400 refusal — an unknown value was never
+/// rendered by the menu control, so it cannot be accepted. The mode
+/// value is the exact vocabulary the CSS `data-theme` selectors and
+/// the persisted `AppStateFile::web_theme` share.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ThemeForm {
+    /// The chosen mode: `light`, `dark`, or `system`.
+    pub theme: String,
 }
 
 /// The transcript pull's query: `GET /web/transcript/{id}?since=N`.
@@ -277,18 +305,30 @@ impl TranscriptQuery {
     }
 }
 
-/// The sessions pull's query: `GET /web/sessions?q=<text>`.
+/// The sessions pull's query: `GET /web/sessions?q=<text>&viewed=<id>`.
 ///
 /// The filter narrows the merged list to the sessions whose titles
 /// fuzzy-match `q` — matched server-side with the TUI session picker's
 /// matcher, so exactly one matching implementation exists. An absent
 /// or empty `q` reads as "no filter"; the full grouped list returns.
+///
+/// `viewed` names the session the pulling page is viewing — the list's
+/// blue row is the *viewed* session, and two pages viewing different
+/// sessions each show their own blue, so the viewer travels with the
+/// pull instead of the server guessing. Absent or empty reads as "no
+/// viewer" (the landing page), which renders no active row at all.
 #[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
 pub struct SessionsQuery {
     /// The title fragment sessions must fuzzy-match. Absent or empty →
     /// every session.
     #[serde(default)]
     pub q: Option<String>,
+    /// The session id the pulling page views. Absent or empty → the
+    /// landing page's no-viewer render: no row carries the active
+    /// styling. An unparseable id reads the same way — a page pull
+    /// must never 500 because its viewer string went stale.
+    #[serde(default, alias = "viewedSession")]
+    pub viewed: Option<String>,
 }
 
 impl SessionsQuery {
@@ -300,6 +340,20 @@ impl SessionsQuery {
     #[must_use]
     pub fn filter_text(&self) -> Option<&str> {
         self.q.as_deref().filter(|text| !text.is_empty())
+    }
+
+    /// The viewed session's id, or `None` when nothing is viewed.
+    ///
+    /// The same "absent and empty are equivalent" rule as
+    /// [`Self::filter_text`], plus the stale-viewer rule: an id that
+    /// is not a UUID resolves to no viewer rather than an error — the
+    /// pull renders a list, not a validation surface.
+    #[must_use]
+    pub fn viewed_session(&self) -> Option<SessionId> {
+        self.viewed
+            .as_deref()
+            .filter(|text| !text.is_empty())
+            .and_then(SessionId::try_from_string)
     }
 }
 
@@ -314,7 +368,9 @@ pub struct SessionListItem {
     pub session_id: SessionId,
     /// Display title; the store's untitled fallback when empty.
     pub title: String,
-    /// Whether this row is the instance's active session.
+    /// Whether this row is the *viewed* session — the session the
+    /// rendering page has open, not the instance's active one. Two
+    /// pages viewing different sessions each paint their own row.
     pub active: bool,
     /// Whether the session is a bot run (rows render tinted, and sends
     /// to them are refused).
@@ -323,7 +379,8 @@ pub struct SessionListItem {
     pub loaded: bool,
     /// Whether the session carries an unseen settle — work that
     /// finished while the user was viewing another session. Rows
-    /// wearing it render marked until their session activates.
+    /// wearing it render marked until their session is viewed (by
+    /// activation anywhere in the instance, or by a page opening it).
     pub unread: bool,
     /// Whether the session's live phase is working — a turn is in
     /// flight (streaming, running tools, or cancelling). Rows wearing
@@ -339,15 +396,17 @@ pub struct SessionListItem {
 }
 
 /// The kind of SSE push — the event name the client dispatches on.
-/// The TypeScript mirror of [`SseKind::event_name`] lives in
-/// `webui/client/src/wire.ts`, and the drift test in this crate's
-/// `wire_tests` (plus the webui crate's `contract_tests`) fails when
-/// the two sides disagree.
+///
+/// No client source tree mirrors [`SseKind::event_name`]: the
+/// declarative Datastar attributes in the askama templates carry the
+/// ids and routes, and the server-side contract tests hold the
+/// vocabulary's integrity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SseKind {
-    /// Appended transcript HTML (`sse-swap="chat"`, `beforeend`).
-    Chat,
+    /// The in-flight turn's rendered tail, wholesale-replaced into the
+    /// transcript's streaming container at each flush tick.
+    Streaming,
     /// Re-rendered composer controls — the send↔cancel button.
     Controls,
     /// Re-rendered sessions list.
@@ -395,7 +454,7 @@ impl SseKind {
     #[must_use]
     pub const fn event_name(self) -> &'static str {
         match self {
-            Self::Chat => "chat",
+            Self::Streaming => "streaming",
             Self::Controls => "controls",
             Self::Sessions => "sessions",
             Self::Models => "models",
@@ -413,19 +472,47 @@ impl SseKind {
 /// session never receives another session's fragment. `cursor` is the
 /// rendered-entry index the payload advances the client to — it rides
 /// the SSE `id:` line, so a reconnect's `Last-Event-ID` resumes the
-/// pull exactly where the push left off.
+/// pull exactly where the push left off. A [`SseKind::Streaming`]
+/// envelope's cursor is its session's **settled boundary** — the count
+/// of entries the settled transcript already rendered when the turn
+/// began — never the live history's growing length: a replace-shaped
+/// push with a growing cursor reintroduces the reconnect re-append bug
+/// class the no-id rule on [`SseKind::TranscriptFull`] fixed.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct SseEnvelope {
     /// Which swap the payload lands under.
     pub kind: SseKind,
     /// The session the payload belongs to.
     pub session_id: SessionId,
-    /// The rendered-entry cursor after this payload (chat pushes only;
-    /// other kinds carry the current count).
+    /// The rendered-entry cursor after this payload (streaming pushes
+    /// carry the settled boundary; other kinds carry the current
+    /// count).
     pub cursor: usize,
     /// The server-rendered HTML fragment.
     pub html: String,
 }
+
+/// A web page opened a session — the arrival fact.
+///
+/// Published by the session-page render handler (`GET /web/session/{id}`)
+/// after the page's HTML is built: the user has put a session on a
+/// screen, which is "the user looked" as much as an activation is. The
+/// webui fan-out answers it by clearing that session's unread mark —
+/// the arrival path that a click's activation already covers, and the
+/// path a reload or a deep link (an archived session's page, opened
+/// without activating it) has no other way through.
+///
+/// An Event, and the webui's only self-owned schema: exactly one
+/// producer (the page handler) and one handler (the fan-out) declare
+/// it, so the broadcast contract holds however the transport resolves.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
+#[schema(description = "A web page opened a session.")]
+pub struct SessionPageOpened {
+    /// The session the page opened.
+    pub session_id: SessionId,
+}
+
+impl jinn_slices::BusMessage for SessionPageOpened {}
 
 #[cfg(test)]
 mod tests {
@@ -473,7 +560,7 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case(SseKind::Chat, "chat")]
+    #[case(SseKind::Streaming, "streaming")]
     #[case(SseKind::Controls, "controls")]
     #[case(SseKind::Sessions, "sessions")]
     #[case(SseKind::Models, "models")]

@@ -1,11 +1,14 @@
 //! The model-picker region — the titlebar button and its modal.
 //!
-//! Parts declared: GET pull route + SSE event (`models`) + page fill.
-//! No settle render (the `models` event is pushed by the fan-out's
-//! subscription, not a settle pass) and no guard render of its own: the
-//! picker reads the provider registry, the API keys, and the provider
-//! cell — none of which live on the state guard — so its fragments
-//! render through [`ServerShared`].
+//! The titlebar renders the picker button alone (the page shell owns
+//! the `#model-picker` host span; the button already names the current
+//! model, so no second label rides beside it). Parts declared: GET
+//! pull route + SSE event (`models`) + page fill. No settle render
+//! (the `models` event is pushed by the fan-out's subscription, not a
+//! settle pass) and no guard render of its own: the picker reads the
+//! provider registry, the API keys, and the provider cell — none of
+//! which live on the state guard — so its fragments render through
+//! [`ServerShared`].
 //!
 //! The rows are TUI-parity: built by the shared provider-row builder
 //! (`jinn_provider_selection_msg::provider_rows`) — availability from
@@ -24,7 +27,6 @@
 //! refresh button. A switch POST publishes the existing
 //! `ProviderSwitch` (`Single` only — alloys are out of scope for the
 //! web) and answers with the re-rendered button.
-//!
 //! Browser half: the modal's Datastar bindings (`model_modal.html`) — the
 //! button click opens the modal, filter input re-pulls, refresh posts
 //! and awaits the `models` SSE push, row click switches, Esc or an
@@ -194,7 +196,10 @@ fn picker_rows(
     jinn_provider_selection_msg::provider_rows::filter_entries(&sorted, filter)
 }
 
-/// The titlebar button fragment: the current model as a control.
+/// The titlebar button fragment: the current model as a control —
+/// the bare button, patching into the page shell's `#model-picker`
+/// host span. The page shell renders it inline; the switch and
+/// refresh POSTs answer with this same render.
 ///
 /// # Errors
 ///
@@ -207,26 +212,6 @@ pub fn button_fragment(
     crate::templates::render(&crate::templates::ModelButtonTemplate::with_contract(
         session_id.to_owned(),
         current,
-    ))
-    .map_err(|e| crate::server::map_render_error(&e))
-}
-
-/// The titlebar's model-status fragment: the `.m` label span and the
-/// picker container as **one wrapper**, so a switch re-renders both in
-/// one swap and the two can never disagree. The page shell renders it
-/// inline; the switch and refresh POSTs answer with it.
-///
-/// # Errors
-///
-/// Returns the render error; the caller maps it to a 500.
-pub fn status_fragment(
-    shared: &crate::server::ServerShared,
-    session_id: &str,
-) -> Result<String, crate::server::HandlerError> {
-    let current = current_model_label(shared, session_id);
-    let button = button_fragment(shared, session_id)?;
-    crate::templates::render(&crate::templates::ModelStatusTemplate::with_contract(
-        current, button,
     ))
     .map_err(|e| crate::server::map_render_error(&e))
 }
@@ -267,17 +252,17 @@ pub fn modal_fragment(
     .map_err(|e| crate::server::map_render_error(&e))
 }
 
-/// The model-picker's stylesheet: the titlebar button, the modal
-/// overlay, the filter bar, the refresh control, and the rows.
+/// The model-picker's stylesheet: the titlebar button (its host span
+/// lives in the page shell's base chrome), the modal overlay, the
+/// filter bar, the refresh control, and the rows.
 pub const MODEL_PICKER_CSS: &str = r#"
-.model-status { display: inline-flex; gap: 10px; align-items: center;
-                margin-left: auto; }
+.model-picker { display: inline-flex; margin-left: auto; }
 .model-picker-button { background: var(--panel); color: var(--fg);
                        border: 1px solid var(--border); border-radius: 6px;
                        padding: 6px 10px; font: inherit; max-width: 260px;
                        cursor: pointer; }
 .model-picker-button:hover { border-color: var(--accent); }
-.model-picker-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+.model-picker-modal { position: fixed; inset: 0; background: var(--scrim);
                       display: flex; align-items: flex-start;
                       justify-content: center; padding-top: 10vh; z-index: 40; }
 .model-picker-modal[hidden] { display: none; }
@@ -286,9 +271,9 @@ pub const MODEL_PICKER_CSS: &str = r#"
                             max-height: 70vh; display: flex; flex-direction: column; }
 .model-picker-modal-head { display: flex; gap: 8px; padding: 10px;
                            border-bottom: 1px solid var(--border); }
-.model-picker-filter { flex: 1; background: var(--bg); color: var(--fg);
-                       border: 1px solid var(--border); border-radius: 6px;
-                       padding: 6px 8px; font: inherit; }
+#model-picker-filter { flex: 1; background: var(--bg); color: var(--fg);
+                      border: 1px solid var(--border); border-radius: 6px;
+                      padding: 6px 8px; font: inherit; }
 .model-picker-refresh { background: var(--panel); color: var(--fg);
                         border: 1px solid var(--border); border-radius: 6px;
                         padding: 6px 10px; font: inherit; cursor: pointer; }
@@ -303,18 +288,17 @@ pub const MODEL_PICKER_CSS: &str = r#"
 @keyframes model-picker-spin { to { transform: rotate(360deg); } }
 .model-picker-rows { overflow-y: auto; padding: 4px 0; }
 .model-row { display: flex; gap: 8px; padding: 7px 12px; cursor: pointer; }
-.model-row:hover { background: #23272f; }
+.model-row:hover { background: var(--bg-hover); }
 .model-row .model-row-marker { width: 1.2em; color: var(--muted); }
 .model-row .model-row-provider { color: var(--muted); }
 .model-row mark { background: transparent; color: var(--accent);
                   font-weight: 600; }
-.model-row.model-row-active { background: #20242c; }
+.model-row.model-row-active { background: var(--bg-active); }
 .model-row.model-row-active .model-row-model { font-weight: 600; }
 .model-row.model-row-unavailable { cursor: default; color: var(--muted); }
 .model-row.model-row-unavailable:hover { background: transparent; }
 @media (max-width: 767px) {
-  .model-status { margin-left: auto; min-width: 0; max-width: 44vw;
-                  overflow: hidden; }
+  .model-picker { min-width: 0; max-width: 44vw; overflow: hidden; }
   .model-picker-button { max-width: 100%; overflow: hidden; white-space: nowrap;
                          text-overflow: ellipsis; padding: 10px 12px;
                          min-height: 40px; }

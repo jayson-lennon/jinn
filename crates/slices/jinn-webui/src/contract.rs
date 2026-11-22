@@ -35,6 +35,14 @@ pub const TRANSCRIPT_WRAP_ID: &str = "transcript-wrap";
 /// The transcript's entry container — chat appends here.
 pub const TRANSCRIPT_ID: &str = "transcript";
 
+/// The transcript's **streaming container** — the in-flight turn's
+/// rendered tail swaps here. The last child of [`TRANSCRIPT_ID`], so
+/// settled entries (above it) and streamed entries (inside it) never
+/// interleave; the `transcript-full` inner replace clears it
+/// structurally at every settle, because the full fragment carries the
+/// empty container as its own last child.
+pub const STREAMING_ID: &str = "streaming";
+
 /// The composer-controls container — send↔cancel swaps here.
 pub const CONTROLS_ID: &str = "composer-controls";
 
@@ -55,13 +63,7 @@ pub const MODEL_PICKER_MODAL_HOST_ID: &str = "model-picker-modal-host";
 /// in the templates name.
 pub const MODEL_PICKER_MODAL_HOST_SELECTOR: &str = "#model-picker-modal-host";
 
-/// The titlebar's model-status wrapper — the static `.m` label span
-/// and the picker container rendered together as one fragment, so a
-/// model switch re-renders both in one swap and the two can never
-/// disagree after a switch.
-pub const MODEL_STATUS_ID: &str = "model-status";
-
-/// The model-picker's button — the titlebar control that opens the
+/// The titlebar's model-picker button — the control that opens the
 /// modal; its label is the viewed session's current model.
 pub const MODEL_PICKER_BUTTON_ID: &str = "model-picker-button";
 
@@ -122,6 +124,12 @@ pub const ACTION_SEND: &str = "send";
 /// The cancel form's action name.
 pub const ACTION_CANCEL: &str = "cancel";
 
+/// The queue form's action name — the composer's queue button, shown
+/// beside cancel while the session is working. It posts the send
+/// endpoint verbatim (the session actor queues a busy-phase enqueue),
+/// so it is a value of [`ACTION_DATA_ATTR`], not a new route.
+pub const ACTION_QUEUE: &str = "queue";
+
 /// The model form's action name.
 pub const ACTION_MODEL: &str = "model";
 
@@ -146,8 +154,8 @@ pub const SESSION_TITLE_ID: &str = "session-title";
 
 /// The titlebar's menu region — the hamburger button's host span,
 /// rendered left of the session title. The panel renders inside this
-/// host too (a static fragment, like the model-status wrapper), so
-/// the region owns one container on the page.
+/// host too (a static fragment, like the model-picker button's host),
+/// so the region owns one container on the page.
 pub const MENU_ID: &str = "menu";
 
 /// The menu's hamburger button — the titlebar control that opens the
@@ -192,8 +200,53 @@ pub const ACTION_SESSION_CREATE: &str = "session-create";
 /// exactly what makes a page swap reset the drawer structurally.
 pub const DRAWER_OPEN_CLASS: &str = "drawer-open";
 
+/// The titlebar's sessions button — beside the hamburger inside the
+/// `#menu` span. One tap toggles the session drawer at every width;
+/// below 768px it is the drawer's primary opener, at ≥768px the CSS
+/// hides it (the sidebar is already static there). Wears the
+/// [`SESSIONS_ATTENTION_CLASS`] and carries the
+/// [`SESSIONS_BUTTON_COUNT_ID`] badge while the instance's unread
+/// mark set is non-empty.
+pub const SESSIONS_BUTTON_ID: &str = "sessions-button";
+
+/// The sessions button's count badge — the number of sessions wearing
+/// the unread mark. Hidden by the attention signal when the count is
+/// zero.
+pub const SESSIONS_BUTTON_COUNT_ID: &str = "sessions-button-count";
+
+/// The class the client applies to [`SESSIONS_BUTTON_ID`] while the
+/// unread count is above zero — the yellow fill, the same gold the
+/// unread rows wear. Deliberately **not** in [`DOM_CONSTANTS`]: the
+/// drawer-open precedent — a class applied by signal evaluation is
+/// client state, and membership would assert a fresh-render fact the
+/// served markup does not carry (the binding attribute names the
+/// signal, not the class).
+pub const SESSIONS_ATTENTION_CLASS: &str = "attention";
+
 /// The menu's action name — the one item's action attribute value.
 pub const ACTION_MENU_SESSIONS: &str = "menu-sessions";
+
+// ── Web theme (color mode) ──────────────────────────────────────────
+
+/// The menu's theme-control host id — the segmented Light/Dark/System
+/// control inside the slide-in panel.
+pub const MENU_ITEM_THEME_ID: &str = "menu-item-theme";
+/// The theme control's Light option id.
+pub const MENU_ITEM_THEME_LIGHT_ID: &str = "menu-item-theme-light";
+/// The theme control's Dark option id.
+pub const MENU_ITEM_THEME_DARK_ID: &str = "menu-item-theme-dark";
+/// The theme control's System option id.
+pub const MENU_ITEM_THEME_SYSTEM_ID: &str = "menu-item-theme-system";
+/// The theme pick POST's endpoint — carries the chosen mode; the
+/// response re-seeds the signal and patches the theme-color meta.
+pub const THEME_PATH: &str = "/web/theme";
+/// The active color mode's signal name (`light`/`dark`/`system` —
+/// the values the CSS `data-theme` selectors and the persisted
+/// `AppStateFile::web_theme` share).
+pub const SIGNAL_WEB_THEME: &str = "webTheme";
+/// The class marking the theme control's active option — signal-driven,
+/// so the mark follows the mode without a re-render.
+pub const THEME_ACTIVE_CLASS: &str = "theme-active";
 
 // ── Datastar signal names ───────────────────────────────────────────
 //
@@ -221,12 +274,6 @@ pub const SIGNAL_MODELS_REFRESHING: &str = "modelsRefreshing";
 /// modal's effect re-pulls its rows in response.
 pub const SIGNAL_MODELS_TICK: &str = "modelsTick";
 
-/// The transcript-append tick — bumped alongside every streamed
-/// transcript patch (append and full replace). The transcript wrap's
-/// scroll effect reads it: a change means the transcript grew, and a
-/// reader keeping watch on the tail scrolls to it. Purely a client
-/// reactive key — no surface reads its value.
-pub const SIGNAL_CHAT_TICK: &str = "chatTick";
 /// The sessions-list tick — every pushed list refresh bumps it; the
 /// list's effect re-pulls with the active filter (pushed lists are
 /// signal-only: the pull remains the renderer).
@@ -242,28 +289,6 @@ pub const SIGNAL_SESSIONS_ATTENTION: &str = "sessionsAttention";
 /// bound signals are single lowercase tokens (the expressions that
 /// read them spell the same token).
 pub const SIGNAL_SESSIONS_FILTER: &str = "sessionsfilter";
-/// The titlebar's sessions button — beside the hamburger inside the
-/// `#menu` span. One tap toggles the session drawer at every width;
-/// below 768px it is the drawer's primary opener, at ≥768px the CSS
-/// hides it (the sidebar is already static there). Wears the
-/// [`SESSIONS_ATTENTION_CLASS`] and carries the
-/// [`SESSIONS_BUTTON_COUNT_ID`] badge while the instance's unread
-/// mark set is non-empty.
-pub const SESSIONS_BUTTON_ID: &str = "sessions-button";
-
-/// The sessions button's count badge — the number of sessions wearing
-/// the unread mark. Hidden by the attention signal when the count is
-/// zero.
-pub const SESSIONS_BUTTON_COUNT_ID: &str = "sessions-button-count";
-
-/// The class the client applies to [`SESSIONS_BUTTON_ID`] while the
-/// unread count is above zero — the yellow fill, the same gold the
-/// unread rows wear. Deliberately **not** in [`DOM_CONSTANTS`]: the
-/// drawer-open precedent — a class applied by signal evaluation is
-/// client state, and membership would assert a fresh-render fact the
-/// served markup does not carry (the binding attribute names the
-/// signal, not the class).
-pub const SESSIONS_ATTENTION_CLASS: &str = "attention";
 /// The session-switch interstitial flag — set true by a session-row
 /// click that names a different session than the one viewed, ahead of
 /// its activate POST. The activation response's wholesale page-root
@@ -459,6 +484,14 @@ pub const MCP_ROWS_ID: &str = "mcp-rows";
 /// server holds.
 pub const MCP_SERVER_DATA_ATTR: &str = "data-webui-server";
 
+/// The MCP modal's filter input — every keystroke re-queries the pull
+/// with the filter applied server-side (the persona/model pattern).
+pub const MCP_FILTER_ID: &str = "mcp-filter";
+
+/// The MCP filter text signal — bound to the filter input, read by the
+/// tick effect's re-pull URL, and echoed by the toggle POST's response.
+pub const SIGNAL_MCP_FILTER: &str = "mcpfilter";
+
 /// The MCP modal's open toggle (view-local signal).
 pub const SIGNAL_MCP_OPEN: &str = "mcpOpen";
 
@@ -517,6 +550,17 @@ pub const TOOLS_REVERT_STAMP_ID: &str = "tools-revert-stamp";
 /// The attribute a tools row carries its tool name in — the toggle
 /// POST's payload field, validated against the rows the modal renders.
 pub const TOOL_NAME_DATA_ATTR: &str = "data-webui-tool";
+
+/// The tools modal's filter input — every keystroke re-queries the
+/// **rows** pull with the filter applied server-side (the rows-only
+/// retarget is the revert guarantee; the modal skeleton and the stamp
+/// are never re-rendered by filtering).
+pub const TOOLS_FILTER_ID: &str = "tools-filter";
+
+/// The tools filter text signal — bound to the filter input, read by
+/// the tick effect's rows re-pull URL, and echoed by the toggle POST's
+/// response.
+pub const SIGNAL_TOOLS_FILTER: &str = "toolsfilter";
 
 /// The tools modal's open toggle (view-local signal).
 pub const SIGNAL_TOOLS_OPEN: &str = "toolsOpen";
@@ -605,6 +649,16 @@ pub const SKILL_NAME_DATA_ATTR: &str = "data-webui-skill";
 /// target the load POST rides, distinct from the row's own toggle
 /// click.
 pub const SKILL_LOAD_CLASS: &str = "skill-row-load";
+
+/// The skills modal's filter input — every keystroke re-queries the
+/// pull with the filter applied server-side (the persona/model
+/// pattern).
+pub const SKILL_FILTER_ID: &str = "skills-filter";
+
+/// The skills filter text signal — bound to the filter input, read by
+/// the tick effect's re-pull URL, and echoed by the toggle and load
+/// POSTs' responses.
+pub const SIGNAL_SKILLS_FILTER: &str = "skillsfilter";
 
 /// The skills modal's open toggle (view-local signal).
 pub const SIGNAL_SKILLS_OPEN: &str = "skillsOpen";
@@ -752,10 +806,10 @@ pub const DOM_CONSTANTS: &[&str] = &[
     SESSIONS_FILTER_INPUT_ID,
     TRANSCRIPT_WRAP_ID,
     TRANSCRIPT_ID,
+    STREAMING_ID,
     CONTROLS_ID,
     MODEL_PICKER_ID,
     MODEL_PICKER_MODAL_HOST_ID,
-    MODEL_STATUS_ID,
     BUSY_SPINNER_ID,
     COMPOSER_ID,
     INPUT_ID,
@@ -769,6 +823,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_DATA_ATTR,
     ACTION_SEND,
     ACTION_CANCEL,
+    ACTION_QUEUE,
     ACTION_MODEL,
     ACTION_REFRESH_MODELS,
     SESSION_ROW_CLASS,
@@ -812,12 +867,14 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_MENU_MCP,
     MCP_MODAL_HOST_ID,
     MCP_MODAL_ID,
+    MCP_FILTER_ID,
     MCP_ROWS_ID,
     MCP_SERVER_DATA_ATTR,
     ACTION_MCP_TOGGLE,
     MENU_ITEM_TOOLS_ID,
     TOOLS_MODAL_HOST_ID,
     TOOLS_MODAL_ID,
+    TOOLS_FILTER_ID,
     TOOLS_ROWS_ID,
     TOOLS_REVERT_STAMP_ID,
     TOOL_NAME_DATA_ATTR,
@@ -826,6 +883,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_MENU_SKILLS,
     SKILL_MODAL_HOST_ID,
     SKILL_MODAL_ID,
+    SKILL_FILTER_ID,
     SKILL_ROWS_ID,
     SKILL_NAME_DATA_ATTR,
     SKILL_LOAD_CLASS,
@@ -834,11 +892,24 @@ pub const DOM_CONSTANTS: &[&str] = &[
     DRAWER_SCRIM_ID,
     MENU_SCRIM_ID,
     SWITCH_OVERLAY_ID,
+    MENU_ITEM_THEME_ID,
+    MENU_ITEM_THEME_LIGHT_ID,
+    MENU_ITEM_THEME_DARK_ID,
+    MENU_ITEM_THEME_SYSTEM_ID,
+    THEME_ACTIVE_CLASS,
+    SIGNAL_WEB_THEME,
 ];
 
 /// The sessions pull's query parameter (`GET /web/sessions?q=<text>`)
 /// — the list's filter effect builds its re-pull URL with it.
 pub const SESSIONS_FILTER_QUERY_PARAM: &str = "q";
+
+/// The sessions pull's viewer query parameter
+/// (`GET /web/sessions?viewed=<id>`) — the list's effect builds its
+/// re-pull URL with it beside the filter, so a tick re-pull renders
+/// the *viewed* session's blue row rather than the instance's active
+/// one. Empty (the landing page) serializes as "no viewer".
+pub const SESSIONS_VIEWED_QUERY_PARAM: &str = "viewed";
 
 /// The contract's endpoint constants a client can build a URL from.
 /// The serve-and-request gate issues a real HTTP request against each.
@@ -870,7 +941,10 @@ pub const CLIENT_PATHS: &[&str] = &[
     SKILL_PICKER_PREFIX,
     SKILL_TOGGLE_PATH,
     SKILL_LOAD_PATH,
+    SESSIONS_FILTER_QUERY_PARAM,
+    SESSIONS_VIEWED_QUERY_PARAM,
     VENDOR_PREFIX,
+    THEME_PATH,
 ];
 
 /// The subset of [`CLIENT_PATHS`] the **browser runtime** builds
@@ -903,4 +977,5 @@ pub const CLIENT_URLS: &[&str] = &[
     SKILL_TOGGLE_PATH,
     SKILL_LOAD_PATH,
     VENDOR_PREFIX,
+    THEME_PATH,
 ];

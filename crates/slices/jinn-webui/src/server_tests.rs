@@ -1104,6 +1104,105 @@ mod actions {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn theme_post_publishes_set_web_theme_and_reseeds_the_signal() {
+        // Given the router over an empty state.
+        let (_state, audit, _slices, router) = harness();
+
+        // When posting a light pick.
+        let (status, body) = post_form(&router, "/web/theme", "theme=light").await;
+
+        // Then the response is OK, carries the webTheme signal re-seed
+        // and the light theme-color meta (response truth: the
+        // submitted value), and the bus names UpdateAppState.
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("webTheme"), "signal re-seed missing: {body}");
+        assert!(
+            body.contains("theme-color") && body.contains("#eceff4"),
+            "meta patch missing: {body}"
+        );
+        assert_eq!(audit_count(&audit, "UpdateAppState"), 1);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn theme_post_of_system_seeds_the_empty_signal_value() {
+        // Given the router over an empty state.
+        let (_state, _audit, _slices, router) = harness();
+
+        // When posting the system pick.
+        let (status, body) = post_form(&router, "/web/theme", "theme=system").await;
+
+        // Then the signal re-seed carries the empty string — the body
+        // binding reads an empty signal as system.
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body.contains("\"webTheme\":\"\""),
+            "system seeds the empty signal: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn theme_post_of_an_unknown_value_is_a_400() {
+        // Given the router over an empty state.
+        let (_state, audit, _slices, router) = harness();
+
+        // When posting a value the menu control never renders.
+        let (status, _body) = post_form(&router, "/web/theme", "theme=sepia").await;
+
+        // Then the refusal is a 400 and nothing published.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit_count(&audit, "UpdateAppState"), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn page_seeds_the_web_theme_signal_from_the_persisted_mode() {
+        // Given app state persisting the light mode.
+        let (state, _audit, _slices, router) = harness();
+        state.write().frontend.app_state.web_theme = Some("light".to_owned());
+
+        // When getting the home page.
+        let (status, body) = get(&router, "/web").await;
+
+        // Then the page-root seeds webTheme with the persisted value
+        // and the meta names the light background.
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("webTheme: 'light'"),
+            "signal seed missing: {body}"
+        );
+        assert!(
+            body.contains("<meta name=\"theme-color\" content=\"#eceff4\">"),
+            "meta not light: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn page_without_a_persisted_mode_seeds_system_and_the_dark_meta() {
+        // Given app state with no persisted mode (the fresh install).
+        let (state, _audit, _slices, router) = harness();
+        assert!(state.read().frontend.app_state.web_theme.is_none());
+
+        // When getting the home page.
+        let (status, body) = get(&router, "/web").await;
+
+        // Then the signal seeds 'system' and the meta names the dark
+        // background (the :root default the OS query overrides).
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("webTheme: 'system'"),
+            "system seed missing: {body}"
+        );
+        assert!(
+            body.contains("<meta name=\"theme-color\" content=\"#191b1e\">"),
+            "meta not dark: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn send_appends_the_user_entry_to_the_session() {
         // Given a live session and the router over it.
         let (state, audit, _slices, router) = harness();
@@ -1493,11 +1592,14 @@ mod actions {
         .await;
 
         // Then the bus names ProviderSwitch and the response is the
-        // status wrapper (label + button together).
+        // re-rendered titlebar button.
         assert_eq!(status, StatusCode::OK);
         assert_eq!(audit_count(&audit, "ProviderSwitch"), 1);
         assert!(
-            body.contains(&format!("id=\"{}\"", crate::contract::MODEL_STATUS_ID)),
+            body.contains(&format!(
+                "id=\"{}\"",
+                crate::contract::MODEL_PICKER_BUTTON_ID
+            )),
             "{body}"
         );
     }
@@ -1518,26 +1620,29 @@ mod actions {
         )
         .await;
 
-        // Then the response's titlebar label AND button text name the
-        // picked model — the fragment is rendered from state that
-        // already holds the pick, never one switch behind (the
-        // stale-label bug: the bus is async, so a fragment rendered off
-        // a not-yet-applied command named the PREVIOUS model, and the
-        // button only caught up on the next interaction).
+        // Then the response's button text names the picked model —
+        // the fragment is rendered from state that already holds the
+        // pick, never one switch behind (the stale-label bug: the bus
+        // is async, so a fragment rendered off a not-yet-applied
+        // command named the PREVIOUS model, and the button only caught
+        // up on the next interaction).
         assert_eq!(status, StatusCode::OK);
         assert!(
             body.contains("openai/gpt-4o"),
             "the switch response must name the picked model: {body}"
         );
-        // And the label span and the button agree with each other.
-        let label = body
-            .split("<span class=\"m\">")
-            .nth(1)
-            .and_then(|rest| rest.split("</span>").next())
+        // And the button text agrees with the pick.
+        let button = body
+            .split_once(&format!(
+                "id=\"{}\"",
+                crate::contract::MODEL_PICKER_BUTTON_ID
+            ))
+            .and_then(|(_, rest)| rest.split_once('>'))
+            .and_then(|(_, rest)| rest.split('<').next())
             .unwrap_or_default();
         assert_eq!(
-            label, "openai/gpt-4o",
-            "the .m label must name the picked model: {body}"
+            button, "openai/gpt-4o",
+            "the button text must name the picked model: {body}"
         );
     }
 
@@ -3021,9 +3126,10 @@ mod stream_catchup {
 
         // Then one entry event arrives — everything after cursor 1 —
         // and the trailing park advances the resume cursor to the
-        // length while bumping chatTick so the reader's scroll effect
-        // follows the catch-up tail: the entry's `id:` is 2 (cursor
-        // 1 + 1) and the trailing event is the tick signal patch.
+        // length without keying any scroll: the entry's `id:` is 2
+        // (cursor 1 + 1) and the trailing event is a signal patch
+        // whose payload mutates nothing (onlyIfMissing over an
+        // always-declared signal — no effect fires, no scroll).
         let [entry, trailing] = events.as_slice() else {
             panic!(
                 "an entry event and the trailing event, got {}",
@@ -3033,10 +3139,13 @@ mod stream_catchup {
         assert_eq!(entry.id.as_deref(), Some("2"));
         let entry_data = entry.data.join("\n");
         assert!(entry_data.contains("third"), "{entry_data}");
+        assert!(!entry_data.contains("signals"), "{entry_data}");
         assert_eq!(trailing.id.as_deref(), Some("2"));
-        assert_eq!(
-            trailing.data.join(""),
-            format!("signals {{\"{}\":2}}", crate::contract::SIGNAL_CHAT_TICK)
+        assert_eq!(trailing.event, datastar::consts::EventType::PatchSignals);
+        let trailing_data = trailing.data.join("");
+        assert!(
+            trailing_data.contains("onlyIfMissing true"),
+            "{trailing_data}"
         );
     }
 
@@ -3060,15 +3169,17 @@ mod stream_catchup {
 
         // Then no entry events arrive, and one park event advances the
         // resume cursor so the client does not re-catch-up forever —
-        // with the chatTick bump (nothing rendered, so a reader at the
-        // bottom stays there; the effect's scroll is a no-op).
+        // with a payload that mutates no signal (nothing rendered, so
+        // there is nothing to follow and nothing to scroll).
         let [trailing] = events.as_slice() else {
             panic!("only the trailing event, got {}", events.len())
         };
         assert_eq!(trailing.id.as_deref(), Some("1"));
-        assert_eq!(
-            trailing.data.join(""),
-            format!("signals {{\"{}\":1}}", crate::contract::SIGNAL_CHAT_TICK)
+        assert_eq!(trailing.event, datastar::consts::EventType::PatchSignals);
+        let trailing_data = trailing.data.join("");
+        assert!(
+            trailing_data.contains("onlyIfMissing true"),
+            "{trailing_data}"
         );
     }
 
@@ -3116,6 +3227,55 @@ mod stream_catchup {
         assert!(body.contains("event: datastar-patch-elements"), "{body}");
         assert!(body.contains("id: 1"), "{body}");
         assert!(body.contains("hello"), "{body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_stream_route_opens_with_a_sessions_signal_convergence_patch() {
+        // Given a live session and one other session wearing the
+        // unread mark (seeded through the harness registry — the same
+        // cell the fan-out writes).
+        let (state, _audit, slices, router) = harness();
+        let id = seed_session(&state);
+        let other = seed_session(&state);
+        let marks = slices
+            .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+            .expect("the unread-mark cell resolves");
+        marks.update(|m| {
+            m.mark(other);
+        });
+
+        // When opening the stream, then bounding the read.
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/web/stream/{id}"))
+                    .header("last-event-id", "0")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("response");
+        let body = aggregate_body(response.into_body()).await;
+
+        // Then the stream opens with a patch-signals frame carrying
+        // the current attention count — the heal for a page whose
+        // render raced a mark transition (the activation edge: the
+        // clear wave can broadcast before the navigating client's new
+        // stream subscribes).
+        let patch = body
+            .split("event: datastar-patch-signals")
+            .nth(1)
+            .expect("a patch-signals frame after the connect");
+        assert!(
+            patch.contains(&format!(
+                "\"{}\": 1",
+                crate::contract::SIGNAL_SESSIONS_ATTENTION
+            )),
+            "{patch}"
+        );
     }
 
     /// Polls the body with bounded reads — enough for the

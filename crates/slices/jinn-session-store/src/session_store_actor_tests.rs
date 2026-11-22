@@ -13,6 +13,7 @@ use jinn_core_types::SessionId;
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::common::bus::HarnessServices;
 use jinn_kernel::common::state::State;
+use jinn_kernel::protocol::system::ActiveSessionChanged;
 use jinn_provider_config::ProvidersConfig;
 use jinn_session_msg::{SessionArchiveFailed, SessionArchived, SessionClosed};
 use jinn_session_state::ChatSessionState;
@@ -1495,6 +1496,37 @@ async fn a_layout_job_from_a_measurement_makes_the_session_active() {
         "the fixture must start on another session"
     );
     assert_eq!(state.session.active_session_id(), &target_id);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn activating_an_in_memory_session_publishes_active_session_changed() {
+    // Given a hydrated session that is not yet active — the in-memory
+    // activation branch is the only one that used to move the pointer
+    // silently (a disk load publishes through `restore_loaded_session`,
+    // and the TUI intent path publishes its own).
+    let (fixture, jobs, target_id) = measure_fixture().await;
+    let changed = fixture
+        .harness
+        .spawn_recorder::<ActiveSessionChanged>()
+        .await;
+
+    // When the measurement is requested (the in-memory activation).
+    fixture
+        .harness
+        .publish(SessionLoadRequested {
+            session_id: target_id.clone(),
+            content_width: Some(72),
+        })
+        .await;
+    await_recorded(&jobs, 1, Duration::from_secs(2)).await;
+    let changed = await_recorded(&changed, 1, Duration::from_secs(2)).await;
+
+    // Then the activation is announced — one event naming the session
+    // that just became active. Consumers key the "the user looked"
+    // fact off this event, so a silent pointer move strands them.
+    assert_eq!(changed.len(), 1, "exactly one announcement");
+    assert_eq!(changed[0].session_id, target_id);
 }
 
 #[rstest::rstest]

@@ -27,6 +27,7 @@ fn sessions_query_empty_q_reads_as_no_filter() {
     // cleared but still sent).
     let query = SessionsQuery {
         q: Some(String::new()),
+        viewed: None,
     };
 
     // Then no filter is in force — the matcher's empty-pattern
@@ -40,11 +41,84 @@ fn sessions_query_text_names_the_filter() {
     // Given a query carrying filter text.
     let query = SessionsQuery {
         q: Some("fix".to_owned()),
+        viewed: None,
     };
 
     // When reading the filter.
     // Then the text rides through verbatim.
     assert_eq!(query.filter_text(), Some("fix"));
+}
+
+#[rstest::rstest]
+#[test]
+fn sessions_query_absent_viewed_reads_as_no_viewer() {
+    // Given the landing page's pull shape (no `viewed` key at all).
+    let query: SessionsQuery = serde_json::from_str("{}").expect("empty object parses");
+
+    // Then nothing is viewed — the landing page's no-viewer render.
+    assert_eq!(query.viewed_session(), None);
+}
+
+#[rstest::rstest]
+#[test]
+fn sessions_query_empty_viewed_reads_as_no_viewer() {
+    // Given a pull whose viewer signal is bound but empty (the
+    // landing page's `$viewedSession` serializes as "").
+    let query = SessionsQuery {
+        q: None,
+        viewed: Some(String::new()),
+    };
+
+    // Then nothing is viewed — an empty viewer string is the landing
+    // page's shape, never a phantom active row.
+    assert_eq!(query.viewed_session(), None);
+}
+
+#[rstest::rstest]
+#[test]
+fn sessions_query_a_well_formed_viewed_id_parses() {
+    // Given a pull carrying the viewed session's id.
+    let id = SessionId::new();
+    let query = SessionsQuery {
+        q: None,
+        viewed: Some(id.to_string()),
+    };
+
+    // When reading the viewer.
+    // Then the id parses through to the typed value.
+    assert_eq!(query.viewed_session(), Some(id));
+}
+
+#[rstest::rstest]
+#[test]
+fn sessions_query_a_stale_viewed_string_reads_as_no_viewer() {
+    // Given a pull whose viewer string is not a UUID (a page pulled
+    // with a signal value from a previous page shape).
+    let query = SessionsQuery {
+        q: None,
+        viewed: Some("not-a-uuid".to_owned()),
+    };
+
+    // Then the pull degrades to no viewer rather than failing — the
+    // pull renders a list, not a validation surface.
+    assert_eq!(query.viewed_session(), None);
+}
+
+#[rstest::rstest]
+#[test]
+fn session_page_opened_carries_its_session() {
+    // Given the arrival event for one session.
+    let id = SessionId::new();
+    let event = crate::wire::SessionPageOpened {
+        session_id: id.clone(),
+    };
+
+    // Then the event round-trips — the fan-out handler receives the
+    // same session id the page handler published.
+    let json = serde_json::to_string(&event).expect("the event serializes");
+    let parsed: crate::wire::SessionPageOpened =
+        serde_json::from_str(&json).expect("the event parses back");
+    assert_eq!(parsed.session_id, id);
 }
 
 #[rstest::rstest]
@@ -113,7 +187,7 @@ fn sse_envelope_serializes_its_kind_for_the_wire() {
     let id = SessionId::new();
     let envelopes = (
         SseEnvelope {
-            kind: SseKind::Chat,
+            kind: SseKind::Streaming,
             session_id: id.clone(),
             cursor: 3,
             html: "<span>x</span>".to_owned(),
@@ -143,9 +217,12 @@ fn sse_envelope_serializes_its_kind_for_the_wire() {
 
     // Then the kind serializes under its kebab-case name and the
     // cursor rides along; the other kinds name themselves distinctly.
-    assert!(json.contains("\"kind\":\"chat\""), "{json}");
+    assert!(json.contains("\"kind\":\"streaming\""), "{json}");
     assert!(json.contains("\"cursor\":3"), "{json}");
-    assert_ne!(SseKind::Chat.event_name(), SseKind::Controls.event_name());
+    assert_ne!(
+        SseKind::Streaming.event_name(),
+        SseKind::Controls.event_name()
+    );
     assert_ne!(
         SseKind::Sessions.event_name(),
         SseKind::TranscriptFull.event_name()

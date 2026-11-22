@@ -199,19 +199,22 @@ test("the hamburger slides in the panel with its scrim and one Sessions item", a
   await page.locator(sel.MENU_BUTTON).click();
 
   // Then the panel slid in from the left over its scrim, carrying
-  // exactly six items — new-session, persona, MCP, tools and skills
-  // (a session is viewed), sessions — per-session items between the
-  // shared ones.
+  // exactly nine buttons — the six items (new-session, persona, MCP,
+  // tools, skills, sessions) plus the theme control's three options
+  // (light, dark, system) at the panel's tail.
   await expectMenuPanelOnCanvas(page);
   await expect(page.locator(sel.MENU_SCRIM)).toBeVisible();
   const items = page.locator(`${sel.MENU_PANEL} button`);
-  await expect(items).toHaveCount(6);
+  await expect(items).toHaveCount(9);
   await expect(items.nth(0)).toHaveText("New session");
   await expect(items.nth(1)).toHaveText("Persona");
   await expect(items.nth(2)).toHaveText("MCP servers");
   await expect(items.nth(3)).toHaveText("Tools");
   await expect(items.nth(4)).toHaveText("Skills");
   await expect(items.nth(5)).toHaveText("Sessions");
+  await expect(items.nth(6)).toHaveText("Light");
+  await expect(items.nth(7)).toHaveText("Dark");
+  await expect(items.nth(8)).toHaveText("System");
 });
 
 test("the Sessions item closes the menu and opens the drawer", async ({
@@ -234,6 +237,77 @@ test("the Sessions item closes the menu and opens the drawer", async ({
   );
   await expectSidebarOnCanvas(page);
   await expect(page.locator(sel.DRAWER_SCRIM)).toBeVisible();
+});
+
+test("the sessions button opens the drawer in one tap", async ({ page }) => {
+  // Given the session page at a phone viewport, drawer closed.
+  await openBootedSession(page);
+  await expect(page.locator(sel.PAGE_ROOT)).not.toHaveClass(
+    new RegExp(sel.DRAWER_OPEN_CLASS),
+  );
+
+  // When tapping the titlebar sessions button.
+  await page.locator(sel.SESSIONS_BUTTON).click();
+
+  // Then the drawer-open class landed on the page root, the sidebar
+  // slid in, and the drawer scrim shows — one tap, no menu hop.
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
+    new RegExp(sel.DRAWER_OPEN_CLASS),
+  );
+  await expectSidebarOnCanvas(page);
+  await expect(page.locator(sel.DRAWER_SCRIM)).toBeVisible();
+});
+
+test("a tap on the scrim closes the drawer the sessions button opened", async ({
+  page,
+}) => {
+  // Given the session page with the drawer already open via the
+  // sessions button.
+  await openBootedSession(page);
+  await page.locator(sel.SESSIONS_BUTTON).click();
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
+    new RegExp(sel.DRAWER_OPEN_CLASS),
+  );
+
+  // When tapping again to close. With the drawer open, the drawer
+  // (fixed, z 40) covers the titlebar — the button included — so the
+  // surface a finger actually hits is the drawer's scrim on the open
+  // right side of the viewport. One tap either way: the button opens,
+  // the scrim closes.
+  const viewport = page.viewportSize();
+  if (!viewport) {
+    throw new Error("the page reports no viewport");
+  }
+  await page.locator(sel.DRAWER_SCRIM).click({
+    position: { x: viewport.width - 40, y: 120 },
+  });
+
+  // Then the drawer closed through the scrim's tap-to-dismiss —
+  // class gone, sidebar off-canvas.
+  await expect(page.locator(sel.PAGE_ROOT)).not.toHaveClass(
+    new RegExp(sel.DRAWER_OPEN_CLASS),
+  );
+  await expectSidebarOffCanvas(page);
+});
+
+test("the sessions button is hidden at a desktop viewport", async ({
+  page,
+}) => {
+  // Given the page at the desktop viewport (the describe's override).
+  await page.setViewportSize(DESKTOP);
+  await page.goto(`${baseUrl()}/web`);
+  const button = page.locator(sel.SESSIONS_BUTTON);
+  await expect(button).toBeAttached();
+
+  // When reading the computed display.
+  const display = await button.evaluate(
+    (el) => getComputedStyle(el).display,
+  );
+
+  // Then the CSS hides it — the sidebar is static chrome at this
+  // width, and the button would duplicate a list already on screen.
+  expect(display).toBe("none");
+  await expect(page.locator(sel.SESSIONS_BUTTON_COUNT)).toBeHidden();
 });
 
 test("a scrim tap closes the drawer", async ({ page }) => {

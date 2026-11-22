@@ -28,6 +28,14 @@ the created session's page, and every other open page's sidebar picks the
 new session up without a reload. It is the same creation path the TUI
 pickers and Discord `/new` ride, so the session looks identical everywhere.
 
+On a phone-width browser (under 768px) the session list is an off-canvas
+drawer, and the titlebar's sessions button (`📋`, beside the hamburger)
+opens it in one tap — no menu hop. The button turns yellow with a count
+badge when background sessions settled work you haven't viewed (the same
+unread mark that yellows the sidebar rows); activating a session clears its
+mark. At desktop widths the button is hidden — the sidebar is already on
+screen.
+
 A **lifecycle recipe** is a named pair of setup/teardown commands configured
 in `jinn.toml` (`[[session_lifecycle.script]]`, e.g. open a fossil branch
 checkout or a git worktree). A command may be a shell string or a builtin
