@@ -56,13 +56,17 @@ pub fn escape_html(text: &str) -> String {
 /// Raw HTML in the source is escaped rather than passed through, so a
 /// `<script>` written by a model (or pasted into a message) stays
 /// inert text in the page. Everything else is delegated to
-/// pulldown-cmark's own renderer, which escapes text nodes.
+/// pulldown-cmark's own renderer, which escapes text nodes. Footnotes
+/// are enabled: model-written `[^n]` references and definitions render
+/// as real elements (`sup.footnote-reference`, `div.footnote-definition`)
+/// instead of one literal text block.
 #[must_use]
 pub fn render_markdown(source: &str) -> String {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
+    options.insert(Options::ENABLE_FOOTNOTES);
 
     // Raw HTML in the source is demoted to a text node rather than
     // passed through; the whole event stream is rewritten first and
@@ -91,6 +95,12 @@ pub struct RenderedEntry {
     pub summary: Option<String>,
     /// Whether the template presents this entry as a `<details>`.
     pub is_disclosure: bool,
+    /// Whether the disclosure renders open — the in-flight tail's
+    /// thinking entries only. The settled transcript renders every
+    /// disclosure collapsed; the streaming tail renders thinking open
+    /// (the turn's reasoning is the thing being watched) and every
+    /// other disclosure collapsed (TUI parity).
+    pub is_streaming: bool,
     /// A tool result's outcome word (`success`/`failure`/`pending`),
     /// when this entry is one.
     pub tool_status: Option<&'static str>,
@@ -186,8 +196,19 @@ impl TranscriptModel {
 /// Every kind renders (see [`is_renderable`]): disclosures for tool
 /// calls/results and thinking, prose for everything else, and
 /// transients as muted one-shot notices (the refresh summary table).
+/// `is_streaming` names the disclosure state the template applies —
+/// false here (the settled projection); the streaming tail's render
+/// sets it for its thinking entries.
 #[must_use]
 pub fn render_entry(entry: &ChatEntry) -> RenderedEntry {
+    render_entry_streaming(entry, false)
+}
+
+/// [`render_entry`] with the streaming disclosure state decided: the
+/// in-flight tail renders thinking entries open; everything else
+/// stays collapsed regardless of state.
+#[must_use]
+pub fn render_entry_streaming(entry: &ChatEntry, streaming_open: bool) -> RenderedEntry {
     let (class, body, summary, is_disclosure, tool_status) = match &entry.kind {
         ChatEntryKind::User { display, .. } => {
             ("user", render_markdown(display), None, false, None)
@@ -235,18 +256,23 @@ pub fn render_entry(entry: &ChatEntry) -> RenderedEntry {
                 Some(status_word),
             )
         }
-        // Compaction summaries and annotations are prose the reader
-        // should see inline; intersession and rule-interrupt notes are
-        // escaped verbatim. Transients are absent.
+        // Sources render as one collapsed disclosure per entry — the
+        // TUI's "Sources (N)" block's web shape: the summary carries
+        // the count, the body holds one linked row per citation (see
+        // [`sources_html`]). Intersession and rule-interrupt notes are
+        // escaped verbatim; transients are absent.
+        ChatEntryKind::Annotation { citations } => {
+            let count = citations.len();
+            (
+                "annotation",
+                sources_html(citations),
+                Some(format!("Sources ({count})")),
+                true,
+                None,
+            )
+        }
         ChatEntryKind::Compaction { .. } => (
             "compaction",
-            escape_html(&entry.yank_text()),
-            None,
-            false,
-            None,
-        ),
-        ChatEntryKind::Annotation { .. } => (
-            "annotation",
             escape_html(&entry.yank_text()),
             None,
             false,
@@ -278,9 +304,66 @@ pub fn render_entry(entry: &ChatEntry) -> RenderedEntry {
         body_html: body,
         summary,
         is_disclosure,
+        is_streaming: is_disclosure && streaming_open && class == "thinking",
         tool_status,
         at: entry.timing.at().to_string(),
     }
+}
+
+/// Renders one citation row: the linked title (or the URL when the
+/// title is empty — the TUI's untitled fallback) with the URL as
+/// muted text beside it. Only `http(s)` URLs become links; every
+/// model- or provider-supplied value is escaped, and a link renders
+/// `target="_blank"` with `rel="noopener"` so the source opens in a
+/// new tab without handing it the opener handle. Snippets are not
+/// displayed (TUI parity: title + URL only).
+fn citation_row_html(citation: &jinn_core_types::url_citation::UrlCitation) -> String {
+    use std::fmt::Write as _;
+    let title_text = if citation.title.is_empty() {
+        "(untitled)"
+    } else {
+        citation.title.as_str()
+    };
+    let title = escape_html(title_text);
+    let url = escape_html(&citation.url);
+    let mut row = String::with_capacity(title.len() + url.len() + 96);
+    if url_starts_with_scheme(&citation.url, "http://")
+        || url_starts_with_scheme(&citation.url, "https://")
+    {
+        let _ = write!(
+            row,
+            "<div class=\"citation\"><a class=\"citation-title\" href=\"{url}\" \
+             target=\"_blank\" rel=\"noopener\">{title}</a> \
+             <span class=\"citation-url\">{url}</span></div>"
+        );
+    } else {
+        let _ = write!(
+            row,
+            "<div class=\"citation\"><span class=\"citation-title\">{title}</span> \
+             <span class=\"citation-url\">{url}</span></div>"
+        );
+    }
+    row
+}
+
+/// Whether the text starts with the given scheme, ASCII-case-
+/// insensitively. The render re-checks the URL's shape rather than
+/// trusting the detector — a hostile or malformed payload renders as
+/// plain text, never as a link.
+fn url_starts_with_scheme(url: &str, scheme: &str) -> bool {
+    url.as_bytes()
+        .get(..scheme.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(scheme.as_bytes()))
+}
+
+/// Renders the sources list — one [`citation_row_html`] per citation,
+/// in the entry's arrival order (the detector's dedupe order).
+fn sources_html(citations: &[jinn_core_types::url_citation::UrlCitation]) -> String {
+    let mut out = String::new();
+    for citation in citations {
+        out.push_str(&citation_row_html(citation));
+    }
+    out
 }
 
 /// Whether an entry participates in the rendered sequence.
