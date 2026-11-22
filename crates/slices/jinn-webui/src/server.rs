@@ -32,6 +32,8 @@ use datastar::prelude::{ExecuteScript, PatchElements, PatchSignals};
 use futures::StreamExt as _;
 use jinn_core_types::SessionId;
 use jinn_kernel::State;
+use jinn_preferences_config::protocol::app_state_command::AppStateUpdate;
+use jinn_preferences_config::protocol::app_state_command::UpdateAppState;
 use jinn_slices::PhaseView;
 use jinn_slices::bus::BusService;
 use jinn_webui_msg::SseEnvelope;
@@ -272,6 +274,7 @@ async fn overlay_reset_patches(
         crate::regions::sessions::unread_count_of(&guard)
     };
     let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
+    let web_theme = persisted_web_theme(shared);
     // The root fragment — NOT the full page shell. The runtime morphs
     // element patches; a document-shaped patch (DOCTYPE + <html>) is
     // parsed as a whole document and its fight with the live page
@@ -288,6 +291,7 @@ async fn overlay_reset_patches(
         model_html,
         menu_html,
         attention_count,
+        web_theme,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(vec![
@@ -563,6 +567,7 @@ pub fn router(shared: ServerShared) -> Router {
         .route("/web/send", post(send))
         .route("/web/cancel", post(cancel))
         .route("/web/model", post(model))
+        .route(crate::contract::THEME_PATH, post(theme))
         .route(crate::contract::PERSONA_PATH, post(persona))
         .route(crate::contract::MCP_TOGGLE_PATH, post(mcp_toggle))
         .route(crate::contract::TOOLS_TOGGLE_PATH, post(tools_toggle))
@@ -628,10 +633,12 @@ async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, H
     // No viewed session on the landing page — the menu renders without
     // the persona item.
     let menu_html = crate::regions::menu::menu_fragment("", attention_count);
+    let web_theme = persisted_web_theme(&shared);
     let html = crate::templates::render(&crate::templates::PageTemplate::landing(
         sessions_html,
         menu_html,
         attention_count,
+        web_theme,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(Page::new(html))
@@ -677,6 +684,7 @@ async fn page_session(
         crate::regions::sessions::unread_count_of(&guard)
     };
     let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
+    let web_theme = persisted_web_theme(&shared);
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         &session_id,
         view.transcript.title.clone(),
@@ -687,12 +695,30 @@ async fn page_session(
         model_html,
         menu_html,
         attention_count,
+        web_theme,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(Page::new(html))
 }
 
 // ── Shared reads ────────────────────────────────────────────────────
+
+/// The persisted color mode from the app state — `light`, `dark`, or
+/// `system` (an unset or unrecognized persisted value reads as
+/// `system`, the CSS default).
+#[must_use]
+fn persisted_web_theme(shared: &ServerShared) -> String {
+    let guard = shared.read_state();
+    match guard.frontend.app_state.web_theme.as_deref() {
+        Some("light" | "dark" | "system") => guard
+            .frontend
+            .app_state
+            .web_theme
+            .clone()
+            .unwrap_or_default(),
+        _ => "system".to_owned(),
+    }
+}
 
 /// A session's full view for one page render: the projection plus the
 /// phase, from live state or (when not loaded) the store.
@@ -897,6 +923,60 @@ async fn cancel(
     // stale-controls bug is exactly a POST response disagreeing with
     // it.
     Ok(SseAction::empty())
+}
+
+/// `POST /web/theme` — set the webui's color mode. The web mirror of
+/// a preferences write: the mode is validated against the three-value
+/// vocabulary (an unknown value was never rendered by the menu
+/// control — the unrecognized-value refusal is the 400, never a
+/// silent default), the choice is published as `UpdateAppState(
+/// SetWebTheme)` for the app-state actor to persist, and the response
+/// re-seeds the `webTheme` signal and patches the theme-color meta —
+/// both **rendered from the submitted value**, never from the state
+/// cache (the persona precedent: the actor applies the diff
+/// asynchronously, so the cache races the response).
+async fn theme(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<WebForm<jinn_webui_msg::ThemeForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
+    let theme = form.theme;
+    if !matches!(theme.as_str(), "light" | "dark" | "system") {
+        return Err(fail(
+            400,
+            format!("unknown theme `{theme}` (want light, dark, or system)"),
+        ));
+    }
+    shared
+        .bus()
+        .publish(UpdateAppState {
+            updates: vec![AppStateUpdate::SetWebTheme(Some(theme.clone()))],
+        })
+        .await;
+    // Response truth: the submitted value, not the state cache. The
+    // signal re-seed makes the acting page's mode deterministic even
+    // where the click handler already set it (e.g. a urlencoded
+    // caller), and the meta patch refreshes the browser chrome.
+    Ok(SseAction::new(vec![
+        signal_patch(&[(crate::contract::SIGNAL_WEB_THEME, theme_value(&theme))]),
+        PatchElements::new(format!(
+            "<meta name=\"theme-color\" content=\"{}\">",
+            crate::templates::theme_color_for(&theme)
+        ))
+        .selector("meta[name='theme-color']")
+        .mode(datastar::consts::ElementPatchMode::Replace)
+        .into_datastar_event(),
+    ]))
+}
+
+/// The signal value for a mode — system is stored as the empty string
+/// on the signal (the body's `data-attr` binding reads it as system),
+/// light/dark pass through verbatim.
+fn theme_value(theme: &str) -> serde_json::Value {
+    match theme {
+        "system" => serde_json::Value::String(String::new()),
+        other => serde_json::Value::String(other.to_owned()),
+    }
 }
 
 /// `POST /web/model` — switch a session's model. Responds with the

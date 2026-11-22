@@ -112,6 +112,8 @@ fn rendered_page() -> String {
         sessions_attention: 0,
         sessions_route: contract::SESSIONS_ROUTE,
         session_page_path: contract::SESSION_PAGE_PREFIX,
+        web_theme: "system".to_owned(),
+        theme_color: templates::theme_color_for("system"),
     })
     .expect("the page shell renders")
 }
@@ -286,6 +288,8 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         sessions_attention: 0,
         sessions_route: contract::SESSIONS_ROUTE,
         session_page_path: contract::SESSION_PAGE_PREFIX,
+        web_theme: "system".to_owned(),
+        theme_color: templates::theme_color_for("system"),
     })
     .expect("the page shell renders");
 

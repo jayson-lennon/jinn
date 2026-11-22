@@ -791,6 +791,105 @@ mod actions {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn theme_post_publishes_set_web_theme_and_reseeds_the_signal() {
+        // Given the router over an empty state.
+        let (_state, audit, _slices, router) = harness();
+
+        // When posting a light pick.
+        let (status, body) = post_form(&router, "/web/theme", "theme=light").await;
+
+        // Then the response is OK, carries the webTheme signal re-seed
+        // and the light theme-color meta (response truth: the
+        // submitted value), and the bus names UpdateAppState.
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("webTheme"), "signal re-seed missing: {body}");
+        assert!(
+            body.contains("theme-color") && body.contains("#eceff4"),
+            "meta patch missing: {body}"
+        );
+        assert_eq!(audit_count(&audit, "UpdateAppState"), 1);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn theme_post_of_system_seeds_the_empty_signal_value() {
+        // Given the router over an empty state.
+        let (_state, _audit, _slices, router) = harness();
+
+        // When posting the system pick.
+        let (status, body) = post_form(&router, "/web/theme", "theme=system").await;
+
+        // Then the signal re-seed carries the empty string — the body
+        // binding reads an empty signal as system.
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body.contains("\"webTheme\":\"\""),
+            "system seeds the empty signal: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn theme_post_of_an_unknown_value_is_a_400() {
+        // Given the router over an empty state.
+        let (_state, audit, _slices, router) = harness();
+
+        // When posting a value the menu control never renders.
+        let (status, _body) = post_form(&router, "/web/theme", "theme=sepia").await;
+
+        // Then the refusal is a 400 and nothing published.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit_count(&audit, "UpdateAppState"), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn page_seeds_the_web_theme_signal_from_the_persisted_mode() {
+        // Given app state persisting the light mode.
+        let (state, _audit, _slices, router) = harness();
+        state.write().frontend.app_state.web_theme = Some("light".to_owned());
+
+        // When getting the home page.
+        let (status, body) = get(&router, "/web").await;
+
+        // Then the page-root seeds webTheme with the persisted value
+        // and the meta names the light background.
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("webTheme: 'light'"),
+            "signal seed missing: {body}"
+        );
+        assert!(
+            body.contains("<meta name=\"theme-color\" content=\"#eceff4\">"),
+            "meta not light: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn page_without_a_persisted_mode_seeds_system_and_the_dark_meta() {
+        // Given app state with no persisted mode (the fresh install).
+        let (state, _audit, _slices, router) = harness();
+        assert!(state.read().frontend.app_state.web_theme.is_none());
+
+        // When getting the home page.
+        let (status, body) = get(&router, "/web").await;
+
+        // Then the signal seeds 'system' and the meta names the dark
+        // background (the :root default the OS query overrides).
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("webTheme: 'system'"),
+            "system seed missing: {body}"
+        );
+        assert!(
+            body.contains("<meta name=\"theme-color\" content=\"#191b1e\">"),
+            "meta not dark: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn send_appends_the_user_entry_to_the_session() {
         // Given a live session and the router over it.
         let (state, audit, _slices, router) = harness();

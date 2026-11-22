@@ -176,6 +176,7 @@ async fn every_declared_container_id_appears_in_the_rendered_page_shell() {
         model,
         crate::regions::menu::menu_fragment(&id.to_string(), 0),
         0,
+        "system".to_owned(),
     ))
     .expect("the page renders");
 

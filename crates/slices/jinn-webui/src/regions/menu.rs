@@ -112,7 +112,7 @@ pub fn menu_fragment(viewed_session: &str, attention_count: usize) -> String {
 /// bumps and the sessions button's width decision are media-query
 /// scoped, decided by CSS alone.
 pub const MENU_CSS: &str = r#"
-#menu-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; }
+#menu-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 60; }
 #menu-scrim[hidden] { display: none; }
 #menu-panel { position: fixed; top: 0; bottom: 0; left: 0; width: 280px;
               background: var(--panel); border-right: 1px solid var(--border);
@@ -124,7 +124,7 @@ pub const MENU_CSS: &str = r#"
                       transition: none; }
 #menu-panel:not([hidden]) { transform: translateX(0); }
 #menu-button:hover { border-color: var(--accent); }
-#menu-panel button:hover { background: #23272f; }
+#menu-panel button:hover { background: var(--bg-hover); }
 #menu-panel button:focus-visible { outline: 1px solid var(--accent); }
 /* The sessions drawer toggle: the hamburger's sibling, styled like it
    at rest. The attention fill reuses the unread rows' exact grammar —
@@ -147,11 +147,21 @@ pub const MENU_CSS: &str = r#"
 @media (min-width: 768px) {
   #sessions-button, #sessions-button-count { display: none; }
 }
+#menu-item-theme { display: flex; margin-top: auto; padding: 6px 4px 2px;
+                   border-top: 1px solid var(--border); gap: 4px; }
+#menu-item-theme button { flex: 1; text-align: center; font-size: 12px;
+                          padding: 6px 4px; border-radius: 5px;
+                          border: 1px solid var(--border); color: var(--muted);
+                          background: transparent; cursor: pointer; font: inherit; }
+#menu-item-theme button:hover { background: var(--bg-hover); }
+#menu-item-theme button.theme-active { background: var(--bg-active);
+                                       color: var(--fg); font-weight: 600; }
 @media (max-width: 767px) {
   #menu-button { min-height: 40px; min-width: 40px; }
   #sessions-button { min-height: 40px; min-width: 40px; }
   #sessions-button-count { display: inline-block; }
   #menu-panel button { min-height: 40px; padding: 10px 12px; }
+  #menu-item-theme button { min-height: 40px; padding: 8px 4px; }
 }
 "#;
 
@@ -221,10 +231,63 @@ mod menu_region_tests {
             "the Skills item is missing: {html}"
         );
         let items = html.matches("menu-item").count();
-        assert_eq!(items, 6, "the panel lists all six items: {html}");
+        assert_eq!(
+            items, 10,
+            "the panel lists all six items + the theme control: {html}"
+        );
         assert!(
             html.contains("Sessions"),
             "the item labels Sessions: {html}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_theme_control_carries_the_three_modes_and_posts_the_pick() {
+        // Given the session-page menu fragment.
+        let html = fragment();
+
+        // Then the segmented control renders the Light, Dark, and
+        // System options, each posting its mode to the theme endpoint,
+        // and the active-mark class binding reads the webTheme signal.
+        for (id, mode) in [
+            (contract::MENU_ITEM_THEME_LIGHT_ID, "light"),
+            (contract::MENU_ITEM_THEME_DARK_ID, "dark"),
+            (contract::MENU_ITEM_THEME_SYSTEM_ID, "system"),
+        ] {
+            let item = html
+                .split_once(&format!("id=\"{id}\""))
+                .map(|(_, rest)| {
+                    rest.split_once('>')
+                        .map_or(String::new(), |(tag, _)| tag.to_owned())
+                })
+                .unwrap_or_default();
+            assert!(
+                item.contains(&format!("'{}'", contract::THEME_PATH)),
+                "{id} posts to the theme endpoint: {item}"
+            );
+            assert!(
+                item.contains(&format!("payload: {{theme: '{mode}'}}")),
+                "{id} posts its mode: {item}"
+            );
+            assert!(
+                item.contains(&format!("${} === '{mode}'", contract::SIGNAL_WEB_THEME)),
+                "{id} marks the active mode off the signal: {item}"
+            );
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_theme_control_renders_on_the_landing_page() {
+        // Given the landing-page menu fragment (nothing viewed).
+        let html = landing_fragment();
+
+        // Then the theme control is present — the mode binds app-wide,
+        // not per-session, so the control is not gated on a session.
+        assert!(
+            html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_THEME_ID)),
+            "the theme control is missing on the landing page: {html}"
         );
     }
 
