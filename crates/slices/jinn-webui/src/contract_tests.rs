@@ -350,7 +350,11 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
         "{idle}"
     );
     assert!(
-        !idle.contains(&format!("{}=\"{}\"", contract::ACTION_DATA_ATTR, contract::ACTION_QUEUE)),
+        !idle.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_QUEUE
+        )),
         "the idle fragment renders no queue button: {idle}"
     );
     assert!(
@@ -362,7 +366,11 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
     // is the session actor's routing decision, not a new route — and
     // no send action is named (send and queue are distinct values).
     assert!(
-        busy.contains(&format!("{}=\"{}\"", contract::ACTION_DATA_ATTR, contract::ACTION_QUEUE)),
+        busy.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_QUEUE
+        )),
         "{busy}"
     );
     assert!(
@@ -370,7 +378,11 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
         "{busy}"
     );
     assert!(
-        !busy.contains(&format!("{}=\"{}\"", contract::ACTION_DATA_ATTR, contract::ACTION_SEND)),
+        !busy.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_SEND
+        )),
         "send and queue are distinct action values: {busy}"
     );
     // And the queue button precedes the cancel button in the busy
@@ -394,7 +406,11 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
         "queue button before cancel in the busy fragment: {busy}"
     );
     assert!(
-        !idle.contains(&format!("{}=\"{}\"", contract::ACTION_DATA_ATTR, contract::ACTION_CANCEL)),
+        !idle.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_CANCEL
+        )),
         "{idle}"
     );
     // And the composer carries the input id the client reads the
