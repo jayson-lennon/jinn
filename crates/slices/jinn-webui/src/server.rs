@@ -1414,10 +1414,12 @@ pub struct StreamQuery {
 /// `start` as a patch that inserts it **before** the streaming
 /// container (the entries are settled transcript content — the
 /// container holds the in-flight tail and must stay the transcript's
-/// last child), then one empty frame that parks the cursor at `total`
-/// even when the last render failed, so a reconnect does not re-pull
-/// forever. The trailing frame carries no HTML — its `id:` line is its
-/// whole payload (the browser's resume position).
+/// last child), then one cursor-park frame that parks the cursor at
+/// `total` even when the last render failed, so a reconnect does not
+/// re-pull forever. The trailing frame patches no signal any effect
+/// reads (its `onlyIfMissing` payload is a no-op on a connected
+/// page) — a reconnect appends without scrolling; its `id:` line is
+/// its real payload (the browser's resume position).
 pub(crate) fn render_catchup_events(
     entries: &[crate::transcript::RenderedEntry],
     start: usize,
@@ -1441,16 +1443,17 @@ pub(crate) fn render_catchup_events(
             )
         })
         .collect();
-    // The trailing cursor-park + scroll tick: a signal patch whose
-    // `id:` parks the browser's resume cursor at `total` (the settled
-    // boundary mid-turn — never the live count) and whose chatTick
-    // bump keys the wrap's scroll effect — a reconnect's catch-up
-    // appends land with the reader following the tail, same as a live
-    // batch.
+    // The trailing cursor-park: a signal patch whose `id:` parks the
+    // browser's resume cursor at `total` (the settled boundary
+    // mid-turn — never the live count). The payload is reader-less —
+    // `onlyIfMissing` over an always-declared signal, so no signal
+    // value ever changes and no `data-effect` anywhere fires: a
+    // reconnect's catch-up appends land without scrolling.
     events.push(
         PatchSignals::new(
-            serde_json::json!({ crate::contract::SIGNAL_CHAT_TICK: total }).to_string(),
+            serde_json::json!({ crate::contract::SIGNAL_MENU_OPEN: false }).to_string(),
         )
+        .only_if_missing(true)
         .id(total.max(start).to_string())
         .into_datastar_event(),
     );

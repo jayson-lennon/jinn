@@ -1,5 +1,12 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- (webui) Keystrokes no longer erroneously close modals.
+- (webui) Sessions no longer auto-scroll while the model is generating tokens.
+- (webui) Adjust rendering to more closely match TUI transcript.
+- Remove `#generate-persona` prompt.
+
 ## 2026-11-21 v1.26.1
 
 - `#goal` prompt saves the contract to disk instead of as a chat response.

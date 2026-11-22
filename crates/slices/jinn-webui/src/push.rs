@@ -20,6 +20,11 @@
 //! | Skills         | PatchSignals   | `skillsTick` stamp    | —      |
 //! | Tools          | PatchSignals   | `toolsTick` stamp     | —      |
 //!
+//! No push keys any scrolling: transcript pushes carry no signal
+//! patch at all, and no signal any `data-effect` reads rides any
+//! event. The wrap scrolls on its `data-init` (page load, row-click
+//! swap) and on the composer's send-time scroll — nothing else.
+//!
 //! Sessions, Models, McpStatus, Skills, and Tools pushes are
 //! **signals, not HTML**: the pushed list is a signal to the page's
 //! own effect, which re-pulls the fragment with its active filter —
@@ -82,13 +87,12 @@ pub(crate) enum PushError {
     EmptyFragment,
 }
 
-/// Translates one envelope into its SSE event sequence: one element
-/// patch plus a [`contract::SIGNAL_CHAT_TICK`] signal bump for the
-/// three transcript-shape kinds (streaming tail replace, full
-/// replace) — the browser's scroll effect keys on it, so a reader
-/// watching the tail follows each batch. The bump rides after the
-/// render (patch first, tick second) so the effect's scroll lands on
-/// the grown DOM. Controls and the signal kinds carry no tick.
+/// Translates one envelope into its SSE event sequence: one event per
+/// envelope, always. The transcript-shape kinds (streaming tail
+/// replace, full replace) are patch-only — no signal rides them, so
+/// no server event keys any scrolling; the wrap scrolls on its
+/// `data-init` and on the composer's send-time scroll, never on data
+/// arrival. Controls and the signal kinds carry one patch each.
 ///
 /// `sessions_tick` is the per-stream counter the sessions signal
 /// bumps — the endpoint owns the counter so every connection counts
@@ -112,10 +116,6 @@ pub(crate) fn sdk_events_of(
         }
         builder.into_datastar_event()
     };
-    let tick = |n: u64| {
-        PatchSignals::new(serde_json::json!({ contract::SIGNAL_CHAT_TICK: n }).to_string())
-            .into_datastar_event()
-    };
     match envelope.kind {
         // The in-flight tail: wholesale-replaced into the streaming
         // container. The id line parks at the envelope's settled
@@ -125,29 +125,23 @@ pub(crate) fn sdk_events_of(
             if envelope.html.is_empty() {
                 return Err(PushError::EmptyFragment);
             }
-            Ok(vec![
-                patch(
-                    envelope.html.clone(),
-                    streaming_selector(),
-                    ElementPatchMode::Inner,
-                    Some(envelope.cursor.to_string()),
-                ),
-                tick(sessions_tick),
-            ])
+            Ok(vec![patch(
+                envelope.html.clone(),
+                streaming_selector(),
+                ElementPatchMode::Inner,
+                Some(envelope.cursor.to_string()),
+            )])
         }
         SseKind::TranscriptFull => {
             if envelope.html.is_empty() {
                 return Err(PushError::EmptyFragment);
             }
-            Ok(vec![
-                patch(
-                    envelope.html.clone(),
-                    transcript_selector(),
-                    ElementPatchMode::Inner,
-                    None,
-                ),
-                tick(sessions_tick),
-            ])
+            Ok(vec![patch(
+                envelope.html.clone(),
+                transcript_selector(),
+                ElementPatchMode::Inner,
+                None,
+            )])
         }
         SseKind::Controls => {
             if envelope.html.is_empty() {
@@ -337,39 +331,52 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn a_streaming_push_is_a_patch_then_a_chat_tick_bump() {
-        // Given a streaming envelope (one flush tick's tail HTML).
+    fn a_streaming_push_is_a_single_patch_only_event() {
+        // Given a streaming envelope (one flush tick's tail HTML,
+        // cursor parked at the settled boundary).
         let events = sdk_events_of(&envelope(SseKind::Streaming, "<p>t</p>", 7), 3)
             .expect("a streaming push translates");
 
-        // Then it is two events: the inner replace first (the DOM
-        // changes), then the chatTick bump (the wrap's scroll effect
-        // fires on the changed DOM — tick-after-render is the order
-        // that scrolls to the NEW tail).
-        assert_eq!(events.len(), 2, "{events:?}");
-        let patch = events.first().expect("the patch rides first");
-        let tick = events.get(1).expect("the tick rides second");
+        // Then it is exactly one event: the inner replace of the
+        // streaming container, id parked at the boundary — no signal
+        // rides it, so the streamed tail cannot key any scrolling.
+        assert_eq!(events.len(), 1, "{events:?}");
+        let patch = events.first().expect("the patch rides alone");
         assert_eq!(patch.event, datastar::consts::EventType::PatchElements);
-        assert_eq!(tick.event, datastar::consts::EventType::PatchSignals);
-        let joined = tick.data.join("\n");
-        assert!(
-            joined
-                .replace(' ', "")
-                .contains(&format!("\"{}\":3", contract::SIGNAL_CHAT_TICK)),
-            "{joined}"
-        );
+        assert_eq!(patch.id.as_deref(), Some("7"));
+        let joined = patch.data.join("\n");
+        assert!(joined.contains("mode inner"), "{joined}");
+        assert!(!joined.contains("signals"), "{joined}");
     }
 
     #[rstest::rstest]
     #[test]
-    fn non_transcript_pushes_carry_no_chat_tick() {
+    fn a_transcript_full_is_a_single_patch_only_event() {
+        // Given a convergence envelope (the settle's full replace).
+        let events = sdk_events_of(&envelope(SseKind::TranscriptFull, "<p>all</p>", 0), 3)
+            .expect("a transcript-full translates");
+
+        // Then it is exactly one event: the inner replace — no signal
+        // rides it, so settle convergence cannot key any scrolling.
+        assert_eq!(events.len(), 1, "{events:?}");
+        let patch = events.first().expect("the patch rides alone");
+        assert_eq!(patch.event, datastar::consts::EventType::PatchElements);
+        assert_eq!(patch.id, None);
+        let joined = patch.data.join("\n");
+        assert!(joined.contains("mode inner"), "{joined}");
+        assert!(!joined.contains("signals"), "{joined}");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn non_transcript_pushes_carry_no_transcript_patch() {
         // Given a controls envelope (a region push that does not grow
         // the transcript).
         let events = sdk_events_of(&envelope(SseKind::Controls, "<button>b</button>", 0), 1)
             .expect("a controls push translates");
 
-        // Then it is one event with no tick bump — a controls swap
-        // must not scroll the transcript.
+        // Then it is one event with no transcript touch — a controls
+        // swap must not scroll the transcript.
         assert_eq!(events.len(), 1, "{events:?}");
         assert_eq!(
             events.first().expect("the controls patch").event,

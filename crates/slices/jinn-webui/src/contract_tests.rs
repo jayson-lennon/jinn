@@ -519,7 +519,7 @@ async fn every_modal_carries_click_away_on_the_overlay_and_escape_on_the_card() 
     // OVERLAY element (the `<div id=…>` the `data-attr:hidden` rides)
     // — a handler on the inner card fires only when the card itself
     // is clicked, and the backdrop click the user expects never
-    // reaches it. The `data-on:keydown__escape__document` handler
+    // reaches it. The `data-on:keydown__document` handler
     // rides the card, where the fragment renders it.
     for (name, html, overlay_id) in [
         ("persona", &persona, contract::PERSONA_MODAL_ID),
@@ -547,6 +547,168 @@ async fn every_modal_carries_click_away_on_the_overlay_and_escape_on_the_card() 
             "the {name} modal's card must not carry the click-away handler: {html}"
         );
     }
+}
+
+/// Every event modifier the pinned Datastar bundle documents, spelled
+/// as the template attribute spells it. The parser folds any `__token`
+/// into the modifier set silently, so a typo'd modifier registers the
+/// listener and then ignores it — the every-keystroke modal-close bug
+/// shipped exactly that way (`__escape` looks real on the web; Laravel
+/// Hyper documents key modifiers, the pinned bundle does not).
+const DOCUMENTED_EVENT_MODIFIERS: [&str; 11] = [
+    "window", "document", "outside", "prevent", "stop", "once", "passive", "capture", "debounce",
+    "throttle", "delay",
+];
+
+/// The document-level keydown handler's `(modifiers, expression)` in a
+/// rendered fragment — the first `data-on:keydown__` attribute found.
+///
+/// # Panics
+///
+/// Panics when `html` carries no document-level keydown attribute: the
+/// dismissal is missing, which is the defect this gate exists for.
+fn document_keydown(html: &str, name: &str) -> (String, String) {
+    const ATTRIBUTE: &str = "data-on:keydown__";
+    let after = html.split_once(ATTRIBUTE).map_or_else(
+        || panic!("the {name} fragment must carry a document-level keydown handler: {html}"),
+        |(_, tail)| tail,
+    );
+    let (modifiers, rest) = after
+        .split_once('=')
+        .expect("the keydown attribute has a value");
+    let value = rest
+        .strip_prefix('"')
+        .expect("the keydown attribute value is quoted");
+    let expression = value
+        .split('"')
+        .next()
+        .expect("the keydown attribute value closes");
+    (modifiers.to_owned(), expression.to_owned())
+}
+
+/// The opening-tag text preceding `needle`: everything from the tag's
+/// `<` to the attribute itself — the element's earlier attributes.
+///
+/// # Panics
+///
+/// Panics when `needle` is absent — a caller error, not a page defect.
+fn tag_text_before<'a>(html: &'a str, needle: &str) -> &'a str {
+    let head = html
+        .rsplit_once(needle)
+        .map(|(head, _)| head)
+        .expect("the needle occurs in the html");
+    head.rsplit('<')
+        .next()
+        .expect("a tag opening precedes the attribute")
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn every_document_level_keydown_dismissal_guards_on_escape() {
+    // Given every dismissal fragment rendered: the six modals (the
+    // new-session one seeded with a project, the branch that carries
+    // the keydown handler) plus the page shell's menu/drawer root.
+    let shared = test_shared();
+    let session_id = seed_session(&shared);
+    let persona = crate::regions::persona_picker::modal_fragment(&shared, &session_id, "")
+        .expect("the persona modal renders");
+    let model = crate::regions::model_picker::modal_fragment(&shared, &session_id, "")
+        .expect("the model modal renders");
+    let mcp = crate::regions::mcp_servers::modal_fragment(&shared, &session_id)
+        .expect("the mcp modal renders");
+    let skills = crate::regions::skills::modal_fragment(&shared, &session_id)
+        .expect("the skills modal renders");
+    let tools = crate::regions::tools::modal_fragment(&shared, &session_id)
+        .expect("the tools modal renders");
+    let config = {
+        use jinn_config::{ConfigLayer, InMemoryConfigStorage};
+        use marked_path::MarkedPathAccess as _;
+        let dir = jinn_testutil::tempdir();
+        let doc = format!(
+            "[[project.entry]]\npath = \"{}\"",
+            dir.path.as_path().join("demo").display()
+        )
+        .parse()
+        .expect("test TOML parses");
+        ConfigLayer::load(std::sync::Arc::new(InMemoryConfigStorage::new(doc)))
+            .expect("a test config layer loads")
+    };
+    let session_new = crate::regions::session_new::form_fragment(&config, "")
+        .expect("the new-session modal renders");
+    let page = rendered_page();
+
+    // When reading each fragment's dismissal: its modifiers, its
+    // expression, and the tag the handler rides (the modal card, the
+    // page root — placement the existing overlay test's comment pins).
+    let dismissals = [
+        ("persona modal", persona.as_str(), "-modal-inner"),
+        ("model modal", model.as_str(), "-modal-inner"),
+        ("mcp modal", mcp.as_str(), "-modal-inner"),
+        ("skills modal", skills.as_str(), "-modal-inner"),
+        ("tools modal", tools.as_str(), "-modal-inner"),
+        ("session-new modal", session_new.as_str(), "-modal-inner"),
+        ("page root", page.as_str(), contract::PAGE_ROOT_ID),
+    ];
+    let guarded = "evt.key === 'Escape'";
+
+    // Then every modifier each dismissal spells is in Datastar's
+    // documented set with `document` among them (no key modifiers —
+    // the silent-unknown-modifier trap), the handler rides the card
+    // (modals) or the page root, and the expression starts with the
+    // Escape guard — any keystroke must be a no-op for the dismissal.
+    for (name, html, card_marker) in dismissals {
+        let (modifiers, expression) = document_keydown(html, name);
+        let spelled: Vec<&str> = modifiers.split("__").filter(|m| !m.is_empty()).collect();
+        assert!(
+            !spelled.is_empty()
+                && spelled
+                    .iter()
+                    .all(|m| DOCUMENTED_EVENT_MODIFIERS.contains(m)),
+            "the {name} dismissal spells a modifier the pinned bundle does not document — it is \
+             folded in silently and the listener fires on every key: {modifiers:?} in {html}"
+        );
+        assert!(
+            spelled.contains(&"document"),
+            "the {name} dismissal must bind at the document level: {modifiers:?} in {html}"
+        );
+        let tag = tag_text_before(html, "data-on:keydown__");
+        assert!(
+            tag.contains(card_marker),
+            "the {name} dismissal must ride the `{card_marker}` element, got tag prefix: {tag:?} — {html}"
+        );
+        assert!(
+            expression.starts_with(guarded),
+            "the {name} dismissal must guard on {guarded:?} inside the expression — an \
+             unguarded document-level handler closes the surface on every keystroke: {html}"
+        );
+    }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_tools_modal_keydown_dismissal_keeps_the_revert_post_inside_the_guard() {
+    // Given the tools modal fragment — its dismissal body carries the
+    // revert POST as part of closing.
+    let shared = test_shared();
+    let session_id = seed_session(&shared);
+    let html = crate::regions::tools::modal_fragment(&shared, &session_id)
+        .expect("the tools modal renders");
+
+    // When extracting the dismissal's guarded expression.
+    let (_, expression) = document_keydown(&html, "tools modal");
+
+    // Then the guard prefixes the whole body — a keystroke in any page
+    // input fires neither the close nor the revert POST.
+    assert!(
+        expression.starts_with("evt.key === 'Escape' && ("),
+        "the revert POST must ride inside the Escape guard: {html}"
+    );
+    // And the body still carries the POST — dismissal semantics are
+    // identical whichever way the modal closes.
+    assert!(
+        expression.contains("@post("),
+        "the dismissal must still carry the revert POST: {html}"
+    );
 }
 
 /// Renders one row with the contract hooks filled.
