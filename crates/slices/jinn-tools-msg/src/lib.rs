@@ -45,7 +45,7 @@ pub use tool_picker_state::{
 pub use tool_registry::*;
 pub use truncation::*;
 pub use web_tool_rows::{
-    FilteredWebToolRow, WebToolRowSegments, WebToolRow, bot_sees_tool, committed_tool_filter,
+    FilteredWebToolRow, WebToolRow, WebToolRowSegments, bot_sees_tool, committed_tool_filter,
     filter_rows, modal_rows,
 };
 

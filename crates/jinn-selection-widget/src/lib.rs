@@ -14,11 +14,11 @@ pub mod picker_ops;
 mod picker_ops_tests;
 pub mod preview_content;
 pub mod preview_widget;
+#[cfg(test)]
+mod run_split_tests;
 pub mod state;
 #[cfg(test)]
 mod state_tests;
-#[cfg(test)]
-mod run_split_tests;
 pub mod tree_item;
 pub mod tree_state;
 #[cfg(test)]

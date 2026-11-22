@@ -1364,10 +1364,7 @@ impl SkillRowTemplate {
     /// enablement read: the source badge follows the TUI badge rule
     /// (project-scoped skills badge, global skills do not).
     #[must_use]
-    pub fn from_filtered(
-        filtered: jinn_skills_msg::FilteredSkillRow,
-        enabled: bool,
-    ) -> Self {
+    pub fn from_filtered(filtered: jinn_skills_msg::FilteredSkillRow, enabled: bool) -> Self {
         let segments = filtered.segments();
         let skill = filtered.skill;
         let (source_class, source_label, has_source_badge) = match &skill.source {

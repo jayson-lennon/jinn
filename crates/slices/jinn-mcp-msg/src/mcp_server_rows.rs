@@ -389,11 +389,14 @@ mod tests {
         // When filtering for "weather".
         let filtered = filter_rows(&rows, "weather");
 
-        // Then exactly the matching row remains, with match indices
-        // present.
+        // Then exactly the matching row remains, with the first index
+        // landing inside the matched name.
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].row.name, "Weather");
-        assert!(!filtered[0].match_indices.is_empty());
+        assert!(
+            !filtered[0].match_indices.is_empty()
+                && filtered[0].match_indices[0] < filtered[0].row.name.len()
+        );
     }
 
     #[rstest::rstest]

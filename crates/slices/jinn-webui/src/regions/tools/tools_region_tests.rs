@@ -367,7 +367,8 @@ async fn an_unknown_session_and_an_empty_registry_render_zero_rows_without_error
     let id = seed_session(&state);
 
     // When rendering the modal for both.
-    let empty = super::modal_fragment(&shared, &id.to_string(), "").expect("empty registry renders");
+    let empty =
+        super::modal_fragment(&shared, &id.to_string(), "").expect("empty registry renders");
     let unknown = super::modal_fragment(&shared, "00000000-0000-0000-0000-00000000dead", "")
         .expect("unknown session renders");
 
@@ -500,5 +501,137 @@ async fn the_modal_ships_hidden_and_closes_on_the_open_signal() {
     assert!(
         html.contains(&format!("@post('{}'", contract::TOOLS_REVERT_PATH)),
         "dismissal posts the revert: {html}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// the filter bar
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_modal_renders_the_filter_input_with_the_rows_effect() {
+    // Given a live session with a seeded registry.
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    seed_registry(&state, &["bash", "edit"]);
+
+    // When rendering the modal.
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
+
+    // Then the filter input renders with the contract's id, bound to
+    // the filter signal, and the rows effect re-pulls the **rows**
+    // route with the filter applied — never the modal host (the revert
+    // stamp must not re-render).
+    assert!(
+        html.contains(&format!("id=\"{}\"", contract::TOOLS_FILTER_ID)),
+        "the filter input is missing: {html}"
+    );
+    assert!(
+        html.contains(&format!("data-bind:{}", contract::SIGNAL_TOOLS_FILTER)),
+        "the input binds the filter signal: {html}"
+    );
+    assert!(
+        html.contains("?filter=' + encodeURIComponent(") && html.contains("@get('/web/tools/rows/"),
+        "the effect re-pulls the rows route with a filter param: {html}"
+    );
+    // And the modal's own `@get` count is exactly the rows effect —
+    // no second pull that could re-render the stamp.
+    assert_eq!(
+        html.matches("@get('").count(),
+        1,
+        "the modal carries exactly one pull (the rows effect): {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_filter_narrows_the_rows_server_side() {
+    // Given a session whose registry holds three tools.
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    seed_registry(&state, &["bash", "edit", "Grep"]);
+
+    // When rendering with a filter matching one row.
+    let html = super::modal_fragment(&shared, &id.to_string(), "bas").expect("the modal renders");
+
+    // Then exactly the matching row renders.
+    assert!(
+        html.contains(&format!("{}=\"bash\"", contract::TOOL_NAME_DATA_ATTR)),
+        "the matching row renders: {html}"
+    );
+    assert!(
+        !html.contains(&format!("{}=\"edit\"", contract::TOOL_NAME_DATA_ATTR)),
+        "non-matching rows are withheld: {html}"
+    );
+    assert!(
+        !html.contains(&format!("{}=\"Grep\"", contract::TOOL_NAME_DATA_ATTR)),
+        "non-matching rows are withheld: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_filter_marks_the_matched_runs() {
+    // Given a session whose registry holds one tool.
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    seed_registry(&state, &["bash"]);
+
+    // When rendering with a filter matching the row's name.
+    let html = super::modal_fragment(&shared, &id.to_string(), "bas").expect("the modal renders");
+
+    // Then the matched run renders in a <mark> inside the name field.
+    let bash_row = row_fragment(&html, "bash");
+    assert!(
+        bash_row.contains("<mark>bas</mark>"),
+        "the matched run is marked: {bash_row}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_empty_filter_renders_every_row_unmarked() {
+    // Given a session whose registry holds two tools.
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    seed_registry(&state, &["bash", "edit"]);
+
+    // When rendering with an empty filter.
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
+
+    // Then every row renders and none carries a <mark>.
+    assert!(html.contains("bash"));
+    assert!(html.contains("edit"));
+    assert!(!html.contains("<mark>"), "no run is marked: {html}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_rows_fragment_renders_the_filtered_view_too() {
+    // Given a session whose registry holds three tools.
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    seed_registry(&state, &["bash", "edit", "Grep"]);
+
+    // When rendering the rows-only fragment (the tick's and a toggle's
+    // swap target) with a filter.
+    let html =
+        super::rows_fragment(&shared, &id.to_string(), "grep").expect("the rows fragment renders");
+
+    // Then only the matching row renders, marked — the same filter
+    // semantics as the modal's rows, on the route the stamp-protecting
+    // re-pull uses.
+    assert!(
+        html.contains(&format!("{}=\"Grep\"", contract::TOOL_NAME_DATA_ATTR)),
+        "the matching row renders: {html}"
+    );
+    assert!(
+        !html.contains(&format!("{}=\"bash\"", contract::TOOL_NAME_DATA_ATTR)),
+        "non-matching rows are withheld: {html}"
+    );
+    assert!(
+        !html.contains(contract::TOOLS_REVERT_STAMP_ID),
+        "the rows fragment never carries the revert stamp: {html}"
     );
 }

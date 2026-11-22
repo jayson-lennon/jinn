@@ -208,20 +208,17 @@ pub(crate) fn modal_fragment(
     session_id: &str,
     filter: &str,
 ) -> Result<String, crate::server::HandlerError> {
-    let rows: Vec<String> =
-        jinn_mcp_msg::filter_rows(&server_rows(shared, session_id), filter)
-            .into_iter()
-            .map(|filtered| {
-                crate::templates::render(&crate::templates::McpRowTemplate::from_filtered(
-                    filtered,
-                ))
+    let rows: Vec<String> = jinn_mcp_msg::filter_rows(&server_rows(shared, session_id), filter)
+        .into_iter()
+        .map(|filtered| {
+            crate::templates::render(&crate::templates::McpRowTemplate::from_filtered(filtered))
                 .unwrap_or_else(|error| {
                     tracing::warn!(%error, what = "mcp-row", "webui template render failed; \
                          skipping the row");
                     String::new()
                 })
-            })
-            .collect();
+        })
+        .collect();
     crate::templates::render(&crate::templates::McpModalTemplate::with_contract(
         rows,
         filter.to_owned(),

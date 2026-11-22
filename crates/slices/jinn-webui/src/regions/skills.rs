@@ -216,8 +216,10 @@ pub(crate) fn modal_fragment(
         jinn_skills_msg::filter_skills(&sorted_skills(shared, session_id), filter)
             .into_iter()
             .map(|filtered| {
-                let enabled =
-                    enabled_by_name.get(filtered.skill.name.as_str()).copied().unwrap_or(false);
+                let enabled = enabled_by_name
+                    .get(filtered.skill.name.as_str())
+                    .copied()
+                    .unwrap_or(false);
                 crate::templates::render(&crate::templates::SkillRowTemplate::from_filtered(
                     filtered, enabled,
                 ))

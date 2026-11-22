@@ -392,7 +392,13 @@ fn committing_all_on_rows_yields_an_empty_deny_filter() {
 #[test]
 fn filter_rows_with_empty_filter_passes_every_row_through_in_order() {
     // Given rows in their sorted order.
-    let rows = modal_rows(&defs(&["bash", "grep", "read"]), "openrouter", false, false, None);
+    let rows = modal_rows(
+        &defs(&["bash", "grep", "read"]),
+        "openrouter",
+        false,
+        false,
+        None,
+    );
 
     // When filtering with an empty query.
     let filtered = filter_rows(&rows, "");

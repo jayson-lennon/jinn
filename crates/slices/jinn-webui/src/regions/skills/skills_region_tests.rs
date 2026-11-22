@@ -358,3 +358,130 @@ async fn a_session_that_died_mid_view_renders_an_empty_modal() {
         "no rows render for a dead session: {html}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// the filter bar
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_modal_renders_the_filter_input_bound_to_its_signal() {
+    // Given a live session with discovered skills.
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    let dir = scratch_dir();
+    discover(&state, &id, discovered(&dir));
+
+    // When rendering the modal.
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
+
+    // Then the filter input renders with the contract's id and binds
+    // the filter signal, and the rows effect re-pulls the picker route
+    // with the filter applied.
+    assert!(
+        html.contains(&format!("id=\"{}\"", contract::SKILL_FILTER_ID)),
+        "the filter input is missing: {html}"
+    );
+    assert!(
+        html.contains(&format!("data-bind:{}", contract::SIGNAL_SKILLS_FILTER)),
+        "the input binds the filter signal: {html}"
+    );
+    assert!(
+        html.contains("?filter=' + encodeURIComponent("),
+        "the effect re-pulls with a filter param: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_filter_narrows_the_rows_server_side() {
+    // Given a session with three discovered skills.
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    let dir = scratch_dir();
+    discover(&state, &id, discovered(&dir));
+
+    // When rendering with a filter matching one row.
+    let html = super::modal_fragment(&shared, &id.to_string(), "alp").expect("the modal renders");
+
+    // Then exactly the matching row renders.
+    assert!(
+        html.contains(&format!("{}=\"alpha\"", contract::SKILL_NAME_DATA_ATTR)),
+        "the matching row renders: {html}"
+    );
+    assert!(
+        !html.contains(&format!("{}=\"beta\"", contract::SKILL_NAME_DATA_ATTR)),
+        "non-matching rows are withheld: {html}"
+    );
+    assert!(
+        !html.contains(&format!("{}=\"zeta\"", contract::SKILL_NAME_DATA_ATTR)),
+        "non-matching rows are withheld: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_filter_marks_the_matched_runs() {
+    // Given a session with three discovered skills.
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    let dir = scratch_dir();
+    discover(&state, &id, discovered(&dir));
+
+    // When rendering with a filter matching one row's name.
+    let html = super::modal_fragment(&shared, &id.to_string(), "alp").expect("the modal renders");
+
+    // Then the matched run renders in a <mark> inside the name field.
+    let alpha_row = row_fragment(&html, "alpha");
+    assert!(
+        alpha_row.contains("<mark>alp</mark>"),
+        "the matched run is marked: {alpha_row}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_filter_keeps_the_enablement_mark_paired() {
+    // Given a session where one skill is withheld by the session's
+    // filter.
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    let dir = scratch_dir();
+    discover(&state, &id, discovered(&dir));
+    state.with_session(|view| {
+        view.session.map().get_or_create(&id).set_skill_filter(Some(
+            jinn_core_types::NameFilter::deny(["alpha".to_owned()]),
+        ));
+    });
+
+    // When rendering with a view filter that keeps the withheld skill
+    // visible.
+    let html = super::modal_fragment(&shared, &id.to_string(), "a").expect("the modal renders");
+
+    // Then the withheld row still renders off inside the filtered
+    // view — the view filter narrows rows, never the enablement read.
+    let alpha_row = row_fragment(&html, "alpha");
+    assert!(
+        !alpha_row.contains("skill-row-enabled"),
+        "the session-withheld row renders off under a view filter: {alpha_row}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_empty_filter_renders_every_row_unmarked() {
+    // Given a session with three discovered skills.
+    let (state, shared) = harness();
+    let id = seed_session(&state);
+    let dir = scratch_dir();
+    discover(&state, &id, discovered(&dir));
+
+    // When rendering with an empty filter.
+    let html = super::modal_fragment(&shared, &id.to_string(), "").expect("the modal renders");
+
+    // Then every row renders and none carries a <mark>.
+    assert!(html.contains("alpha"));
+    assert!(html.contains("beta"));
+    assert!(html.contains("zeta"));
+    assert!(!html.contains("<mark>"), "no run is marked: {html}");
+}

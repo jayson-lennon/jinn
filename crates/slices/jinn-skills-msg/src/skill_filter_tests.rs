@@ -29,10 +29,7 @@ fn skill(name: &str, description: &str) -> Skill {
 #[test]
 fn filter_skills_with_empty_filter_passes_every_skill_through_in_order() {
     // Given skills in their caller-sorted order.
-    let skills = vec![
-        skill("alpha", "first skill"),
-        skill("beta", "second skill"),
-    ];
+    let skills = vec![skill("alpha", "first skill"), skill("beta", "second skill")];
 
     // When filtering with an empty query.
     let filtered = filter_skills(&skills, "");
@@ -57,11 +54,14 @@ fn filter_skills_narrows_to_matching_skills() {
     // When filtering for "phase".
     let filtered = filter_skills(&skills, "phase");
 
-    // Then exactly the matching skill remains, with match indices
-    // present.
+    // Then exactly the matching skill remains, with the first index
+    // landing inside the matched name.
     assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0].skill.name, "phased-loop");
-    assert!(!filtered[0].match_indices.is_empty());
+    assert!(
+        !filtered[0].match_indices.is_empty()
+            && filtered[0].match_indices[0] < filtered[0].skill.name.len()
+    );
 }
 
 #[rstest::rstest]

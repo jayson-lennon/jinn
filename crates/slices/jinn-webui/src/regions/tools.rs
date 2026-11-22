@@ -245,14 +245,12 @@ pub(crate) fn modal_fragment(
     let rendered: Vec<String> = rows
         .into_iter()
         .map(|filtered| {
-            crate::templates::render(&crate::templates::ToolsRowTemplate::from_filtered(
-                filtered,
-            ))
-            .unwrap_or_else(|error| {
-                tracing::warn!(%error, what = "tools-row", "webui template render failed; \
+            crate::templates::render(&crate::templates::ToolsRowTemplate::from_filtered(filtered))
+                .unwrap_or_else(|error| {
+                    tracing::warn!(%error, what = "tools-row", "webui template render failed; \
                      skipping the row");
-                String::new()
-            })
+                    String::new()
+                })
         })
         .collect();
     crate::templates::render(&crate::templates::ToolsModalTemplate::with_contract(
@@ -284,18 +282,18 @@ pub(crate) fn rows_fragment(
     let rendered: Vec<String> = rows
         .into_iter()
         .map(|filtered| {
-            crate::templates::render(&crate::templates::ToolsRowTemplate::from_filtered(
-                filtered,
-            ))
-            .unwrap_or_else(|error| {
-                tracing::warn!(%error, what = "tools-row", "webui template render failed; \
+            crate::templates::render(&crate::templates::ToolsRowTemplate::from_filtered(filtered))
+                .unwrap_or_else(|error| {
+                    tracing::warn!(%error, what = "tools-row", "webui template render failed; \
                      skipping the row");
-                String::new()
-            })
+                    String::new()
+                })
         })
         .collect();
-    crate::templates::render(&crate::templates::ToolsRowsTemplate::with_contract(rendered))
-        .map_err(|error| crate::server::map_render_error(&error))
+    crate::templates::render(&crate::templates::ToolsRowsTemplate::with_contract(
+        rendered,
+    ))
+    .map_err(|error| crate::server::map_render_error(&error))
 }
 
 /// The tools region's stylesheet: the modal overlay, the filter bar
