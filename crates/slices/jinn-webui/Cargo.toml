@@ -60,7 +60,17 @@ jinn-tools-msg = { workspace = true }
 jinn-skills-msg = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-provider-config = { workspace = true }
+# Image ingestion: the bytes-based converter (sniff/transcode) shared with
+# the read_image tool — a library crate, not a slice.
+jinn-llm-support = { workspace = true }
 axum = { version = "0.8" }
+# URL-attachment fetching at the send boundary: the workspace's pinned
+# reqwest shape (rustls-no-provider + the ring provider installed at
+# process start), so this edge never drags a second TLS stack into the
+# unified feature graph. base64 decodes the wire's data URLs — the same
+# engine `Attachment::data_url` uses.
+reqwest = { workspace = true }
+base64 = { workspace = true }
 # The Datastar SDK: every server push is one of its typed events; no
 # hand-formatted SSE framing exists in this crate.
 datastar = { workspace = true }
@@ -81,6 +91,8 @@ jiff = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+# The attachment-ingestion tests build real PNG bytes in-process.
+image = { workspace = true }
 # The store-fake behind the merged-list regression test implements the
 # async SessionStore trait.
 async-trait = { workspace = true }

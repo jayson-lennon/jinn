@@ -58,6 +58,7 @@
 //! non-loopback binds are taken as configured — reaching the UI over a
 //! VPN is the intended use, and endpoint security is the operator's.
 
+pub mod attachment;
 pub mod contract;
 pub mod delivery;
 pub mod fanout;

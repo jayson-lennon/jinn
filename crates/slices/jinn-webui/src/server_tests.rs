@@ -15,6 +15,7 @@ use crate::contract;
 use axum::body::Body;
 use axum::http::Request;
 use axum::http::StatusCode;
+use base64::Engine as _;
 use jinn_app_state::AppState;
 use jinn_core_types::SessionId;
 use jinn_kernel::State;
@@ -163,6 +164,26 @@ async fn post_form(router: &axum::Router, uri: &str, body: &str) -> (StatusCode,
                 .method("POST")
                 .uri(uri)
                 .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(body.to_owned()))
+                .expect("request builds"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let text = axax_bytes(response).await;
+    (status, text)
+}
+
+/// Posts a JSON body — the Datastar browser's signal shape, and the
+/// shape an images array rides (urlencoded cannot carry a list).
+async fn post_json(router: &axum::Router, uri: &str, body: &str) -> (StatusCode, String) {
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("content-type", "application/json")
                 .body(Body::from(body.to_owned()))
                 .expect("request builds"),
         )
@@ -829,6 +850,157 @@ mod actions {
         // nothing is published.
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn send_with_images_publishes_an_entry_carrying_attachments() {
+        // Given a live session and a data URL carrying real PNG bytes.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let png = tiny_png_for_tests();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&png)
+        );
+
+        // When posting a send whose images array carries it.
+        let (status, _body) = post_json(
+            &router,
+            "/web/send",
+            &format!(r#"{{"sessionId": "{id}", "text": "look", "images": ["{data_url}"]}}"#),
+        )
+        .await;
+
+        // Then the send is accepted and the published enqueue's entry
+        // carries the image attachment — the actor pipeline's field.
+        assert_eq!(status, StatusCode::OK);
+        let published = audit.of_type::<jinn_chat_input_msg::EnqueueUserMessage>();
+        let [message] = published.as_slice() else {
+            panic!("exactly one enqueue was published, got {}", published.len())
+        };
+        let jinn_core_types::ChatEntryKind::User { attachments, .. } = &message.entry.kind else {
+            panic!("expected a user entry")
+        };
+        let [attachment] = attachments.as_slice() else {
+            panic!("exactly one attachment, got {}", attachments.len())
+        };
+        assert_eq!(attachment.media_type(), "image/png");
+        assert_eq!(attachment.data(), png.as_slice());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn send_accepts_an_image_only_message() {
+        // Given a live session and an image with no text.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let png = tiny_png_for_tests();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&png)
+        );
+
+        // When posting a send with empty text but one image.
+        let (status, _body) = post_json(
+            &router,
+            "/web/send",
+            &format!(r#"{{"sessionId": "{id}", "text": "", "images": ["{data_url}"]}}"#),
+        )
+        .await;
+
+        // Then the send is accepted — the image-only rule.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(audit_count(&audit, "EnqueueUserMessage"), 1);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn send_refuses_an_image_that_is_not_an_image() {
+        // Given a live session and a data URL whose bytes are HTML.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let data_url = format!(
+            "data:text/html;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(b"<html></html>")
+        );
+
+        // When posting a send carrying it.
+        let (status, body) = post_json(
+            &router,
+            "/web/send",
+            &format!(r#"{{"sessionId": "{id}", "text": "look", "images": ["{data_url}"]}}"#),
+        )
+        .await;
+
+        // Then the refusal names the chip index and nothing publishes.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("image 0"), "refusal names the chip: {body}");
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn send_refuses_an_oversized_image_before_publishing() {
+        // Given a live session and a data URL just over the 5 MB cap with a
+        // valid PNG prefix (the cap must fire before any sniff or convert).
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+        bytes.resize(crate::attachment::MAX_IMAGE_BYTES + 1, 0);
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&bytes)
+        );
+
+        // When posting a send carrying it.
+        let (status, body) = post_json(
+            &router,
+            "/web/send",
+            &format!(r#"{{"sessionId": "{id}", "text": "look", "images": ["{data_url}"]}}"#),
+        )
+        .await;
+
+        // Then the refusal names the cap and nothing publishes.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("the limit is"), "cap sentence: {body}");
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn send_with_a_text_only_body_never_fetches_urls_in_prose() {
+        // Given a live session and a text carrying a *non-image* URL (the
+        // gate never admits it, so no fetch attempt exists to fail on).
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting the send.
+        let (status, _body) = post_form(
+            &router,
+            "/web/send",
+            &format!("session_id={id}&text=read+https://example.com/page.html+please"),
+        )
+        .await;
+
+        // Then the send rides through as plain text.
+        assert_eq!(status, StatusCode::OK);
+        let published = audit.of_type::<jinn_chat_input_msg::EnqueueUserMessage>();
+        let [message] = published.as_slice() else {
+            panic!("exactly one enqueue was published, got {}", published.len())
+        };
+        assert!(message.entry.text().contains("example.com/page.html"));
+    }
+
+    /// A 1x1 PNG generated in-process — the smallest real image the
+    /// sniffer accepts natively.
+    fn tiny_png_for_tests() -> Vec<u8> {
+        use std::io::Cursor;
+        let img = image::DynamicImage::new(1, 1, image::ColorType::Rgb8);
+        let mut out = Cursor::new(Vec::new());
+        img.write_to(&mut out, image::ImageFormat::Png)
+            .expect("1x1 png encodes");
+        out.into_inner()
     }
 
     #[rstest::rstest]
@@ -2320,7 +2492,7 @@ mod rename_actions {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn rename_push_and_response_carry_the_same_merged_list() {
+    async fn rename_response_carries_the_merged_list_and_push_names_the_count() {
         // Given a live session, one store-only archived row the live
         // map never carries, and a subscriber to the fan-out's push.
         let (state, _audit, mut rx, router) = harness_with_archived_row_and_receiver();
@@ -2340,21 +2512,17 @@ mod rename_actions {
         )
         .await;
 
-        // Then the push the handler emitted carries the archived row
-        // too — the same merged shape the response serves. A push of
-        // the live-only shape would wipe the archived row from every
-        // connected sidebar one frame before the response restores it.
+        // Then the response the handler emitted carries the archived
+        // row — the merged shape the GET pull serves (the element
+        // patch the initiating page's sidebar swaps). The addressed
+        // push is signal-only now: its payload is the unread count,
+        // and the receiving pages re-pull the list themselves.
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("Archived from last run"), "{body}");
         let envelope = rx.try_recv().expect("the rename push");
         assert_eq!(envelope.kind, jinn_webui_msg::SseKind::Sessions);
         assert_eq!(envelope.session_id, id);
-        assert!(
-            envelope.html.contains("Archived from last run"),
-            "push must carry the merged list, got: {}",
-            envelope.html
-        );
-        assert!(envelope.html.contains("Fresh rename"), "{}", envelope.html);
+        assert_eq!(envelope.html, "0", "the payload is the count: {envelope:?}");
         // And exactly one sessions push went out — no duplicate frames
         // for the same refresh.
         assert!(rx.try_recv().is_err());

@@ -24,8 +24,9 @@ pub use converter::{
 };
 pub use image_crate::ImageCrateConverter;
 pub use resolve::{
-    ImageFileError, ImageResolveError, ResolveOutcome, ResolvedImage, format_attachment_error,
-    resolve_attachments_blocking, resolve_image_file_blocking,
+    ImageBytesError, ImageFileError, ImageResolveError, ResolveOutcome, ResolvedImage,
+    format_attachment_error, ingest_image_bytes_blocking, resolve_attachments_blocking,
+    resolve_image_file_blocking,
 };
 
 #[cfg(test)]

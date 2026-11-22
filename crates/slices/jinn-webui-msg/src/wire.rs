@@ -24,6 +24,11 @@ use serde::{Deserialize, Serialize};
 ///
 /// The camelCase aliases are the Datastar browser's JSON signal keys;
 /// the snake_case fields are the urlencoded contract.
+///
+/// `images` carries the composer's pending attachments as base64 data
+/// URLs (the client's FileReader output, chip order). The server decodes
+/// and validates them; an undecodable or oversized entry is a 400 naming
+/// its index.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendForm {
     /// The session the text targets.
@@ -31,6 +36,9 @@ pub struct SendForm {
     pub session_id: String,
     /// The text, delivered verbatim.
     pub text: String,
+    /// Pending image attachments, as base64 data URLs, in chip order.
+    #[serde(default, alias = "images")]
+    pub images: Vec<String>,
 }
 
 /// `POST /web/cancel` — cancel a session's live turn.

@@ -133,6 +133,65 @@ test("a turn in another session spins its row on this page", async ({
   await pageB.close();
 });
 
+test("the settle turns the sessions button's attention on and activation clears it", async ({
+  page,
+}) => {
+  // Given two sessions: A (the boot session, viewed) and B (created
+  // through the modal, then left by re-opening A); and neither marks
+  // attention while both sit idle — the button is neutral, the badge
+  // hidden.
+  await openSession(page);
+  const sessionA = await page
+    .locator(sel.PAGE_ROOT)
+    .getAttribute(sel.PAGE_SESSION_ATTR);
+  const sessionB = await createSession(page);
+  await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionA}`);
+  const button = page.locator(sel.SESSIONS_BUTTON);
+  await expect(button).not.toHaveClass(
+    new RegExp(sel.SESSIONS_ATTENTION_CLASS),
+  );
+  await expect(page.locator(sel.SESSIONS_BUTTON_COUNT)).toBeHidden();
+
+  // When B runs a turn in its own tab and settles (the settle lands
+  // while A is viewed — the unseen-settle mark).
+  const pageB = await page.context().newPage();
+  await openSession(pageB);
+  await pageB.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionB}`);
+  await expect(pageB.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    sessionB,
+  );
+  await pageB.locator(sel.SESSION_ROW_BY_ID(sessionB)).waitFor();
+  await startBusyTurn(pageB);
+  await expect(page.locator(sel.SESSION_ROW_BY_ID(sessionB))).toHaveClass(
+    /unread/,
+    { timeout: 10_000 },
+  );
+
+  // Then A's button wears the attention class and the badge reads 1 —
+  // pushed live, no reload of A.
+  await expect(button).toHaveClass(new RegExp(sel.SESSIONS_ATTENTION_CLASS));
+  await expect(page.locator(sel.SESSIONS_BUTTON_COUNT)).toHaveText("1");
+
+  // And when A activates B (the row click through the drawer — the
+  // real path a finger performs), the mark clears and the button
+  // goes neutral with the badge hidden again.
+  await page.locator(sel.SESSIONS_BUTTON).click();
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
+    new RegExp(sel.DRAWER_OPEN_CLASS),
+  );
+  await page.locator(sel.SESSION_ROW_BY_ID(sessionB)).click();
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    sessionB,
+  );
+  await expect(page.locator(sel.SESSIONS_BUTTON)).not.toHaveClass(
+    new RegExp(sel.SESSIONS_ATTENTION_CLASS),
+  );
+  await expect(page.locator(sel.SESSIONS_BUTTON_COUNT)).toBeHidden();
+  await pageB.close();
+});
+
 test("cancelling the turn clears the row's spinner", async ({ page }) => {
   // Given a session created through the modal and viewing it.
   await openSession(page);

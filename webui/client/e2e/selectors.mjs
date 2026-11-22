@@ -188,6 +188,10 @@ export const SESSION_NEW_EMPTY = "#session-new-empty";
 export const DRAWER_SCRIM = "#drawer-scrim";
 /** The drawer-open class the client toggles on the page root. */
 export const DRAWER_OPEN_CLASS = "drawer-open";
+/** The session-switch interstitial overlay id
+ * (`wire.SWITCH_OVERLAY_ID`) — the loading surface a session-row
+ * click raises until the activation response's page swap lands. */
+export const SWITCH_OVERLAY = "#switch-overlay";
 
 /**
  * The one model this tier's scratch config defines.

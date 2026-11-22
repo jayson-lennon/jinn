@@ -255,13 +255,21 @@ async fn overlay_reset_patches(
         ))
         .map_err(|e| fail(500, e.to_string()))?;
     let model_html = crate::regions::model_picker::status_fragment(shared, &id.to_string())?;
-    let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
+    let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
     // The root fragment — NOT the full page shell. The runtime morphs
     // element patches; a document-shaped patch (DOCTYPE + <html>) is
     // parsed as a whole document and its fight with the live page
     // leaves the old subtree's stray nodes alive. The root div alone
     // replaces cleanly (and its data-signals seed resets every
     // transient overlay signal atomically).
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     let page = crate::templates::render(&crate::templates::PageRootTemplate::session(
         &id.to_string(),
         view.transcript.title.clone(),
@@ -271,6 +279,7 @@ async fn overlay_reset_patches(
         controls_html,
         model_html,
         menu_html,
+        attention_count,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(vec![
@@ -508,6 +517,13 @@ pub fn router(shared: ServerShared) -> Router {
             Some(pull) => router.route(pull.pattern, pull.handler),
             None => router,
         })
+        // The send body carries base64 image data URLs — roughly 4/3× the
+        // raw bytes plus JSON overhead, and several chips compose — so the
+        // default 2 MB body limit would 413 legitimate sends before any
+        // handler ran. 32 MB comfortably bounds the 5 MB-per-image cap the
+        // ingestion enforces per image. The layer sits after every route:
+        // `Router::layer` wraps only the routes added before it.
+        .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024))
         .with_state(shared)
 }
 
@@ -544,12 +560,17 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
 /// `GET /web` — the landing page: sessions list, no transcript.
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
     let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     // No viewed session on the landing page — the menu renders without
     // the persona item.
-    let menu_html = crate::regions::menu::menu_fragment("");
+    let menu_html = crate::regions::menu::menu_fragment("", attention_count);
     let html = crate::templates::render(&crate::templates::PageTemplate::landing(
         sessions_html,
         menu_html,
+        attention_count,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(Page::new(html))
@@ -576,7 +597,11 @@ async fn page_session(
         ))
         .map_err(|e| fail(500, e.to_string()))?;
     let model_html = crate::regions::model_picker::status_fragment(&shared, &session_id)?;
-    let menu_html = crate::regions::menu::menu_fragment(&id.to_string());
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
+    let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         &session_id,
         view.transcript.title.clone(),
@@ -586,6 +611,7 @@ async fn page_session(
         controls_html,
         model_html,
         menu_html,
+        attention_count,
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(Page::new(html))
@@ -726,41 +752,31 @@ async fn send(
     form: Result<WebForm<jinn_webui_msg::SendForm>, HandlerError>,
 ) -> Result<SseAction, HandlerError> {
     let WebForm(form) = form?;
-    crate::delivery::handle_send(shared.state(), shared.bus(), &form.session_id, &form.text)
+    let entry = crate::delivery::handle_send(shared.state(), shared.bus(), &form.session_id, &form)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
     // The optimistic entry renders through the same projection the
     // transcript region uses — identical markup, so the streamed
     // assistant echo and the settle convergence dedupe it (the e2e
-    // chat spec pins the no-double).
-    let entry = crate::transcript::render_entry(&jinn_core_types::ChatEntry {
-        id: jinn_core_types::ChatEntryId::new(),
-        timing: jinn_core_types::EntryTiming::Instant {
-            at: jiff::Timestamp::now(),
-        },
-        kind: jinn_core_types::ChatEntryKind::User {
-            display: form.text.clone(),
-            expanded: form.text.clone(),
-            attachments: Vec::new(),
-            outcome: jinn_core_types::AttachmentOutcome::default(),
-        },
-        pin_position: None,
-        context_override: jinn_core_types::ContextOverride::default(),
-        context_history: Vec::new(),
-        token_count: None,
-        model_used: None,
-        model_requested: None,
-    });
+    // chat spec pins the no-double). It is the *published* entry
+    // object, not a second build: the id the echo carries is the id
+    // the attachment route resolves.
     let html = crate::templates::render(&crate::templates::EntryTemplate {
-        entry,
+        entry: crate::transcript::render_entry(&entry),
         index: usize::MAX,
     })
     .map_err(|e| fail(500, e.to_string()))?;
     Ok(SseAction::new(vec![
-        signal_patch(&[(
-            crate::contract::SIGNAL_TEXT,
-            serde_json::Value::String(String::new()),
-        )]),
+        signal_patch(&[
+            (
+                crate::contract::SIGNAL_TEXT,
+                serde_json::Value::String(String::new()),
+            ),
+            (
+                crate::contract::SIGNAL_PENDING_IMAGES,
+                serde_json::Value::Array(Vec::new()),
+            ),
+        ]),
         append_patch(html),
     ]))
 }
@@ -1150,9 +1166,13 @@ async fn rename(
     // those events change only live state, and their next pull or
     // page render carries the store truth.)
     let list_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let attention_count = {
+        let guard = shared.read_state();
+        crate::regions::sessions::unread_count_of(&guard)
+    };
     shared
         .fanout
-        .push_sessions_refresh_from(&id, list_html.clone());
+        .push_sessions_refresh_from(&id, attention_count);
     // The initiating page's sidebar is the response's element patch;
     // its titlebar text and tab title follow from the two signal
     // patches (the title span and the document title both bind
