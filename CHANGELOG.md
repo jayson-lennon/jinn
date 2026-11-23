@@ -14,6 +14,8 @@
 - (webui) Show loading screen when switching sessions.
 - (webui) Current session always highlighted in blue in session list.
 - (webui) Paste/attach images.
+- (webui) Session titles containing an apostrophe no longer crash the page.
+- (webui) Reduce network load when switching sessions.
 - Remove `#generate-persona` prompt.
 - Agents should avoid using `dump_to_path` more often.
   - Blocked using `/dev/null` and similar "null" paths for `dump_to_path`
