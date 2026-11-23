@@ -214,34 +214,6 @@ async fn axax_bytes(response: axum::response::Response) -> String {
 
 /// The ids of the rows carrying the active class in sessions-list
 /// markup — per-row truth, not a whole-document guess.
-fn active_row_ids(html: &str) -> Vec<String> {
-    let mut ids = Vec::new();
-    let row_open = format!("{} ", crate::contract::SESSION_ROW_CLASS);
-    for segment in html.split(&row_open) {
-        // The row opens as `class="srow active bot unread"`, so every
-        // split boundary after the first is inside a class list; a
-        // boundary whose following text continues with `active` marks
-        // an active row. The id is the session attribute's quoted
-        // value on the same tag.
-        let Some(classes) = segment.split('"').next() else {
-            continue;
-        };
-        let classes: Vec<&str> = classes.split_whitespace().collect();
-        if !classes.contains(&"active") {
-            continue;
-        }
-        let attr = format!("{}=\"", crate::contract::SESSION_ID_DATA_ATTR);
-        let Some(after) = segment.split(attr.as_str()).nth(1) else {
-            continue;
-        };
-        let Some(id) = after.split('"').next() else {
-            continue;
-        };
-        ids.push(id.to_owned());
-    }
-    ids
-}
-
 /// The harness plus a **real** store actor: the single writer of the
 /// active pointer, so switch-convergence tests exercise the actual
 /// async handoff the recording-bus harness cannot (nothing there
@@ -3733,12 +3705,17 @@ mod switch_markup {
         // When activating the second from the web.
         let (status, body) = post_form(&router, &format!("/web/session/{b}/activate"), "").await;
 
-        // Then the response already names B as the active row: the
+        // Then the response already names B as the viewed session: the
         // handler waited for the store actor's `set_active` before
         // rendering, so the swapped-in page is never one click behind.
+        // The response carries no rows — the viewed session rides the
+        // root's `viewedSession` signal seed (and the list pull's
+        // `?viewed=` naming is gone; the rows bind the signal).
         assert_eq!(status, StatusCode::OK);
-        let active_rows = active_row_ids(&body);
-        assert_eq!(active_rows, vec![b.to_string()], "response page: {body}");
+        assert!(
+            body.contains(&format!("{}: '{}'", crate::contract::SIGNAL_VIEWED_SESSION, b)),
+            "the seed names the activated session: {body}"
+        );
 
         // And live state agrees — the pointer itself moved.
         assert_eq!(state.read().session.active_session_id(), &b);

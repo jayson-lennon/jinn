@@ -247,21 +247,19 @@ async fn overlay_reset_patches(
     shared: &ServerShared,
     id: &SessionId,
 ) -> Result<Vec<datastar::DatastarEvent>, HandlerError> {
-    // The same full render the GET page endpoint serves, so a
-    // navigation response and a fresh load are byte-identical shapes —
-    // including the settled-prefix split (the boundary-aware cursor
-    // the page shell stamps) when the activated session is mid-turn.
+    // Chrome only — no sessions rows, no transcript entries. The
+    // activation response's payload is bounded by chrome size,
+    // independent of session history: the list arrives from the
+    // swapped root's own tick effect (one fetch per page render) and
+    // the history from the new stream's catch-up (`?since=0`). The
+    // transcript renders the empty template — never `""` — so the
+    // `#streaming` container exists as the transcript's last child
+    // and both the catch-up appends and the streaming tail replace
+    // have a target from the first frame.
     let view = session_view(shared, id).await?;
-    let sessions_html = crate::regions::sessions::sessions_fragment(shared, None, Some(id)).await?;
-    let (transcript_entries, cursor) = {
-        let guard = shared.read_state();
-        shared.settled_prefix(id, &guard)
-    };
-    let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate::new(
-        transcript_entries,
-        0,
-    ))
-    .map_err(|e| fail(500, e.to_string()))?;
+    let transcript_html =
+        crate::templates::render(&crate::templates::TranscriptTemplate::new(Vec::new(), 0))
+            .map_err(|e| fail(500, e.to_string()))?;
     let controls_html =
         crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
             id.to_string(),
@@ -288,8 +286,6 @@ async fn overlay_reset_patches(
     let page = crate::templates::render(&crate::templates::PageRootTemplate::session(
         &id.to_string(),
         view.transcript.title.clone(),
-        cursor,
-        sessions_html,
         transcript_html,
         controls_html,
         model_html,

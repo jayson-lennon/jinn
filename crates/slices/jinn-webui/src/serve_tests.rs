@@ -93,12 +93,14 @@ async fn harness_seeded_with_fanout(
         let session = jinn_session_state::ChatSessionState::new();
         let id = session.session_id().clone();
         state.write().session.insert(session);
-        state
-            .write()
-            .session
-            .get_mut(&id)
-            .expect("seeded session")
-            .set_title(title.to_owned());
+        {
+            let mut guard = state.write();
+            let seeded = guard.session.get_mut(&id).expect("seeded session");
+            seeded.set_title(title.to_owned());
+            // One rendered entry: the history a navigation response
+            // must NOT carry (the payload probe's non-trivial side).
+            seeded.push_entry(jinn_core_types::ChatEntry::user("the seeded entry"));
+        }
         id
     });
 
@@ -223,7 +225,7 @@ async fn following_the_root_redirect_lands_on_the_page() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn activating_a_session_returns_the_whole_page_over_the_wire() {
+async fn activating_a_session_returns_the_navigation_patch_sequence_over_the_wire() {
     // Given a live server holding a titled session.
     let (base, seeded) = harness(Some("Second session")).await;
     let id = seeded.expect("harness seeded the session");
@@ -239,10 +241,10 @@ async fn activating_a_session_returns_the_whole_page_over_the_wire() {
         .expect("the activate completes");
 
     // Then the response is the navigation patch sequence — an SSE
-    // body whose element patch replaces `#page-root` with the whole
-    // page shell (the Datastar transport of the same shape; the
-    // shipped bug served a sessions fragment here and the swap
-    // destroyed the page).
+    // body whose element patch replaces `#page-root` with the page
+    // chrome (the Datastar transport of the same shape; the shipped
+    // bug served a sessions fragment here and the swap destroyed the
+    // page).
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.text().await.expect("body reads");
     assert!(
@@ -254,6 +256,70 @@ async fn activating_a_session_returns_the_whole_page_over_the_wire() {
     );
     assert!(body.contains("id=\"page-root\""), "{body}");
     assert!(body.contains("Second session"), "{body}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_activate_response_carries_no_session_rows_and_an_empty_transcript() {
+    // Given a live server holding a titled session whose history
+    // carries entries — the payload the old activation response
+    // wholesale-retransmitted on every click.
+    let (base, seeded) = harness(Some("Payload probe")).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    // When activating it (the post a session-row click issues).
+    let response = http
+        .post(format!("{base}/web/session/{id}/activate"))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(String::new())
+        .send()
+        .await
+        .expect("the activate completes");
+    let body = response.text().await.expect("body reads");
+
+    // Then the page-shell patch carries no session-row markup — the
+    // `srow` class hook and the row template's metadata span are both
+    // absent: the list travels only through the GET pull.
+    assert!(
+        !body.contains(&format!("class=\"{} ", contract::SESSION_ROW_CLASS)),
+        "the activate response must carry no session rows: {body}"
+    );
+    assert!(!body.contains("smeta"), "no row metadata: {body}");
+
+    // And the transcript is present but empty: the `#streaming`
+    // container renders (the catch-up appends and the streaming tail
+    // both target it — an empty-string transcript would strand them),
+    // no entry markup rides the response, and the cursor stamps 0.
+    assert!(
+        body.contains(&format!("id=\"{}\"", contract::STREAMING_ID)),
+        "the empty transcript must still render #streaming: {body}"
+    );
+    assert!(
+        !body.contains("<article"),
+        "the activate response must carry no transcript entries: {body}"
+    );
+    assert!(
+        body.contains(&format!(
+            "{}=\"0\"",
+            contract::TRANSCRIPT_CURSOR_DATA_ATTR
+        )),
+        "the swapped page's transcript starts at cursor 0: {body}"
+    );
+
+    // And the stream bind the root carries re-opens the stream at
+    // cursor 0 — the fresh page's whole-history catch-up — and the
+    // sessions container's effect names the pull route (the one list
+    // fetch per page render), seeded so the swap fires it exactly
+    // once.
+    assert!(
+        body.contains(&format!(
+            "{}{id}?since=0",
+            contract::STREAM_PREFIX
+        )),
+        "the navigation root's stream URL starts the catch-up at 0: {body}"
+    );
+    assert!(body.contains("@get("), "the effect/action binds render: {body}");
 }
 
 #[rstest::rstest]

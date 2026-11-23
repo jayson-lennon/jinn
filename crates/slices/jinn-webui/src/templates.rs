@@ -522,11 +522,16 @@ impl PageTemplate {
 
 /// The page-root fragment: exactly the shell's root `div` — the shape
 /// a navigation patch (`POST activate` / `POST session-new`) replaces
-/// the live root with. The full [`PageTemplate`] renders this same
-/// markup through the shared `page_root.html` include; this struct
-/// exists so the overlay patch carries only the root subtree (never a
-/// whole HTML document — the browser runtime morphs element patches,
-/// and a document-shaped patch would fight the page it lands in).
+/// the live root with. Chrome only, by the navigation-shape contract:
+/// the sessions container renders empty (the swapped root's tick
+/// effect is the one list fetch) and the transcript renders empty at
+/// cursor 0 (the new stream's catch-up is the one history transfer),
+/// so the response is bounded by chrome size regardless of session
+/// history. The full [`PageTemplate`] renders this same markup
+/// through the shared `page_root.html` include; this struct exists so
+/// the overlay patch carries only the root subtree (never a whole
+/// HTML document — the browser runtime morphs element patches, and a
+/// document-shaped patch would fight the page it lands in).
 #[derive(Template)]
 #[template(path = "page_root.html")]
 pub struct PageRootTemplate {
@@ -534,9 +539,10 @@ pub struct PageRootTemplate {
     pub session_id: String,
     /// The session title.
     pub title: String,
-    /// The sessions-list fragment.
+    /// The sessions-list fragment (empty on the navigation shapes).
     pub sessions_html: String,
-    /// The transcript fragment.
+    /// The transcript fragment (the empty template — `#streaming`
+    /// present, zero entries — on the navigation shapes).
     pub transcript_html: String,
     /// The composer-controls fragment.
     pub controls_html: String,
@@ -547,7 +553,9 @@ pub struct PageRootTemplate {
     pub picker_host_id: &'static str,
     /// The menu fragment.
     pub menu_html: String,
-    /// The rendered-entry cursor the inline transcript carries.
+    /// The rendered-entry cursor the inline transcript carries —
+    /// always 0 on the navigation shapes (the catch-up's starting
+    /// cursor; the stream URL carries `?since=0` to match).
     pub cursor: usize,
     /// The page-root id.
     pub page_root_id: &'static str,
@@ -613,9 +621,15 @@ pub struct PageRootTemplate {
 }
 
 impl PageRootTemplate {
-    /// Builds the root fragment for one viewed session — the same
-    /// shape `PageTemplate::session` renders inline (one field source,
-    /// two render targets).
+    /// Builds the root fragment for one viewed session — the
+    /// navigation shape: chrome with the transcript the caller
+    /// rendered (the empty template — `#streaming` present, zero
+    /// entries) and the sessions container empty. The constructor
+    /// accepts no sessions-HTML parameter by design: a navigation
+    /// response carries no rows, and a signature that still took the
+    /// fragment would invite a future caller to refill it (the list
+    /// travels only through the GET pull and the swapped root's one
+    /// tick-effect fetch).
     #[must_use]
     #[expect(
         clippy::too_many_arguments,
@@ -624,8 +638,6 @@ impl PageRootTemplate {
     pub fn session(
         session_id: &str,
         title: String,
-        cursor: usize,
-        sessions_html: String,
         transcript_html: String,
         controls_html: String,
         button_html: String,
@@ -636,8 +648,8 @@ impl PageRootTemplate {
         Self {
             session_id: session_id.to_owned(),
             title,
-            cursor,
-            sessions_html,
+            cursor: 0,
+            sessions_html: String::new(),
             transcript_html,
             controls_html,
             button_html,
@@ -668,7 +680,7 @@ impl PageRootTemplate {
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
             viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
-            stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
+            stream_url: format!("{}{session_id}?since=0", contract::STREAM_PREFIX),
             web_theme,
         }
     }
