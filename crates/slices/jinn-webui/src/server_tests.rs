@@ -1595,14 +1595,14 @@ mod actions {
         // turn already drained, so no phase wave will ever settle it.
         // A subscriber watches the fan-out stream (the channel the
         // connected SSE pages drain).
-        let (state, _audit, _slices, _router) = harness();
+        let (state, _audit, slices, _router) = harness();
         let id = seed_session(&state);
         let ledger = jinn_kernel::common::turn_ledger::TurnLedger::default();
         let (bus, cancel_audit) = BusService::new_recording();
         let (fanout, mut rx) = crate::fanout::WebUiFanoutActor::test_pair(
             &state,
             bus.clone(),
-            slices_reader_unread(&_slices),
+            slices_reader_unread(&slices),
         );
 
         // When the cancel handler runs against the empty ledger — it
@@ -1631,14 +1631,14 @@ mod actions {
     #[tokio::test]
     async fn cancel_with_a_live_turn_takes_the_ordinary_wave_and_pushes_nothing_extra() {
         // Given a live session whose ledger DOES hold a live turn.
-        let (state, _audit, _slices, _router) = harness();
+        let (state, _audit, slices, _router) = harness();
         let id = seed_session(&state);
         let ledger = jinn_kernel::common::turn_ledger::TurnLedger::default();
         let (bus, _cancel_audit) = BusService::new_recording();
         let (fanout, mut rx) = crate::fanout::WebUiFanoutActor::test_pair(
             &state,
             bus.clone(),
-            slices_reader_unread(&_slices),
+            slices_reader_unread(&slices),
         );
         let _grant = ledger.mint(&id, jinn_kernel::common::turn_ledger::MintKind::FreshTurn);
 

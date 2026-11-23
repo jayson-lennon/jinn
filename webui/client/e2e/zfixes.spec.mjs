@@ -293,3 +293,91 @@ test.describe("composer control heights", () => {
     await expect(page.locator(sel.SEND_BUTTON)).toBeVisible();
   });
 });
+
+/** A 1x1 PNG, base64 — the smallest image the sniffer accepts. */
+const PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+/** The composer's chips strip (`wire.IMAGE_CHIPS_ID`). */
+const CHIPS = "#image-chips";
+
+/**
+ * Attaches `count` images via the paste path (the clipboard event
+ * carrying files) — the same lever attachments.spec uses, without a
+ * file chooser.
+ *
+ * @param {import("@playwright/test").Page} page the browser page.
+ * @param {number} count how many images to attach.
+ * @returns {Promise<void>} resolves once all chips are visible.
+ */
+async function attachImages(page, count) {
+  await page.locator(sel.INPUT).evaluate((textarea, { pngB64, n }) => {
+    const bytes = Uint8Array.from(atob(pngB64), (c) => c.charCodeAt(0));
+    const files = Array.from(
+      { length: n },
+      (_, i) => new File([bytes], `shot-${i}.png`, { type: "image/png" }),
+    );
+    const event = new ClipboardEvent("paste", {
+      clipboardData: new DataTransfer(),
+      bubbles: true,
+    });
+    Object.defineProperty(event, "clipboardData", { value: { files } });
+    textarea.dispatchEvent(event);
+  }, { pngB64: PNG_BASE64, n: count });
+  await expect(page.locator(CHIPS).locator(".chip")).toHaveCount(count);
+}
+
+test("attached chips stack above the input row without horizontal overflow", async ({
+  page,
+}) => {
+  // Given a phone-width session page (the broken shape: the chips row
+  // used to share the flex row and push the textarea off-screen).
+  await page.setViewportSize(PHONE);
+  await page.goto(`${baseUrl()}/web`);
+  await expect(page.locator(sel.SESSION_ROW).first()).toBeAttached();
+  const rowId = await page
+    .locator(sel.SESSION_ROW)
+    .first()
+    .getAttribute(sel.SESSION_ID_ATTR);
+  await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${rowId}`);
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    rowId,
+  );
+
+  // When attaching several images (enough chips to wrap inside the
+  // strip and prove the vertical stacking).
+  await attachImages(page, 6);
+
+  // Then the chips strip sits entirely ABOVE the textarea: its bottom
+  // edge is at or above the input's top edge (own row, no sharing).
+  const chips = await page.locator(CHIPS).boundingBox();
+  const ta = await page.locator(sel.INPUT).boundingBox();
+  if (!chips || !ta) {
+    throw new Error("chips strip or textarea rendered no box");
+  }
+  expect(chips.y + chips.height, "chips bottom vs input top").toBeLessThanOrEqual(
+    ta.y + 1,
+  );
+
+  // And the strip is bounded and vertically scrollable (the "scroll
+  // through it easier since it will be vertical" directive).
+  const strip = await page.locator(CHIPS).evaluate((el) => ({
+    overflowY: getComputedStyle(el).overflowY,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+  }));
+  expect(strip.overflowY).toBe("auto");
+
+  // And the composer body never overflows the viewport horizontally
+  // with chips present — the defect's headline symptom.
+  const overflow = await page.evaluate(() => ({
+    body: document.body.scrollWidth,
+    viewport: window.innerWidth,
+  }));
+  expect(overflow.body).toBeLessThanOrEqual(overflow.viewport);
+
+  // And the textarea/buttons row kept its geometry: the textarea is
+  // full-width inside the composer padding, not squeezed rightward.
+  expect(ta.x, "textarea starts at the composer's left padding").toBeLessThan(30);
+  expect(ta.width + ta.x * 2).toBeLessThanOrEqual(overflow.viewport);
+});

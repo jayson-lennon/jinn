@@ -77,26 +77,35 @@ impl WebRegion for ComposerRegion {
 /// at both breakpoints — the desktop rule states `align-self: stretch`
 /// explicitly, because the mobile query's hit-height floor must not
 /// become the only height story.
+///
+/// The chips strip is its own row: `#composer` wraps, and
+/// `#image-chips` takes `flex-basis: 100%`, which pushes it onto a
+/// full-width line ABOVE the textarea/buttons row — the user's
+/// directive ("stack the uploaded images above the text/button row").
+/// The strip scrolls vertically inside a bounded max-height, so many
+/// attachments never push the composer over the viewport and the
+/// textarea/buttons row never shifts or overflows at either breakpoint.
 pub const COMPOSER_CSS: &str = r#"
 .busy-spinner { width: 18px; height: 18px; margin: 0 auto 8px; border: 2px solid var(--border);
                 border-top-color: var(--accent); border-radius: 50%;
                 animation: webui-spin .8s linear infinite; }
 @keyframes webui-spin { to { transform: rotate(360deg); } }
-#composer { border-top: 1px solid var(--border); padding: 12px 18px; display: flex; gap: 10px; }
+#composer { border-top: 1px solid var(--border); padding: 12px 18px; display: flex; flex-wrap: wrap; gap: 10px; }
 #composer textarea { flex: 1; background: var(--panel); color: var(--fg);
                      border: 1px solid var(--border); border-radius: 6px;
                      padding: 8px 10px; font: inherit; resize: none; height: 64px; }
 #composer button { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 6px;
                    padding: 0 22px; font: inherit; cursor: pointer; align-self: stretch; }
 #composer button.cancel { background: var(--err); color: var(--on-err); }
-#image-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel);
+#image-chips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px;
+               overflow-y: auto; max-height: 132px; min-height: 0; }
+.chip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; background: var(--panel);
         border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
 .chip img { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; display: block; }
 .chip-name { font-size: 12px; color: var(--muted); max-width: 140px; overflow: hidden;
              text-overflow: ellipsis; white-space: nowrap; }
 .chip-x { background: transparent; color: var(--muted); border: 0; font: inherit;
-          cursor: pointer; padding: 0 2px; line-height: 1; }
+          cursor: pointer; padding: 0 2px; line-height: 1; flex: 0 0 auto; }
 .chip-x:hover { color: var(--err); }
 #composer .attach { align-self: stretch; background: var(--panel); color: var(--fg);
                     border: 1px solid var(--border); border-radius: 6px;
