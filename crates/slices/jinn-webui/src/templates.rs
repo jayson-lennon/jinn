@@ -363,6 +363,9 @@ pub struct PageTemplate {
     /// The session-switch interstitial's id — the loading overlay a
     /// session-row click raises; static shell markup like the scrims.
     pub switch_overlay_id: &'static str,
+    /// The error-notice banner's id — the failed-activate surface the
+    /// fetch-error listener fills; static shell markup like the scrims.
+    pub error_notice_id: &'static str,
     /// The viewed session's stream URL, empty on the landing page —
     /// the `data-init` `@get` binds to it; the runtime keeps the
     /// fetch-stream open (with retries) for the page's lifetime and
@@ -438,6 +441,7 @@ impl PageTemplate {
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
             switch_overlay_id: contract::SWITCH_OVERLAY_ID,
+            error_notice_id: contract::ERROR_NOTICE_ID,
             stream_url: String::new(),
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
@@ -504,6 +508,7 @@ impl PageTemplate {
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
             switch_overlay_id: contract::SWITCH_OVERLAY_ID,
+            error_notice_id: contract::ERROR_NOTICE_ID,
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
@@ -582,6 +587,8 @@ pub struct PageRootTemplate {
     pub menu_scrim_id: &'static str,
     /// The session-switch interstitial's id.
     pub switch_overlay_id: &'static str,
+    /// The error-notice banner's id.
+    pub error_notice_id: &'static str,
     /// The sessions pull's route — the list's effect re-pulls it.
     pub sessions_route: &'static str,
     /// The sessions pull's filter query parameter — the effect builds
@@ -656,6 +663,7 @@ impl PageRootTemplate {
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
             switch_overlay_id: contract::SWITCH_OVERLAY_ID,
+            error_notice_id: contract::ERROR_NOTICE_ID,
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
             viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,

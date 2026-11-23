@@ -350,6 +350,22 @@ pub const MENU_SCRIM_ID: &str = "menu-scrim";
 /// cover both.
 pub const SWITCH_OVERLAY_ID: &str = "switch-overlay";
 
+/// The error-notice signal — a non-empty string renders the notice
+/// banner. Set by the page root's fetch-error listener: a failed
+/// activate or create POST dispatches the Datastar fetch `error`
+/// event (a non-200 response carries no patches of its own), and the
+/// listener clears `switching` and names the failure here. Cleared by
+/// the next successful page swap (the swap re-seeds the signal empty).
+pub const SIGNAL_ERROR_NOTICE: &str = "errorNotice";
+
+/// The error-notice banner — the page-shell element the
+/// [`SIGNAL_ERROR_NOTICE`] string renders in (its visibility rides a
+/// `data-show` on the signal, its text a `data-text`). Static shell
+/// markup inside `#page-root` beside the switch overlay; the failure
+/// is visible on the current page without a reload — the self-healing
+/// overlay's visible half.
+pub const ERROR_NOTICE_ID: &str = "error-notice";
+
 // ── New-session modal ───────────────────────────────────────────────
 
 /// The new-session **modal's** host — an empty span sibling to the
@@ -923,6 +939,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     DRAWER_SCRIM_ID,
     MENU_SCRIM_ID,
     SWITCH_OVERLAY_ID,
+    ERROR_NOTICE_ID,
     MENU_ITEM_THEME_ID,
     MENU_ITEM_THEME_LIGHT_ID,
     MENU_ITEM_THEME_DARK_ID,

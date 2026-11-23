@@ -368,7 +368,7 @@ async fn a_busy_transition_pushes_the_controls_fragment() {
     let id = seed_session(&state);
 
     // When a busy phase change arrives.
-    actor.push_busy_controls(&id);
+    actor.push_controls_from_state(&id);
 
     // Then exactly one controls fragment lands.
     let envelope = rx.try_recv().expect("busy controls");

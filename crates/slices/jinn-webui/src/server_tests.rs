@@ -75,6 +75,7 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
         jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
+        jinn_kernel::common::turn_ledger::TurnLedger::default(),
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
@@ -301,6 +302,7 @@ async fn harness_with_store_actor() -> (State, BusAudit, Slices, axum::Router) {
         state.clone(),
         actor_services.bus.clone(),
         actor_services.session_store,
+        actor_services.turn_ledger.clone(),
         provider_cell,
         actor_services
             .slices
@@ -560,6 +562,7 @@ fn harness_with_archived_attachment(
                 entry: entry.clone(),
             },
         )),
+        jinn_kernel::common::turn_ledger::TurnLedger::default(),
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
@@ -775,6 +778,7 @@ fn harness_with_archived_row_and_receiver() -> (
             archived_id,
             "Archived from last run".to_owned(),
         ))),
+        jinn_kernel::common::turn_ledger::TurnLedger::default(),
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
@@ -2180,6 +2184,7 @@ singleton = true
             jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
                 jinn_kernel::common::services::test_services::FakeSessionStore,
             )),
+            jinn_kernel::common::turn_ledger::TurnLedger::default(),
             provider_cell,
             personas_cell,
             mcp_runtime_cell,
@@ -3703,9 +3708,16 @@ mod switch_markup {
 
         // When switching to it through the delivery handler directly.
         let started = std::time::Instant::now();
-        crate::delivery::handle_switch(&state, &bus, &target.to_string())
-            .await
-            .expect("the switch publishes");
+        crate::delivery::handle_switch(
+            &state,
+            &bus,
+            &jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
+                jinn_kernel::common::services::test_services::FakeSessionStore,
+            )),
+            &target.to_string(),
+        )
+        .await
+        .expect("the switch publishes");
         let elapsed = started.elapsed();
 
         // Then the handler returned only after the pointer had moved —
@@ -3770,6 +3782,7 @@ mod tools_actions {
             jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
                 jinn_kernel::common::services::test_services::FakeSessionStore,
             )),
+            jinn_kernel::common::turn_ledger::TurnLedger::default(),
             provider_cell,
             personas_cell,
             mcp_runtime_cell,

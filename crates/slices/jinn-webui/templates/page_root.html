@@ -1,7 +1,8 @@
 <div id="{{ page_root_id }}" {{ page_session_attr }}="{{ session_id }}"
-     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', skillsfilter: '', toolsfilter: '', mcpfilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, chatTick: 0, switching: false, sessionsAttention: {{ sessions_attention }}, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '', webTheme: '{{ web_theme }}', images: [] }"
+     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', skillsfilter: '', toolsfilter: '', mcpfilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, chatTick: 0, switching: false, errorNotice: '', sessionsAttention: {{ sessions_attention }}, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '', webTheme: '{{ web_theme }}', images: [] }"
      data-class:drawer-open="$drawerOpen"
-     data-on:keydown__document="evt.key === 'Escape' && ($menuOpen ? $menuOpen = false : ($drawerOpen ? $drawerOpen = false : undefined))">
+     data-on:keydown__document="evt.key === 'Escape' && ($menuOpen ? $menuOpen = false : ($drawerOpen ? $drawerOpen = false : undefined))"
+     data-on:datastar-fetch="$switching && evt.detail.type === 'error' && ($switching = false, $errorNotice = 'Session switch failed (status ' + (evt.detail.argsRaw && evt.detail.argsRaw.status || '?') + '). The session did not load.')">
   <nav id="sidebar">
     <h2>Sessions</h2>
     <input id="{{ sessions_filter_input_id }}" type="text" placeholder="filter sessions…"
@@ -39,6 +40,8 @@
       <span class="switch-label">Loading session…</span>
     </div>
   </div>
+  <div id="{{ error_notice_id }}" class="error-notice" data-show="$errorNotice.length > 0"
+       data-text="$errorNotice" hidden></div>
   {% if stream_url != "" %}
   <span data-init="@get('{{ stream_url }}', {openWhenHidden: true, retryMaxCount: Infinity, requestCancellation: 'cleanup'})"></span>
   {% endif %}

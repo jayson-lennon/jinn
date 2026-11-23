@@ -402,6 +402,19 @@ fn http_client() -> &'static reqwest::Client {
     &CLIENT
 }
 
+/// How long a cancel whose ledger held no live turn waits before
+/// concluding the settle wave will never come. The ordinary race the
+/// window covers: a turn that is minting right now (the send POST's
+/// dispatch still crossing the bus) — the ledger answers within a
+/// dispatch latency. The window's real purpose is the opposite case:
+/// the ledger answering `None` twice in a row IS the stuck-busy
+/// shape — the phase still reads working, no live turn exists, so no
+/// `SessionPhaseChanged` settle wave will ever fire.
+const CANCEL_NO_TURN_WINDOW: std::time::Duration = std::time::Duration::from_millis(120);
+
+/// Poll interval while waiting for a maybe-minting turn to appear.
+const CANCEL_NO_TURN_POLL: std::time::Duration = std::time::Duration::from_millis(30);
+
 /// Handles one `POST /web/cancel`.
 ///
 /// `CancelTurn` is an Event (two actors declare it — the inference
@@ -410,20 +423,69 @@ fn http_client() -> &'static reqwest::Client {
 /// same press. No live-session check: a cancel racing a load lands on
 /// the session id, which is the safer target than dropping the press.
 ///
+/// A cancel whose ledger holds **no live turn** (already settled or
+/// draining — the Q-bug's stuck-state shape: the composer still shows
+/// cancel, no phase wave is coming) gets the self-healing settle: the
+/// handler waits one short window for a maybe-minting turn to appear,
+/// and when the ledger still answers `None` it re-broadcasts the
+/// composer's controls through the fan-out — rendered from the phase
+/// the state actually holds, so a stale-busy composer returns to send
+/// and an idle session is a harmless no-op push. The settle never
+/// rides the POST response: the SSE `controls` push remains the
+/// fragment's single writer.
+///
 /// # Errors
 ///
 /// Returns [`ActionError::BadSessionId`] for a malformed id; the
 /// publish always happens on `Ok`.
-pub async fn handle_cancel(bus: &BusService, session_id: &str) -> Result<(), ActionError> {
+pub async fn handle_cancel(
+    state: &State,
+    bus: &BusService,
+    ledger: &jinn_kernel::common::turn_ledger::TurnLedger,
+    fanout: &crate::fanout::FanoutHandle,
+    session_id: &str,
+) -> Result<(), ActionError> {
     let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+    let live_at_press = ledger.live(&session_id).is_some();
     bus.publish(CancelTurn {
-        session_id,
+        session_id: session_id.clone(),
         // A user-confirmed cancel drains the buffered work into the
         // input box as editable draft text — the ESC-ESC semantics the
         // keyboard path applies, and the only publisher that sets it.
         drain_buffers_to_input: true,
     })
     .await;
+
+    // The self-healing settle: only for a press that found no live
+    // turn. A press on a live turn takes the ordinary settle wave —
+    // re-pushing here would double the fragment against it.
+    if live_at_press {
+        return Ok(());
+    }
+    let deadline = tokio::time::Instant::now() + CANCEL_NO_TURN_WINDOW;
+    loop {
+        if ledger.live(&session_id).is_some() {
+            // A turn minted inside the window: the ordinary wave owns
+            // the settle.
+            return Ok(());
+        }
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            break;
+        }
+        tokio::time::sleep((deadline - now).min(CANCEL_NO_TURN_POLL)).await;
+    }
+    // No live turn after the window: no settle wave is coming. Push
+    // the controls the state actually holds — the stale-busy
+    // composer returns to send; an idle session gets a harmless
+    // identical fragment. The handle is a bare sender seam, so the
+    // handler renders the fragment under its own guard (the same
+    // shape the rename POST's sessions push uses).
+    let html = {
+        let guard = state.read();
+        crate::regions::composer::controls_fragment(&session_id, &guard)
+    };
+    fanout.push_controls_from(&session_id, html);
     Ok(())
 }
 
@@ -982,32 +1044,49 @@ pub fn handle_create(
 ///
 /// The publish only enqueues — the store actor is the single writer of
 /// the active pointer and applies it on its own turn. The response page
-/// renders its sidebar from the active pointer, so this handler waits
-/// (bounded) for the activation to land before returning: without the
-/// wait the swapped-in page names the *previous* active session, and
-/// the correcting `sessions` SSE push races the client's swap and is
-/// lost — the visible symptom was a highlight one click behind.
-/// Unknown ids never converge (nothing will insert them), so the wait
-/// is skipped for them and the render falls through to the store.
+/// renders from live state, so this handler waits (bounded) for the
+/// activation to land before returning **for every session the store
+/// can activate** — live and archived alike. The archived wait is the
+/// self-healing overlay's server half: hydration is async, and a
+/// response rendered mid-hydration fell through to a store read that
+/// raced the hydrate (a miss 404s, and an error response carries no
+/// patches — the page froze on the overlay forever). A session that is
+/// neither live nor in the store never converges, so the store is
+/// asked once first and an unknown id refuses here, before anything
+/// publishes.
 ///
 /// # Errors
 ///
-/// Returns [`ActionError::BadSessionId`] for a malformed id.
+/// Returns [`ActionError::BadSessionId`] for a malformed id and
+/// [`ActionError::UnknownSession`] for an id neither live nor stored —
+/// the 404 the render used to fall into, moved ahead of the publish.
 pub async fn handle_switch(
     state: &State,
     bus: &BusService,
+    session_store: &jinn_session_state::SessionStoreService,
     session_id: &str,
 ) -> Result<(), ActionError> {
     let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
     let known_live = state.read().session.contains(&session_id);
+    if !known_live {
+        // The store can answer this id or nothing can: hydration,
+        // activation, and every later render all read the same store.
+        // A miss refuses before the publish, so no response path ever
+        // waits on an id nothing will make active.
+        let stored = session_store
+            .load_session(&session_id)
+            .await
+            .map_err(|_report| ActionError::UnknownSession(session_id.clone()))?;
+        if stored.is_none() {
+            return Err(ActionError::UnknownSession(session_id));
+        }
+    }
     bus.publish(SessionLoadRequested {
         session_id: session_id.clone(),
         content_width: None,
     })
     .await;
-    if known_live {
-        wait_for_activation(state, &session_id).await;
-    }
+    wait_for_activation(state, &session_id).await;
     Ok(())
 }
 

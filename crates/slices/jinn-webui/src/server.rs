@@ -354,6 +354,14 @@ pub struct ServerShared {
     bus: BusService,
     /// The session store, for archived sessions.
     session_store: jinn_session_state::SessionStoreService,
+    /// The process turn ledger — read-only from the web side. A
+    /// cancel that finds no live turn publishes a fact no subscriber
+    /// answers; the ledger's `live` is how the cancel handler tells
+    /// "nothing to drain" from "drain started" without re-deriving
+    /// turn state, and the settle push it triggers is the composer's
+    /// one-writer rule kept (the POST response still carries no
+    /// controls fragment).
+    turn_ledger: jinn_kernel::common::turn_ledger::TurnLedger,
     /// The provider cell, for the model picker.
     provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
     /// The personas cell, for the persona modal's TUI-parity rows.
@@ -387,6 +395,7 @@ impl ServerShared {
         state: State,
         bus: BusService,
         session_store: jinn_session_state::SessionStoreService,
+        turn_ledger: jinn_kernel::common::turn_ledger::TurnLedger,
         provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
         personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
         mcp_runtime: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
@@ -401,6 +410,7 @@ impl ServerShared {
             state,
             bus,
             session_store,
+            turn_ledger,
             provider_cell,
             personas_cell,
             mcp_runtime,
@@ -444,6 +454,20 @@ impl ServerShared {
     #[must_use]
     pub(crate) fn state(&self) -> &State {
         &self.state
+    }
+
+    /// The session store, for the delivery path that pre-checks an
+    /// archived switch target before publishing.
+    #[must_use]
+    pub(crate) fn session_store(&self) -> &jinn_session_state::SessionStoreService {
+        &self.session_store
+    }
+
+    /// The process turn ledger, read-only — the cancel handler's
+    /// no-live-turn witness.
+    #[must_use]
+    pub(crate) fn turn_ledger(&self) -> &jinn_kernel::common::turn_ledger::TurnLedger {
+        &self.turn_ledger
     }
 
     /// The provider cell, for the delivery path that resolves the
@@ -1102,9 +1126,15 @@ async fn cancel(
     form: Result<WebForm<jinn_webui_msg::CancelForm>, HandlerError>,
 ) -> Result<SseAction, HandlerError> {
     let WebForm(form) = form?;
-    crate::delivery::handle_cancel(&shared.bus, &form.session_id)
-        .await
-        .map_err(|error| fail(error.status(), error.sentence()))?;
+    crate::delivery::handle_cancel(
+        shared.state(),
+        shared.bus(),
+        shared.turn_ledger(),
+        &shared.fanout,
+        &form.session_id,
+    )
+    .await
+    .map_err(|error| fail(error.status(), error.sentence()))?;
     // No fragment rides the response: the cancel is an event (one
     // press, whole cancel) and the phase-change `controls` push is
     // the controls fragment's single writer — the shipped
@@ -1502,9 +1532,14 @@ async fn activate(
     form: Result<WebForm<jinn_webui_msg::SwitchForm>, HandlerError>,
 ) -> Result<SseAction, HandlerError> {
     let WebForm(_) = form?;
-    crate::delivery::handle_switch(shared.state(), shared.bus(), &session_id)
-        .await
-        .map_err(|error| fail(error.status(), error.sentence()))?;
+    crate::delivery::handle_switch(
+        shared.state(),
+        shared.bus(),
+        shared.session_store(),
+        &session_id,
+    )
+    .await
+    .map_err(|error| fail(error.status(), error.sentence()))?;
     // Validate the path id (the page render re-parses it; this check
     // makes a malformed id a 400 before the switch publishes).
     parse_session_id(&session_id)?;

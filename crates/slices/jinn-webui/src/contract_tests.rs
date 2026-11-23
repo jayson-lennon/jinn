@@ -111,6 +111,7 @@ fn rendered_page() -> String {
         drawer_scrim_id: contract::DRAWER_SCRIM_ID,
         menu_scrim_id: contract::MENU_SCRIM_ID,
         switch_overlay_id: contract::SWITCH_OVERLAY_ID,
+        error_notice_id: contract::ERROR_NOTICE_ID,
         stream_url: String::new(),
         sessions_route: contract::SESSIONS_ROUTE,
         filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
@@ -349,6 +350,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         drawer_scrim_id: contract::DRAWER_SCRIM_ID,
         menu_scrim_id: contract::MENU_SCRIM_ID,
         switch_overlay_id: contract::SWITCH_OVERLAY_ID,
+        error_notice_id: contract::ERROR_NOTICE_ID,
         stream_url: String::new(),
         sessions_route: contract::SESSIONS_ROUTE,
         filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
@@ -413,6 +415,7 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
         drawer_scrim_id: contract::DRAWER_SCRIM_ID,
         menu_scrim_id: contract::MENU_SCRIM_ID,
         switch_overlay_id: contract::SWITCH_OVERLAY_ID,
+        error_notice_id: contract::ERROR_NOTICE_ID,
         stream_url: String::new(),
         sessions_attention: 4,
         sessions_route: contract::SESSIONS_ROUTE,
@@ -992,6 +995,7 @@ fn test_shared() -> crate::server::ServerShared {
         jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
+        jinn_kernel::common::turn_ledger::TurnLedger::default(),
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
@@ -1257,4 +1261,99 @@ fn the_switch_overlay_css_stacks_above_the_menu_panel_and_hides_by_default() {
         css.contains(".switch-spinner") && css.contains("webui-spin"),
         "the overlay's spinner reuses the shared spin keyframes: {css}"
     );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_page_shell_listens_for_fetch_errors_to_clear_the_switching_signal() {
+    // Given the fully rendered page shell.
+    let page = rendered_page();
+
+    // Then the root carries the Datastar fetch-event listener: a
+    // failed activate/create POST dispatches the `error` event (a
+    // non-200 response carries no patches of its own), and the
+    // listener — gated on the interstitial being up — clears the
+    // signal and names the failure in the error-notice signal. This
+    // is the self-healing overlay's client half: every failing
+    // navigation now has a clear path.
+    assert!(
+        page.contains("data-on:datastar-fetch"),
+        "the page root must listen for fetch errors: {page}"
+    );
+    let start = page
+        .find("data-on:datastar-fetch")
+        .expect("the listener renders");
+    let expr = page
+        .get(start..(start + 700).min(page.len()))
+        .unwrap_or_default();
+    assert!(
+        expr.contains("$switching"),
+        "the listener must gate on the interstitial signal: {expr}"
+    );
+    assert!(
+        expr.contains("evt.detail.type === 'error'"),
+        "the listener must act only on the error event type: {expr}"
+    );
+    assert!(
+        expr.contains("$switching = false"),
+        "the listener must clear the interstitial signal: {expr}"
+    );
+    assert!(
+        expr.contains(contract::SIGNAL_ERROR_NOTICE),
+        "the listener must surface the failure through the notice signal: {expr}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_error_notice_renders_in_the_page_shell_hidden_and_signal_bound() {
+    // Given the fully rendered page shell.
+    let page = rendered_page();
+
+    // Then the notice element exists with the contract's id, rendered
+    // server-side hidden (no boot flash), its visibility rides the
+    // notice signal and its text is the signal's content.
+    assert!(
+        page.contains(&format!("id=\"{}\"", contract::ERROR_NOTICE_ID)),
+        "the notice id is missing from the page shell: {page}"
+    );
+    let start = page
+        .find(&format!("id=\"{}\"", contract::ERROR_NOTICE_ID))
+        .expect("the notice renders");
+    let notice = page
+        .get(start..(start + 300).min(page.len()))
+        .unwrap_or_default();
+    assert!(
+        notice.contains(" hidden"),
+        "the notice must render hidden server-side (no boot flash): {notice}"
+    );
+    assert!(
+        notice.contains("$errorNotice"),
+        "the notice's visibility and text must ride the notice signal: {notice}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_error_notice_css_is_token_styled_and_inert_when_hidden() {
+    // Given the sessions region's stylesheet — the sheet the notice's
+    // rules travel in, beside the interstitial's.
+    let css = crate::regions::sessions::SIDEBAR_CSS;
+
+    // Then the notice styles by tokens only and keeps a hidden rule —
+    // the same boot-inert shape the interstitial pins.
+    assert!(
+        css.contains("#error-notice {"),
+        "the notice's rule is in the sheet: {css}"
+    );
+    assert!(
+        css.contains("#error-notice[hidden]"),
+        "the notice's hidden rule keeps it inert at boot: {css}"
+    );
+    for token in ["var(--bg-badge-err)", "var(--err)"] {
+        assert!(
+            css.contains(token),
+            "the notice styles only by tokens ({token}): {css}"
+        );
+    }
 }

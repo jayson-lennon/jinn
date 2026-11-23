@@ -140,6 +140,29 @@ impl FanoutHandle {
         self.tx.subscribe()
     }
 
+    /// Pushes the composer's controls fragment for a session, rendered
+    /// from the phase the state holds — busy shows cancel/queue, idle
+    /// shows send. Named for the fragment, not a phase: the ordinary
+    /// busy push fires on the phase flip and the settle wave covers
+    /// the ordinary idle swap — but this render is also the
+    /// no-live-turn cancel's settle path (see
+    /// `crate::delivery::handle_cancel`): a cancel landing on a turn
+    /// the ledger no longer holds publishes a fact nothing answers, so
+    /// the handler re-broadcasts the controls the state actually
+    /// holds through this handle. The POST response stays empty — the
+    /// controls push remains the fragment's single writer. The handle
+    /// holds no state (a bare sender seam), so the caller renders the
+    /// fragment under its own guard and hands it in — send failures
+    /// are the no-receiver case (no page connected) and are not errors.
+    pub(crate) fn push_controls_from(&self, session_id: &SessionId, html: String) {
+        let _ = self.tx.send(SseEnvelope {
+            kind: SseKind::Controls,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html,
+        });
+    }
+
     /// The session's settled boundary: the rendered-entry count the
     /// settled transcript already carried when the live turn began.
     /// `None` when the session is not mid-turn (or its boundary was
@@ -609,21 +632,6 @@ impl WebUiFanoutActor {
         }
     }
 
-    /// Pushes the busy-state controls fragment for a session — the
-    /// composer region's guard render.
-    pub(crate) fn push_busy_controls(&mut self, session_id: &SessionId) {
-        let html = {
-            let guard = self.state.read();
-            crate::regions::composer::controls_fragment(session_id, &guard)
-        };
-        self.broadcast(SseEnvelope {
-            kind: SseKind::Controls,
-            session_id: session_id.clone(),
-            cursor: 0,
-            html,
-        });
-    }
-
     /// Pushes a refreshed sessions-list fragment to every page — the
     /// sessions region's guard render. The Sessions kind is
     /// signal-only at the wire (the client re-pulls the list with its
@@ -964,7 +972,7 @@ impl WebUiFanoutActor {
                 self.boundaries.set(&msg.session_id, boundary);
                 self.last_tail.remove(&msg.session_id);
             }
-            self.push_busy_controls(&msg.session_id);
+            self.push_controls_from_state(&msg.session_id);
             if working_flipped {
                 self.refresh_all_sessions_lists();
             }
@@ -1001,6 +1009,25 @@ impl WebUiFanoutActor {
         if working_flipped || marked {
             self.refresh_all_sessions_lists();
         }
+    }
+
+    /// Pushes the composer's controls fragment for a session, rendered
+    /// from the phase the state holds — busy shows cancel/queue, idle
+    /// shows send. The phase-flip push and the no-live-turn cancel's
+    /// settle path (via [`FanoutHandle::push_controls_from`], handed
+    /// the same render) share one body, so the fragment can never
+    /// disagree between the two writers of the same kind.
+    pub(crate) fn push_controls_from_state(&mut self, session_id: &SessionId) {
+        let html = {
+            let guard = self.state.read();
+            crate::regions::composer::controls_fragment(session_id, &guard)
+        };
+        self.broadcast(SseEnvelope {
+            kind: SseKind::Controls,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html,
+        });
     }
 }
 
