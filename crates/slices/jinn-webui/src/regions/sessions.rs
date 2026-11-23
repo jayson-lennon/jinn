@@ -353,7 +353,13 @@ pub async fn sessions_fragment(
     if let Ok(summaries) = shared.load_summaries().await {
         append_summaries(&mut entries, &mut bots, summaries);
     }
-    let rows = picker_rows(entries, &bots, filter, unread_marks.as_ref(), working.as_ref());
+    let rows = picker_rows(
+        entries,
+        &bots,
+        filter,
+        unread_marks.as_ref(),
+        working.as_ref(),
+    );
 
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .map_err(|e| crate::server::map_render_error(&e))

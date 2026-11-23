@@ -300,10 +300,7 @@ async fn the_activate_response_carries_no_session_rows_and_an_empty_transcript()
         "the activate response must carry no transcript entries: {body}"
     );
     assert!(
-        body.contains(&format!(
-            "{}=\"0\"",
-            contract::TRANSCRIPT_CURSOR_DATA_ATTR
-        )),
+        body.contains(&format!("{}=\"0\"", contract::TRANSCRIPT_CURSOR_DATA_ATTR)),
         "the swapped page's transcript starts at cursor 0: {body}"
     );
 
@@ -315,13 +312,13 @@ async fn the_activate_response_carries_no_session_rows_and_an_empty_transcript()
     // restricts its signal dump to the two list signals, so unrelated
     // writes never re-fire it).
     assert!(
-        body.contains(&format!(
-            "{}{id}?since=0",
-            contract::STREAM_PREFIX
-        )),
+        body.contains(&format!("{}{id}?since=0", contract::STREAM_PREFIX)),
         "the navigation root's stream URL starts the catch-up at 0: {body}"
     );
-    assert!(body.contains("@get("), "the effect/action binds render: {body}");
+    assert!(
+        body.contains("@get("),
+        "the effect/action binds render: {body}"
+    );
     assert!(
         body.contains("data-init=\"@get("),
         "the sessions container's mount fetch is seeded: {body}"

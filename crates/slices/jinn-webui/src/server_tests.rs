@@ -3780,7 +3780,11 @@ mod switch_markup {
         // `?viewed=` naming is gone; the rows bind the signal).
         assert_eq!(status, StatusCode::OK);
         assert!(
-            body.contains(&format!("{}: '{}'", crate::contract::SIGNAL_VIEWED_SESSION, b)),
+            body.contains(&format!(
+                "{}: '{}'",
+                crate::contract::SIGNAL_VIEWED_SESSION,
+                b
+            )),
             "the seed names the activated session: {body}"
         );
 

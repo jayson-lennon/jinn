@@ -815,8 +815,7 @@ async fn page_session(
 ) -> Result<Page, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
-    let sessions_html =
-        crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
     // The settled prefix + boundary cursor, under one guard.
     let (transcript_entries, cursor) = {
         let guard = shared.read_state();
@@ -1788,14 +1787,12 @@ async fn stream(
             let guard = shared.read_state();
             crate::regions::sessions::unread_count_of(&guard)
         };
-        vec![Ok(
-            datastar::prelude::PatchSignals::new(format!(
-                "{{\"{}\": {attention}}}",
-                crate::contract::SIGNAL_SESSIONS_ATTENTION
-            ))
-            .into_datastar_event()
-            .write_as_axum_sse_event(),
-        )]
+        vec![Ok(datastar::prelude::PatchSignals::new(format!(
+            "{{\"{}\": {attention}}}",
+            crate::contract::SIGNAL_SESSIONS_ATTENTION
+        ))
+        .into_datastar_event()
+        .write_as_axum_sse_event())]
     };
     let session_filter = id.clone();
     let tick = std::sync::atomic::AtomicU64::new(0);
