@@ -40,7 +40,8 @@
       <span class="switch-label">Loading session…</span>
     </div>
   </div>
-  <div id="{{ error_notice_id }}" class="error-notice" data-show="$errorNotice.length > 0"
+  <div id="{{ error_notice_id }}" class="error-notice"
+       data-attr:hidden="$errorNotice.length > 0 ? null : true"
        data-text="$errorNotice" hidden></div>
   {% if stream_url != "" %}
   <span data-init="@get('{{ stream_url }}', {openWhenHidden: true, retryMaxCount: Infinity, requestCancellation: 'cleanup'})"></span>

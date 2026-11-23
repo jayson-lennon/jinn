@@ -86,7 +86,7 @@ test.describe("system default, dark OS", () => {
     const bg = await page.evaluate(() =>
       getComputedStyle(document.body).backgroundColor,
     );
-    expect(bg).toBe("rgb(25, 27, 30)");
+    expect(bg).toBe("rgb(37, 39, 46)");
   });
 });
 

@@ -1331,6 +1331,11 @@ fn the_error_notice_renders_in_the_page_shell_hidden_and_signal_bound() {
         notice.contains("$errorNotice"),
         "the notice's visibility and text must ride the notice signal: {notice}"
     );
+    assert!(
+        notice.contains("data-attr:hidden"),
+        "the notice's visibility must be attribute-driven (a static `hidden` \
+         never lifts once the signal fills): {notice}"
+    );
 }
 
 #[rstest::rstest]
