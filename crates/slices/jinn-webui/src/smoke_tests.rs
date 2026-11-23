@@ -156,9 +156,31 @@ async fn clicking_a_session_in_a_real_browser_shows_its_transcript() {
         .expect("the seeded session's row renders in the sidebar");
     row.click().await.expect("the row clicks");
 
-    // Then the transcript carries the session's entry — the swap
-    // replaced the page and the content followed. Poll: the swap is
-    // one fetch + one DOM replace after the click.
+    // Then the sidebar REFILLED: the navigation response carries no
+    // rows (the navigation-shape contract), so the swapped root's
+    // tick effect is what fetches the list — if it never fires, the
+    // sidebar is empty on every swapped page and the row lookup below
+    // (and every later navigation) is dead. Poll: one fetch + one DOM
+    // replace after the swap.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut sidebar_refilled = false;
+    while std::time::Instant::now() < deadline {
+        let content = page.content().await.expect("page content reads");
+        if content.contains("data-session-id") {
+            sidebar_refilled = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert!(
+        sidebar_refilled,
+        "after the swap the sidebar must refill via the swapped root's \
+         one tick-effect fetch (the navigation response carries no rows)"
+    );
+
+    // Then the transcript carries the session's entry — the catch-up
+    // delivered the history into the empty transcript. Poll: the
+    // stream connect + catch-up appends after the click.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let mut saw_entry = false;
     while std::time::Instant::now() < deadline {
@@ -172,7 +194,7 @@ async fn clicking_a_session_in_a_real_browser_shows_its_transcript() {
     assert!(
         saw_entry,
         "after the click the page must show the session's title and entry — \
-         the swap did not replace the transcript"
+         the catch-up did not deliver the history"
     );
 
     // The URL tracked the swap (pushState on activate).

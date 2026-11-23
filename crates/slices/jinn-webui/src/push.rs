@@ -24,7 +24,9 @@
 //! No push keys any scrolling: transcript pushes carry no signal
 //! patch at all, and no signal any `data-effect` reads rides any
 //! event. The wrap scrolls on its `data-init` (page load, row-click
-//! swap) and on the composer's send-time scroll — nothing else.
+//! swap), on the composer's send-time scroll, and on the wrap's own
+//! `catchupCursor` effect (the stream's from-zero catch-up
+//! completion) — nothing else.
 //!
 //! Sessions, Models, McpStatus, Skills, and Tools pushes are
 //! **signals, not HTML**: the pushed list is a signal to the page's

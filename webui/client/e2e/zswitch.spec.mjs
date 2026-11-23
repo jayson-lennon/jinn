@@ -158,6 +158,65 @@ test("every row activates from the landing page", async ({ page }) => {
   );
 });
 
+test("a session switch fetches the list and stream exactly once each", async ({
+  page,
+}) => {
+  // Given a page with a request counter on the sessions list pull and
+  // the stream — the page-shape law's observable claim, byte-level:
+  // a switch renders the whole chrome in one response (list included,
+  // seeded by the render), so exactly ONE list pull fires — and the
+  // connect convergence no longer bumps the tick, so exactly ONE
+  // stream opens. Any second row of either is a double-fetch bug.
+  await openSession(page);
+  const sessionA = await page
+    .locator(sel.PAGE_ROOT)
+    .getAttribute(sel.PAGE_SESSION_ATTR);
+  const sessionB = await createSession(page);
+  await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionA}`);
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    sessionA,
+  );
+
+  const counts = { list: 0, stream: 0 };
+  const seen = { list: [], stream: [] };
+  const count = (url) => {
+    if (url.includes("/web/sessions?") || url.endsWith("/web/sessions")) {
+      counts.list += 1;
+      seen.list.push(url);
+    }
+    if (url.includes("/web/stream/")) {
+      counts.stream += 1;
+      seen.stream.push(url);
+    }
+  };
+  await page.route("**/web/sessions*", (route) => {
+    count(route.request().url());
+    return route.continue();
+  });
+  await page.route("**/web/stream/*", (route) => {
+    count(route.request().url());
+    return route.continue();
+  });
+
+  // When switching to B through its row.
+  await page.locator(sel.SESSION_ROW_BY_ID(sessionB)).click();
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    sessionB,
+  );
+
+  // Then the wire carried exactly one list pull and one stream open:
+  // wait for the new stream to connect (the page's own convergence),
+  // let any stragglers land, and assert the counts stayed at one.
+  // (A modal-created session has no history, so no catch-up
+  // completion patch ever arrives — the stream open is the settle.)
+  await expect.poll(() => counts.stream, { timeout: 5_000 }).toBe(1);
+  await page.waitForTimeout(1_000);
+  expect(seen.list, "the list pulls seen after the click").toEqual([seen.list.at(0)]);
+  expect(counts.stream).toBe(1);
+});
+
 test.describe("phone drawer", () => {
   test.use({ viewport: PHONE });
 

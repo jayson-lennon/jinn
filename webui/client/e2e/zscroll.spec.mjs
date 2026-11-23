@@ -12,8 +12,11 @@
 //! token, ~1 s total), which is exactly the window a token-follow
 //! autoscroll used to ride: these specs prove the wrap's scrollTop
 //! is frozen across it. The wrap's only scrolls are its `data-init`
-//! bottom-scroll on insertion (fresh load, row-click swap) and the
-//! composer's send-time scroll — never a server event.
+//! bottom-scroll on insertion (fresh load, row-click swap), the
+//! composer's send-time scroll, and the `catchupCursor` effect's
+//! landing scroll when the stream's from-zero catch-up completes
+//! (which is what puts the row-click swap at the bottom) — never a
+//! live token event.
 
 import { expect, test } from "@playwright/test";
 import { openSession } from "./nav.mjs";
@@ -169,10 +172,12 @@ test("a session row click lands the page at the transcript bottom", async ({
     grownId,
   );
 
-  // Then the swapped-in wrap sits at the bottom: its data-init
-  // bottom-scroll alone lands the reader on the tail (the catch-up
-  // park no longer carries any scroll keying, so this is the one
-  // carrier left to prove). The wrap must actually overflow here —
+  // Then the swapped-in wrap sits at the bottom: the stream's
+  // from-zero catch-up appended the history into the empty transcript
+  // and completed with the `catchupCursor` patch — the wrap's effect
+  // answered it with the landing scroll (the data-init scroll fires
+  // before any content exists, so this carrier is what lands the
+  // reader on the tail). The wrap must actually overflow here —
   // a degenerate 0 == 0 would prove nothing.
   await expect.poll(() => maxScroll(page), { timeout: 5_000 }).toBeGreaterThan(
     50,

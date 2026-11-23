@@ -6,9 +6,11 @@
   <nav id="sidebar">
     <h2>Sessions</h2>
     <input id="{{ sessions_filter_input_id }}" type="text" placeholder="filter sessions…"
-           autocomplete="off" spellcheck="false" data-bind:sessionsfilter>
+           autocomplete="off" spellcheck="false" data-bind:sessionsfilter
+           data-on:input="$sessionsTick = $sessionsTick + 1">
     <div id="{{ sessions_id }}"
-         data-effect__debounce.150ms="($sessionsTick + ' ' + $sessionsfilter).trim() && @get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true})">{{ sessions_html|safe }}</div>
+         data-init="@get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true, filterSignals: {include: '^(sessionsTick|sessionsfilter)$'}})"
+         data-effect__debounce.150ms="$sessionsTick && @get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true, filterSignals: {include: '^(sessionsTick|sessionsfilter)$'}})">{{ sessions_html|safe }}</div>
   </nav>
   <main id="main">
     <div id="titlebar">

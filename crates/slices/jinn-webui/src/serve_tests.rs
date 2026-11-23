@@ -309,9 +309,11 @@ async fn the_activate_response_carries_no_session_rows_and_an_empty_transcript()
 
     // And the stream bind the root carries re-opens the stream at
     // cursor 0 — the fresh page's whole-history catch-up — and the
-    // sessions container's effect names the pull route (the one list
-    // fetch per page render), seeded so the swap fires it exactly
-    // once.
+    // sessions container carries the pull binding (the one list fetch
+    // per mount: the data-init fetch on the swapped-in root, plus the
+    // tick-guarded effect for push bumps; the pull names the route and
+    // restricts its signal dump to the two list signals, so unrelated
+    // writes never re-fire it).
     assert!(
         body.contains(&format!(
             "{}{id}?since=0",
@@ -320,6 +322,10 @@ async fn the_activate_response_carries_no_session_rows_and_an_empty_transcript()
         "the navigation root's stream URL starts the catch-up at 0: {body}"
     );
     assert!(body.contains("@get("), "the effect/action binds render: {body}");
+    assert!(
+        body.contains("data-init=\"@get("),
+        "the sessions container's mount fetch is seeded: {body}"
+    );
 }
 
 #[rstest::rstest]
