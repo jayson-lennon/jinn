@@ -1196,7 +1196,7 @@ mod actions {
             "system seed missing: {body}"
         );
         assert!(
-            body.contains("<meta name=\"theme-color\" content=\"#191b1e\">"),
+            body.contains("<meta name=\"theme-color\" content=\"#25272e\">"),
             "meta not dark: {body}"
         );
     }

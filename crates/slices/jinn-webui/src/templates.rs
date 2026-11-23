@@ -44,63 +44,65 @@ use crate::contract;
 /// session-new `<select>`, filter inputs) match the palette.
 pub const BASE_CSS: &str = r#"
 :root {
-  /* gutter_bg [25,27,30] */
-  --bg: #191b1e;
-  /* infopopup_bg [40,44,52] */
-  --panel: #282c34;
-  /* primary_text [220,220,220] */
-  --fg: #dcdcdc;
-  /* muted_text [116,116,116], lifted to #8f8f8f: the theme's value
-     falls under 3:1 on the raised surfaces (hover, active rows) the
-     web paints it over; #8f8f8f clears 3:1 on every dark surface. */
-  --muted: #8f8f8f;
-  /* derived: one step above --bg in the theme's blue-tinted ramp
-     (the theme names no border role; keeps the edge visible on both
-     --bg and --panel) */
-  --border: #2b2f36;
-  /* user_block_bg [52,53,65] — the user entry's own surface */
-  --bg-user-entry: #343541;
-  /* below --bg: the code and preformatted surface */
-  --bg-code: #131519;
-  /* derived: the hover step sits between --panel and the active
-     row in the user_block tint family — the theme's picker_selected_bg
-     [70,72,78] drops muted below 3:1, so the step is lifted until the
-     floor holds */
-  --bg-hover: #31343c;
-  /* derived: the active-row step, one step above --bg-hover for the
-     same floor */
-  --bg-active: #3a3d48;
-  /* derived: tool_pending_bg [45,45,50] retinted to the badge family */
-  --bg-badge-pending: #20242c;
-  /* tool_success_bg [44,55,44] darkened until the status text clears
-     4.5:1 on it */
-  --bg-badge-ok: #111d15;
-  /* tool_failure_bg [60,40,40] darkened for the same floor */
-  --bg-badge-err: #241616;
-  /* accent: keeps the shipped blue family (#4c8bd8), verified >=3:1
-     as text on every dark surface and 5.17:1 under dark button text */
-  --accent: #4c8bd8;
-  /* error_text (red family) lifted to #ee7770: the shipped value
-     falls under 4.5:1 on --panel (#282c34, where error toasts sit);
-     #ee7770 clears the floor on every dark surface */
-  --err: #ee7770;
-  /* success (green family, current value kept): 6.06:1 on --bg */
-  --ok: #57ab5a;
+  /* sonokai gutter_bg [37,39,46] */
+  --bg: #25272e;
+  /* derived: one step above --bg on the sonokai neutral ramp — the
+     theme names no popup role; tab_active_fg #2c2e34 is the theme's
+     own raised-surface tone */
+  --panel: #2c2e34;
+  /* sonokai primary_text */
+  --fg: #e2e2e3;
+  /* sonokai muted_text [99,101,117] lifted to #93959b: the theme's
+     #636575 falls under 3:1 on the raised surfaces (hover, active
+     rows) the web paints it over; #93959b clears 3:1 on every dark
+     surface */
+  --muted: #93959b;
+  /* sonokai border_unfocused */
+  --border: #44474e;
+  /* sonokai user_block_bg [48,50,58] — the user entry's own surface */
+  --bg-user-entry: #30323a;
+  /* derived: below --bg — the code and preformatted surface, the
+     scroll_indicator_bg tone */
+  --bg-code: #1e2026;
+  /* sonokai picker_selected_bg — the hover step (the dimmer of the
+     picker pair); the theme's picker pair drops muted below 3:1 only
+     at the highlight step, so this one needs no lift */
+  --bg-hover: #3b3e47;
+  /* sonokai picker_highlight_bg lifted from the raw value's pair —
+     the raw #44474e is already the border tone; muted clears 3:1 on
+     it as-is (#93959b on #44474e) */
+  --bg-active: #44474e;
+  /* derived: tool_pending retinted to the badge family, one step
+     above --panel on the neutral ramp */
+  --bg-badge-pending: #33353d;
+  /* sonokai tool_success_bg [36,50,36] darkened until the status
+     text clears 4.5:1 on it */
+  --bg-badge-ok: #1c2a1c;
+  /* sonokai tool_failure_bg [50,30,38] darkened for the same floor */
+  --bg-badge-err: #2e1b22;
+  /* sonokai focus_accent — the purple, verified 6.5:1+ as text on
+     every dark surface and 6.48:1 under the on-fill ink */
+  --accent: #c4a7e7;
+  /* sonokai error_text: 5.5:1+ on every dark surface */
+  --err: #ed8796;
+  /* sonokai success: 8.4:1+ on every dark surface */
+  --ok: #a9d89d;
   /* the modal/overlay scrim: black at the shipped opacity */
   --scrim: rgba(0, 0, 0, .55);
-  /* text on an accent or error FILL: near-black, the darker side of
-     both fills */
-  --on-fill: #14161a;
-  /* the unread mark's fill: the shipped gold, 9.3:1 under --on-fill */
-  --mark: #e3b341;
+  /* text on an accent or error FILL: near-black — the darker side of
+     both fills is the sonokai panel tone, 5.5:1+ under both */
+  --on-fill: #2c2e34;
+  /* the unread mark's fill: sonokai warning, 10:1 under --on-fill */
+  --mark: #ebdca0;
   /* the mark's secondary text on the gold fill */
-  --on-mark-muted: #3d3320;
-  /* the bot suffix's gold as text: 7.7:1 on --bg */
-  --bot: #d4a72c;
+  --on-mark-muted: #4d4527;
+  /* the bot suffix's gold as text: derived from the sonokai warning
+     family, deepened for the 4.5:1 text floor (6.5:1 on --bg) */
+  --bot: #c9b168;
   /* on the accent fill the label reads near-black; on the page the
-     white send-button label rides --on-fill too (5.2:1) */
-  --on-accent: #14161a;
-  --on-err: #14161a;
+     send-button label rides --on-fill too (6.48:1) */
+  --on-accent: #2c2e34;
+  --on-err: #2c2e34;
   color-scheme: dark;
 }
 body[data-theme="light"] {
@@ -214,7 +216,7 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 pub fn theme_color_for(mode: &str) -> &'static str {
     match mode {
         "light" => "#eceff4",
-        _ => "#191b1e",
+        _ => "#25272e",
     }
 }
 
