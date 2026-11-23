@@ -1,5 +1,5 @@
 <div id="{{ page_root_id }}" {{ page_session_attr }}="{{ session_id }}"
-     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', skillsfilter: '', toolsfilter: '', mcpfilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, chatTick: 0, switching: false, errorNotice: '', sessionsAttention: {{ sessions_attention }}, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '', webTheme: '{{ web_theme }}', images: [] }"
+     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', skillsfilter: '', toolsfilter: '', mcpfilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, chatTick: 0, catchupCursor: 0, switching: false, errorNotice: '', sessionsAttention: {{ sessions_attention }}, modelsTick: '', title: '{{ title }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '', webTheme: '{{ web_theme }}', images: [] }"
      data-class:drawer-open="$drawerOpen"
      data-on:keydown__document="evt.key === 'Escape' && ($menuOpen ? $menuOpen = false : ($drawerOpen ? $drawerOpen = false : undefined))"
      data-on:datastar-fetch="$switching && evt.detail.type === 'error' && ($switching = false, $errorNotice = 'Session switch failed (status ' + (evt.detail.argsRaw && evt.detail.argsRaw.status || '?') + '). The session did not load.')">
@@ -25,7 +25,8 @@
     <span id="{{ tools_modal_host_id }}"></span>
     <span id="{{ skills_modal_host_id }}"></span>
     <div id="{{ transcript_wrap_id }}" data-ref:transcriptwrap
-         data-init="$transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })">
+         data-init="$transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })"
+         data-effect__debounce.100ms="$catchupCursor > 0 && ($catchupCursor = 0, $transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })) !== undefined">
       <div id="{{ transcript_id }}" {{ cursor_attr }}="{{ cursor }}">{{ transcript_html|safe }}</div>
     </div>
     <div id="{{ controls_id }}">{{ controls_html|safe }}</div>

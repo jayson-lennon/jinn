@@ -3244,6 +3244,64 @@ mod stream_catchup {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn a_fresh_page_catchup_completes_with_the_catchup_cursor_patch() {
+        // Given a transcript with history and a fresh page (no cursor
+        // seen — the navigation response rendered the transcript
+        // empty).
+        let any_session = SessionId::new();
+        let transcript = crate::transcript::TranscriptModel::from_live(
+            &[
+                jinn_core_types::ChatEntry::user("first"),
+                jinn_core_types::ChatEntry::assistant("second"),
+            ],
+            Some("t"),
+            "model",
+            "idle",
+            false,
+            &any_session,
+        );
+
+        // When building catch-up from cursor 0.
+        let total = transcript.len();
+        let events = crate::server::render_catchup_events(transcript.since(Some(0)), 0, total);
+
+        // Then both entries arrive as appends AND the completion patch
+        // rides between them and the park: the wrap's `data-effect`
+        // answers `catchupCursor` leaving zero with the one
+        // bottom-scroll — keyed to the history's actual arrival, so
+        // the reader lands at the bottom of the settled transcript
+        // exactly once, and only when history exists to land at.
+        let completion = events
+            .iter()
+            .find(|event| {
+                event.event == datastar::consts::EventType::PatchSignals
+                    && event
+                        .data
+                        .join("")
+                        .contains(crate::contract::SIGNAL_CATCHUP_CURSOR)
+            })
+            .expect("the completion patch rides a from-zero catch-up with history");
+        assert!(
+            completion
+                .data
+                .join("")
+                .contains(&format!("\"{}\":2", crate::contract::SIGNAL_CATCHUP_CURSOR)),
+            "the completion names the end cursor: {:?}",
+            completion.data
+        );
+        // And the trailing park still advances the resume cursor and
+        // mutates nothing (no scroll from the park itself).
+        let trailing = events.last().expect("the trailing park");
+        assert_eq!(trailing.id.as_deref(), Some("2"));
+        assert!(
+            trailing.data.join("").contains("onlyIfMissing true"),
+            "{:?}",
+            trailing.data
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn the_stream_route_emits_catchup_then_stays_open() {
         // Given a live session with entries.
         let (state, _audit, _slices, router) = harness();
@@ -3290,7 +3348,7 @@ mod stream_catchup {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn the_stream_route_opens_with_a_sessions_signal_convergence_patch() {
+    async fn the_stream_route_opens_with_an_attention_only_convergence_patch() {
         // Given a live session and one other session wearing the
         // unread mark (seeded through the harness registry — the same
         // cell the fan-out writes).
@@ -3334,6 +3392,15 @@ mod stream_catchup {
                 crate::contract::SIGNAL_SESSIONS_ATTENTION
             )),
             "{patch}"
+        );
+        // And the connect patch is attention-ONLY — it carries no
+        // sessions tick: the root's tick effect is the page's one
+        // list fetch per render, and the just-swapped page already
+        // fetched. A tick here would fire a second identical pull
+        // (the double-fetch the page-shape law forbids).
+        assert!(
+            !patch.contains(crate::contract::SIGNAL_SESSIONS_TICK),
+            "the connect convergence must not bump the sessions tick: {patch}"
         );
     }
 

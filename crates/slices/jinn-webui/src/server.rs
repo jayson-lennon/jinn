@@ -1767,40 +1767,35 @@ async fn stream(
     });
 
     // Subscribe AFTER the catch-up snapshot: a fragment published in
-    // between re-arrives via the next convergence push. Each stream
-    // counts its own sessions pushes — the tick signal bumps per
-    // connection, never globally.
+    // between re-arrives via the next convergence push.
     let rx = shared.fanout.subscribe();
-    // Sessions-signal convergence: one patch on connect carrying the
-    // current unread count, the same heal the transcript's catch-up
-    // snapshot performs for entries. The page render seeded the badge
-    // at request time, but a mark transition can land between that
-    // render and this connect (activation of a marked session is the
-    // sharp edge: the fan-out's clear wave races the browser's
-    // navigation), and a broadcast is fire-and-forget — a wave fired
-    // before this stream subscribed never re-arrives. The connect
-    // patch closes that window for the badge; the tick rides it so the
-    // client's list also converges on connect.
+    // Sessions-attention convergence: one direct signal patch on
+    // connect carrying the current unread count — and ONLY the count.
+    // The page render seeded the badge at request time, but a mark
+    // transition can land between that render and this connect
+    // (activation of a marked session is the sharp edge: the fan-out's
+    // clear wave races the browser's navigation), and a broadcast is
+    // fire-and-forget — a wave fired before this stream subscribed
+    // never re-arrives. The connect patch closes that window for the
+    // badge. It deliberately does NOT bump `sessionsTick`: the root's
+    // tick effect is the page's ONE list fetch per render, and the
+    // swapped page just fetched — a connect-time bump would fire a
+    // second identical pull for data the browser already holds. Real
+    // list events keep arriving as addressed Sessions pushes from the
+    // fan-out, whose translation bumps the tick (push.rs).
     let converge: Vec<Result<SseEvent, Infallible>> = {
         let attention = {
             let guard = shared.read_state();
             crate::regions::sessions::unread_count_of(&guard)
         };
-        crate::push::sdk_events_of(
-            &SseEnvelope {
-                kind: SseKind::Sessions,
-                session_id: id.clone(),
-                cursor: 0,
-                html: attention.to_string(),
-            },
-            0,
-        )
-        .map_or_default(|events| {
-            events
-                .into_iter()
-                .map(|event| Ok(event.write_as_axum_sse_event()))
-                .collect()
-        })
+        vec![Ok(
+            datastar::prelude::PatchSignals::new(format!(
+                "{{\"{}\": {attention}}}",
+                crate::contract::SIGNAL_SESSIONS_ATTENTION
+            ))
+            .into_datastar_event()
+            .write_as_axum_sse_event(),
+        )]
     };
     let session_filter = id.clone();
     let tick = std::sync::atomic::AtomicU64::new(0);
@@ -1864,6 +1859,15 @@ pub struct StreamQuery {
 /// reads (its `onlyIfMissing` payload is a no-op on a connected
 /// page) — a reconnect appends without scrolling; its `id:` line is
 /// its real payload (the browser's resume position).
+///
+/// A **fresh** page (cursor 0, entries to deliver) gets one more
+/// frame: the `catchupCursor` completion patch. The navigation
+/// response renders the transcript empty with the wrap at scrollTop
+/// 0; the wrap's `data-effect` bottom-scrolls when `catchupCursor`
+/// transitions off zero — keyed to the history's actual arrival, so
+/// the reader lands at the bottom of the settled transcript exactly
+/// once, and only when there is history to land at. A reconnect at a
+/// parked cursor never emits the patch (no scroll stealing).
 pub(crate) fn render_catchup_events(
     entries: &[crate::transcript::RenderedEntry],
     start: usize,
@@ -1887,6 +1891,18 @@ pub(crate) fn render_catchup_events(
             )
         })
         .collect();
+    // The fresh-page completion marker: a from-zero catch-up that
+    // delivered entries names its end cursor, and the wrap's effect
+    // answers it with the one bottom-scroll. A reconnect (start > 0)
+    // or an empty catch-up emits nothing — appends land in place.
+    if start == 0 && total > 0 {
+        events.push(
+            PatchSignals::new(
+                serde_json::json!({ crate::contract::SIGNAL_CATCHUP_CURSOR: total }).to_string(),
+            )
+            .into_datastar_event(),
+        );
+    }
     // The trailing cursor-park: a signal patch whose `id:` parks the
     // browser's resume cursor at `total` (the settled boundary
     // mid-turn — never the live count). The payload is reader-less —

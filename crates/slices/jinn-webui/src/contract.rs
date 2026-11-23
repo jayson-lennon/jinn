@@ -279,9 +279,20 @@ pub const SIGNAL_MODELS_TICK: &str = "modelsTick";
 /// signal-only: the pull remains the renderer).
 pub const SIGNAL_SESSIONS_TICK: &str = "sessionsTick";
 /// The titlebar sessions button's unread count — seeded at page
-/// render and pushed alongside every sessions tick. The button's
-/// attention class and its badge's visibility/text both key off it.
+/// render and stamped by the stream's connect convergence patch (no
+/// tick rides it: the root's tick effect is the page's one list
+/// fetch). The button's attention class and its badge's
+/// visibility/text both key off it.
 pub const SIGNAL_SESSIONS_ATTENTION: &str = "sessionsAttention";
+/// The transcript catch-up's completion marker — the count of entries
+/// the stream's catch-up appended into the settled transcript region.
+/// It stays 0 until a from-cursor-0 catch-up completes, then jumps to
+/// that catch-up's end cursor; the wrap's `data-effect` keys its
+/// bottom-scroll on the transition, so a page that rendered empty
+/// (a navigation swap) lands at the bottom only when the history has
+/// actually landed. Later catch-ups (reconnects at a parked cursor)
+/// append in place without scrolling.
+pub const SIGNAL_CATCHUP_CURSOR: &str = "catchupCursor";
 
 /// The sessions filter's signal — bound by the filter input's
 /// `data-bind`. HTML attribute names are ASCII case-insensitive, so a
@@ -867,6 +878,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     SESSION_ID_DATA_ATTR,
     PAGE_SESSION_DATA_ATTR,
     TRANSCRIPT_CURSOR_DATA_ATTR,
+    SIGNAL_CATCHUP_CURSOR,
     ACTION_DATA_ATTR,
     ACTION_SEND,
     ACTION_CANCEL,
