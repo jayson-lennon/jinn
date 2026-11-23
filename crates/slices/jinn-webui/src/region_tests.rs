@@ -383,3 +383,80 @@ fn an_honest_region_with_undeclared_parts_passes_clean() {
     // blind all-five.
     assert!(gaps.is_empty(), "an honest region must pass: {gaps:?}");
 }
+
+// ── The composer's chips strip: stacked above the input row ────────
+
+#[rstest::rstest]
+#[test]
+fn the_chips_strip_is_its_own_full_width_row_above_the_input_row() {
+    // Given the composer's stylesheet.
+    let css = crate::regions::composer::COMPOSER_CSS;
+
+    // Then the strip is a wrapping flex child taking the full row
+    // (`flex-basis: 100%`) — the shape that puts attached-image chips
+    // on their own line ABOVE the textarea/buttons row instead of
+    // sharing it (the mobile overflow the user reported), and the
+    // composer is the wrap container that makes the basis mean that.
+    assert!(
+        css.contains("#composer { border-top: 1px solid var(--border); padding: 12px 18px; display: flex; flex-wrap: wrap;"),
+        "the composer must be a wrap container so the strip can own its line: {css}"
+    );
+    assert!(
+        css.contains("#image-chips { flex-basis: 100%;"),
+        "the chips strip must take the full row above the input row: {css}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_chips_strip_scrolls_vertically_inside_a_bounded_height() {
+    // Given the composer's stylesheet.
+    let css = crate::regions::composer::COMPOSER_CSS;
+
+    // Then the strip scrolls vertically (never horizontally — the
+    // user's "scroll through it easier since it will be vertical") and
+    // is capped, so many attachments cannot push the composer past
+    // the viewport. Chips wrap inside the strip; chips never shrink.
+    assert!(
+        css.contains("overflow-y: auto") && !css.contains("overflow-x"),
+        "the strip scrolls vertically only: {css}"
+    );
+    assert!(
+        css.contains("max-height: 132px"),
+        "the strip is height-capped so the composer stays in the viewport: {css}"
+    );
+    assert!(
+        css.contains(".chip { flex: 0 0 auto;"),
+        "chips keep their size and wrap to the next strip line: {css}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_chips_strip_styles_tokens_only_and_the_spinner_is_untouched() {
+    // Given the composer's stylesheet.
+    let css = crate::regions::composer::COMPOSER_CSS;
+
+    // Then the strip carries no color literals (tokens only, the
+    // palette invariant) and the busy-spinner's placement rules are
+    // exactly the ones before the chips work — the spinner sits
+    // outside #composer and must not inherit the strip's geometry.
+    let spinner_rule = css
+        .split("#image-chips")
+        .next()
+        .expect("the sheet has a head");
+    assert!(
+        spinner_rule.contains(".busy-spinner { width: 18px; height: 18px; margin: 0 auto 8px;"),
+        "the busy-spinner's placement rules are untouched: {css}"
+    );
+    // The strip's rule, taken whole (head to its closing brace).
+    let rule = css
+        .split("#image-chips {")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .unwrap_or_default();
+    assert!(
+        !rule.contains(": #"),
+        "the strip styles only by tokens: {rule}"
+    );
+}
