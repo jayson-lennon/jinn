@@ -824,6 +824,55 @@ mod reads {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn a_hostile_title_renders_an_intact_signals_seed() {
+        // Given a session whose title carries every character class
+        // that breaks a JS single-quoted literal or the HTML attribute
+        // around it: an apostrophe (the literal's delimiter), a double
+        // quote (the attribute's terminator), a backslash (the escape
+        // character itself), and an ampersand (an entity starter).
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .set_title("it's a \"quoted\" & back\\slash".to_owned());
+
+        // When getting its page and extracting the seed attribute
+        // (scan from `data-signals="` to the NEXT double quote — an
+        // extraction that only works when the value carries no raw
+        // terminating quote). The slice runs through `get`, so a
+        // would-be panic on a non-boundary index surfaces as a
+        // failure message instead.
+        let (status, body) = get(&router, &format!("/web/session/{id}")).await;
+        let marker = "data-signals=\"";
+        let start = body.find(marker).expect("the page carries the seed") + marker.len();
+        let tail = body
+            .get(start..)
+            .expect("the seed offset is a char boundary");
+        let end = start + tail.find('"').expect("the seed attribute closes");
+
+        // Then the extracted attribute is the intact object literal:
+        // the title rides fully escaped — apostrophe as `\'`, double
+        // quote as `\u0022`, backslash doubled, ampersand as
+        // `\u0026` — every escape one the JS engine decodes back to
+        // the original character, and the seed runs through to its
+        // legitimate end rather than terminating at the first hazard.
+        assert_eq!(status, StatusCode::OK);
+        let seed = body.get(start..end).expect("the seed attribute bounds");
+        assert!(
+            seed.contains("title: 'it\\'s a \\u0022quoted\\u0022 \\u0026 back\\\\slash'"),
+            "the hostile title must render fully escaped: {seed}"
+        );
+        assert!(
+            seed.ends_with("images: [] }"),
+            "the seed's literal must survive to its real end: {seed}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn transcript_since_returns_only_later_entries() {
         // Given a session holding three user entries and its id.
         let (state, _audit, _slices, router) = harness();

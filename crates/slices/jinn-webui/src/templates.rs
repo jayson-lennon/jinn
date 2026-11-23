@@ -11,13 +11,125 @@
 //!
 //! Escaping: askama escapes by extension — `.html` templates escape
 //! every interpolation — so a session title carrying markup cannot
-//! break the page. Pre-rendered HTML (the markdown bodies) rides
-//! through askama's `|safe` filter *only* on fields the transcript
-//! module produced, and that module is where the escaping contract
-//! lives.
+//! break the page. HTML escaping, however, does not protect a
+//! JavaScript string literal: the browser decodes entities in
+//! attribute values *before* the Datastar runtime evaluates the
+//! expression, so a title carrying an apostrophe terminates the
+//! literal early and the whole page's signal init fails. Everything
+//! interpolated into a Datastar expression's string literal therefore
+//! goes through [`filters::js_str`] (or the session-controlled seed
+//! fields the template builds through [`js_string_contents`]);
+//! pre-rendered HTML (the markdown bodies) rides through askama's
+//! `|safe` filter *only* on fields the transcript module produced,
+//! and that module is where the escaping contract lives.
 
 use askama::Template;
 use jinn_webui_msg::SessionListItem;
+
+/// The custom askama filters the Datastar expressions need.
+///
+/// One member, [`js_str`]: every user-controlled string interpolated
+/// into a Datastar expression's single-quoted literal (the signals
+/// seed's `title`, the rename editor's Escape/blur restores, and the
+/// row templates' name payloads) goes through it. Custom filters
+/// display verbatim — askama's HTML escaper never re-applies — which
+/// is exactly the contract here: the escapes below are already the
+/// final form, and an HTML pass would decode back to the characters
+/// that break the literal.
+///
+/// The module expects two clippy lints the askama `filter_fn` macro
+/// trips on its generated code: `#[inline(always)]` on the `execute`
+/// shim (the shim's cost is the filter call itself) and the missing
+/// `# Errors` doc on that shim (the macro carries no doc). The
+/// annotations are the macro's choices, not this module's.
+#[expect(
+    clippy::inline_always,
+    clippy::missing_errors_doc,
+    reason = "askama's filter_fn macro hardcodes #[inline(always)] and no error doc on its \
+              generated execute shim"
+)]
+pub mod filters {
+    /// Escapes a value for interpolation into a JavaScript
+    /// single-quoted string literal that itself sits inside a
+    /// double-quoted HTML attribute — the shape every Datastar
+    /// expression the templates render carries.
+    ///
+    /// The output contains no raw `'` (the literal's delimiter), no
+    /// raw `"` `&` or `<` (the attribute's entity/terminator hazards),
+    /// and no control characters (a raw newline would end the
+    /// literal). Every hazard becomes a `\uXXXX`-class escape the JS
+    /// engine decodes back to the original character, so the evaluated
+    /// string equals the input byte for byte.
+    ///
+    /// Returns [`askama::filters::Safe`]: askama auto-escapes even a
+    /// custom filter's output, and an HTML pass here would rewrite the
+    /// escaped apostrophe into `&#39;` — which the browser decodes
+    /// back to a raw `'` before evaluating, re-opening the bug. The
+    /// escapes below are the final form; nothing may rewrite them.
+    ///
+    /// # Errors
+    ///
+    /// Infallible in practice — [`js_string_contents`] degrades to an
+    /// empty literal if `serde_json` refuses the string (unreachable
+    /// for text) — but the `filter_fn` macro requires the
+    /// `askama::Result` shape.
+    #[askama::filter_fn]
+    pub fn js_str<S: ToString>(
+        s: S,
+        _: &dyn askama::Values,
+    ) -> askama::Result<askama::filters::Safe<String>> {
+        Ok(askama::filters::Safe(super::js_string_contents(
+            &s.to_string(),
+        )))
+    }
+}
+
+/// The escaped contents of a single-quoted JS string literal for
+/// `raw` — no surrounding quotes; the template or builder supplies
+/// those.
+///
+/// serde_json produces the double-quoted form first: its escapes
+/// (`\\`, `\"`, `\n`, `\uXXXX` for controls) are all valid
+/// single-quoted-literal escapes, so the JSON inner only needs the
+/// attribute-context rewrite on top.
+#[must_use]
+pub(crate) fn js_string_contents(raw: &str) -> String {
+    let json = serde_json::to_string(raw).unwrap_or_else(|_| "\"\"".to_owned());
+    json_inner(&json).map_or_else(String::new, escape_json_inner)
+}
+
+/// Strips a serialized JSON string literal's enclosing `"` pair and
+/// returns the interior text the JS literal wraps — the quotes are
+/// the document's own, so the strips are ASCII-safe. `None` for a
+/// document not shaped that way; the caller degrades gracefully.
+fn json_inner(json: &str) -> Option<&str> {
+    let inner = json.strip_prefix('"')?;
+    inner.strip_suffix('"')
+}
+
+/// Applies the attribute-context rewrite to a JSON string literal's
+/// inner text (outer quotes already stripped) — also the escape path
+/// for the tools-revert snapshot, whose field is a prebuilt JSON
+/// document rather than a plain string.
+fn escape_json_inner(inner: &str) -> String {
+    inner
+        // Entity hazard: a raw `&` could start a sequence the browser
+        // decodes into something else before the JS engine sees it.
+        .replace('&', "\\u0026")
+        // Script-context hygiene (the attribute never holds this raw).
+        .replace('<', "\\u003C")
+        // Quote that serde already escaped (`\"`): rewrite the pair
+        // to the bare unicode escape — leaving the backslash in place
+        // would decode as a literal backslash before the quote.
+        .replace("\\\"", "\\u0022")
+        // Attribute terminator: any remaining raw `"` (serde emits
+        // them for JSON structure, e.g. the snapshot's keys) would
+        // close the HTML attribute — rewrite to the equivalent
+        // unicode escape.
+        .replace('"', "\\u0022")
+        // Literal delimiter: serde does not escape apostrophes.
+        .replace('\'', "\\'")
+}
 
 /// The contract constants the templates interpolate. Kept as a local
 /// re-export so template expressions stay short.
@@ -1635,7 +1747,14 @@ impl ToolsModalTemplate {
                     // A filter is a map and a set of plain strings; a
                     // serialization failure is unreachable. Rendering
                     // `null` degrades to "no revert on dismiss" — the
-                    // safe side of the failure.
+                    // safe side of the failure. The snapshot rides the
+                    // single-quoted string literal the revert POST
+                    // echoes back (the server parses the JSON text),
+                    // and askama's HTML escape renders the JSON's `"`
+                    // as `&#34;` — the browser decodes entities at the
+                    // attribute boundary before the Datastar runtime
+                    // evaluates the expression, so the JS engine sees
+                    // the pristine literal.
                     .map_or_else(|_| "null".to_owned(), |json| format!("'{json}'"))
             },
         );
