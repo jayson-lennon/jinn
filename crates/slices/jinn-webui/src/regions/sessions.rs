@@ -112,13 +112,13 @@ impl WebRegion for SessionsRegion {
 
     fn render(
         &self,
-        session_id: &jinn_core_types::SessionId,
+        _session_id: &jinn_core_types::SessionId,
         guard: &StateReadGuard<'_>,
     ) -> String {
-        // The region render knows its page's session — it IS the
-        // viewer. (The wire discards this HTML — the tick signal is
-        // the push — but the render stays honest: a viewed row, not a
-        // pointer row.)
+        // The region render is viewer-agnostic: the wire discards this
+        // HTML (the tick signal is the push) and the viewed row is
+        // client-side signal styling, so the page's session plays no
+        // part in the rows.
         let bots: std::collections::HashMap<jinn_core_types::SessionId, bool> = guard
             .session
             .iter()
@@ -130,7 +130,6 @@ impl WebRegion for SessionsRegion {
             live_entries(guard),
             &bots,
             None,
-            Some(session_id),
             unread_marks.as_ref(),
             working.as_ref(),
         );
@@ -243,26 +242,23 @@ pub const SIDEBAR_CSS: &str = r#"
 "#;
 
 /// `GET /web/sessions` — the sessions fragment (live + archived),
-/// narrowed by `?q=` when the client names a filter and painted with
-/// the `?viewed=` session's blue row (empty on the landing page:
-/// nothing viewed, nothing blue).
+/// narrowed by `?q=` when the client names a filter. The viewed (blue)
+/// row is client-side signal styling on `$viewedSession` — the pull
+/// renders one viewer-agnostic shape.
 async fn pull_handler(
     AxumState(shared): AxumState<ServerShared>,
     AxQuery(query): AxQuery<SessionsQuery>,
     RawQuery(raw): RawQuery,
 ) -> Result<Fragment, HandlerError> {
-    // The filter rides the signal dump (our debounce rewrite); the
-    // viewed id rides the explicit param main added for the blue-row
-    // render. Both degrade gracefully when absent.
-    let viewed = query.viewed_session();
-    let viewed = viewed.as_ref();
+    // The filter rides the signal dump (our debounce rewrite); both
+    // shapes degrade gracefully when absent.
     let q = crate::server::filter_from_query_or_signal(
         query.q.clone(),
         raw.as_deref(),
         crate::contract::SIGNAL_SESSIONS_FILTER,
     );
     let q = (!q.is_empty()).then_some(q.as_str());
-    Ok(Fragment::new(sessions_fragment(&shared, q, viewed).await?).with_swap("#sessions", "inner"))
+    Ok(Fragment::new(sessions_fragment(&shared, q).await?).with_swap("#sessions", "inner"))
 }
 
 /// The unread marks for the given session map: the shared cell's
@@ -307,7 +303,6 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
         live_entries(guard),
         &bots,
         None,
-        None,
         unread_marks.as_ref(),
         working.as_ref(),
     );
@@ -324,14 +319,13 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
 /// `filter` runs the TUI session picker's matching (its
 /// `TreePickerState`, verbatim): every whitespace-split term must
 /// fuzzy-match a row's title, a matching child pulls its ancestor
-/// chain in, and trees rank strongest-match first. `viewed` names the
-/// session the requesting page has open — every row's `active` flag
-/// is computed against it, so two pages viewing different sessions
-/// each paint their own blue and a pull with no viewer paints none.
-/// Store summaries are awaited on the request path (request-scoped;
-/// no command round-trip); a store failure degrades to the live-only
-/// list — a web session list must not 500 because a disk read
-/// hiccuped.
+/// chain in, and trees rank strongest-match first. The rows carry no
+/// viewer styling: the viewed (blue) row binds client-side to
+/// `$viewedSession`, so one list shape serves every page and a
+/// navigation recolors it with zero requests. Store summaries are
+/// awaited on the request path (request-scoped; no command
+/// round-trip); a store failure degrades to the live-only list — a
+/// web session list must not 500 because a disk read hiccuped.
 ///
 /// # Errors
 ///
@@ -339,7 +333,6 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
 pub async fn sessions_fragment(
     shared: &ServerShared,
     filter: Option<&str>,
-    viewed: Option<&jinn_core_types::SessionId>,
 ) -> Result<String, HandlerError> {
     let (mut entries, mut bots, unread_marks, working) = {
         let guard = shared.read_state();
@@ -360,14 +353,7 @@ pub async fn sessions_fragment(
     if let Ok(summaries) = shared.load_summaries().await {
         append_summaries(&mut entries, &mut bots, summaries);
     }
-    let rows = picker_rows(
-        entries,
-        &bots,
-        filter,
-        viewed,
-        unread_marks.as_ref(),
-        working.as_ref(),
-    );
+    let rows = picker_rows(entries, &bots, filter, unread_marks.as_ref(), working.as_ref());
 
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .map_err(|e| crate::server::map_render_error(&e))
@@ -447,15 +433,13 @@ fn append_summaries(
 /// picker's DFS order with tree depth metadata, so the web list nests
 /// children under parents exactly as the picker draws them.
 ///
-/// `viewed` is the requesting page's session — the blue fill. `None`
-/// paints no row (the landing page, and the fan-out's discarded
-/// envelope render); a viewer paints exactly the row whose id matches,
-/// live or archived. The instance's active pointer plays no part.
+/// The rows carry no viewer flag: the viewed (blue) row is client-side
+/// signal styling on `$viewedSession`, so one row shape serves every
+/// page and the instance's active pointer plays no part anywhere.
 fn picker_rows(
     entries: Vec<SessionTreeEntry>,
     bots: &std::collections::HashMap<jinn_core_types::SessionId, bool>,
     filter: Option<&str>,
-    viewed: Option<&jinn_core_types::SessionId>,
     unread_marks: Option<&jinn_webui_msg::UnreadSessionMarks>,
     working: Option<&std::collections::HashMap<jinn_core_types::SessionId, bool>>,
 ) -> Vec<jinn_webui_msg::SessionListItem> {
@@ -485,11 +469,6 @@ fn picker_rows(
         .into_iter()
         .map(|(entry, depth)| jinn_webui_msg::SessionListItem {
             is_bot: bots.get(&entry.session_id).copied().unwrap_or(false),
-            // The viewed fill, not the instance's pointer: a page's
-            // list names the session THAT page has open, and the
-            // landing page (and the fan-out's discarded envelope
-            // render) name nothing.
-            active: viewed.is_some_and(|id| *id == entry.session_id),
             loaded: entry.session_state == SessionState::Loaded,
             unread: unread_marks
                 .as_ref()

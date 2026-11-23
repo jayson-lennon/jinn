@@ -44,12 +44,12 @@ fn test_entry(
     }
 }
 
-/// One seeded row for the sessions fragment.
-fn row(session_id: jinn_core_types::SessionId, title: &str, active: bool) -> SessionListItem {
+/// One seeded row for the sessions fragment (no viewer flag exists —
+/// the viewed fill is client-side signal styling).
+fn row(session_id: jinn_core_types::SessionId, title: &str) -> SessionListItem {
     SessionListItem {
         session_id,
         title: title.to_owned(),
-        active,
         is_bot: false,
         loaded: true,
         unread: false,
@@ -115,7 +115,6 @@ fn rendered_page() -> String {
         stream_url: String::new(),
         sessions_route: contract::SESSIONS_ROUTE,
         filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-        viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
         session_page_path: contract::SESSION_PAGE_PREFIX,
         web_theme: "system".to_owned(),
         theme_color: templates::theme_color_for("system"),
@@ -354,7 +353,6 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         stream_url: String::new(),
         sessions_route: contract::SESSIONS_ROUTE,
         filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-        viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
         session_page_path: contract::SESSION_PAGE_PREFIX,
         web_theme: "system".to_owned(),
         theme_color: templates::theme_color_for("system"),
@@ -420,7 +418,6 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
         sessions_attention: 4,
         sessions_route: contract::SESSIONS_ROUTE,
         filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-        viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
         session_page_path: contract::SESSION_PAGE_PREFIX,
         web_theme: "system".to_owned(),
         theme_color: crate::templates::theme_color_for("system"),
@@ -442,7 +439,7 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
 fn a_session_row_carries_the_class_and_data_attribute_the_client_targets() {
     // Given a sessions fragment with one row.
     let id = jinn_core_types::SessionId::new();
-    let fragment = sessions_fragment_of(&[row(id.clone(), "Row contract", true)]);
+    let fragment = sessions_fragment_of(&[row(id.clone(), "Row contract")]);
 
     // Then the row is selectable by the contract's class hook and
     // carries the session id in the contract's data attribute — the
@@ -1215,7 +1212,7 @@ fn a_session_row_suppresses_the_viewed_session_and_raises_the_signal_before_post
     // Given a sessions fragment with one row (active or not — the
     // expression is identical; only the id differs).
     let id = jinn_core_types::SessionId::new();
-    let fragment = sessions_fragment_of(&[row(id.clone(), "Switch source", false)]);
+    let fragment = sessions_fragment_of(&[row(id.clone(), "Switch source")]);
 
     // Then the row's click expression checks the viewed-session
     // signal against the row's id first (the viewed row fires

@@ -768,10 +768,11 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
     axum::response::Redirect::temporary("/web")
 }
 
-/// `GET /web` — the landing page: sessions list, no transcript. No
-/// session is viewed, so the list carries no viewed (blue) row.
+/// `GET /web` — the landing page: the sessions list, no transcript,
+/// no stream (the initial page load legitimately carries its full
+/// render — the one list fetch per page render includes it).
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
-    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None, None).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
     let attention_count = {
         let guard = shared.read_state();
         crate::regions::sessions::unread_count_of(&guard)
@@ -815,7 +816,7 @@ async fn page_session(
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
     let sessions_html =
-        crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
+        crate::regions::sessions::sessions_fragment(&shared, None).await?;
     // The settled prefix + boundary cursor, under one guard.
     let (transcript_entries, cursor) = {
         let guard = shared.read_state();
@@ -1620,10 +1621,10 @@ async fn rename(
     // flicker. (The fan-out actor's own SessionLoadCompleted /
     // SessionArchived refreshes keep the live-only shape deliberately:
     // those events change only live state, and their next pull or
-    // page render carries the store truth.) The renamed session's
-    // page is the requester — it is the viewer, so its blue row rides
-    // the same markup every consumer gets.
-    let list_html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
+    // page render carries the store truth.) The rows carry no viewer
+    // class — the viewed fill is client-side signal styling on
+    // `$viewedSession` — so one markup shape serves every consumer.
+    let list_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
     let attention_count = {
         let guard = shared.read_state();
         crate::regions::sessions::unread_count_of(&guard)

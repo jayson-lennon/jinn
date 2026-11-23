@@ -377,11 +377,6 @@ pub struct PageTemplate {
     /// The sessions pull's filter query parameter — the effect builds
     /// `?q=<text>` from it when a filter is in force.
     pub filter_query_param: &'static str,
-    /// The sessions pull's viewer query parameter — the effect builds
-    /// `&viewed=<id>` from it (when a session is viewed) so the
-    /// re-pulled list paints the viewed row, not the instance's
-    /// active one.
-    pub viewed_query_param: &'static str,
     /// The activate POST's route prefix — the rename editor's `@post`
     /// target builds `<prefix><id>/rename` from it.
     pub session_page_path: &'static str,
@@ -445,7 +440,6 @@ impl PageTemplate {
             stream_url: String::new(),
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             theme_color: theme_color_for(&web_theme),
             web_theme,
@@ -512,7 +506,6 @@ impl PageTemplate {
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             theme_color: theme_color_for(&web_theme),
             web_theme,
@@ -602,10 +595,6 @@ pub struct PageRootTemplate {
     /// The sessions pull's filter query parameter — the effect builds
     /// `?q=<text>` from it when a filter is in force.
     pub filter_query_param: &'static str,
-    /// The sessions pull's viewer query parameter — the effect builds
-    /// `&viewed=<id>` from it (when a session is viewed) so the
-    /// re-pulled list paints the viewed row.
-    pub viewed_query_param: &'static str,
     /// The activate POST's route prefix — the rename editor's target.
     pub session_page_path: &'static str,
     /// The viewed session's stream URL (empty on the landing page) —
@@ -678,7 +667,6 @@ impl PageRootTemplate {
             error_notice_id: contract::ERROR_NOTICE_ID,
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             stream_url: format!("{}{session_id}?since=0", contract::STREAM_PREFIX),
             web_theme,

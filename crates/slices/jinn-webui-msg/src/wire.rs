@@ -305,30 +305,23 @@ impl TranscriptQuery {
     }
 }
 
-/// The sessions pull's query: `GET /web/sessions?q=<text>&viewed=<id>`.
+/// The sessions pull's query: `GET /web/sessions?q=<text>`.
 ///
 /// The filter narrows the merged list to the sessions whose titles
 /// fuzzy-match `q` — matched server-side with the TUI session picker's
 /// matcher, so exactly one matching implementation exists. An absent
 /// or empty `q` reads as "no filter"; the full grouped list returns.
 ///
-/// `viewed` names the session the pulling page is viewing — the list's
-/// blue row is the *viewed* session, and two pages viewing different
-/// sessions each show their own blue, so the viewer travels with the
-/// pull instead of the server guessing. Absent or empty reads as "no
-/// viewer" (the landing page), which renders no active row at all.
+/// No viewer parameter exists: the blue row is the *viewed* session,
+/// bound client-side to the page root's `$viewedSession` signal — one
+/// list shape serves every viewer, and navigation recolors the list
+/// with zero requests.
 #[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
 pub struct SessionsQuery {
     /// The title fragment sessions must fuzzy-match. Absent or empty →
     /// every session.
     #[serde(default)]
     pub q: Option<String>,
-    /// The session id the pulling page views. Absent or empty → the
-    /// landing page's no-viewer render: no row carries the active
-    /// styling. An unparseable id reads the same way — a page pull
-    /// must never 500 because its viewer string went stale.
-    #[serde(default, alias = "viewedSession")]
-    pub viewed: Option<String>,
 }
 
 impl SessionsQuery {
@@ -340,20 +333,6 @@ impl SessionsQuery {
     #[must_use]
     pub fn filter_text(&self) -> Option<&str> {
         self.q.as_deref().filter(|text| !text.is_empty())
-    }
-
-    /// The viewed session's id, or `None` when nothing is viewed.
-    ///
-    /// The same "absent and empty are equivalent" rule as
-    /// [`Self::filter_text`], plus the stale-viewer rule: an id that
-    /// is not a UUID resolves to no viewer rather than an error — the
-    /// pull renders a list, not a validation surface.
-    #[must_use]
-    pub fn viewed_session(&self) -> Option<SessionId> {
-        self.viewed
-            .as_deref()
-            .filter(|text| !text.is_empty())
-            .and_then(SessionId::try_from_string)
     }
 }
 
@@ -368,10 +347,6 @@ pub struct SessionListItem {
     pub session_id: SessionId,
     /// Display title; the store's untitled fallback when empty.
     pub title: String,
-    /// Whether this row is the *viewed* session — the session the
-    /// rendering page has open, not the instance's active one. Two
-    /// pages viewing different sessions each paint their own row.
-    pub active: bool,
     /// Whether the session is a bot run (rows render tinted, and sends
     /// to them are refused).
     pub is_bot: bool,
