@@ -62,10 +62,15 @@ impl WebRegion for ComposerRegion {
 
     fn render(
         &self,
-        session_id: &jinn_core_types::SessionId,
-        guard: &StateReadGuard<'_>,
+        _session_id: &jinn_core_types::SessionId,
+        _guard: &StateReadGuard<'_>,
     ) -> String {
-        controls_fragment(session_id, guard)
+        crate::templates::render(&crate::templates::ControlsTemplate::with_contract())
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, what = "controls", "webui template render failed; \
+                     serving a blank fragment");
+                String::new()
+            })
     }
 }
 
@@ -121,23 +126,12 @@ pub const COMPOSER_CSS: &str = r#"
 }
 "#;
 
-/// The composer-controls fragment from a state guard — the shape the
-/// fan-out calls with its own guard. The phase decides the button.
-pub fn controls_fragment(
-    session_id: &jinn_core_types::SessionId,
-    guard: &StateReadGuard<'_>,
-) -> String {
-    let busy = guard
+/// The session's busy flag from a state guard — the composer's
+/// signal payload. The Controls push carries it (the fragment itself
+/// is invariant, bound to the `busy` signal client-side).
+pub(crate) fn busy_of(session_id: &jinn_core_types::SessionId, guard: &StateReadGuard<'_>) -> bool {
+    guard
         .session
         .get(session_id)
-        .is_some_and(|session| session.phase().is_working());
-    crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
-        session_id.to_string(),
-        busy,
-    ))
-    .unwrap_or_else(|error| {
-        tracing::warn!(%error, what = "controls", "webui template render failed; \
-             serving a blank fragment");
-        String::new()
-    })
+        .is_some_and(|session| session.phase().is_working())
 }

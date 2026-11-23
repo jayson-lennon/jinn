@@ -241,20 +241,24 @@ async fn activating_a_session_returns_the_navigation_patch_sequence_over_the_wir
         .expect("the activate completes");
 
     // Then the response is the navigation patch sequence — an SSE
-    // body whose element patch replaces `#page-root` with the page
-    // chrome (the Datastar transport of the same shape; the shipped
-    // bug served a sessions fragment here and the swap destroyed the
-    // page).
+    // body whose element patch replaces `#stream-span` (the stream
+    // rebind: the old connection cancels with the removed element,
+    // the replacement's data-init opens the new session's URL) and
+    // whose signal patches carry the viewed session — the chrome's
+    // DOM is never touched.
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.text().await.expect("body reads");
     assert!(
         body.contains(&format!(
             "selector #{}\ndata: mode replace",
-            contract::PAGE_ROOT_ID
+            contract::STREAM_SPAN_ID
         )),
-        "activate must replace the page root: {body}"
+        "activate must rebind the stream span: {body}"
     );
-    assert!(body.contains("id=\"page-root\""), "{body}");
+    assert!(
+        !body.contains(&format!("selector #{}", contract::PAGE_ROOT_ID)),
+        "activate must not swap the page root: {body}"
+    );
     assert!(body.contains("Second session"), "{body}");
 }
 
@@ -300,28 +304,23 @@ async fn the_activate_response_carries_no_session_rows_and_an_empty_transcript()
         "the activate response must carry no transcript entries: {body}"
     );
     assert!(
-        body.contains(&format!("{}=\"0\"", contract::TRANSCRIPT_CURSOR_DATA_ATTR)),
-        "the swapped page's transcript starts at cursor 0: {body}"
+        body.replace(' ', "")
+            .contains(&format!("\"{}\":0", contract::SIGNAL_CATCHUP_CURSOR)),
+        "the navigation seeds the catch-up cursor at 0: {body}"
     );
 
-    // And the stream bind the root carries re-opens the stream at
-    // cursor 0 — the fresh page's whole-history catch-up — and the
-    // sessions container carries the pull binding (the one list fetch
-    // per mount: the data-init fetch on the swapped-in root, plus the
-    // tick-guarded effect for push bumps; the pull names the route and
-    // restricts its signal dump to the two list signals, so unrelated
-    // writes never re-fire it).
+    // And the stream bind the response carries re-opens the stream at
+    // cursor 0 — the navigation's whole-history catch-up — and the
+    // rebind's span is the body's only data-init (the list fetches
+    // once per page load, from the page shell's container binding —
+    // a navigation fetches no list).
     assert!(
         body.contains(&format!("{}{id}?since=0", contract::STREAM_PREFIX)),
-        "the navigation root's stream URL starts the catch-up at 0: {body}"
-    );
-    assert!(
-        body.contains("@get("),
-        "the effect/action binds render: {body}"
+        "the navigation's stream URL starts the catch-up at 0: {body}"
     );
     assert!(
         body.contains("data-init=\"@get("),
-        "the sessions container's mount fetch is seeded: {body}"
+        "the stream rebind's mount fetch is seeded: {body}"
     );
 }
 
@@ -655,25 +654,12 @@ async fn the_model_picker_refresh_post_answers_over_the_wire_without_blocking() 
         .await
         .expect("refresh post completes");
 
-    // Then it answers 200 with the button inside a patch elements
-    // body (no discovery happens in the harness — a blocking POST
-    // would hang), and never the modal.
+    // Then it answers 200 with a label signal patch (no discovery
+    // happens in the harness — a blocking POST would hang), and never
+    // the modal or a button re-render.
     assert_eq!(response.status(), 200);
     let body = response.text().await.expect("body reads");
-    assert!(
-        body.contains(&format!(
-            "id=\"{}\"",
-            crate::contract::MODEL_PICKER_BUTTON_ID
-        )),
-        "{body}"
-    );
-    assert!(
-        body.contains(&format!(
-            "id=\"{}\"",
-            crate::contract::MODEL_PICKER_BUTTON_ID
-        )),
-        "{body}"
-    );
+    assert!(body.contains(crate::contract::SIGNAL_MODEL_LABEL), "{body}");
     assert!(
         !body.contains(&format!(
             "id=\"{}\"",
@@ -1004,18 +990,20 @@ async fn the_session_page_carries_the_session_data_attribute_over_the_wire() {
         .await
         .expect("the request completes");
 
-    // Then the page names the session in the data attribute the
-    // client reads to open its stream, and carries the cursor
-    // attribute the initial Last-Event-ID comes from.
+    // Then the page binds the attribute the client reads to the
+    // viewedSession signal and its seed names the session, and it
+    // carries the cursor attribute the initial Last-Event-ID comes
+    // from.
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.text().await.expect("body reads");
     assert!(
         body.contains(&format!(
-            "{}=\"{id}\"",
+            "data-attr:{}",
             crate::contract::PAGE_SESSION_DATA_ATTR
         )),
         "{body}"
     );
+    assert!(body.contains(&format!("viewedSession: '{id}'")), "{body}");
     assert!(
         body.contains(crate::contract::TRANSCRIPT_CURSOR_DATA_ATTR),
         "{body}"

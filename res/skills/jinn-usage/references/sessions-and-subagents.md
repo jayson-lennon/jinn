@@ -28,11 +28,13 @@ the created session's page, and every other open page's sidebar picks the
 new session up without a reload. It is the same creation path the TUI
 pickers and Discord `/new` ride, so the session looks identical everywhere.
 
-Clicking a session row in the web UI swaps in the page chrome first (the
-transcript arrives through the live SSE stream's catch-up a moment later),
-and the sidebar's highlighted row follows the page you are viewing — the
-list itself re-fetches once per page render, so navigation costs no list
-retransmission.
+Clicking a session row in the web UI navigates with targeted patches:
+the sidebar never blanks, the transcript resets and fills through the
+live SSE stream's catch-up a moment later, and the sidebar's
+highlighted row follows the page you are viewing. The list itself
+fetches once per page load; navigation costs no list retransmission
+(a session switch fetches nothing, and creating a session bumps the
+list's tick once so the surviving sidebar picks up the new row).
 
 On a phone-width browser (under 768px) the session list is an off-canvas
 drawer, and the titlebar's sessions button (`📋`, beside the hamburger)

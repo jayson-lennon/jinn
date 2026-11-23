@@ -476,16 +476,15 @@ pub async fn handle_cancel(
         tokio::time::sleep((deadline - now).min(CANCEL_NO_TURN_POLL)).await;
     }
     // No live turn after the window: no settle wave is coming. Push
-    // the controls the state actually holds — the stale-busy
-    // composer returns to send; an idle session gets a harmless
-    // identical fragment. The handle is a bare sender seam, so the
-    // handler renders the fragment under its own guard (the same
-    // shape the rename POST's sessions push uses).
-    let html = {
+    // the controls state the session actually holds — the stale-busy
+    // composer returns to send. The handle is a bare sender seam, so
+    // the handler reads the flag under its own guard (the same shape
+    // the rename POST's sessions push uses).
+    let busy = {
         let guard = state.read();
-        crate::regions::composer::controls_fragment(&session_id, &guard)
+        crate::regions::composer::busy_of(&session_id, &guard)
     };
-    fanout.push_controls_from(&session_id, html);
+    fanout.push_controls_from(&session_id, busy);
     Ok(())
 }
 

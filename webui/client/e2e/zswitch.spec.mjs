@@ -158,15 +158,17 @@ test("every row activates from the landing page", async ({ page }) => {
   );
 });
 
-test("a session switch fetches the list and stream exactly once each", async ({
+test("a session switch fetches no list and reopens the stream exactly once", async ({
   page,
 }) => {
   // Given a page with a request counter on the sessions list pull and
-  // the stream — the page-shape law's observable claim, byte-level:
-  // a switch renders the whole chrome in one response (list included,
-  // seeded by the render), so exactly ONE list pull fires — and the
-  // connect convergence no longer bumps the tick, so exactly ONE
-  // stream opens. Any second row of either is a double-fetch bug.
+  // the stream — the targeted-patch navigation law's observable
+  // claim, byte-level: a switch carries signals plus the stream-span
+  // rebind only, so ZERO list pulls fire (the sidebar's DOM survives
+  // the navigation and recolors off the viewedSession patch) and
+  // exactly ONE stream reopens (the old connection cancels with the
+  // replaced span). A list pull per click is the rework's blank-flash
+  // regression; a second stream is a leaked connection.
   await openSession(page);
   const sessionA = await page
     .locator(sel.PAGE_ROOT)
@@ -178,6 +180,7 @@ test("a session switch fetches the list and stream exactly once each", async ({
     sessionA,
   );
 
+  let settled = false;
   const counts = { list: 0, stream: 0 };
   const seen = { list: [], stream: [] };
   const count = (url) => {
@@ -196,6 +199,7 @@ test("a session switch fetches the list and stream exactly once each", async ({
   });
   await page.route("**/web/stream/*", (route) => {
     count(route.request().url());
+    if (route.request().url().includes(sessionB)) settled = true;
     return route.continue();
   });
 
@@ -206,14 +210,14 @@ test("a session switch fetches the list and stream exactly once each", async ({
     sessionB,
   );
 
-  // Then the wire carried exactly one list pull and one stream open:
-  // wait for the new stream to connect (the page's own convergence),
-  // let any stragglers land, and assert the counts stayed at one.
-  // (A modal-created session has no history, so no catch-up
-  // completion patch ever arrives — the stream open is the settle.)
-  await expect.poll(() => counts.stream, { timeout: 5_000 }).toBe(1);
+  // Then the wire carried no list pull and exactly one stream open:
+  // wait for B's stream to connect (the page's own convergence),
+  // let any stragglers land, and assert the counts. (A modal-created
+  // session has no history, so no catch-up completion patch ever
+  // arrives — the stream open is the settle.)
+  await expect.poll(() => settled, { timeout: 5_000 }).toBe(true);
   await page.waitForTimeout(1_000);
-  expect(seen.list, "the list pulls seen after the click").toEqual([seen.list.at(0)]);
+  expect(counts.list, "list pulls after the click").toBe(0);
   expect(counts.stream).toBe(1);
 });
 
@@ -255,26 +259,34 @@ test.describe("phone drawer", () => {
     );
     await expect(page.locator(sel.DRAWER_SCRIM)).toBeVisible();
 
-    // When selecting the non-viewed row (the activate page swap
-    // replaces the whole root).
+    // When selecting the non-viewed row (the activate response's
+    // signal patch re-seeds drawerOpen false).
     await page.locator(sel.SESSION_ROW_BY_ID(sessionB)).click();
     await expect(page).toHaveURL(new RegExp(sel.SESSION_PAGE_PATH));
     await expect(page.locator(sel.PAGE_ROOT)).toBeVisible();
 
-    // Then the fresh page root carries no drawer-open class and the
-    // sidebar is back off-canvas — the swap is the structural reset.
+    // Then the surviving page root carries no drawer-open class and
+    // the sidebar settles back off-canvas — the response's overlay
+    // seed is the explicit reset. The off-canvas parking is a
+    // `transition: transform .25s` (the drawer's slide), so the
+    // matrix read is settled-state, not immediate: an instant read
+    // catches the slide mid-flight at positive-x.
     await expect(page.locator(sel.PAGE_ROOT)).not.toHaveClass(
       new RegExp(sel.DRAWER_OPEN_CLASS),
     );
-    // The drawer parks off-canvas by transform; the computed matrix
-    // reads negative-x (transform-based visibility is Playwright-blind).
-    const offCanvas = await page.evaluate((id) => {
-      const sidebar = document.getElementById(id);
-      if (!sidebar) return false;
-      const matrix = new DOMMatrix(getComputedStyle(sidebar).transform);
-      return matrix.m41 < 0;
-    }, "sidebar");
-    expect(offCanvas).toBe(true);
+    await expect
+      .poll(async () => {
+        // The drawer parks off-canvas by transform; the computed
+        // matrix reads negative-x (transform-based visibility is
+        // Playwright-blind).
+        return page.evaluate((id) => {
+          const sidebar = document.getElementById(id);
+          if (!sidebar) return false;
+          const matrix = new DOMMatrix(getComputedStyle(sidebar).transform);
+          return matrix.m41 < 0;
+        }, "sidebar");
+      })
+      .toBe(true);
     await expect(page.locator(sel.DRAWER_SCRIM)).not.toBeVisible();
   });
 });

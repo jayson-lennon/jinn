@@ -1,2 +1,2 @@
-<button id="{{ button_id }}" type="button"
-  data-on:click="$modalOpen = true; $modelfilter = ''; @get('{{ picker_url }}', {selector: '#{{ modal_host_id }}', openWhenHidden: true})">{{ current }}</button>
+<button id="{{ button_id }}" type="button" data-text="$modelLabel"
+  data-on:click="$modalOpen = true; $modelfilter = ''; @get('{{ picker_prefix }}' + $viewedSession, {selector: '#{{ modal_host_id }}', openWhenHidden: true})"></button>

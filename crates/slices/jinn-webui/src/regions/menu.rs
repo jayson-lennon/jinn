@@ -80,18 +80,18 @@ impl WebRegion for MenuRegion {
 /// so a render failure is a template bug that must be a compile error
 /// (askama checks the fields), not a runtime path.
 ///
-/// `viewed_session` is the page's viewed session id: empty on the
-/// landing page, which omits the persona item (persona binds
-/// per-session, so a page viewing nothing has no persona to open).
+/// The fragment is session-invariant: the per-session picker URLs
+/// compose `$viewedSession` client-side and the per-session items
+/// bind their visibility to the same signal, so a navigation never
+/// re-renders the menu.
 ///
 /// `attention_count` is the render-time size of the instance's
 /// unread-mark set — the sessions button's seeded state, correct
 /// before any push arrives. The button's live updates key off the
 /// `sessionsAttention` signal the sessions push carries.
 #[must_use]
-pub fn menu_fragment(viewed_session: &str, attention_count: usize) -> String {
+pub fn menu_fragment(attention_count: usize) -> String {
     crate::templates::render(&crate::templates::MenuTemplate::with_contract(
-        viewed_session,
         attention_count,
     ))
     .unwrap_or_else(|error| {
@@ -177,15 +177,15 @@ mod menu_region_tests {
     use crate::contract;
     use crate::region::WebRegion as _;
 
-    /// The fragment as a session page renders it (a session viewed,
-    /// persona item present).
+    /// The menu fragment — session-invariant markup, one shape.
     fn fragment() -> String {
-        super::menu_fragment("00000000-0000-0000-0000-000000000001", 0)
+        super::menu_fragment(0)
     }
 
-    /// The fragment as the landing page renders it (nothing viewed).
+    /// An alias for the same fragment (the landing page renders the
+    /// identical markup; per-session visibility is signal-driven).
     fn landing_fragment() -> String {
-        super::menu_fragment("", 0)
+        super::menu_fragment(0)
     }
 
     #[rstest::rstest]
@@ -304,14 +304,20 @@ mod menu_region_tests {
         // shape the model picker's button uses).
         let item = html
             .split_once(&format!("id=\"{}\"", contract::MENU_ITEM_PERSONA_ID))
-            .and_then(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag.to_owned()))
+            .and_then(|(_, rest)| {
+                let mut end = 400.min(rest.len());
+                while !rest.is_char_boundary(end) {
+                    end -= 1;
+                }
+                rest.get(..end).map(str::to_owned)
+            })
             .expect("the persona item renders");
         assert!(
             item.contains(&format!(
-                "{}00000000-0000-0000-0000-000000000001",
+                "'{}' + $viewedSession",
                 contract::PERSONA_PICKER_PREFIX
             )),
-            "the pull names the viewed session: {item}"
+            "the pull composes the viewed session signal: {item}"
         );
         assert!(
             item.contains(contract::PERSONA_MODAL_HOST_SELECTOR),
@@ -336,14 +342,20 @@ mod menu_region_tests {
         // renders visible.
         let item = html
             .split_once(&format!("id=\"{}\"", contract::MENU_ITEM_MCP_ID))
-            .and_then(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag.to_owned()))
+            .and_then(|(_, rest)| {
+                let mut end = 400.min(rest.len());
+                while !rest.is_char_boundary(end) {
+                    end -= 1;
+                }
+                rest.get(..end).map(str::to_owned)
+            })
             .expect("the MCP item renders");
         assert!(
             item.contains(&format!(
-                "{}00000000-0000-0000-0000-000000000001",
+                "'{}' + $viewedSession",
                 contract::MCP_PICKER_PREFIX
             )),
-            "the pull names the viewed session: {item}"
+            "the pull composes the viewed session signal: {item}"
         );
         assert!(
             item.contains(contract::MCP_MODAL_HOST_SELECTOR),
@@ -368,14 +380,20 @@ mod menu_region_tests {
         // renders visible.
         let item = html
             .split_once(&format!("id=\"{}\"", contract::MENU_ITEM_TOOLS_ID))
-            .and_then(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag.to_owned()))
+            .and_then(|(_, rest)| {
+                let mut end = 400.min(rest.len());
+                while !rest.is_char_boundary(end) {
+                    end -= 1;
+                }
+                rest.get(..end).map(str::to_owned)
+            })
             .expect("the tools item renders");
         assert!(
             item.contains(&format!(
-                "{}00000000-0000-0000-0000-000000000001",
+                "'{}' + $viewedSession",
                 contract::TOOLS_PICKER_PREFIX
             )),
-            "the pull names the viewed session: {item}"
+            "the pull composes the viewed session signal: {item}"
         );
         assert!(
             item.contains(contract::TOOLS_MODAL_HOST_SELECTOR),
@@ -400,14 +418,20 @@ mod menu_region_tests {
         // renders visible.
         let item = html
             .split_once(&format!("id=\"{}\"", contract::MENU_ITEM_SKILLS_ID))
-            .and_then(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag.to_owned()))
+            .and_then(|(_, rest)| {
+                let mut end = 400.min(rest.len());
+                while !rest.is_char_boundary(end) {
+                    end -= 1;
+                }
+                rest.get(..end).map(str::to_owned)
+            })
             .expect("the skills item renders");
         assert!(
             item.contains(&format!(
-                "{}00000000-0000-0000-0000-000000000001",
+                "'{}' + $viewedSession",
                 contract::SKILL_PICKER_PREFIX
             )),
-            "the pull names the viewed session: {item}"
+            "the pull composes the viewed session signal: {item}"
         );
         assert!(
             item.contains(contract::SKILL_MODAL_HOST_SELECTOR),
@@ -421,46 +445,39 @@ mod menu_region_tests {
 
     #[rstest::rstest]
     #[test]
-    fn the_landing_menu_omits_the_persona_mcp_tools_and_skills_items_entirely() {
-        // Given the landing fragment (no viewed session).
+    fn the_per_session_menu_items_hide_while_nothing_is_viewed() {
+        // Given the menu fragment (one session-invariant shape).
         let html = landing_fragment();
 
-        // Then the per-session items are absent from the markup — the
-        // server omits them, rather than shipping hidden controls the
-        // runtime must know to disable (persona, MCP enablement, and
-        // the tool filter all bind per-session).
-        assert!(
-            !html.contains(contract::MENU_ITEM_PERSONA_ID),
-            "the landing menu carries no persona item: {html}"
-        );
-        assert!(
-            !html.contains(contract::PERSONA_PICKER_PREFIX),
-            "the landing menu spells no persona URL: {html}"
-        );
-        assert!(
-            !html.contains(contract::MENU_ITEM_MCP_ID),
-            "the landing menu carries no MCP item: {html}"
-        );
-        assert!(
-            !html.contains(contract::MCP_PICKER_PREFIX),
-            "the landing menu spells no MCP URL: {html}"
-        );
-        assert!(
-            !html.contains(contract::MENU_ITEM_TOOLS_ID),
-            "the landing menu carries no tools item: {html}"
-        );
-        assert!(
-            !html.contains(contract::TOOLS_PICKER_PREFIX),
-            "the landing menu spells no tools URL: {html}"
-        );
-        assert!(
-            !html.contains(contract::MENU_ITEM_SKILLS_ID),
-            "the landing menu carries no skills item: {html}"
-        );
-        assert!(
-            !html.contains(contract::SKILL_PICKER_PREFIX),
-            "the landing menu spells no skills URL: {html}"
-        );
+        // Then each per-session item binds its visibility to the
+        // viewed-session signal — the markup survives navigation, so
+        // the landing page hides the controls instead of omitting
+        // them (persona, MCP enablement, and the tool filter all bind
+        // per-session).
+        for item_id in [
+            contract::MENU_ITEM_PERSONA_ID,
+            contract::MENU_ITEM_MCP_ID,
+            contract::MENU_ITEM_TOOLS_ID,
+            contract::MENU_ITEM_SKILLS_ID,
+        ] {
+            let start = html
+                .find(&format!("id=\"{item_id}\""))
+                .unwrap_or_else(|| panic!("the item {item_id} renders: {html}"));
+            // The window past the id covers the tag's remaining
+            // attributes (the '>' inside an attribute value cannot be
+            // a slice terminator — window by length instead).
+            let mut end = start + 400.min(html.len() - start);
+            while !html.is_char_boundary(end) {
+                end -= 1;
+            }
+            let window = html
+                .get(start..end)
+                .expect("the window end is a char boundary");
+            assert!(
+                window.contains("$viewedSession.length"),
+                "the item {item_id} binds its visibility to the viewed session: {window}"
+            );
+        }
         // And the other two items still render.
         assert!(
             html.contains(&format!("id=\"{}\"", contract::MENU_ITEM_SESSIONS_ID)),

@@ -393,6 +393,14 @@ pub struct PageTemplate {
     pub session_id: String,
     /// The session title.
     pub title: String,
+    /// The viewed session's busy flag, seeding the `busy` signal.
+    pub busy: bool,
+    /// The viewed session's current model label, seeding the
+    /// `modelLabel` signal the picker button binds its text to.
+    pub model_label: String,
+    /// The stream span's id — present so the shell's root fragment
+    /// and the full page agree on the rebind target's vocabulary.
+    pub stream_span_id: &'static str,
     /// The titlebar's model-picker button fragment (bare button; the
     /// page shell owns the `#model-picker` host span), rendered inline.
     pub button_html: String,
@@ -505,8 +513,13 @@ pub struct PageTemplate {
 }
 
 impl PageTemplate {
-    /// The no-session landing page: sessions list only, every other
-    /// region empty, cursor zero.
+    /// The no-session landing page: the full session-invariant chrome
+    /// (sessions list, menu, composer, model button, titled titlebar
+    /// span) with an empty transcript and no stream. Every region the
+    /// navigation's signal patches retarget must exist from the first
+    /// frame — the surviving DOM is what a navigation dresses, so the
+    /// landing render is the session render minus the session's
+    /// content.
     #[must_use]
     pub fn landing(
         sessions_html: String,
@@ -514,6 +527,16 @@ impl PageTemplate {
         attention_count: usize,
         web_theme: String,
     ) -> Self {
+        let controls_html = {
+            let rendered =
+                crate::templates::render(&crate::templates::ControlsTemplate::with_contract());
+            rendered.unwrap_or_default()
+        };
+        let button_html = {
+            let rendered =
+                crate::templates::render(&crate::templates::ModelButtonTemplate::with_contract());
+            rendered.unwrap_or_default()
+        };
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
@@ -521,8 +544,8 @@ impl PageTemplate {
             cursor: 0,
             sessions_html,
             transcript_html: String::new(),
-            controls_html: String::new(),
-            button_html: String::new(),
+            controls_html,
+            button_html,
             picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
             sessions_attention: attention_count,
@@ -543,7 +566,7 @@ impl PageTemplate {
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
             controls_id: contract::CONTROLS_ID,
-            session_title_id: "",
+            session_title_id: contract::SESSION_TITLE_ID,
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
@@ -555,6 +578,9 @@ impl PageTemplate {
             session_page_path: contract::SESSION_PAGE_PREFIX,
             theme_color: theme_color_for(&web_theme),
             web_theme,
+            busy: false,
+            model_label: String::new(),
+            stream_span_id: contract::STREAM_SPAN_ID,
         }
     }
 
@@ -571,6 +597,8 @@ impl PageTemplate {
     pub fn session(
         session_id: &str,
         title: String,
+        busy: bool,
+        model_label: String,
         cursor: usize,
         sessions_html: String,
         transcript_html: String,
@@ -621,6 +649,9 @@ impl PageTemplate {
             session_page_path: contract::SESSION_PAGE_PREFIX,
             theme_color: theme_color_for(&web_theme),
             web_theme,
+            busy,
+            model_label,
+            stream_span_id: contract::STREAM_SPAN_ID,
         }
     }
 }
@@ -628,7 +659,7 @@ impl PageTemplate {
 /// The page-root fragment: exactly the shell's root `div` — the shape
 /// a navigation patch (`POST activate` / `POST session-new`) replaces
 /// the live root with. Chrome only, by the navigation-shape contract:
-/// the sessions container renders empty (the swapped root's tick
+/// the sessions container renders empty (the container's own tick
 /// effect is the one list fetch) and the transcript renders empty at
 /// cursor 0 (the new stream's catch-up is the one history transfer),
 /// so the response is bounded by chrome size regardless of session
@@ -710,9 +741,21 @@ pub struct PageRootTemplate {
     /// The activate POST's route prefix — the rename editor's target.
     pub session_page_path: &'static str,
     /// The viewed session's stream URL (empty on the landing page) —
-    /// the `data-init` `@get` binding the root carries on session
-    /// pages, so a navigation patch re-opens the stream by itself.
+    /// the `data-init` `@get` binding the root's stream span carries
+    /// on session pages, so a fresh load opens the stream by itself.
     pub stream_url: String,
+    /// The stream span's id — the navigation response replaces this
+    /// span wholesale to rebind the stream (the old span's removal
+    /// cancels its fetch; the replacement's `data-init` opens the new
+    /// URL).
+    pub stream_span_id: &'static str,
+    /// The viewed session's busy flag, seeding the `busy` signal the
+    /// composer's spinner and button set bind their visibility to.
+    pub busy: bool,
+    /// The viewed session's current model label, seeding the
+    /// `modelLabel` signal the titlebar picker button binds its text
+    /// to.
+    pub model_label: String,
     /// The render-time unread-mark count — the menu's sessions
     /// button badge's seeded value in the root's signal seed.
     pub sessions_attention: usize,
@@ -729,7 +772,7 @@ impl PageRootTemplate {
     /// accepts no sessions-HTML parameter by design: a navigation
     /// response carries no rows, and a signature that still took the
     /// fragment would invite a future caller to refill it (the list
-    /// travels only through the GET pull and the swapped root's one
+    /// travels only through the GET pull and the container's one
     /// tick-effect fetch).
     #[must_use]
     #[expect(
@@ -739,6 +782,8 @@ impl PageRootTemplate {
     pub fn session(
         session_id: &str,
         title: String,
+        busy: bool,
+        model_label: String,
         transcript_html: String,
         controls_html: String,
         button_html: String,
@@ -757,6 +802,8 @@ impl PageRootTemplate {
             picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
             sessions_attention: attention_count,
+            busy,
+            model_label,
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -781,9 +828,26 @@ impl PageRootTemplate {
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             stream_url: format!("{}{session_id}?since=0", contract::STREAM_PREFIX),
+            stream_span_id: contract::STREAM_SPAN_ID,
             web_theme,
         }
     }
+}
+
+/// The stream span: the SSE-bind element the navigation response
+/// replaces wholesale to rebind the stream. The old span's removal
+/// cancels its in-flight fetch (`requestCancellation: 'cleanup'`) and
+/// the replacement's `data-init` opens the new session's URL.
+#[derive(Template)]
+#[template(
+    source = "<span id=\"{{ stream_span_id }}\" data-init=\"@get('{{ stream_url }}', {openWhenHidden: true, retryMaxCount: Infinity, requestCancellation: 'cleanup'})\"></span>",
+    ext = "html"
+)]
+pub struct StreamSpanTemplate {
+    /// The span's contract id.
+    pub stream_span_id: &'static str,
+    /// The new session's stream URL (cursor 0 — the fresh catch-up).
+    pub stream_url: String,
 }
 
 /// One transcript entry of the transcript fragment.
@@ -900,11 +964,8 @@ impl SessionsTemplate {
 #[derive(Template)]
 #[template(path = "controls.html")]
 pub struct ControlsTemplate {
-    /// The session the composer targets.
-    pub session_id: String,
-    /// Whether the session is busy (true renders the cancel button).
-    pub busy: bool,
-    /// The streaming spinner's id (rendered only while busy).
+    /// The streaming spinner's id — always rendered, its visibility
+    /// bound to the `busy` signal.
     pub spinner_id: &'static str,
     /// The form container's id.
     pub composer_id: &'static str,
@@ -935,17 +996,19 @@ pub struct ControlsTemplate {
     pub file_input_id: &'static str,
     /// The visible attach label's id (the file input's click proxy).
     pub attach_button_id: &'static str,
-    /// The queue button's label (busy fragment only).
+    /// The queue button's label (visible only while busy, via the
+    /// `busy` signal binding).
     pub queue_label: &'static str,
 }
 
 impl ControlsTemplate {
-    /// Builds the template with the contract's hooks filled.
+    /// Builds the template with the contract's hooks filled. The
+    /// fragment is session- and phase-invariant: every per-session
+    /// detail (target id, busy state) rides the `$viewedSession` and
+    /// `$busy` signals, so the markup never needs re-rendering.
     #[must_use]
-    pub fn with_contract(session_id: String, busy: bool) -> Self {
+    pub fn with_contract() -> Self {
         Self {
-            session_id,
-            busy,
             spinner_id: contract::BUSY_SPINNER_ID,
             composer_id: contract::COMPOSER_ID,
             input_id: contract::INPUT_ID,
@@ -988,13 +1051,10 @@ pub struct MenuTemplate {
     pub menu_item_sessions_id: &'static str,
     /// The new-session item's id ("New session").
     pub menu_item_new_session_id: &'static str,
-    /// The persona item's id ("Persona"); rendered only when a session
-    /// is viewed.
+    /// The persona item's id ("Persona"); hidden client-side while
+    /// nothing is viewed (the menu markup is session-invariant, so a
+    /// navigation never re-renders it).
     pub menu_item_persona_id: &'static str,
-    /// Whether a session is viewed — the persona item's render gate.
-    /// Persona binds per-session and the landing page views nothing,
-    /// so the server omits the item rather than hiding it client-side.
-    pub has_session: bool,
     /// The attribute a button names its action with.
     pub action_attr: &'static str,
     /// The menu item's action name.
@@ -1006,8 +1066,8 @@ pub struct MenuTemplate {
     /// The new-session modal host's id — the pull's swap target.
     pub session_new_host_id: &'static str,
     /// The persona-picker pull's URL prefix — the persona item's
-    /// `@get` target is `<prefix><viewed session id>`.
-    pub persona_picker_url: String,
+    /// `@get` target is `<prefix>` + `$viewedSession`.
+    pub persona_picker_prefix: &'static str,
     /// The persona modal host's CSS selector — the pull's swap target.
     pub persona_modal_host_selector: &'static str,
     /// The MCP item's id ("MCP servers"); rendered only when a session
@@ -1015,8 +1075,8 @@ pub struct MenuTemplate {
     /// rule).
     pub menu_item_mcp_id: &'static str,
     /// The MCP pull's URL prefix — the MCP item's `@get` target is
-    /// `<prefix><viewed session id>`.
-    pub mcp_picker_url: String,
+    /// `<prefix>` + `$viewedSession`.
+    pub mcp_picker_prefix: &'static str,
     /// The MCP modal host's CSS selector — the pull's swap target.
     pub mcp_modal_host_selector: &'static str,
     /// The tools item's id ("Tools"); rendered only when a session is
@@ -1025,7 +1085,7 @@ pub struct MenuTemplate {
     pub menu_item_tools_id: &'static str,
     /// The tools pull's URL prefix — the tools item's `@get` target is
     /// `<prefix><viewed session id>`.
-    pub tools_picker_url: String,
+    pub tools_picker_prefix: &'static str,
     /// The tools modal host's CSS selector — the pull's swap target.
     pub tools_modal_host_selector: &'static str,
     /// The skills item's id ("Skills"); rendered only when a session
@@ -1034,7 +1094,7 @@ pub struct MenuTemplate {
     pub menu_item_skills_id: &'static str,
     /// The skills pull's URL prefix — the skills item's `@get` target
     /// is `<prefix><viewed session id>`.
-    pub skills_picker_url: String,
+    pub skills_picker_prefix: &'static str,
     /// The skills modal host's CSS selector — the pull's swap target.
     pub skills_modal_host_selector: &'static str,
     /// The render-time unread-mark count — the badge's seeded value.
@@ -1061,12 +1121,10 @@ pub struct MenuTemplate {
 impl MenuTemplate {
     /// Builds the template with the contract's hooks filled.
     ///
-    /// `viewed_session` is the page's viewed session id — empty on the
-    /// landing page, which omits the persona item entirely.
     /// `attention_count` seeds the sessions button's unread count —
     /// the render-time fact the live signal updates between renders.
     #[must_use]
-    pub fn with_contract(viewed_session: &str, attention_count: usize) -> Self {
+    pub fn with_contract(attention_count: usize) -> Self {
         Self {
             menu_id: contract::MENU_ID,
             sessions_button_id: contract::SESSIONS_BUTTON_ID,
@@ -1077,22 +1135,21 @@ impl MenuTemplate {
             menu_item_sessions_id: contract::MENU_ITEM_SESSIONS_ID,
             menu_item_new_session_id: contract::MENU_ITEM_NEW_SESSION_ID,
             menu_item_persona_id: contract::MENU_ITEM_PERSONA_ID,
-            has_session: !viewed_session.is_empty(),
             action_attr: contract::ACTION_DATA_ATTR,
             menu_action: contract::ACTION_MENU_SESSIONS,
             menu_new_session_action: contract::ACTION_MENU_NEW_SESSION,
             session_new_path: contract::SESSION_NEW_ROUTE,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
-            persona_picker_url: format!("{}{viewed_session}", contract::PERSONA_PICKER_PREFIX),
+            persona_picker_prefix: contract::PERSONA_PICKER_PREFIX,
             persona_modal_host_selector: contract::PERSONA_MODAL_HOST_SELECTOR,
             menu_item_mcp_id: contract::MENU_ITEM_MCP_ID,
-            mcp_picker_url: format!("{}{viewed_session}", contract::MCP_PICKER_PREFIX),
+            mcp_picker_prefix: contract::MCP_PICKER_PREFIX,
             mcp_modal_host_selector: contract::MCP_MODAL_HOST_SELECTOR,
             menu_item_tools_id: contract::MENU_ITEM_TOOLS_ID,
-            tools_picker_url: format!("{}{viewed_session}", contract::TOOLS_PICKER_PREFIX),
+            tools_picker_prefix: contract::TOOLS_PICKER_PREFIX,
             tools_modal_host_selector: contract::TOOLS_MODAL_HOST_SELECTOR,
             menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
-            skills_picker_url: format!("{}{viewed_session}", contract::SKILL_PICKER_PREFIX),
+            skills_picker_prefix: contract::SKILL_PICKER_PREFIX,
             skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
             menu_item_theme_id: contract::MENU_ITEM_THEME_ID,
             menu_item_theme_light_id: contract::MENU_ITEM_THEME_LIGHT_ID,
@@ -1113,28 +1170,27 @@ impl MenuTemplate {
 #[derive(Template)]
 #[template(path = "model_button.html")]
 pub struct ModelButtonTemplate {
-    /// The session the picker targets.
-    pub session_id: String,
-    /// The current selection's label.
-    pub current: String,
     /// The button's id.
     pub button_id: &'static str,
-    /// The modal-open pull's URL (unfiltered) — the button's `@get`.
-    pub picker_url: String,
+    /// The modal-open pull's URL prefix — the button's `@get` target
+    /// is `<prefix>` + `$viewedSession`.
+    pub picker_prefix: &'static str,
     /// The modal host span's id — the pull's swap target.
     pub modal_host_id: &'static str,
 }
 
 impl ModelButtonTemplate {
-    /// Builds the template with the contract's hooks filled.
+    /// Builds the template with the contract's hooks filled. The
+    /// fragment is session- and selection-invariant: the label binds
+    /// the `modelLabel` signal and the pull URL composes
+    /// `$viewedSession` client-side, so the markup never needs
+    /// re-rendering.
     #[must_use]
-    pub fn with_contract(session_id: String, current: String) -> Self {
+    pub fn with_contract() -> Self {
         Self {
-            picker_url: format!("{}{session_id}", contract::MODEL_PICKER_PREFIX),
+            picker_prefix: contract::MODEL_PICKER_PREFIX,
             button_id: contract::MODEL_PICKER_BUTTON_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
-            session_id,
-            current,
         }
     }
 }

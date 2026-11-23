@@ -1696,16 +1696,11 @@ mod actions {
         .await;
 
         // Then the bus names ProviderSwitch and the response is the
-        // re-rendered titlebar button.
+        // label signal patch (the button's text binds the signal — no
+        // fragment re-render crosses the wire).
         assert_eq!(status, StatusCode::OK);
         assert_eq!(audit_count(&audit, "ProviderSwitch"), 1);
-        assert!(
-            body.contains(&format!(
-                "id=\"{}\"",
-                crate::contract::MODEL_PICKER_BUTTON_ID
-            )),
-            "{body}"
-        );
+        assert!(body.contains(crate::contract::SIGNAL_MODEL_LABEL), "{body}");
     }
 
     #[rstest::rstest]
@@ -1735,18 +1730,15 @@ mod actions {
             body.contains("openai/gpt-4o"),
             "the switch response must name the picked model: {body}"
         );
-        // And the button text agrees with the pick.
-        let button = body
-            .split_once(&format!(
-                "id=\"{}\"",
-                crate::contract::MODEL_PICKER_BUTTON_ID
-            ))
-            .and_then(|(_, rest)| rest.split_once('>'))
-            .and_then(|(_, rest)| rest.split('<').next())
-            .unwrap_or_default();
-        assert_eq!(
-            button, "openai/gpt-4o",
-            "the button text must name the picked model: {body}"
+        // And the label signal agrees with the pick (the button's
+        // text binds the signal — no fragment re-render crosses the
+        // wire).
+        assert!(
+            body.replace(' ', "").contains(&format!(
+                "\"{}\":\"openai/gpt-4o\"",
+                crate::contract::SIGNAL_MODEL_LABEL
+            )),
+            "the label patch must name the picked model: {body}"
         );
     }
 
@@ -1827,17 +1819,11 @@ mod actions {
         .await;
 
         // Then exactly one `RefreshModels` published and the response
-        // is the re-rendered BUTTON fragment — the POST never blocks
-        // on discovery.
+        // is a label signal patch — the POST never blocks on
+        // discovery, and no fragment re-render crosses the wire.
         assert_eq!(status, StatusCode::OK);
         assert_eq!(audit_count(&audit, "RefreshModels"), 1);
-        assert!(
-            body.contains(&format!(
-                "id=\"{}\"",
-                crate::contract::MODEL_PICKER_BUTTON_ID
-            )),
-            "{body}"
-        );
+        assert!(body.contains(crate::contract::SIGNAL_MODEL_LABEL), "{body}");
         assert!(
             !body.contains(&format!(
                 "id=\"{}\"",
@@ -1896,19 +1882,15 @@ mod actions {
         // When rendering the session page.
         let (_status, body) = get(&router, &format!("/web/session/{id}")).await;
 
-        // Then the composer offers send, not cancel — the send
-        // button's declarative click posts the send endpoint spelled
-        // from the contract.
+        // Then the composer seeds the busy signal false — the send
+        // button's binding becomes visible — and its declarative click
+        // posts the send endpoint spelled from the contract.
         assert!(
-            body.contains(&format!("@post('{}'", crate::contract::SEND_PATH)),
+            body.contains(&format!("{}: false", crate::contract::SIGNAL_BUSY)),
             "{body}"
         );
         assert!(
-            !body.contains(&format!(
-                "{}=\"{}\"",
-                crate::contract::ACTION_DATA_ATTR,
-                crate::contract::ACTION_CANCEL
-            )),
+            body.contains(&format!("@post('{}'", crate::contract::SEND_PATH)),
             "{body}"
         );
     }
@@ -1929,19 +1911,16 @@ mod actions {
         // When rendering the session page.
         let (_status, body) = get(&router, &format!("/web/session/{id}")).await;
 
-        // Then the composer offers cancel, not send — the cancel
-        // button's declarative click posts the cancel endpoint
+        // Then the composer seeds the busy signal true — the cancel
+        // and queue buttons' bindings become visible — and the
+        // cancel button's declarative click posts the cancel endpoint
         // spelled from the contract.
         assert!(
-            body.contains(&format!("@post('{}'", crate::contract::CANCEL_PATH)),
+            body.contains(&format!("{}: true", crate::contract::SIGNAL_BUSY)),
             "{body}"
         );
         assert!(
-            !body.contains(&format!(
-                "{}=\"{}\"",
-                crate::contract::ACTION_DATA_ATTR,
-                crate::contract::ACTION_SEND
-            )),
+            body.contains(&format!("@post('{}'", crate::contract::CANCEL_PATH)),
             "{body}"
         );
     }
@@ -2235,8 +2214,9 @@ singleton = true
 
     /// The harness over an MCP-seeded config layer: the same shape as
     /// [`harness`], but the shared state's config snapshot carries the
-    /// `[mcp.*]` section (the toggle's accepted set).
-    fn harness_with_config(doc: &str) -> (State, BusAudit, axum::Router) {
+    /// given config document (the MCP toggle's `[mcp.*]` section; the
+    /// create test's `[[project.entry]]`).
+    pub(super) fn harness_with_config(doc: &str) -> (State, BusAudit, axum::Router) {
         let slices = Slices::new();
         let provider_cell = slices
             .register(
@@ -3792,16 +3772,20 @@ mod switch_markup {
         // When activating the second from the web.
         let (status, body) = post_form(&router, &format!("/web/session/{b}/activate"), "").await;
 
-        // Then the response is the navigation patch sequence for B —
-        // the page root replaced wholesale inside an SSE body — and
+        // Then the response is the targeted navigation patch sequence
+        // for B — signals plus the stream rebind, no root swap — and
         // the publish rides the shared command.
         assert_eq!(status, StatusCode::OK);
         assert!(
             body.contains(&format!(
                 "selector #{}\ndata: mode replace",
-                crate::contract::PAGE_ROOT_ID
+                crate::contract::STREAM_SPAN_ID
             )),
-            "{body}"
+            "the stream span is the replaced element (the rebind): {body}"
+        );
+        assert!(
+            !body.contains(&format!("selector #{}", crate::contract::PAGE_ROOT_ID)),
+            "no root swap crosses the wire: {body}"
         );
         assert!(body.contains("Second session"), "{body}");
         assert_eq!(audit_count(&audit, "SessionLoadRequested"), 1);
@@ -3823,17 +3807,14 @@ mod switch_markup {
 
         // Then the response already names B as the viewed session: the
         // handler waited for the store actor's `set_active` before
-        // rendering, so the swapped-in page is never one click behind.
-        // The response carries no rows — the viewed session rides the
-        // root's `viewedSession` signal seed (and the list pull's
+        // rendering, so the response is never one click behind. The
+        // response carries no rows — the viewed session rides the
+        // `viewedSession` signal patch (and the list pull's
         // `?viewed=` naming is gone; the rows bind the signal).
         assert_eq!(status, StatusCode::OK);
         assert!(
-            body.contains(&format!(
-                "{}: '{}'",
-                crate::contract::SIGNAL_VIEWED_SESSION,
-                b
-            )),
+            body.replace([' ', '"'], "")
+                .contains(&format!("{}:{b}", crate::contract::SIGNAL_VIEWED_SESSION)),
             "the seed names the activated session: {body}"
         );
 
@@ -3906,6 +3887,58 @@ mod switch_markup {
         );
         assert_eq!(state.read().session.active_session_id(), &target);
         flipper.await.expect("the flipper task joins");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn creating_a_session_bumps_the_sessions_tick_in_the_response() {
+        // Given the router with one configured project (the create
+        // form's minimum config).
+        let (state, _audit, router) =
+            mcp_actions::harness_with_config("[[project.entry]]\npath = \"/tmp/e2e-scratch\"\n");
+
+        // When posting a create.
+        let (status, body) = post_json(
+            &router,
+            crate::contract::SESSION_NEW_ROUTE,
+            r#"{"project": "/tmp/e2e-scratch"}"#,
+        )
+        .await;
+
+        // Then the navigation response carries a `sessionsTick` bump —
+        // the surviving list's effect answers it with one refetch and
+        // picks up the created row (the fan-out's `SessionCreated`
+        // broadcast races the response, so the tick is the ordered
+        // refresher). An activate's response carries none.
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.replace([' ', '"'], "")
+                .contains(&format!("{}:true", crate::contract::SIGNAL_SESSIONS_TICK)),
+            "the create response bumps the list tick: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn activating_a_session_does_not_bump_the_sessions_tick() {
+        // Given two live sessions.
+        let (state, _audit, _slices, router) = harness();
+        let _a = seed_session(&state);
+        let b = seed_session(&state);
+
+        // When activating the second from the web.
+        let (status, body) = post_form(&router, &format!("/web/session/{b}/activate"), "").await;
+
+        // Then no tick bump crosses the wire: switching adds no row,
+        // and the navigation fetches nothing — the list's DOM simply
+        // survives.
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !body
+                .replace([' ', '"'], "")
+                .contains(&format!("{}:", crate::contract::SIGNAL_SESSIONS_TICK)),
+            "an activate response must not bump the list tick: {body}"
+        );
     }
 }
 
@@ -4572,10 +4605,11 @@ mod tools_actions {
         let (page_status, page) = get(&router, &format!("/web/session/{id}")).await;
         let (landing_status, landing) = get(&router, "/web").await;
 
-        // Then the session page carries the Tools item and the modal
-        // host span, and the landing page carries neither — the menu
-        // gating the recorded persona-item rule holds for the new
-        // surface.
+        // Then both pages carry the Tools item (the menu is
+        // session-invariant markup) and the modal host span — the
+        // item's data-show binding to the viewed-session signal is
+        // the gate, so the landing's copy hides without the server
+        // rendering two menu shapes.
         assert_eq!(page_status, StatusCode::OK);
         assert_eq!(landing_status, StatusCode::OK);
         assert!(
@@ -4587,13 +4621,12 @@ mod tools_actions {
             "{page}"
         );
         assert!(
-            !landing.contains(&format!("id=\"{}\"", crate::contract::MENU_ITEM_TOOLS_ID)),
+            landing.contains(&format!("id=\"{}\"", crate::contract::MENU_ITEM_TOOLS_ID)),
             "{landing}"
         );
-        // The modal host span itself is page-shell chrome and renders on
-        // every page — the persona and MCP hosts ride the same way. The
-        // gated surface is the menu item: without it nothing pulls into
-        // the span or opens the modal, so the landing's span stays inert.
+        // And the binding is present (both pages share the one
+        // invariant menu markup).
+        assert!(landing.contains("$viewedSession.length > 0"), "{landing}");
     }
 }
 

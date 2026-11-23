@@ -294,6 +294,25 @@ pub const SIGNAL_SESSIONS_ATTENTION: &str = "sessionsAttention";
 /// append in place without scrolling.
 pub const SIGNAL_CATCHUP_CURSOR: &str = "catchupCursor";
 
+/// The viewed session's busy flag — the composer's spinner and the
+/// send↔cancel/queue button set bind their visibility to it. The
+/// Controls push carries it as a signal patch (the fragment itself is
+/// session- and phase-invariant markup), and the navigation response
+/// seeds it with the activated session's phase.
+pub const SIGNAL_BUSY: &str = "busy";
+/// The viewed session's current model label — the titlebar picker
+/// button binds its text to it. The model switch and refresh POSTs
+/// patch it (a signal, not a fragment: the button is session- and
+/// selection-invariant markup), and the navigation response seeds it
+/// with the activated session's selection.
+pub const SIGNAL_MODEL_LABEL: &str = "modelLabel";
+/// The title the server last confirmed — the rename editor's
+/// Escape/blur restore. The editor's `data-bind:title` mutates
+/// `$title` while typing, so the restore cannot read `$title`; it
+/// reads this committed copy, which the page render seeds and the
+/// rename response patches alongside `$title`.
+pub const SIGNAL_TITLE_PRE: &str = "titlePre";
+
 /// The sessions filter's signal — bound by the filter input's
 /// `data-bind`. HTML attribute names are ASCII case-insensitive, so a
 /// `data-bind`-carried signal name reaches the runtime lowercased;
@@ -302,9 +321,9 @@ pub const SIGNAL_CATCHUP_CURSOR: &str = "catchupCursor";
 pub const SIGNAL_SESSIONS_FILTER: &str = "sessionsfilter";
 /// The session-switch interstitial flag — set true by a session-row
 /// click that names a different session than the one viewed, ahead of
-/// its activate POST. The activation response's wholesale page-root
-/// swap re-seeds the signal false, which is the interstitial's only
-/// clear path (no timer, no fetch-event listener).
+/// its activate POST. The activation response's signal patch
+/// re-seeds the signal false, which is the interstitial's only clear
+/// path (no timer, no fetch-event listener).
 pub const SIGNAL_SWITCHING: &str = "switching";
 /// The viewed session's id (the page root's data attribute at boot).
 pub const SIGNAL_VIEWED_SESSION: &str = "viewedSession";
@@ -829,6 +848,14 @@ pub const RENAME_SUFFIX: &str = "/rename";
 /// The path prefix client code builds SSE stream URLs from.
 pub const STREAM_PREFIX: &str = "/web/stream/";
 
+/// The stream span's id — the page shell's SSE-bind element. The
+/// navigation response replaces it wholesale: removing the old span
+/// cancels its in-flight fetch (the bind carries `requestCancellation:
+/// 'cleanup'`), and the replacement's `data-init` opens the new
+/// session's stream — the rebind the wholesale root swap used to do
+/// implicitly.
+pub const STREAM_SPAN_ID: &str = "stream-span";
+
 /// The path prefix client code builds transcript-pull URLs from.
 pub const TRANSCRIPT_PREFIX: &str = "/web/transcript/";
 
@@ -860,6 +887,7 @@ pub const VENDOR_PASTE_JS: &str = "paste.js";
 /// asserts each of these appears in the HTML.
 pub const DOM_CONSTANTS: &[&str] = &[
     PAGE_ROOT_ID,
+    STREAM_SPAN_ID,
     SESSIONS_ID,
     SESSIONS_FILTER_INPUT_ID,
     TRANSCRIPT_WRAP_ID,

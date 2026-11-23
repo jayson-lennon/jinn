@@ -8,6 +8,7 @@
 import { expect, test } from "@playwright/test";
 import { openSession } from "./nav.mjs";
 import * as sel from "./selectors.mjs";
+import { baseUrl } from "./run.mjs";
 const { MODEL_ID } = sel;
 
 test("page root renders the boot session row and opens it", async ({ page }) => {
@@ -36,4 +37,35 @@ test("session page shows the model picker button in the titlebar", async ({
   // label rides beside it).
   await expect(page.locator(sel.PICKER_BUTTON)).toBeVisible();
   await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(MODEL_ID);
+});
+
+test("navigating sessions never blanks the sidebar", async ({ page }) => {
+  // Given a landing page whose sidebar carries at least two rows —
+  // a fresh scratch db boots with one, so a second is created through
+  // the modal (the znew-session flow, condensed).
+  await page.goto(`${baseUrl()}/web`);
+  await expect(page.locator(sel.SESSION_ROW).first()).toBeAttached();
+  await page.locator(sel.MENU_BUTTON).click();
+  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
+  await page.locator(sel.SESSION_NEW_SUBMIT).click();
+  await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
+  await page.goto(`${baseUrl()}/web`);
+  const rowCount = await page.locator(sel.SESSION_ROW).count();
+  expect(rowCount).toBeGreaterThanOrEqual(2);
+  const firstId = await page
+    .locator(sel.SESSION_ROW)
+    .first()
+    .getAttribute(sel.SESSION_ID_ATTR);
+
+  // When clicking into the first row's session (a real navigation).
+  await page.locator(sel.SESSION_ROW_BY_ID(firstId)).click();
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    firstId,
+  );
+
+  // Then the sidebar never lost a row: the navigation's targeted
+  // patches leave the list's DOM untouched (the blank-flash bug this
+  // pins), and the row count still matches the boot render.
+  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(rowCount);
 });

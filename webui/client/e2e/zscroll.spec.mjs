@@ -159,9 +159,13 @@ test("a session row click lands the page at the transcript bottom", async ({
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   await expect(page.locator(sel.SESSION_NEW_MODAL)).toBeVisible();
   await page.locator(sel.SESSION_NEW_SUBMIT).click();
-  const createdId = await page
-    .locator(sel.PAGE_ROOT)
-    .getAttribute(sel.PAGE_SESSION_ATTR);
+  // The create's navigation is an async SSE patch now — the id read
+  // must wait for the root to actually carry the created session
+  // (reading immediately can still hold the pre-create id, and every
+  // step below would then address the wrong row).
+  const root = page.locator(sel.PAGE_ROOT);
+  await expect(root).not.toHaveAttribute(sel.PAGE_SESSION_ATTR, grownId);
+  const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
   if (!createdId) {
     throw new Error("create did not navigate; page root carries no session id");
   }

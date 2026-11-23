@@ -148,34 +148,34 @@ async fn clicking_a_session_in_a_real_browser_shows_its_transcript() {
         .await
         .expect("the landing page loads");
 
-    // The row for the seeded session, then the click that must swap
-    // the whole page (AC1).
+    // The row for the seeded session, then the click that must
+    // navigate (AC1).
     let row = page
         .find_element(format!("[data-session-id='{id}']"))
         .await
         .expect("the seeded session's row renders in the sidebar");
     row.click().await.expect("the row clicks");
 
-    // Then the sidebar REFILLED: the navigation response carries no
-    // rows (the navigation-shape contract), so the swapped root's
-    // tick effect is what fetches the list — if it never fires, the
-    // sidebar is empty on every swapped page and the row lookup below
-    // (and every later navigation) is dead. Poll: one fetch + one DOM
-    // replace after the swap.
+    // Then the sidebar PERSISTED: the navigation response carries no
+    // elements over the sidebar's subtree (the targeted-patch
+    // contract), so the pre-click rows are still in the DOM — if
+    // they ever blank, the page lost its chrome and the row lookup
+    // below (and every later navigation) is dead. Poll: the
+    // activate POST's patches land within the window.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    let mut sidebar_refilled = false;
+    let mut sidebar_persisted = false;
     while std::time::Instant::now() < deadline {
         let content = page.content().await.expect("page content reads");
         if content.contains("data-session-id") {
-            sidebar_refilled = true;
+            sidebar_persisted = true;
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
     assert!(
-        sidebar_refilled,
-        "after the swap the sidebar must refill via the swapped root's \
-         one tick-effect fetch (the navigation response carries no rows)"
+        sidebar_persisted,
+        "after the navigation the sidebar must persist — the rows survive \
+         (the response carries no list fetch and no list fragment)"
     );
 
     // Then the transcript carries the session's entry — the catch-up

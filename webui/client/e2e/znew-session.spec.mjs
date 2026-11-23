@@ -132,13 +132,17 @@ test("creating a session lands on the new session's page", async ({ page }) => {
   // When submitting the form.
   await page.locator(sel.SESSION_NEW_SUBMIT).click();
 
-  // Then the page swapped wholesale to the created session's page:
-  // the root's session id changed, the URL tracks it, the modal is
-  // gone, and the sidebar grew by exactly one row (a delta, not an
-  // absolute count — the serial tier's shared db may hold sessions
-  // created by specs sorting before this one).
+  // Then the page navigated to the created session: the root's
+  // session id changed, the URL tracks it, the modal is gone, and the
+  // sidebar grew by exactly one row (a delta, not an absolute count —
+  // the serial tier's shared db may hold sessions created by specs
+  // sorting before this one; the surviving list picked the new row up
+  // from the create's tick bump).
   await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
-  await expect(modal).toHaveCount(0);
+  // The modal's markup survives (the session-invariant shell ships
+  // the host span; the fragment persists in it) — the navigation's
+  // signal patch closes it ($sessionNewOpen false).
+  await expect(modal).toBeHidden();
   const root = page.locator(sel.PAGE_ROOT);
   const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
   if (!createdId || createdId === beforeId) {

@@ -1,9 +1,8 @@
-{%- if busy -%}
-<div id="{{ spinner_id }}" class="busy-spinner" title="Streaming…"></div>
-{%- endif -%}
+<div id="{{ spinner_id }}" class="busy-spinner" title="Streaming…"
+     data-show="$busy"></div>
 <div id="{{ composer_id }}"
      data-on:jinnaddimages__document="$images = [...$images, ...evt.detail.images]"
-     data-effect="$images.length && window.jinnRenderChips && window.jinnRenderChips($images)">
+     data-effect="window.jinnRenderChips && window.jinnRenderChips($images) !== undefined">
   {#- Pending attachments: paste.js keeps this strip in step with the
       images signal and splices on each chip's ✕. The strip exists
       declaratively (no iteration — the bundle has no data-for). -#}
@@ -15,10 +14,7 @@
            data-on:change="window.jinnAttachFiles(el.files) && (el.value = '')">
     +
   </label>
-  {%- if busy -%}
-  <button {{ action_attr }}="{{ queue_action }}" data-on:click="$text.trim().length > 0 && @post('{{ send_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, text: $text}})">{{ queue_label }}</button>
-  <button class="cancel" {{ action_attr }}="{{ cancel_action }}" data-on:click="@post('{{ cancel_path }}', {contentType: 'json', payload: {sessionId: $viewedSession}})">{{ cancel_label }}</button>
-  {%- else -%}
-  <button {{ action_attr }}="{{ send_action }}" data-on:click="($text.trim().length > 0 || $images.length > 0) && ($transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER }), true) && @post('{{ send_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, text: $text, images: $images}})">{{ send_label }}</button>
-  {%- endif %}
+  <button data-show="$busy" {{ action_attr }}="{{ queue_action }}" data-on:click="$text.trim().length > 0 && @post('{{ send_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, text: $text}})">{{ queue_label }}</button>
+  <button data-show="$busy" class="cancel" {{ action_attr }}="{{ cancel_action }}" data-on:click="@post('{{ cancel_path }}', {contentType: 'json', payload: {sessionId: $viewedSession}})">{{ cancel_label }}</button>
+  <button data-show="!$busy" {{ action_attr }}="{{ send_action }}" data-on:click="($text.trim().length > 0 || $images.length > 0) && ($transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER }), true) && @post('{{ send_path }}', {contentType: 'json', payload: {sessionId: $viewedSession, text: $text, images: $images}})">{{ send_label }}</button>
 </div>
