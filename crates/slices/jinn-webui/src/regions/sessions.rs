@@ -218,6 +218,16 @@ pub const SIDEBAR_CSS: &str = r#"
                   border-radius: 50%;
                   animation: webui-spin .8s linear infinite; }
 .switch-label { color: var(--fg); font-size: 14px; }
+/* The error-notice banner: the failed activate/create POST's visible
+   half — the fetch-error listener on the page root fills it (the
+   switch signal clears and the failure names itself here), styled
+   only by tokens like every surface. Rendered hidden server-side
+   like the scrims; `data-show` owns the visibility once bound. */
+#error-notice { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+                z-index: 80; background: var(--bg-badge-err); color: var(--err);
+                border: 1px solid var(--err); border-radius: 8px;
+                padding: 10px 18px; font-size: 14px; max-width: min(560px, 92vw); }
+#error-notice[hidden] { display: none; }
 @media (max-width: 767px) {
   #sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: min(80vw, 320px);
              z-index: 40; transform: translateX(-100%); transition: transform .25s ease; }

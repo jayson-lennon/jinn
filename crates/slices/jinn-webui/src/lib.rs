@@ -207,6 +207,7 @@ pub async fn activate(
             state,
             bus,
             session_store,
+            turn_ledger: services.turn_ledger.clone(),
             provider_cell,
             personas_cell,
             mcp_runtime_cell,

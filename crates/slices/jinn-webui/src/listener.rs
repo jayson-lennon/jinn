@@ -62,6 +62,9 @@ pub struct WebUiListenerActorDeps {
     /// The session store, for archived sessions' summaries and
     /// transcripts.
     pub session_store: jinn_session_state::SessionStoreService,
+    /// The process turn ledger (cheap clone, shared map) — read-only
+    /// from the web side; the cancel handler's no-live-turn witness.
+    pub turn_ledger: jinn_kernel::common::turn_ledger::TurnLedger,
     /// The provider cell, for the model picker's cache read.
     pub provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
     /// The personas cell, for the persona modal's rows and the switch
@@ -129,6 +132,7 @@ impl WebUiListenerActor {
             deps.state.clone(),
             deps.bus.clone(),
             deps.session_store.clone(),
+            deps.turn_ledger.clone(),
             deps.provider_cell.clone(),
             deps.personas_cell.clone(),
             deps.mcp_runtime_cell.clone(),

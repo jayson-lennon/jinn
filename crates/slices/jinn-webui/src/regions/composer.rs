@@ -73,7 +73,10 @@ impl WebRegion for ComposerRegion {
 /// the streaming spinner. The phone media query at the tail is the
 /// touch-polish pass: the safe-area bottom inset, the ≥40px hit
 /// heights, and the 16px input font (the iOS focus-zoom guard). The
-/// desktop rules above it are unchanged.
+/// buttons and the attach label stretch to the textarea's full height
+/// at both breakpoints — the desktop rule states `align-self: stretch`
+/// explicitly, because the mobile query's hit-height floor must not
+/// become the only height story.
 pub const COMPOSER_CSS: &str = r#"
 .busy-spinner { width: 18px; height: 18px; margin: 0 auto 8px; border: 2px solid var(--border);
                 border-top-color: var(--accent); border-radius: 50%;
@@ -84,7 +87,7 @@ pub const COMPOSER_CSS: &str = r#"
                      border: 1px solid var(--border); border-radius: 6px;
                      padding: 8px 10px; font: inherit; resize: none; height: 64px; }
 #composer button { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 6px;
-                   padding: 0 22px; font: inherit; cursor: pointer; }
+                   padding: 0 22px; font: inherit; cursor: pointer; align-self: stretch; }
 #composer button.cancel { background: var(--err); color: var(--on-err); }
 #image-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel);
@@ -95,16 +98,17 @@ pub const COMPOSER_CSS: &str = r#"
 .chip-x { background: transparent; color: var(--muted); border: 0; font: inherit;
           cursor: pointer; padding: 0 2px; line-height: 1; }
 .chip-x:hover { color: var(--err); }
-#composer .attach { align-self: center; background: var(--panel); color: var(--fg);
+#composer .attach { align-self: stretch; background: var(--panel); color: var(--fg);
                     border: 1px solid var(--border); border-radius: 6px;
                     font: inherit; font-size: 18px; line-height: 1; padding: 8px 12px;
-                    cursor: pointer; user-select: none; }
+                    cursor: pointer; user-select: none; display: inline-flex;
+                    align-items: center; }
 #composer .attach:hover { border-color: var(--accent); }
 #composer .attach input[type="file"] { display: none; }
 @media (max-width: 767px) {
   #composer { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
   #composer textarea { font-size: 16px; min-height: 40px; height: 64px; }
-  #composer button { min-height: 40px; align-self: flex-end; margin-bottom: 0; }
+  #composer button { min-height: 40px; align-self: stretch; margin-bottom: 0; }
 }
 "#;
 

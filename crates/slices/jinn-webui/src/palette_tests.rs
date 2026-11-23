@@ -25,29 +25,32 @@ type Palette = &'static [(&'static str, &'static str)];
 
 /// The dark palette's constants — duplicated from `BASE_CSS` so the
 /// ratios here are computed from values a reader can diff against the
-/// CSS comments' cited theme roles.
+/// CSS comments' cited theme roles. The dark set is lifted role-for-
+/// role from `res/themes/sonokai.toml`; the roles sonokai does not
+/// declare (panel, code surface, badges, on-fill inks, mark, bot gold)
+/// are derived from its ramp, documented on each token in `BASE_CSS`.
 const DARK: Palette = &[
-    ("--bg", "#191b1e"),
-    ("--panel", "#282c34"),
-    ("--fg", "#dcdcdc"),
-    ("--muted", "#8f8f8f"),
-    ("--border", "#2b2f36"),
-    ("--bg-user-entry", "#343541"),
-    ("--bg-code", "#131519"),
-    ("--bg-hover", "#31343c"),
-    ("--bg-active", "#3a3d48"),
-    ("--bg-badge-pending", "#20242c"),
-    ("--bg-badge-ok", "#111d15"),
-    ("--bg-badge-err", "#241616"),
-    ("--accent", "#4c8bd8"),
-    ("--err", "#ee7770"),
-    ("--ok", "#57ab5a"),
-    ("--on-fill", "#14161a"),
-    ("--on-accent", "#14161a"),
-    ("--on-err", "#14161a"),
-    ("--mark", "#e3b341"),
-    ("--on-mark-muted", "#3d3320"),
-    ("--bot", "#d4a72c"),
+    ("--bg", "#25272e"),
+    ("--panel", "#2c2e34"),
+    ("--fg", "#e2e2e3"),
+    ("--muted", "#93959b"),
+    ("--border", "#44474e"),
+    ("--bg-user-entry", "#30323a"),
+    ("--bg-code", "#1e2026"),
+    ("--bg-hover", "#3b3e47"),
+    ("--bg-active", "#44474e"),
+    ("--bg-badge-pending", "#33353d"),
+    ("--bg-badge-ok", "#1c2a1c"),
+    ("--bg-badge-err", "#2e1b22"),
+    ("--accent", "#c4a7e7"),
+    ("--err", "#ed8796"),
+    ("--ok", "#a9d89d"),
+    ("--on-fill", "#2c2e34"),
+    ("--on-accent", "#2c2e34"),
+    ("--on-err", "#2c2e34"),
+    ("--mark", "#ebdca0"),
+    ("--on-mark-muted", "#4d4527"),
+    ("--bot", "#c9b168"),
 ];
 
 /// The light palette's constants — the `[data-theme="light"]` and

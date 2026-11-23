@@ -227,3 +227,9 @@ export const SWITCH_OVERLAY = "#switch-overlay";
  * both `sample`, so the id is `sample/sample`.
  */
 export const MODEL_ID = "sample/sample";
+/** The error-notice banner id (`wire.ERROR_NOTICE_ID`) — the failed
+ * activate/create POST's visible half (the page root's fetch-error
+ * listener fills it while clearing the switching signal). */
+export const ERROR_NOTICE = "#error-notice";
+/** The composer's attach "+" control id (`wire.IMAGE_ATTACH_BUTTON_ID`). */
+export const ATTACH_BUTTON = "#image-attach-button";

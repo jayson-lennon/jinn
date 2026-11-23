@@ -75,6 +75,7 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
         jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
+        jinn_kernel::common::turn_ledger::TurnLedger::default(),
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
@@ -100,6 +101,16 @@ fn unread_marks_for(
             jinn_webui_msg::UnreadSessionMarks::default(),
         )
         .expect("the unread-mark cell registers once per harness")
+}
+
+/// Reads the harness-registered unread-mark cell — the harness's
+/// registration, resolved read-only for a test-local fan-out pair.
+fn slices_reader_unread(
+    slices: &Slices,
+) -> jinn_slices::cell::TypedCell<jinn_webui_msg::UnreadSessionMarks> {
+    slices
+        .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+        .expect("the harness registered the unread-mark cell")
 }
 
 /// The harness registry: one keyless `openai` provider offering the
@@ -301,6 +312,7 @@ async fn harness_with_store_actor() -> (State, BusAudit, Slices, axum::Router) {
         state.clone(),
         actor_services.bus.clone(),
         actor_services.session_store,
+        actor_services.turn_ledger.clone(),
         provider_cell,
         actor_services
             .slices
@@ -560,6 +572,7 @@ fn harness_with_archived_attachment(
                 entry: entry.clone(),
             },
         )),
+        jinn_kernel::common::turn_ledger::TurnLedger::default(),
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
@@ -775,6 +788,7 @@ fn harness_with_archived_row_and_receiver() -> (
             archived_id,
             "Archived from last run".to_owned(),
         ))),
+        jinn_kernel::common::turn_ledger::TurnLedger::default(),
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
@@ -1196,7 +1210,7 @@ mod actions {
             "system seed missing: {body}"
         );
         assert!(
-            body.contains("<meta name=\"theme-color\" content=\"#191b1e\">"),
+            body.contains("<meta name=\"theme-color\" content=\"#25272e\">"),
             "meta not dark: {body}"
         );
     }
@@ -1571,6 +1585,75 @@ mod actions {
         // Then the bus names CancelTurn.
         assert_eq!(status, StatusCode::OK);
         assert_eq!(audit_count(&audit, "CancelTurn"), 1);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn cancel_with_no_live_turn_pushes_a_settling_controls_fragment() {
+        // Given a live session whose ledger holds no live turn — the
+        // stuck-busy shape: the composer still reads working, but the
+        // turn already drained, so no phase wave will ever settle it.
+        // A subscriber watches the fan-out stream (the channel the
+        // connected SSE pages drain).
+        let (state, _audit, _slices, _router) = harness();
+        let id = seed_session(&state);
+        let ledger = jinn_kernel::common::turn_ledger::TurnLedger::default();
+        let (bus, cancel_audit) = BusService::new_recording();
+        let (fanout, mut rx) = crate::fanout::WebUiFanoutActor::test_pair(
+            &state,
+            bus.clone(),
+            slices_reader_unread(&_slices),
+        );
+
+        // When the cancel handler runs against the empty ledger — it
+        // publishes the fact, waits the no-turn window, then settles
+        // through the fan-out.
+        crate::delivery::handle_cancel(&state, &bus, &ledger, &fanout, &id.to_string())
+            .await
+            .expect("the cancel handler settles");
+
+        // Then the fact still published (both cancel halves stay
+        // subscribed), and exactly one controls fragment arrived on
+        // the stream for this session — the settle push. The POST
+        // response carried nothing; the fragment rode the push, the
+        // composer's single writer.
+        assert_eq!(audit_count(&cancel_audit, "CancelTurn"), 1);
+        let envelope = rx.try_recv().expect("the settle controls push");
+        assert_eq!(envelope.kind, jinn_webui_msg::SseKind::Controls);
+        assert_eq!(envelope.session_id, id);
+        assert!(
+            rx.try_recv().is_err(),
+            "the settle push is the only fragment the no-turn cancel fans"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn cancel_with_a_live_turn_takes_the_ordinary_wave_and_pushes_nothing_extra() {
+        // Given a live session whose ledger DOES hold a live turn.
+        let (state, _audit, _slices, _router) = harness();
+        let id = seed_session(&state);
+        let ledger = jinn_kernel::common::turn_ledger::TurnLedger::default();
+        let (bus, _cancel_audit) = BusService::new_recording();
+        let (fanout, mut rx) = crate::fanout::WebUiFanoutActor::test_pair(
+            &state,
+            bus.clone(),
+            slices_reader_unread(&_slices),
+        );
+        let _grant = ledger.mint(&id, jinn_kernel::common::turn_ledger::MintKind::FreshTurn);
+
+        // When the cancel handler runs against the held turn.
+        crate::delivery::handle_cancel(&state, &bus, &ledger, &fanout, &id.to_string())
+            .await
+            .expect("the cancel handler returns");
+
+        // Then no settle push rides the stream — the press found a
+        // live turn, the ordinary phase wave owns the settle, and the
+        // handler fans nothing of its own.
+        assert!(
+            rx.try_recv().is_err(),
+            "a live-turn cancel fans no extra fragment"
+        );
     }
 
     #[rstest::rstest]
@@ -2180,6 +2263,7 @@ singleton = true
             jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
                 jinn_kernel::common::services::test_services::FakeSessionStore,
             )),
+            jinn_kernel::common::turn_ledger::TurnLedger::default(),
             provider_cell,
             personas_cell,
             mcp_runtime_cell,
@@ -3703,9 +3787,16 @@ mod switch_markup {
 
         // When switching to it through the delivery handler directly.
         let started = std::time::Instant::now();
-        crate::delivery::handle_switch(&state, &bus, &target.to_string())
-            .await
-            .expect("the switch publishes");
+        crate::delivery::handle_switch(
+            &state,
+            &bus,
+            &jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
+                jinn_kernel::common::services::test_services::FakeSessionStore,
+            )),
+            &target.to_string(),
+        )
+        .await
+        .expect("the switch publishes");
         let elapsed = started.elapsed();
 
         // Then the handler returned only after the pointer had moved —
@@ -3770,6 +3861,7 @@ mod tools_actions {
             jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
                 jinn_kernel::common::services::test_services::FakeSessionStore,
             )),
+            jinn_kernel::common::turn_ledger::TurnLedger::default(),
             provider_cell,
             personas_cell,
             mcp_runtime_cell,

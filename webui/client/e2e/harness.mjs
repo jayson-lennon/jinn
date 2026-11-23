@@ -53,7 +53,7 @@ const KILL_GRACE_MS = 5_000;
  * key from an env var no run sets, so it always renders with the
  * unavailable attribute and no switch action.
  */
-const PROVIDERS_TOML = `version = 1
+let PROVIDERS_TOML = `version = 1
 
 default_provider = "sample"
 
@@ -75,6 +75,23 @@ requires_key = true
 api_key_env = "JINN_E2E_NEVER_SET_KEY"
 models = ["phantom"]
 `;
+
+/**
+ * Fills the picker's rows past the modal's 70vh cap so the rows
+ * container is genuinely scrollable — the scroll spec asserts
+ * scrollHeight > clientHeight, which two rows never produce. Keyless
+ * static providers: they render rows, need no network, and no spec
+ * addresses them by name (the picker specs pivot on `sample/sample`
+ * and `ghost`, both kept).
+ */
+for (let i = 1; i <= 14; i += 1) {
+  PROVIDERS_TOML += `
+[providers.filler${i}]
+backend = "sample"
+requires_key = false
+models = ["filler-${i}"]
+`;
+}
 
 /**
  * Builds the scratch jinn.toml body — the bind is the only knob the

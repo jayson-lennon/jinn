@@ -80,6 +80,7 @@ async fn serve_with_session(title: &str, entry_text: &str) -> (String, jinn_core
         jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
+        jinn_kernel::common::turn_ledger::TurnLedger::default(),
         provider_cell,
         personas_cell,
         mcp_runtime_cell,

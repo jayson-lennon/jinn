@@ -261,13 +261,20 @@ pub fn modal_fragment(
 /// The model-picker's stylesheet: the titlebar button (its host span
 /// lives in the page shell's base chrome), the modal overlay, the
 /// filter bar, the refresh control, and the rows.
+///
+/// The id rules are the contract ids ([`crate::contract`]) — the
+/// templates render the host span, the button, the rows container, and
+/// the refresh button with ids and no classes, so an earlier
+/// class-targeted draft of this sheet matched nothing (the dead-CSS
+/// defect: the modal never scrolled and the button never right-
+/// aligned). The overlay, card, and head keep their template classes.
 pub const MODEL_PICKER_CSS: &str = r#"
-.model-picker { display: inline-flex; margin-left: auto; }
-.model-picker-button { background: var(--panel); color: var(--fg);
+#model-picker { display: inline-flex; margin-left: auto; }
+#model-picker-button { background: var(--panel); color: var(--fg);
                        border: 1px solid var(--border); border-radius: 6px;
                        padding: 6px 10px; font: inherit; max-width: 260px;
                        cursor: pointer; }
-.model-picker-button:hover { border-color: var(--accent); }
+#model-picker-button:hover { border-color: var(--accent); }
 .model-picker-modal { position: fixed; inset: 0; background: var(--scrim);
                       display: flex; align-items: flex-start;
                       justify-content: center; padding-top: 10vh; z-index: 40; }
@@ -280,19 +287,19 @@ pub const MODEL_PICKER_CSS: &str = r#"
 #model-picker-filter { flex: 1; background: var(--bg); color: var(--fg);
                       border: 1px solid var(--border); border-radius: 6px;
                       padding: 6px 8px; font: inherit; }
-.model-picker-refresh { background: var(--panel); color: var(--fg);
+#model-picker-refresh { background: var(--panel); color: var(--fg);
                         border: 1px solid var(--border); border-radius: 6px;
                         padding: 6px 10px; font: inherit; cursor: pointer; }
-.model-picker-refresh:hover { border-color: var(--accent); }
-.model-picker-refresh[disabled] { cursor: progress; opacity: .7; }
-.model-picker-refresh[aria-busy="true"]::after { content: "";
+#model-picker-refresh:hover { border-color: var(--accent); }
+#model-picker-refresh[disabled] { cursor: progress; opacity: .7; }
+#model-picker-refresh[aria-busy="true"]::after { content: "";
                         display: inline-block; width: .9em; height: .9em;
                         margin-left: 8px; vertical-align: -2px;
                         border: 2px solid var(--border); border-top-color: var(--accent);
                         border-radius: 50%;
                         animation: model-picker-spin .8s linear infinite; }
 @keyframes model-picker-spin { to { transform: rotate(360deg); } }
-.model-picker-rows { overflow-y: auto; padding: 4px 0; }
+#model-picker-rows { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 0; }
 .model-row { display: flex; gap: 8px; padding: 7px 12px; cursor: pointer; }
 .model-row:hover { background: var(--bg-hover); }
 .model-row .model-row-marker { width: 1.2em; color: var(--muted); }
@@ -304,8 +311,8 @@ pub const MODEL_PICKER_CSS: &str = r#"
 .model-row.model-row-unavailable { cursor: default; color: var(--muted); }
 .model-row.model-row-unavailable:hover { background: transparent; }
 @media (max-width: 767px) {
-  .model-picker { min-width: 0; max-width: 44vw; overflow: hidden; }
-  .model-picker-button { max-width: 100%; overflow: hidden; white-space: nowrap;
+  #model-picker { min-width: 0; max-width: 44vw; overflow: hidden; }
+  #model-picker-button { max-width: 100%; overflow: hidden; white-space: nowrap;
                          text-overflow: ellipsis; padding: 10px 12px;
                          min-height: 40px; }
 }
