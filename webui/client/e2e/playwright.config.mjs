@@ -1,11 +1,12 @@
 //! Playwright config for the webui e2e tier.
 //!
 //! One worker, headless chromium, the list reporter, and a trace kept
-//! for every failure. Each migrated test boots its own jinn through
-//! the fixture (`fixture.mjs`). The global setup/teardown hooks below
-//! still boot ONE shared instance for the specs not yet migrated onto
-//! the fixture; they go away with those specs' migration, once no
-//! spec reads a base URL from a file.
+//! for every failure. There is no global setup or teardown: every test
+//! boots its own jinn through the fixture (`fixture.mjs`) and tears it
+//! down when it ends, so nothing is shared between tests and the order
+//! the tests run in carries no meaning. The recipes shuffle that order
+//! (`--shuffle`) and print the seed, so an order dependence fails with
+//! the seed that reproduces it.
 //!
 //! A failure prints the runner's full report (expected, received, the
 //! call log) and leaves a trace under `test-results/<test>/trace.zip`,
@@ -23,10 +24,6 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  // Boots and tears down the one shared instance the not-yet-migrated
-  // specs run against. Removed when every spec is on the fixture.
-  globalSetup: path.join(here, "global-setup.mjs"),
-  globalTeardown: path.join(here, "global-teardown.mjs"),
   reporter: [["list"]],
   timeout: 30_000,
   use: {

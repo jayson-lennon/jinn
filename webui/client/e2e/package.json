@@ -2,7 +2,7 @@
   "name": "jinn-webui-e2e",
   "private": true,
   "type": "module",
-  "description": "Playwright e2e tier for the jinn webui (see .plans/webui-e2e/plan.md)",
+  "description": "Playwright e2e tier for the jinn webui — one jinn per test, booted and torn down by the fixture",
   "scripts": {
     "test": "playwright test"
   },
