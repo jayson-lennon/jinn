@@ -5,30 +5,32 @@
 //! programs — there is no TTY detection), and `jinn.stdio.eprint` writes
 //! one line to stderr with a flush.
 //!
-//! The functions go through `std::io::stdin`/`stderr` so tests can
-//! exercise them; production callers get the same process streams the
+//! The functions read and write through the context's [`StdinSource`] and
+//! `std::io::stderr` respectively, so tests can exercise them with a
+//! caller-owned byte source; production gets the same process streams the
 //! `jinn luau` process owns.
 
-use std::io::Read as _;
 use std::io::Write as _;
 
 use mlua::Lua;
 use mlua::Table;
+
+use super::Caps;
 
 /// Registers `jinn.stdio.read/eprint`.
 ///
 /// # Errors
 ///
 /// Propagates any registration failure (harness-side, not script-side).
-pub fn inject(lua: &Lua, jinn: &Table) -> mlua::Result<()> {
+pub fn inject(lua: &Lua, jinn: &Table, caps: &Caps) -> mlua::Result<()> {
     let family = lua.create_table()?;
 
+    let stdin = caps.stdin.clone();
     family.raw_set(
         "read",
-        lua.create_function(|_lua, ()| {
-            let mut buffer = Vec::new();
-            std::io::stdin()
-                .read_to_end(&mut buffer)
+        lua.create_function(move |_lua, ()| {
+            let buffer = stdin
+                .read()
                 .map_err(|error| mlua::Error::runtime(format!("cannot read stdin: {error}")))?;
             Ok(String::from_utf8_lossy(&buffer).into_owned())
         })?,
@@ -57,19 +59,64 @@ mod tests {
     )]
 
     use super::*;
+    use crate::caps::StdinSource;
+
+    /// A VM with the stdio family wired to the given stdin bytes.
+    fn stdio_vm(stdin: &str) -> Lua {
+        crate::install_crypto_provider();
+        let dir = jinn_testutil::tempdir();
+        let caps = Caps::with_stdio(
+            Vec::new(),
+            dir.path.clone(),
+            None,
+            reqwest::blocking::Client::new(),
+            StdinSource::from_bytes(stdin),
+        );
+        let lua = Lua::new();
+        inject(&lua, &lua.globals(), &caps).expect("injects");
+        lua
+    }
+
+    fn family_function(lua: &Lua, name: &str) -> mlua::Function {
+        lua.globals()
+            .get::<mlua::Table>("stdio")
+            .expect("stdio")
+            .get(name)
+            .expect("family function")
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn read_returns_empty_string_when_nothing_is_piped() {
+        // Given a VM whose stdin carries no bytes.
+        let lua = stdio_vm("");
+
+        // When calling read.
+        let result: mlua::Result<String> = family_function(&lua, "read").call(());
+
+        // Then it completes with the empty string.
+        assert_eq!(result.expect("reads"), "");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn read_returns_the_piped_bytes() {
+        // Given a VM whose stdin carries two lines.
+        let lua = stdio_vm("first\nsecond\n");
+
+        // When calling read.
+        let result: mlua::Result<String> = family_function(&lua, "read").call(());
+
+        // Then it returns them verbatim.
+        assert_eq!(result.expect("reads"), "first\nsecond\n");
+    }
 
     #[rstest::rstest]
     #[test]
     fn eprint_writes_one_line_to_stderr() {
         // Given a VM with the stdio family.
-        let lua = Lua::new();
-        inject(&lua, &lua.globals()).expect("injects");
-        let eprint: mlua::Function = lua
-            .globals()
-            .get::<mlua::Table>("stdio")
-            .expect("stdio")
-            .get("eprint")
-            .expect("eprint");
+        let lua = stdio_vm("");
+        let eprint = family_function(&lua, "eprint");
 
         // When calling eprint (writes to the process stderr; the observable
         // contract is that it succeeds and terminates the line).
@@ -78,26 +125,5 @@ mod tests {
         // Then the call succeeded — the writeln+flush path completed.
         // (Capturing the process stderr from inside the test process is
         // not portable; the integration test asserts the bytes end to end.)
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn stdio_read_is_registered_and_callable_with_no_piped_input() {
-        // Given a VM with the stdio family and a test process whose stdin
-        // is whatever the harness provides.
-        let lua = Lua::new();
-        inject(&lua, &lua.globals()).expect("injects");
-        let read: mlua::Function = lua
-            .globals()
-            .get::<mlua::Table>("stdio")
-            .expect("stdio")
-            .get("read")
-            .expect("read");
-
-        // When calling read.
-        let result: mlua::Result<String> = read.call(());
-
-        // Then it completes (an empty or harness-fed read), never panics.
-        let _ = result;
     }
 }

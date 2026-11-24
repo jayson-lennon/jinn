@@ -26,12 +26,66 @@ pub mod time;
 pub mod toml;
 pub mod tool;
 
+use std::io::Read as _;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
 
 use marked_path::{Absolute, MarkedPathBuf};
 use mlua::Lua;
+
+/// The byte source `jinn.stdio.read` slurps to EOF.
+///
+/// Production always takes [`StdinSource::process`]; tests construct one
+/// with [`StdinSource::from_bytes`] so a read never depends on what the
+/// test harness left open on file descriptor 0. Clones share one source.
+#[derive(Clone)]
+pub struct StdinSource {
+    read: Rc<dyn Fn() -> std::io::Result<Vec<u8>>>,
+    /// Names the source in `Debug` output.
+    label: &'static str,
+}
+
+impl std::fmt::Debug for StdinSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The closure is opaque; the label is what a reader needs.
+        f.debug_struct("StdinSource")
+            .field("source", &self.label)
+            .finish_non_exhaustive()
+    }
+}
+
+impl StdinSource {
+    /// Reads the process's standard input.
+    #[must_use]
+    pub fn process() -> Self {
+        Self {
+            read: Rc::new(|| {
+                let mut buffer = Vec::new();
+                std::io::stdin().read_to_end(&mut buffer)?;
+                Ok(buffer)
+            }),
+            label: "process stdin",
+        }
+    }
+
+    /// Always reads the given bytes.
+    #[must_use]
+    pub fn from_bytes<B>(bytes: B) -> Self
+    where
+        B: Into<Vec<u8>>,
+    {
+        let bytes: Vec<u8> = bytes.into();
+        Self {
+            read: Rc::new(move || Ok(bytes.clone())),
+            label: "fixed bytes",
+        }
+    }
+
+    fn read(&self) -> std::io::Result<Vec<u8>> {
+        (self.read)()
+    }
+}
 
 /// The script-facing execution context.
 #[derive(Debug)]
@@ -44,6 +98,9 @@ pub struct Caps {
     pub deadline: Option<Instant>,
     /// The blocking HTTP client the `jinn.http` family shares.
     pub http: reqwest::blocking::Client,
+    /// Where `jinn.stdio.read` slurps from: the process's stdin in
+    /// production, a caller-supplied source in tests.
+    pub stdin: StdinSource,
 }
 
 impl Caps {
@@ -59,6 +116,7 @@ impl Caps {
             cwd,
             deadline,
             http: reqwest::blocking::Client::new(),
+            stdin: StdinSource::process(),
         }
     }
 
@@ -75,6 +133,28 @@ impl Caps {
             cwd,
             deadline,
             http,
+            stdin: StdinSource::process(),
+        }
+    }
+
+    /// Captures the context with caller-supplied stdin (tests).
+    ///
+    /// A test cannot own the process's stdin — under a harness it is an
+    /// open pipe that never reaches EOF, so a read of it blocks forever.
+    #[must_use]
+    pub fn with_stdio(
+        args: Vec<String>,
+        cwd: MarkedPathBuf<Absolute>,
+        deadline: Option<Instant>,
+        http: reqwest::blocking::Client,
+        stdin: StdinSource,
+    ) -> Self {
+        Self {
+            args,
+            cwd,
+            deadline,
+            http,
+            stdin,
         }
     }
 
@@ -156,7 +236,7 @@ pub fn inject_all_with_tool_registration(
     http::inject(lua, &jinn, caps)?;
     browser::inject(lua, &jinn, caps)?;
     proc::inject(lua, &jinn, caps)?;
-    stdio::inject(lua, &jinn)?;
+    stdio::inject(lua, &jinn, caps)?;
     json::inject(lua, &jinn)?;
     toml::inject(lua, &jinn)?;
     time::inject(lua, &jinn)?;
