@@ -47,6 +47,18 @@ async fn serve_with_session(title: &str, entry_text: &str) -> (String, jinn_core
             jinn_mcp_msg::McpRuntimeState::default(),
         )
         .expect("the MCP runtime cell registers once");
+    let applets_catalog_cell = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once per harness");
+    let applets_picker_cell = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once per harness");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -84,6 +96,8 @@ async fn serve_with_session(title: &str, entry_text: &str) -> (String, jinn_core
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
+        applets_catalog_cell,
+        applets_picker_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {

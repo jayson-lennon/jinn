@@ -147,6 +147,9 @@ let stagedPersona;
 /** Staged scratch skill body — written into the run's skills dir. */
 let stagedSkill;
 
+/** Staged scratch applet — written into the run's applets dir. */
+let stagedApplet;
+
 /**
  * Stages one scratch persona `.md` for the run's personas dir.
  *
@@ -183,6 +186,33 @@ export function writeScratchSkill(name, content) {
 }
 
 /**
+ * Stages one scratch saved-applet for the run's applets dir: an
+ * `index.html` body plus the applet's catalog row.
+ *
+ * Staged before boot for determinism, the persona/skill hook's
+ * reason: nothing scans at activation, and the catalog cell
+ * populates on the picker's first rescan (the modal's GET publishes
+ * it), so staging after boot would also work — but the run's scratch
+ * root only exists once {@linkcode startJinn} mints it, so the
+ * pre-boot hook is how {@linkcode writeScratch} can place it.
+ * Lands at `<root>/data/jinn/applets/<id>/index.html` plus
+ * `applets.json` — under `JINN_PATHS_ROOT` the root IS the home, so
+ * the applets dir is `data/jinn/applets` (`app_paths.rs`'s
+ * `applets_dir_lands_under_data_base` pins the layout).
+ *
+ * @param {string} id the applet's directory id — must pass the
+ *   catalog's `is_valid_app_id` gate (a URL path segment).
+ * @param {string} title the display title the picker row shows.
+ */
+export function writeScratchApplet(id, title) {
+  stagedApplet = {
+    id,
+    title,
+    indexHtml: `<!DOCTYPE html><html><body><h1>${title}</h1><p>e2e scratch applet ${id}</p></body></html>`,
+  };
+}
+
+/**
  * Writes the scratch tree: config dir, providers.toml, jinn.toml, db.
  *
  * Both files live under `<root>/config/jinn/` — `AppPaths::new_in`
@@ -209,6 +239,24 @@ export function writeScratch(root, port) {
     const skillsDir = path.join(root, ".agents", "skills", stagedSkill.name);
     fs.mkdirSync(skillsDir, { recursive: true });
     fs.writeFileSync(path.join(skillsDir, "SKILL.md"), stagedSkill.content);
+  }
+  if (stagedApplet !== undefined) {
+    const appletDir = path.join(root, "data", "jinn", "applets", stagedApplet.id);
+    fs.mkdirSync(appletDir, { recursive: true });
+    fs.writeFileSync(path.join(appletDir, "index.html"), stagedApplet.indexHtml);
+    const catalog = {
+      entries: [
+        {
+          id: stagedApplet.id,
+          title: stagedApplet.title,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    };
+    fs.writeFileSync(
+      path.join(root, "data", "jinn", "applets", "applets.json"),
+      JSON.stringify(catalog),
+    );
   }
 }
 

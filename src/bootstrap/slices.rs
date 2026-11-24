@@ -570,6 +570,15 @@ async fn activate_auxiliary_slices(
         let state_snapshot = ctx.state().clone();
         let store_snapshot = ctx.services().session_store.clone();
         let services_snapshot = ctx.services().clone();
+        // The applets cells, for the webui applets modal (read-only:
+        // the catalog cell's writer is the applets store actor, the
+        // picker cell's the republisher). The catalog registers both
+        // slots in Block 0, so the readers resolve regardless of the
+        // webui slice sitting before the applets slice in this block.
+        let applets_catalog_cell =
+            ctx.cell::<jinn_applets_msg::AppletsCatalog>(&jinn_applets_msg::applets_catalog_slot());
+        let applets_picker_cell = ctx
+            .cell::<jinn_applets_msg::AppletsPickerState>(&jinn_applets_msg::applets_picker_slot());
         jinn_webui::activate(
             &mut ctx.host(),
             &config_snapshot,
@@ -577,6 +586,8 @@ async fn activate_auxiliary_slices(
             state_snapshot,
             store_snapshot,
             &services_snapshot,
+            applets_catalog_cell,
+            applets_picker_cell,
         )
         .await
         .map_err(|report| ActivateError::WebUi(format!("{report:?}")))?;

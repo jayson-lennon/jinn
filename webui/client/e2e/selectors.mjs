@@ -197,6 +197,12 @@ export const SKILL_PICKER_PREFIX = "/web/skills/";
  * absent filter, enabled).
  */
 export const SKILL = "e2e-scratch-skill";
+/**
+ * The scratch saved-applet global-setup stages for the run — the row
+ * the applets spec pivots on (staged under `<root>/data/jinn/applets/`
+ * plus `applets.json` before boot).
+ */
+export const APPLET = { id: "e2e-scratch-applet", title: "E2E Scratch Applet" };
 /** The new-session modal overlay id (`wire.SESSION_NEW_MODAL_ID`). */
 export const SESSION_NEW_MODAL = "#session-new-modal";
 /** The new-session modal's host span id (`wire.SESSION_NEW_MODAL_HOST_ID`). */
@@ -233,3 +239,19 @@ export const MODEL_ID = "sample/sample";
 export const ERROR_NOTICE = "#error-notice";
 /** The composer's attach "+" control id (`wire.IMAGE_ATTACH_BUTTON_ID`). */
 export const ATTACH_BUTTON = "#image-attach-button";
+/** The applets modal overlay id (`wire.APPLET_MODAL_ID`). */
+export const APPLET_MODAL = "#applet-modal";
+/** The applets modal's host span id (`wire.APPLET_MODAL_HOST_ID`). */
+export const APPLET_MODAL_HOST = "#applet-modal-host";
+/** The applets modal's filter input id (`wire.APPLET_FILTER_ID`). */
+export const APPLET_FILTER = "#applet-filter";
+/** The applets modal's row container id (`wire.APPLET_ROWS_ID`). */
+export const APPLET_ROWS = "#applet-rows";
+/** The applets modal's status line id (`wire.APPLET_STATUS_ID`). */
+export const APPLET_STATUS = "#applet-status";
+/** The menu's applets item id (`wire.MENU_ITEM_APPLETS_ID`). */
+export const MENU_ITEM_APPLETS = "#menu-item-applets";
+/** The applets-picker pull route (`wire.APPLET_PICKER_ROUTE`). */
+export const APPLET_PICKER_PREFIX = "/web/applet-picker";
+/** One applet row, by its app id attr (`wire.APPLET_NAME_DATA_ATTR`). */
+export const APPLET_ROW = (id) => `[data-webui-applet="${id}"]`;
