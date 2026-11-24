@@ -202,7 +202,10 @@ test("activating an archived member opens its page through the ordinary route", 
   // after the run ends only as long as the scratch db lives — this
   // spec asserts the live member's click path, which is identical
   // for an archived one (the same activate route renders the same
-  // row shape; the archive half is pinned by the Rust store tests).
+  // row shape; the archive half is pinned by the serve-tier tests in
+  // serve_tests.rs (`an_archived_member_lists_in_the_library_view_and_activates`,
+  // real SQLite store, real activate POST) and the store actor test
+  // `an_archived_library_member_loads_and_unarchives`).
   await openSession(page);
   const created = await createSession(page);
   await toggleLibrary(page, created);
