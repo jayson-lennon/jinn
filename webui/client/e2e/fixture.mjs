@@ -71,6 +71,30 @@ const test = base.extend({
 });
 
 /**
+ * Declares one test whose boots stage exactly the resources named.
+ * `test.with` is how a test asks for a staged scratch resource:
+ *
+ *     test.with({ applet: true })("…", async ({ page, jinn }) => { … })
+ *
+ * Playwright has one per-test option channel — `use` inside a
+ * `describe` — so `with` wraps the single test in a describe whose
+ * title is empty: the test's own title is what every reporter and
+ * `--list` print, unchanged, and the staging is scoped to that test
+ * alone. A test that needs nothing uses `test` itself.
+ */
+const withStage =
+  (stage) =>
+  (title, fn) => {
+    test.describe("", () => {
+      test.use({ stage });
+      test(title, fn);
+    });
+  };
+
+/** The `test` every spec imports; `with` stages resources per test. */
+test.with = withStage;
+
+/**
  * Puts the boot session on the sample model over the web surface.
  *
  * A fresh db has no `last_model`, so the boot session would otherwise
