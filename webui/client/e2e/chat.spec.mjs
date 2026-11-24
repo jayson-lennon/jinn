@@ -73,35 +73,39 @@ test("busy composer shows queue before cancel and idle shows send alone", async 
   // window's settle must not race the idle-fragment assertion).
   await openSession(page);
 
-  // Then the idle fragment carries the send button and neither busy
-  // control.
+  // Then the idle composer shows the send button and neither busy
+  // control — the composer is session-invariant markup (all three
+  // buttons ship; the $busy signal gates their visibility).
   await expect(page.locator(sel.SEND_BUTTON)).toBeVisible();
-  await expect(page.locator(sel.QUEUE_BUTTON)).toHaveCount(0);
-  await expect(page.locator(sel.CANCEL_BUTTON)).toHaveCount(0);
+  await expect(page.locator(sel.QUEUE_BUTTON)).not.toBeVisible();
+  await expect(page.locator(sel.CANCEL_BUTTON)).not.toBeVisible();
 
   // When a streamed turn starts (the ~1s sample stream holds the busy
   // window).
   await page.locator(sel.INPUT).fill("!response");
   await page.locator(sel.SEND_BUTTON).click();
 
-  // Then the busy fragment carries both buttons, queue first — the
-  // DOM order the queue-then-cancel vocabulary is — and no send.
+  // Then the busy state carries both buttons, queue first — the DOM
+  // order the queue-then-cancel vocabulary is — and send hidden (the
+  // composer ships all three; $busy gates which shows).
   await expect(page.locator(sel.QUEUE_BUTTON)).toBeVisible();
   const buttons = await page
     .locator(`${sel.COMPOSER} button[data-webui-action]`)
     .evaluateAll((nodes) =>
-      nodes.map((button) => button.getAttribute("data-webui-action"))
+      nodes
+        .filter((button) => getComputedStyle(button).display !== "none")
+        .map((button) => button.getAttribute("data-webui-action")),
     );
   await expect(buttons).toEqual(["queue", "cancel"]);
-  await expect(page.locator(sel.SEND_BUTTON)).toHaveCount(0);
+  await expect(page.locator(sel.SEND_BUTTON)).not.toBeVisible();
 
   // And the turn settles naturally and the composer returns to the
   // single send button.
   await expect(page.locator(sel.SEND_BUTTON)).toBeVisible({
     timeout: 10_000,
   });
-  await expect(page.locator(sel.QUEUE_BUTTON)).toHaveCount(0);
-  await expect(page.locator(sel.CANCEL_BUTTON)).toHaveCount(0);
+  await expect(page.locator(sel.QUEUE_BUTTON)).not.toBeVisible();
+  await expect(page.locator(sel.CANCEL_BUTTON)).not.toBeVisible();
 });
 
 test("queueing while busy lands the message at the turn's end", async ({
@@ -120,10 +124,10 @@ test("queueing while busy lands the message at the turn's end", async ({
   await page.locator(sel.QUEUE_BUTTON).click();
 
   // Then the optimistic entry cleared the composer's text and the
-  // composer stays busy (queue and cancel, no send) — the send
-  // endpoint's response is unchanged.
+  // composer stays busy (queue and cancel showing, send hidden by
+  // the $busy gate) — the send endpoint's response is unchanged.
   await expect(page.locator(sel.INPUT)).toHaveValue("");
-  await expect(page.locator(sel.SEND_BUTTON)).toHaveCount(0);
+  await expect(page.locator(sel.SEND_BUTTON)).not.toBeVisible();
 
   // And the queued message's answer lands in the transcript without a
   // reload — after the first turn settles, the drain dispatches the

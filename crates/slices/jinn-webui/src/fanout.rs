@@ -148,18 +148,17 @@ impl FanoutHandle {
     /// no-live-turn cancel's settle path (see
     /// `crate::delivery::handle_cancel`): a cancel landing on a turn
     /// the ledger no longer holds publishes a fact nothing answers, so
-    /// the handler re-broadcasts the controls the state actually
-    /// holds through this handle. The POST response stays empty — the
-    /// controls push remains the fragment's single writer. The handle
-    /// holds no state (a bare sender seam), so the caller renders the
-    /// fragment under its own guard and hands it in — send failures
-    /// are the no-receiver case (no page connected) and are not errors.
-    pub(crate) fn push_controls_from(&self, session_id: &SessionId, html: String) {
+    /// the handler re-broadcasts the controls state the session
+    /// actually holds through this handle. The POST response stays
+    /// empty — the controls push remains the busy flag's single
+    /// writer. The handle holds no state (a bare sender seam), so the
+    /// caller reads the flag under its own guard and hands it in.
+    pub(crate) fn push_controls_from(&self, session_id: &SessionId, busy: bool) {
         let _ = self.tx.send(SseEnvelope {
             kind: SseKind::Controls,
             session_id: session_id.clone(),
             cursor: 0,
-            html,
+            html: busy.to_string(),
         });
     }
 
@@ -1011,22 +1010,23 @@ impl WebUiFanoutActor {
         }
     }
 
-    /// Pushes the composer's controls fragment for a session, rendered
-    /// from the phase the state holds — busy shows cancel/queue, idle
-    /// shows send. The phase-flip push and the no-live-turn cancel's
+    /// Pushes the composer's busy flag for a session, read from the
+    /// phase the state holds — busy shows cancel/queue, idle shows
+    /// send (signal-bound client-side; the fragment itself never
+    /// re-renders). The phase-flip push and the no-live-turn cancel's
     /// settle path (via [`FanoutHandle::push_controls_from`], handed
-    /// the same render) share one body, so the fragment can never
-    /// disagree between the two writers of the same kind.
+    /// the same read) share one body, so the flag can never disagree
+    /// between the two writers of the same kind.
     pub(crate) fn push_controls_from_state(&mut self, session_id: &SessionId) {
-        let html = {
+        let busy = {
             let guard = self.state.read();
-            crate::regions::composer::controls_fragment(session_id, &guard)
+            crate::regions::composer::busy_of(session_id, &guard)
         };
         self.broadcast(SseEnvelope {
             kind: SseKind::Controls,
             session_id: session_id.clone(),
             cursor: 0,
-            html,
+            html: busy.to_string(),
         });
     }
 }

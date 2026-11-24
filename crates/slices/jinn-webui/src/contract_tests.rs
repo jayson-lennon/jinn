@@ -44,12 +44,12 @@ fn test_entry(
     }
 }
 
-/// One seeded row for the sessions fragment.
-fn row(session_id: jinn_core_types::SessionId, title: &str, active: bool) -> SessionListItem {
+/// One seeded row for the sessions fragment (no viewer flag exists —
+/// the viewed fill is client-side signal styling).
+fn row(session_id: jinn_core_types::SessionId, title: &str) -> SessionListItem {
     SessionListItem {
         session_id,
         title: title.to_owned(),
-        active,
         is_bot: false,
         loaded: true,
         unread: false,
@@ -64,16 +64,10 @@ fn rendered_page() -> String {
     let sessions = sessions_fragment_of(&[]);
     let transcript = templates::render(&templates::TranscriptTemplate::new(Vec::new(), 0))
         .expect("an empty transcript renders");
-    let controls = templates::render(&templates::ControlsTemplate::with_contract(
-        "00000000-0000-0000-0000-000000000000".to_owned(),
-        false,
-    ))
-    .expect("idle controls render");
-    let button = templates::render(&templates::ModelButtonTemplate::with_contract(
-        "00000000-0000-0000-0000-000000000000".to_owned(),
-        String::new(),
-    ))
-    .expect("an empty picker renders");
+    let controls = templates::render(&templates::ControlsTemplate::with_contract())
+        .expect("idle controls render");
+    let button = templates::render(&templates::ModelButtonTemplate::with_contract())
+        .expect("an empty picker renders");
     templates::render(&templates::PageTemplate {
         style: {
             let leaked: &'static str = Box::leak(templates::page_style().into_boxed_str());
@@ -81,13 +75,16 @@ fn rendered_page() -> String {
         },
         session_id: "00000000-0000-0000-0000-000000000000".to_owned(),
         title: "Contract".to_owned(),
+        busy: false,
+        model_label: String::new(),
+        stream_span_id: contract::STREAM_SPAN_ID,
         cursor: 0,
         sessions_html: sessions,
         transcript_html: transcript,
         controls_html: controls,
         button_html: button,
         picker_host_id: contract::MODEL_PICKER_ID,
-        menu_html: crate::regions::menu::menu_fragment("00000000-0000-0000-0000-000000000000", 0),
+        menu_html: crate::regions::menu::menu_fragment(0),
         sessions_attention: 0,
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
@@ -115,7 +112,6 @@ fn rendered_page() -> String {
         stream_url: String::new(),
         sessions_route: contract::SESSIONS_ROUTE,
         filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-        viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
         session_page_path: contract::SESSION_PAGE_PREFIX,
         web_theme: "system".to_owned(),
         theme_color: templates::theme_color_for("system"),
@@ -320,13 +316,16 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         },
         session_id: id.to_string(),
         title: "Named".to_owned(),
+        busy: false,
+        model_label: String::new(),
+        stream_span_id: contract::STREAM_SPAN_ID,
         cursor: 3,
         sessions_html: sessions,
         transcript_html: String::new(),
         controls_html: String::new(),
         button_html: String::new(),
         picker_host_id: contract::MODEL_PICKER_ID,
-        menu_html: crate::regions::menu::menu_fragment(&id.to_string(), 0),
+        menu_html: crate::regions::menu::menu_fragment(0),
         sessions_attention: 0,
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
@@ -354,20 +353,21 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         stream_url: String::new(),
         sessions_route: contract::SESSIONS_ROUTE,
         filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-        viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
         session_page_path: contract::SESSION_PAGE_PREFIX,
         web_theme: "system".to_owned(),
         theme_color: templates::theme_color_for("system"),
     })
     .expect("the page shell renders");
 
-    // Then the page-root carries the session id in the exact attribute
-    // the client reads, and the transcript carries the cursor the
-    // initial Last-Event-ID comes from.
+    // Then the page-root binds the attribute the client reads to the
+    // viewedSession signal, and the seed names this session — the
+    // attribute's value is signal-driven now, so the seed is the
+    // render-time fact.
     assert!(
-        page.contains(&format!("{}=\"{}\"", contract::PAGE_SESSION_DATA_ATTR, id)),
+        page.contains(&format!("data-attr:{}", contract::PAGE_SESSION_DATA_ATTR)),
         "{page}"
     );
+    assert!(page.contains(&format!("viewedSession: '{id}'")), "{page}");
     assert!(
         page.contains(&format!("{}=\"3\"", contract::TRANSCRIPT_CURSOR_DATA_ATTR)),
         "{page}"
@@ -386,13 +386,16 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
         },
         session_id: id.to_string(),
         title: "Seeded".to_owned(),
+        busy: false,
+        model_label: String::new(),
+        stream_span_id: contract::STREAM_SPAN_ID,
         cursor: 0,
         sessions_html: sessions_fragment_of(&[]),
         transcript_html: String::new(),
         controls_html: String::new(),
         button_html: String::new(),
         picker_host_id: contract::MODEL_PICKER_ID,
-        menu_html: crate::regions::menu::menu_fragment(&id.to_string(), 4),
+        menu_html: crate::regions::menu::menu_fragment(4),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         paste_js_versioned: crate::templates::paste_js_versioned_path(),
@@ -420,7 +423,6 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
         sessions_attention: 4,
         sessions_route: contract::SESSIONS_ROUTE,
         filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-        viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
         session_page_path: contract::SESSION_PAGE_PREFIX,
         web_theme: "system".to_owned(),
         theme_color: crate::templates::theme_color_for("system"),
@@ -442,7 +444,7 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
 fn a_session_row_carries_the_class_and_data_attribute_the_client_targets() {
     // Given a sessions fragment with one row.
     let id = jinn_core_types::SessionId::new();
-    let fragment = sessions_fragment_of(&[row(id.clone(), "Row contract", true)]);
+    let fragment = sessions_fragment_of(&[row(id.clone(), "Row contract")]);
 
     // Then the row is selectable by the contract's class hook and
     // carries the session id in the contract's data attribute — the
@@ -460,70 +462,42 @@ fn a_session_row_carries_the_class_and_data_attribute_the_client_targets() {
 #[rstest::rstest]
 #[test]
 fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
-    // Given idle and busy controls fragments.
-    let idle = templates::render(&templates::ControlsTemplate::with_contract(
-        "00000000-0000-0000-0000-000000000000".to_owned(),
-        false,
-    ))
-    .expect("idle controls render");
-    let busy = templates::render(&templates::ControlsTemplate::with_contract(
-        "00000000-0000-0000-0000-000000000000".to_owned(),
-        true,
-    ))
-    .expect("busy controls render");
+    // Given the composer-controls fragment (one shape — the busy
+    // phase is a signal binding, not a second render).
+    let fragment = templates::render(&templates::ControlsTemplate::with_contract())
+        .expect("the controls render");
 
-    // Then the idle fragment binds send alone (its endpoint spelled
-    // from the contract) and the busy one binds cancel.
+    // Then the fragment binds every phase's endpoint — visibility
+    // rides the busy signal, not the markup — with each endpoint
+    // spelled from the contract.
     assert!(
-        idle.contains(&format!("@post('{}'", contract::SEND_PATH)),
-        "{idle}"
+        fragment.contains(&format!("@post('{}'", contract::SEND_PATH)),
+        "{fragment}"
     );
     assert!(
-        !idle.contains(&format!(
-            "{}=\"{}\"",
-            contract::ACTION_DATA_ATTR,
-            contract::ACTION_QUEUE
-        )),
-        "the idle fragment renders no queue button: {idle}"
+        fragment.contains(&format!("@post('{}'", contract::CANCEL_PATH)),
+        "{fragment}"
     );
-    assert!(
-        busy.contains(&format!("@post('{}'", contract::CANCEL_PATH)),
-        "{busy}"
-    );
-    // And the busy fragment's queue button posts the send endpoint —
-    // the same wire the idle send button uses, so a busy-phase enqueue
-    // is the session actor's routing decision, not a new route — and
-    // no send action is named (send and queue are distinct values).
-    assert!(
-        busy.contains(&format!(
-            "{}=\"{}\"",
-            contract::ACTION_DATA_ATTR,
-            contract::ACTION_QUEUE
-        )),
-        "{busy}"
-    );
-    assert!(
-        busy.contains(&format!("@post('{}'", contract::SEND_PATH)),
-        "{busy}"
-    );
-    assert!(
-        !busy.contains(&format!(
-            "{}=\"{}\"",
-            contract::ACTION_DATA_ATTR,
-            contract::ACTION_SEND
-        )),
-        "send and queue are distinct action values: {busy}"
-    );
-    // And the queue button precedes the cancel button in the busy
-    // fragment's DOM order, while the idle fragment names neither.
-    let busy_queue_at = busy
+    for action in [
+        contract::ACTION_QUEUE,
+        contract::ACTION_CANCEL,
+        contract::ACTION_SEND,
+    ] {
+        assert!(
+            fragment.contains(&format!("{}=\"{}\"", contract::ACTION_DATA_ATTR, action)),
+            "{fragment}"
+        );
+    }
+    // And the queue button precedes the cancel button in the
+    // fragment's DOM order.
+    let queue_at = fragment
         .find(&format!(
             "{}=\"{}\"",
             contract::ACTION_DATA_ATTR,
             contract::ACTION_QUEUE
         ))
         .expect("queue action present");
-    let busy_cancel_at = busy
+    let cancel_at = fragment
         .find(&format!(
             "{}=\"{}\"",
             contract::ACTION_DATA_ATTR,
@@ -531,58 +505,38 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
         ))
         .expect("cancel action present");
     assert!(
-        busy_queue_at < busy_cancel_at,
-        "queue button before cancel in the busy fragment: {busy}"
-    );
-    assert!(
-        !idle.contains(&format!(
-            "{}=\"{}\"",
-            contract::ACTION_DATA_ATTR,
-            contract::ACTION_CANCEL
-        )),
-        "{idle}"
+        queue_at < cancel_at,
+        "queue button before cancel in the fragment: {fragment}"
     );
     // And the composer carries the input id the client reads the
     // message text from.
-    for fragment in [&idle, &busy] {
-        assert!(
-            fragment.contains(&format!("id=\"{}\"", contract::INPUT_ID)),
-            "{fragment}"
-        );
-    }
+    assert!(
+        fragment.contains(&format!("id=\"{}\"", contract::INPUT_ID)),
+        "{fragment}"
+    );
 }
 
 #[rstest::rstest]
 #[test]
 fn the_composer_advertises_no_keyboard_send_in_either_phase() {
-    // Given idle and busy controls fragments.
-    let idle = templates::render(&templates::ControlsTemplate::with_contract(
-        "00000000-0000-0000-0000-000000000000".to_owned(),
-        false,
-    ))
-    .expect("idle controls render");
-    let busy = templates::render(&templates::ControlsTemplate::with_contract(
-        "00000000-0000-0000-0000-000000000000".to_owned(),
-        true,
-    ))
-    .expect("busy controls render");
+    // Given the composer-controls fragment.
+    let fragment = templates::render(&templates::ControlsTemplate::with_contract())
+        .expect("the controls render");
 
-    // Then neither phase renders an element-level keydown binding —
-    // mobile soft keyboards fire Enter for newlines, so sending rides
-    // the button's click alone.
-    for fragment in [&idle, &busy] {
-        assert!(
-            !fragment.contains("data-on:keydown"),
-            "the composer must not bind keydown; sending is click-only: \
-             {fragment}"
-        );
-        // And the placeholder names no keys — no hint about an
-        // interaction the composer does not have.
-        assert!(
-            fragment.contains("placeholder=\"Message…\""),
-            "the placeholder must be hint-free: {fragment}"
-        );
-    }
+    // Then it renders no element-level keydown binding — mobile soft
+    // keyboards fire Enter for newlines, so sending rides the button's
+    // click alone (the phase buttons share the one markup, so one
+    // check covers both).
+    assert!(
+        !fragment.contains("data-on:keydown"),
+        "the composer must not bind keydown; sending is click-only: {fragment}"
+    );
+    // And the placeholder names no keys — no hint about an
+    // interaction the composer does not have.
+    assert!(
+        fragment.contains("placeholder=\"Message…\""),
+        "the placeholder must be hint-free: {fragment}"
+    );
 }
 
 #[rstest::rstest]
@@ -705,10 +659,8 @@ async fn the_active_row_is_promoted_and_marked_in_the_modal() {
 #[rstest::rstest]
 #[tokio::test]
 async fn the_button_fragment_carries_the_button_id_and_the_model_action_name() {
-    // Given the titlebar button fragment.
-    let shared = test_shared();
-    let session_id = seed_session(&shared);
-    let html = crate::regions::model_picker::button_fragment(&shared, &session_id)
+    // Given the titlebar button fragment (session-invariant markup).
+    let html = crate::templates::render(&crate::templates::ModelButtonTemplate::with_contract())
         .expect("the button renders");
 
     // Then it names the button id (the page-presence gate checks the
@@ -1138,7 +1090,7 @@ fn the_page_shell_seeds_the_switching_signal_on_both_page_shapes() {
     // session page — the two shapes a fresh render serves.
     let landing = templates::render(&templates::PageTemplate::landing(
         sessions_fragment_of(&[]),
-        crate::regions::menu::menu_fragment("", 0),
+        crate::regions::menu::menu_fragment(0),
         0,
         "system".to_owned(),
     ))
@@ -1215,7 +1167,7 @@ fn a_session_row_suppresses_the_viewed_session_and_raises_the_signal_before_post
     // Given a sessions fragment with one row (active or not — the
     // expression is identical; only the id differs).
     let id = jinn_core_types::SessionId::new();
-    let fragment = sessions_fragment_of(&[row(id.clone(), "Switch source", false)]);
+    let fragment = sessions_fragment_of(&[row(id.clone(), "Switch source")]);
 
     // Then the row's click expression checks the viewed-session
     // signal against the row's id first (the viewed row fires

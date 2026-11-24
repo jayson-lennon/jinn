@@ -10,16 +10,18 @@
   <span id="{{ menu_panel_id }}" data-attr:hidden="$menuOpen ? null : true" hidden>
     <button id="{{ menu_item_new_session_id }}"
             data-on:click="$menuOpen = false; $sessionNewOpen = true; @get('{{ session_new_path }}', {selector: '#{{ session_new_host_id }}', openWhenHidden: true})">New session</button>
-    {% if has_session %}
     <button id="{{ menu_item_persona_id }}"
-            data-on:click="$menuOpen = false; $personaModalOpen = true; @get('{{ persona_picker_url }}', {selector: '{{ persona_modal_host_selector }}', openWhenHidden: true})">Persona</button>
+            data-show="$viewedSession.length > 0"
+            data-on:click="$menuOpen = false; $personaModalOpen = true; @get('{{ persona_picker_prefix }}' + $viewedSession, {selector: '{{ persona_modal_host_selector }}', openWhenHidden: true})">Persona</button>
     <button id="{{ menu_item_mcp_id }}"
-            data-on:click="$menuOpen = false; $mcpOpen = true; @get('{{ mcp_picker_url }}', {selector: '{{ mcp_modal_host_selector }}', openWhenHidden: true})">MCP servers</button>
+            data-show="$viewedSession.length > 0"
+            data-on:click="$menuOpen = false; $mcpOpen = true; @get('{{ mcp_picker_prefix }}' + $viewedSession, {selector: '{{ mcp_modal_host_selector }}', openWhenHidden: true})">MCP servers</button>
     <button id="{{ menu_item_tools_id }}"
-            data-on:click="$menuOpen = false; $toolsOpen = true; @get('{{ tools_picker_url }}', {selector: '{{ tools_modal_host_selector }}', openWhenHidden: true})">Tools</button>
+            data-show="$viewedSession.length > 0"
+            data-on:click="$menuOpen = false; $toolsOpen = true; @get('{{ tools_picker_prefix }}' + $viewedSession, {selector: '{{ tools_modal_host_selector }}', openWhenHidden: true})">Tools</button>
     <button id="{{ menu_item_skills_id }}"
-            data-on:click="$menuOpen = false; $skillsOpen = true; @get('{{ skills_picker_url }}', {selector: '{{ skills_modal_host_selector }}', openWhenHidden: true})">Skills</button>
-    {% endif %}
+            data-show="$viewedSession.length > 0"
+            data-on:click="$menuOpen = false; $skillsOpen = true; @get('{{ skills_picker_prefix }}' + $viewedSession, {selector: '{{ skills_modal_host_selector }}', openWhenHidden: true})">Skills</button>
     <button id="{{ menu_item_sessions_id }}"
             data-on:click="$menuOpen = false; $drawerOpen = !$drawerOpen">Sessions</button>
     <span id="{{ menu_item_theme_id }}" role="group" aria-label="Color mode">

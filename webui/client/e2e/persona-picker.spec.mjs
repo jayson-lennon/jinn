@@ -169,9 +169,11 @@ test("the landing page's menu carries no persona item", async ({ page }) => {
   await page.locator(sel.MENU_BUTTON).click();
   await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
 
-  // Then the persona item is absent from the markup — the server
-  // omitted it, and the other two items survive.
-  await expect(page.locator(sel.MENU_ITEM_PERSONA)).toHaveCount(0);
+  // Then the persona item is not offered on the landing page —
+  // nothing is viewed, and the item's data-show hides it (the
+  // session-invariant menu ships every item; the viewed-session
+  // signal gates the session-scoped ones). The other items survive.
+  await expect(page.locator(sel.MENU_ITEM_PERSONA)).not.toBeVisible();
   await expect(page.locator(sel.MENU_ITEM_SESSIONS)).toBeVisible();
   await expect(page.locator(sel.MENU_ITEM_NEW_SESSION)).toBeVisible();
 });

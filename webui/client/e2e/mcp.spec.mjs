@@ -121,9 +121,11 @@ test("the landing page's menu carries no MCP item", async ({ page }) => {
   await page.locator(sel.MENU_BUTTON).click();
   await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
 
-  // Then the MCP item is absent from the markup — the server omitted
-  // it, and the sessions item survives.
-  await expect(page.locator(sel.MENU_ITEM_MCP)).toHaveCount(0);
+  // Then the MCP item is not offered on the landing page — nothing
+  // is viewed, and the item's data-show hides it (the session-invariant
+  // menu ships every item; the viewed-session signal gates the
+  // session-scoped ones). The sessions item survives.
+  await expect(page.locator(sel.MENU_ITEM_MCP)).not.toBeVisible();
   await expect(page.locator(sel.MENU_ITEM_SESSIONS)).toBeVisible();
 });
 

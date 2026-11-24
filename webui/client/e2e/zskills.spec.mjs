@@ -150,9 +150,10 @@ test("the landing page's menu carries no skills item", async ({ page }) => {
   await page.locator(sel.MENU_BUTTON).click();
   await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
 
-  // Then the skills item is absent from the markup — the server
-  // omitted it — and the sessions item survives.
-  await expect(page.locator(sel.MENU_ITEM_SKILLS)).toHaveCount(0);
+  // Then the skills item is not offered on the landing page — nothing
+  // is viewed, and the item's data-show hides it. The sessions item
+  // survives.
+  await expect(page.locator(sel.MENU_ITEM_SKILLS)).not.toBeVisible();
   await expect(page.locator(sel.MENU_ITEM_SESSIONS)).toBeVisible();
 });
 

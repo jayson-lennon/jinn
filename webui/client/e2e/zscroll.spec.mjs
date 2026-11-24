@@ -12,8 +12,11 @@
 //! token, ~1 s total), which is exactly the window a token-follow
 //! autoscroll used to ride: these specs prove the wrap's scrollTop
 //! is frozen across it. The wrap's only scrolls are its `data-init`
-//! bottom-scroll on insertion (fresh load, row-click swap) and the
-//! composer's send-time scroll — never a server event.
+//! bottom-scroll on insertion (fresh load, row-click swap), the
+//! composer's send-time scroll, and the `catchupCursor` effect's
+//! landing scroll when the stream's from-zero catch-up completes
+//! (which is what puts the row-click swap at the bottom) — never a
+//! live token event.
 
 import { expect, test } from "@playwright/test";
 import { openSession } from "./nav.mjs";
@@ -156,9 +159,13 @@ test("a session row click lands the page at the transcript bottom", async ({
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   await expect(page.locator(sel.SESSION_NEW_MODAL)).toBeVisible();
   await page.locator(sel.SESSION_NEW_SUBMIT).click();
-  const createdId = await page
-    .locator(sel.PAGE_ROOT)
-    .getAttribute(sel.PAGE_SESSION_ATTR);
+  // The create's navigation is an async SSE patch now — the id read
+  // must wait for the root to actually carry the created session
+  // (reading immediately can still hold the pre-create id, and every
+  // step below would then address the wrong row).
+  const root = page.locator(sel.PAGE_ROOT);
+  await expect(root).not.toHaveAttribute(sel.PAGE_SESSION_ATTR, grownId);
+  const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
   if (!createdId) {
     throw new Error("create did not navigate; page root carries no session id");
   }
@@ -169,10 +176,12 @@ test("a session row click lands the page at the transcript bottom", async ({
     grownId,
   );
 
-  // Then the swapped-in wrap sits at the bottom: its data-init
-  // bottom-scroll alone lands the reader on the tail (the catch-up
-  // park no longer carries any scroll keying, so this is the one
-  // carrier left to prove). The wrap must actually overflow here —
+  // Then the swapped-in wrap sits at the bottom: the stream's
+  // from-zero catch-up appended the history into the empty transcript
+  // and completed with the `catchupCursor` patch — the wrap's effect
+  // answered it with the landing scroll (the data-init scroll fires
+  // before any content exists, so this carrier is what lands the
+  // reader on the tail). The wrap must actually overflow here —
   // a degenerate 0 == 0 would prove nothing.
   await expect.poll(() => maxScroll(page), { timeout: 5_000 }).toBeGreaterThan(
     50,

@@ -27,7 +27,6 @@ fn sessions_query_empty_q_reads_as_no_filter() {
     // cleared but still sent).
     let query = SessionsQuery {
         q: Some(String::new()),
-        viewed: None,
     };
 
     // Then no filter is in force — the matcher's empty-pattern
@@ -41,67 +40,11 @@ fn sessions_query_text_names_the_filter() {
     // Given a query carrying filter text.
     let query = SessionsQuery {
         q: Some("fix".to_owned()),
-        viewed: None,
     };
 
     // When reading the filter.
     // Then the text rides through verbatim.
     assert_eq!(query.filter_text(), Some("fix"));
-}
-
-#[rstest::rstest]
-#[test]
-fn sessions_query_absent_viewed_reads_as_no_viewer() {
-    // Given the landing page's pull shape (no `viewed` key at all).
-    let query: SessionsQuery = serde_json::from_str("{}").expect("empty object parses");
-
-    // Then nothing is viewed — the landing page's no-viewer render.
-    assert_eq!(query.viewed_session(), None);
-}
-
-#[rstest::rstest]
-#[test]
-fn sessions_query_empty_viewed_reads_as_no_viewer() {
-    // Given a pull whose viewer signal is bound but empty (the
-    // landing page's `$viewedSession` serializes as "").
-    let query = SessionsQuery {
-        q: None,
-        viewed: Some(String::new()),
-    };
-
-    // Then nothing is viewed — an empty viewer string is the landing
-    // page's shape, never a phantom active row.
-    assert_eq!(query.viewed_session(), None);
-}
-
-#[rstest::rstest]
-#[test]
-fn sessions_query_a_well_formed_viewed_id_parses() {
-    // Given a pull carrying the viewed session's id.
-    let id = SessionId::new();
-    let query = SessionsQuery {
-        q: None,
-        viewed: Some(id.to_string()),
-    };
-
-    // When reading the viewer.
-    // Then the id parses through to the typed value.
-    assert_eq!(query.viewed_session(), Some(id));
-}
-
-#[rstest::rstest]
-#[test]
-fn sessions_query_a_stale_viewed_string_reads_as_no_viewer() {
-    // Given a pull whose viewer string is not a UUID (a page pulled
-    // with a signal value from a previous page shape).
-    let query = SessionsQuery {
-        q: None,
-        viewed: Some("not-a-uuid".to_owned()),
-    };
-
-    // Then the pull degrades to no viewer rather than failing — the
-    // pull renders a list, not a validation surface.
-    assert_eq!(query.viewed_session(), None);
 }
 
 #[rstest::rstest]
@@ -232,11 +175,11 @@ fn sse_envelope_serializes_its_kind_for_the_wire() {
 #[rstest::rstest]
 #[test]
 fn session_list_row_roundtrips_its_flags() {
-    // Given one loaded active row.
+    // Given one loaded working row (no viewer flag exists — the blue
+    // row is client-side signal styling).
     let row = SessionListItem {
         session_id: SessionId::new(),
         title: "Fix the thing".to_owned(),
-        active: true,
         is_bot: false,
         loaded: true,
         unread: false,
@@ -249,8 +192,8 @@ fn session_list_row_roundtrips_its_flags() {
 
     // Then the flags and title ride the wire.
     assert!(json.contains("\"title\":\"Fix the thing\""), "{json}");
-    assert!(json.contains("\"active\":true"), "{json}");
     assert!(json.contains("\"loaded\":true"), "{json}");
+    assert!(!json.contains("\"active\""), "{json}");
     assert!(json.contains("\"is_bot\":false"), "{json}");
     assert!(json.contains("\"unread\":false"), "{json}");
     assert!(json.contains("\"working\":true"), "{json}");

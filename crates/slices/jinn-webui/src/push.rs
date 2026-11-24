@@ -24,7 +24,9 @@
 //! No push keys any scrolling: transcript pushes carry no signal
 //! patch at all, and no signal any `data-effect` reads rides any
 //! event. The wrap scrolls on its `data-init` (page load, row-click
-//! swap) and on the composer's send-time scroll — nothing else.
+//! swap), on the composer's send-time scroll, and on the wrap's own
+//! `catchupCursor` effect (the stream's from-zero catch-up
+//! completion) — nothing else.
 //!
 //! Sessions, Models, McpStatus, Skills, and Tools pushes are
 //! **signals, not HTML**: the pushed list is a signal to the page's
@@ -73,11 +75,6 @@ fn transcript_selector() -> String {
 /// turn's tail replace targets it.
 fn streaming_selector() -> String {
     format!("#{}", contract::STREAMING_ID)
-}
-
-/// The composer-controls container selector.
-fn controls_selector() -> String {
-    format!("#{}", contract::CONTROLS_ID)
 }
 
 /// One kind of push error: a fragment kind whose payload should have
@@ -146,17 +143,14 @@ pub(crate) fn sdk_events_of(
                 None,
             )])
         }
-        SseKind::Controls => {
-            if envelope.html.is_empty() {
-                return Err(PushError::EmptyFragment);
-            }
-            Ok(vec![patch(
-                envelope.html.clone(),
-                controls_selector(),
-                ElementPatchMode::Inner,
-                None,
-            )])
-        }
+        SseKind::Controls => Ok(vec![
+            PatchSignals::new(format!(
+                "{{\"{}\": {}}}",
+                contract::SIGNAL_BUSY,
+                envelope.html.trim() == "true"
+            ))
+            .into_datastar_event(),
+        ]),
         SseKind::Sessions => Ok(vec![
             PatchSignals::new(format!(
                 "{{\"{}\": {sessions_tick}, \"{}\": {}}}",
@@ -270,20 +264,28 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn controls_become_an_inner_replace_of_the_controls_container() {
-        // Given a controls envelope.
-        let event = sdk_events_of(&envelope(SseKind::Controls, "<button>go</button>", 0), 0)
+    fn controls_become_a_busy_signal_patch() {
+        // Given a controls envelope whose payload is the busy flag —
+        // "true" or "false", the fan-out's read of the session phase.
+        let event = sdk_events_of(&envelope(SseKind::Controls, "true", 0), 0)
             .expect("controls translate")
             .remove(0);
 
-        // Then they replace #composer-controls's inner HTML.
+        // Then it is one signal patch stamping the busy signal, and no
+        // HTML rides it (the fragment is invariant; the phase is a
+        // signal binding).
         let datastar::DatastarEvent {
             event: kind, data, ..
         } = event;
-        assert_eq!(kind, datastar::consts::EventType::PatchElements);
+        assert_eq!(kind, datastar::consts::EventType::PatchSignals);
         let joined = data.join("\n");
-        assert!(joined.contains("selector #composer-controls"), "{joined}");
-        assert!(joined.contains("mode inner"), "{joined}");
+        assert!(
+            joined
+                .replace(' ', "")
+                .contains(&format!("\"{}\":true", contract::SIGNAL_BUSY)),
+            "{joined}"
+        );
+        assert!(!joined.contains('<'), "{joined}");
     }
 
     #[rstest::rstest]
@@ -409,17 +411,17 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn non_transcript_pushes_carry_no_transcript_patch() {
-        // Given a controls envelope (a region push that does not grow
-        // the transcript).
-        let events = sdk_events_of(&envelope(SseKind::Controls, "<button>b</button>", 0), 1)
+        // Given a controls envelope (a push that does not grow the
+        // transcript).
+        let events = sdk_events_of(&envelope(SseKind::Controls, "false", 1), 1)
             .expect("a controls push translates");
 
-        // Then it is one event with no transcript touch — a controls
-        // swap must not scroll the transcript.
+        // Then it is one signal patch with no element touch — a busy
+        // flip must not touch, let alone scroll, the transcript.
         assert_eq!(events.len(), 1, "{events:?}");
         assert_eq!(
             events.first().expect("the controls patch").event,
-            datastar::consts::EventType::PatchElements
+            datastar::consts::EventType::PatchSignals
         );
     }
 

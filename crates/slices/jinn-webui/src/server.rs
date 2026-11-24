@@ -235,102 +235,162 @@ fn element_patch_inner(selector: String, html: String) -> datastar::DatastarEven
         .into_datastar_event()
 }
 
-/// The activation/create response's patch sequence: the transient-
-/// overlay reset (drawer, menu, both modals — the classes the old
-/// wholesale page swap used to clear atomically) followed by the new
-/// page shell replacing `#page-root`.
+/// The activation/create response's patch sequence: the navigation
+/// carries **no fragments for chrome** — the session list, the menu,
+/// the composer, and the model button are session-invariant markup
+/// that the signals retarget, so their DOM simply survives the
+/// navigation (the list never goes blank) and only what actually
+/// changes crosses the wire:
 ///
-/// The reset is a signal patch: every overlay's visibility rides a
-/// signal (`data-attr:hidden`, `data-class:drawer-open`), so one
-/// patch closes all four atomically before the root is replaced.
-async fn overlay_reset_patches(
+/// 1. One signal patch — the viewed session, its title, model label,
+///    and busy flag; the transient overlays (drawer, menu, modals,
+///    filters, ticks) reset to their seed values exactly as the old
+///    wholesale root swap used to reset them atomically; the
+///    composer's draft (text, images) clears; the catch-up scroll
+///    carrier parks at zero so the new session's from-zero catch-up
+///    lands the reader at the bottom.
+/// 2. The transcript's inner replace with the empty template — the
+///    old session's entries must not survive into the new session's
+///    view, and the `#streaming` container stays as the catch-up's
+///    append target.
+/// 3. The stream span's wholesale replace — removing the old span
+///    cancels its in-flight fetch (the bind carries
+///    `requestCancellation: 'cleanup'`), and the replacement's
+///    `data-init` opens the new session's stream at cursor 0. This
+///    is the rebind the root swap used to do implicitly; without it
+///    the page would keep the previous session's stream and never
+///    fill.
+///
+/// The list now fetches once per page load (the container's
+/// `data-init`); a navigation fetches nothing — the surviving rows
+/// recolor client-side off the `viewedSession` patch.
+/// The transient-overlay half of the navigation's signal patch —
+/// every overlay, draft, filter, and tick signal re-seeded to its
+/// page-shell seed value (the atomic clear the old wholesale root
+/// swap used to provide implicitly). Deliberately absent:
+/// `sessionsTick` and `sessionsfilter` — patching either re-fires
+/// the surviving list's tick effect (the multi-trigger trap), and
+/// the user's filter view persists across navigation by design.
+fn overlay_seed_pairs() -> Vec<(&'static str, serde_json::Value)> {
+    // The false-valued overlay flags, then the empty-string draft and
+    // filter slots, then the special seeds (images empty, revert null,
+    // cursor 0) — grouped so the list reads as the page shell's seed
+    // object, section for section.
+    let flags: &[&str] = &[
+        crate::contract::SIGNAL_DRAWER_OPEN,
+        crate::contract::SIGNAL_MENU_OPEN,
+        crate::contract::SIGNAL_MODAL_OPEN,
+        crate::contract::SIGNAL_SESSION_NEW_OPEN,
+        crate::contract::SIGNAL_PERSONA_MODAL_OPEN,
+        crate::contract::SIGNAL_MCP_OPEN,
+        crate::contract::SIGNAL_TOOLS_OPEN,
+        crate::contract::SIGNAL_SKILLS_OPEN,
+        crate::contract::SIGNAL_TITLE_EDITING,
+        crate::contract::SIGNAL_TITLE_COMMITTING,
+        crate::contract::SIGNAL_MODELS_REFRESHING,
+        crate::contract::SIGNAL_SWITCHING,
+    ];
+    let empties: &[&str] = &[
+        crate::contract::SIGNAL_TEXT,
+        crate::contract::SIGNAL_PROVIDER_ID,
+        crate::contract::SIGNAL_MODEL_FILTER,
+        crate::contract::SIGNAL_PERSONA_FILTER,
+        crate::contract::SIGNAL_MCP_FILTER,
+        crate::contract::SIGNAL_TOOLS_FILTER,
+        crate::contract::SIGNAL_SKILLS_FILTER,
+        crate::contract::SIGNAL_TOOLS_TICK,
+        crate::contract::SIGNAL_SKILLS_TICK,
+        crate::contract::SIGNAL_MCP_TICK,
+        crate::contract::SIGNAL_MODELS_TICK,
+        crate::contract::SIGNAL_ERROR_NOTICE,
+    ];
+    let false_off = flags
+        .iter()
+        .map(|signal| (*signal, serde_json::Value::Bool(false)));
+    let empty_off = empties
+        .iter()
+        .map(|signal| (*signal, serde_json::Value::String(String::new())));
+    false_off
+        .chain(empty_off)
+        .chain([
+            (
+                crate::contract::SIGNAL_PENDING_IMAGES,
+                serde_json::Value::Array(Vec::new()),
+            ),
+            (
+                crate::contract::SIGNAL_TOOLS_REVERT,
+                serde_json::Value::Null,
+            ),
+            (
+                crate::contract::SIGNAL_CATCHUP_CURSOR,
+                serde_json::Value::from(0),
+            ),
+        ])
+        .collect()
+}
+
+/// The navigation patch sequence: the session facts plus the overlay
+/// seed in one signal patch, the transcript's inner reset, and the
+/// stream span's wholesale replace (the rebind).
+async fn navigation_patches(
     shared: &ServerShared,
     id: &SessionId,
 ) -> Result<Vec<datastar::DatastarEvent>, HandlerError> {
-    // The same full render the GET page endpoint serves, so a
-    // navigation response and a fresh load are byte-identical shapes —
-    // including the settled-prefix split (the boundary-aware cursor
-    // the page shell stamps) when the activated session is mid-turn.
     let view = session_view(shared, id).await?;
-    let sessions_html = crate::regions::sessions::sessions_fragment(shared, None, Some(id)).await?;
-    let (transcript_entries, cursor) = {
-        let guard = shared.read_state();
-        shared.settled_prefix(id, &guard)
-    };
-    let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate::new(
-        transcript_entries,
-        0,
-    ))
-    .map_err(|e| fail(500, e.to_string()))?;
-    let controls_html =
-        crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
-            id.to_string(),
-            view.phase != PhaseView::Idle.as_str(),
-        ))
-        .map_err(|e| fail(500, e.to_string()))?;
-    let model_html = crate::regions::model_picker::button_fragment(shared, &id.to_string())?;
+    let transcript_html =
+        crate::templates::render(&crate::templates::TranscriptTemplate::new(Vec::new(), 0))
+            .map_err(|e| fail(500, e.to_string()))?;
     let attention_count = {
         let guard = shared.read_state();
         crate::regions::sessions::unread_count_of(&guard)
     };
-    let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
-    let web_theme = persisted_web_theme(shared);
-    // The root fragment — NOT the full page shell. The runtime morphs
-    // element patches; a document-shaped patch (DOCTYPE + <html>) is
-    // parsed as a whole document and its fight with the live page
-    // leaves the old subtree's stray nodes alive. The root div alone
-    // replaces cleanly (and its data-signals seed resets every
-    // transient overlay signal atomically).
-    let attention_count = {
-        let guard = shared.read_state();
-        crate::regions::sessions::unread_count_of(&guard)
-    };
-    let page = crate::templates::render(&crate::templates::PageRootTemplate::session(
-        &id.to_string(),
-        view.transcript.title.clone(),
-        cursor,
-        sessions_html,
-        transcript_html,
-        controls_html,
-        model_html,
-        menu_html,
-        attention_count,
-        web_theme,
-    ))
+    let model_label = crate::regions::model_picker::current_model_label(shared, &id.to_string());
+    let busy = view.phase != PhaseView::Idle.as_str();
+    let stream_url = format!("{}{id}?since=0", crate::contract::STREAM_PREFIX);
+    let stream_span = crate::templates::render(&crate::templates::StreamSpanTemplate {
+        stream_span_id: crate::contract::STREAM_SPAN_ID,
+        stream_url,
+    })
     .map_err(|e| fail(500, e.to_string()))?;
+    // The session facts lead the patch; the overlay seed follows.
+    let mut pairs = vec![
+        (
+            crate::contract::SIGNAL_VIEWED_SESSION,
+            serde_json::Value::String(id.to_string()),
+        ),
+        (
+            crate::contract::SIGNAL_TITLE,
+            serde_json::Value::String(view.transcript.title.clone()),
+        ),
+        (
+            crate::contract::SIGNAL_TITLE_PRE,
+            serde_json::Value::String(view.transcript.title.clone()),
+        ),
+        (
+            crate::contract::SIGNAL_MODEL_LABEL,
+            serde_json::Value::String(model_label),
+        ),
+        (crate::contract::SIGNAL_BUSY, serde_json::Value::Bool(busy)),
+        (
+            crate::contract::SIGNAL_SESSIONS_ATTENTION,
+            serde_json::Value::from(attention_count),
+        ),
+    ];
+    pairs.extend(overlay_seed_pairs());
     Ok(vec![
-        signal_patch(&[
-            (
-                crate::contract::SIGNAL_DRAWER_OPEN,
-                serde_json::Value::Bool(false),
-            ),
-            (
-                crate::contract::SIGNAL_MENU_OPEN,
-                serde_json::Value::Bool(false),
-            ),
-            (
-                crate::contract::SIGNAL_MODAL_OPEN,
-                serde_json::Value::Bool(false),
-            ),
-            (
-                crate::contract::SIGNAL_SESSION_NEW_OPEN,
-                serde_json::Value::Bool(false),
-            ),
-            (
-                crate::contract::SIGNAL_MCP_OPEN,
-                serde_json::Value::Bool(false),
-            ),
-            (
-                crate::contract::SIGNAL_TITLE_EDITING,
-                serde_json::Value::Bool(false),
-            ),
-            (
-                crate::contract::SIGNAL_TEXT,
-                serde_json::Value::String(String::new()),
-            ),
-        ]),
-        PatchElements::new(page)
-            .selector(format!("#{}", crate::contract::PAGE_ROOT_ID))
+        signal_patch(&pairs),
+        // The transcript resets to the empty template: the old
+        // session's entries never survive into the new view, and
+        // `#streaming` remains the catch-up's append target.
+        PatchElements::new(transcript_html)
+            .selector(format!("#{}", crate::contract::TRANSCRIPT_ID))
+            .mode(ElementPatchMode::Inner)
+            .into_datastar_event(),
+        // The stream rebind: replace the bind span. The old fetch
+        // cancels with its element; the new `data-init` opens the
+        // activated session's stream at cursor 0.
+        PatchElements::new(stream_span)
+            .selector(format!("#{}", crate::contract::STREAM_SPAN_ID))
             .mode(ElementPatchMode::Replace)
             .into_datastar_event(),
     ])
@@ -772,17 +832,18 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
     axum::response::Redirect::temporary("/web")
 }
 
-/// `GET /web` — the landing page: sessions list, no transcript. No
-/// session is viewed, so the list carries no viewed (blue) row.
+/// `GET /web` — the landing page: the sessions list, no transcript,
+/// no stream (the initial page load legitimately carries its full
+/// render — the one list fetch per page render includes it).
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
-    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None, None).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
     let attention_count = {
         let guard = shared.read_state();
         crate::regions::sessions::unread_count_of(&guard)
     };
-    // No viewed session on the landing page — the menu renders without
-    // the persona item.
-    let menu_html = crate::regions::menu::menu_fragment("", attention_count);
+    // The menu is session-invariant markup — the per-session items
+    // hide client-side off the viewed-session signal.
+    let menu_html = crate::regions::menu::menu_fragment(attention_count);
     let web_theme = persisted_web_theme(&shared);
     let html = crate::templates::render(&crate::templates::PageTemplate::landing(
         sessions_html,
@@ -818,8 +879,7 @@ async fn page_session(
 ) -> Result<Page, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
-    let sessions_html =
-        crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
     // The settled prefix + boundary cursor, under one guard.
     let (transcript_entries, cursor) = {
         let guard = shared.read_state();
@@ -832,26 +892,29 @@ async fn page_session(
     ))
     .map_err(|e| fail(500, e.to_string()))?;
     let controls_html =
-        crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
-            session_id.clone(),
-            view.phase != PhaseView::Idle.as_str(),
-        ))
-        .map_err(|e| fail(500, e.to_string()))?;
-    let model_html = crate::regions::model_picker::button_fragment(&shared, &session_id)?;
+        crate::templates::render(&crate::templates::ControlsTemplate::with_contract())
+            .map_err(|e| fail(500, e.to_string()))?;
+    let model_label = crate::regions::model_picker::current_model_label(&shared, &session_id);
+    let button_html =
+        crate::templates::render(&crate::templates::ModelButtonTemplate::with_contract())
+            .map_err(|e| fail(500, e.to_string()))?;
     let attention_count = {
         let guard = shared.read_state();
         crate::regions::sessions::unread_count_of(&guard)
     };
-    let menu_html = crate::regions::menu::menu_fragment(&id.to_string(), attention_count);
+    let menu_html = crate::regions::menu::menu_fragment(attention_count);
     let web_theme = persisted_web_theme(&shared);
+    let busy = view.phase != PhaseView::Idle.as_str();
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         &session_id,
         view.transcript.title.clone(),
+        busy,
+        model_label,
         cursor,
         sessions_html,
         transcript_html,
         controls_html,
-        model_html,
+        button_html,
         menu_html,
         attention_count,
         web_theme,
@@ -1216,21 +1279,23 @@ async fn model(
     )
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
-    // The titlebar's model area swaps in one inner patch (the bare
-    // button into the page shell's `#model-picker` host — the payload
-    // must never be the button's own host-span render, which would
-    // nest a duplicate id); the modal-close is a signal patch, not an
-    // element patch: the modal's visibility is signal-driven.
-    Ok(SseAction::new(vec![
-        element_patch_inner(
-            format!("#{}", crate::contract::MODEL_PICKER_ID),
-            crate::regions::model_picker::button_fragment(&shared, &form.session_id)?,
-        ),
-        signal_patch(&[(
+    // The button's label rides the `modelLabel` signal — a signal
+    // patch, not a fragment (the button is invariant markup bound to
+    // the signal); the modal-close rides the same patch: the modal's
+    // visibility is signal-driven.
+    Ok(SseAction::new(vec![signal_patch(&[
+        (
             crate::contract::SIGNAL_MODAL_OPEN,
             serde_json::Value::Bool(false),
-        )]),
-    ]))
+        ),
+        (
+            crate::contract::SIGNAL_MODEL_LABEL,
+            serde_json::Value::String(crate::regions::model_picker::current_model_label(
+                &shared,
+                &form.session_id,
+            )),
+        ),
+    ])]))
 }
 
 /// `POST /web/persona` — switch the viewed session's persona. The web
@@ -1504,28 +1569,30 @@ async fn refresh_models(
     crate::delivery::handle_refresh_models(shared.bus(), &form.session_id)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    // Button now; rows arrive with the discovery fan-out's `models`
-    // push (a signal tick — the open modal's effect re-pulls its
-    // rows). The spinner clears when the tick lands (the browser's
-    // own effect on the tick signal).
-    Ok(SseAction::new(vec![element_patch_inner(
-        format!("#{}", crate::contract::MODEL_PICKER_ID),
-        crate::regions::model_picker::button_fragment(&shared, &form.session_id)?,
-    )]))
+    // The label rides the `modelLabel` signal (a signal patch — the
+    // button is invariant markup); rows arrive with the discovery
+    // fan-out's `models` push (a signal tick — the open modal's
+    // effect re-pulls its rows). The spinner clears when the tick
+    // lands (the browser's own effect on the tick signal).
+    Ok(SseAction::new(vec![signal_patch(&[(
+        crate::contract::SIGNAL_MODEL_LABEL,
+        serde_json::Value::String(crate::regions::model_picker::current_model_label(
+            &shared,
+            &form.session_id,
+        )),
+    )])]))
 }
 
 /// `POST /web/session/{id}/activate` — switch the active session.
 ///
 /// Publishes `SessionLoadRequested` (the store actor hydrates an
 /// archived session or activates a loaded one) and responds with an
-/// **SSE sequence of SDK events**: (1) the transient-overlay reset —
-/// drawer, menu, and both modals close, because the wholesale page
-/// swap this replaces used to reset them atomically and morph
-/// patching would preserve the open classes; (2) a `replace`-grade
-/// patch of `#page-root` with the activated session's whole page
-/// shell. The root's `data-init` span arrives fresh inside the
-/// replacement, so the stream bind re-reads its URL — one connection,
-/// closed and reopened exactly once per navigation.
+/// **SSE sequence of SDK events**: the targeted navigation patches
+/// (see [`navigation_patches`]) — signals retarget the surviving
+/// chrome, the transcript resets empty, and the stream span's
+/// replacement closes the old connection and opens the new session's
+/// one. The session list is never re-fetched by a navigation: its
+/// DOM survives and recolors off the viewed-session patch.
 async fn activate(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
@@ -1564,7 +1631,7 @@ async fn activate(
     // the convergence push corrects any lag.
     let id = parse_session_id(&session_id)?;
     let url = session_url(&session_id);
-    let patches = overlay_reset_patches(&shared, &id).await?;
+    let patches = navigation_patches(&shared, &id).await?;
     Ok(SseAction::with_url(patches, url))
 }
 
@@ -1573,11 +1640,11 @@ async fn activate(
 ///
 /// Runs [`crate::delivery::handle_create`] (the validations, the
 /// stash, and the shared creation function) and responds with the
-/// **new session's whole page** — the activation response shape,
+/// activation response shape — the targeted navigation patches —
 /// because creation activates the session instance-wide and one
-/// navigation mechanism serves both. The client swaps `#page-root`,
-/// updates the URL, and rebinds its stream exactly as it does after
-/// an activate POST.
+/// navigation mechanism serves both. The client patches the signals,
+/// resets the transcript, rebinds its stream, and updates the URL
+/// exactly as it does after an activate POST.
 async fn create_session(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<WebForm<jinn_webui_msg::CreateSessionForm>, HandlerError>,
@@ -1591,7 +1658,21 @@ async fn create_session(
     // mechanism serves both. The created id is live in state (the
     // shared path set it active), so no store fall-through is needed.
     let url = session_url(&created.to_string());
-    let patches = overlay_reset_patches(&shared, &created).await?;
+    let mut patches = navigation_patches(&shared, &created).await?;
+    // The list-changed tick: creation adds a row, and the fan-out's
+    // `SessionCreated` refresh broadcast races this response — the
+    // bridge drain can deliver it to pages whose stream still binds
+    // the previous session (this page rebinds only when the response
+    // lands), so the broadcast is addressable to the wrong span or
+    // lost. The response itself is ordered after the broadcast's
+    // state change, so bumping the tick here makes the surviving
+    // list's effect refetch exactly once, post-navigation, and pick
+    // the created row up. An activate needs no bump: switching
+    // changes no row.
+    patches.push(signal_patch(&[(
+        crate::contract::SIGNAL_SESSIONS_TICK,
+        serde_json::Value::Bool(true),
+    )]));
     Ok(SseAction::with_url(patches, url))
 }
 
@@ -1624,10 +1705,10 @@ async fn rename(
     // flicker. (The fan-out actor's own SessionLoadCompleted /
     // SessionArchived refreshes keep the live-only shape deliberately:
     // those events change only live state, and their next pull or
-    // page render carries the store truth.) The renamed session's
-    // page is the requester — it is the viewer, so its blue row rides
-    // the same markup every consumer gets.
-    let list_html = crate::regions::sessions::sessions_fragment(&shared, None, Some(&id)).await?;
+    // page render carries the store truth.) The rows carry no viewer
+    // class — the viewed fill is client-side signal styling on
+    // `$viewedSession` — so one markup shape serves every consumer.
+    let list_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
     let attention_count = {
         let guard = shared.read_state();
         crate::regions::sessions::unread_count_of(&guard)
@@ -1770,40 +1851,33 @@ async fn stream(
     });
 
     // Subscribe AFTER the catch-up snapshot: a fragment published in
-    // between re-arrives via the next convergence push. Each stream
-    // counts its own sessions pushes — the tick signal bumps per
-    // connection, never globally.
+    // between re-arrives via the next convergence push.
     let rx = shared.fanout.subscribe();
-    // Sessions-signal convergence: one patch on connect carrying the
-    // current unread count, the same heal the transcript's catch-up
-    // snapshot performs for entries. The page render seeded the badge
-    // at request time, but a mark transition can land between that
-    // render and this connect (activation of a marked session is the
-    // sharp edge: the fan-out's clear wave races the browser's
-    // navigation), and a broadcast is fire-and-forget — a wave fired
-    // before this stream subscribed never re-arrives. The connect
-    // patch closes that window for the badge; the tick rides it so the
-    // client's list also converges on connect.
+    // Sessions-attention convergence: one direct signal patch on
+    // connect carrying the current unread count — and ONLY the count.
+    // The page render seeded the badge at request time, but a mark
+    // transition can land between that render and this connect
+    // (activation of a marked session is the sharp edge: the fan-out's
+    // clear wave races the browser's navigation), and a broadcast is
+    // fire-and-forget — a wave fired before this stream subscribed
+    // never re-arrives. The connect patch closes that window for the
+    // badge. It deliberately does NOT bump `sessionsTick`: the root's
+    // tick effect is the page's ONE list fetch per render, and the
+    // swapped page just fetched — a connect-time bump would fire a
+    // second identical pull for data the browser already holds. Real
+    // list events keep arriving as addressed Sessions pushes from the
+    // fan-out, whose translation bumps the tick (push.rs).
     let converge: Vec<Result<SseEvent, Infallible>> = {
         let attention = {
             let guard = shared.read_state();
             crate::regions::sessions::unread_count_of(&guard)
         };
-        crate::push::sdk_events_of(
-            &SseEnvelope {
-                kind: SseKind::Sessions,
-                session_id: id.clone(),
-                cursor: 0,
-                html: attention.to_string(),
-            },
-            0,
-        )
-        .map_or_default(|events| {
-            events
-                .into_iter()
-                .map(|event| Ok(event.write_as_axum_sse_event()))
-                .collect()
-        })
+        vec![Ok(datastar::prelude::PatchSignals::new(format!(
+            "{{\"{}\": {attention}}}",
+            crate::contract::SIGNAL_SESSIONS_ATTENTION
+        ))
+        .into_datastar_event()
+        .write_as_axum_sse_event())]
     };
     let session_filter = id.clone();
     let tick = std::sync::atomic::AtomicU64::new(0);
@@ -1867,6 +1941,15 @@ pub struct StreamQuery {
 /// reads (its `onlyIfMissing` payload is a no-op on a connected
 /// page) — a reconnect appends without scrolling; its `id:` line is
 /// its real payload (the browser's resume position).
+///
+/// A **fresh** page (cursor 0, entries to deliver) gets one more
+/// frame: the `catchupCursor` completion patch. The navigation
+/// response renders the transcript empty with the wrap at scrollTop
+/// 0; the wrap's `data-effect` bottom-scrolls when `catchupCursor`
+/// transitions off zero — keyed to the history's actual arrival, so
+/// the reader lands at the bottom of the settled transcript exactly
+/// once, and only when there is history to land at. A reconnect at a
+/// parked cursor never emits the patch (no scroll stealing).
 pub(crate) fn render_catchup_events(
     entries: &[crate::transcript::RenderedEntry],
     start: usize,
@@ -1890,6 +1973,18 @@ pub(crate) fn render_catchup_events(
             )
         })
         .collect();
+    // The fresh-page completion marker: a from-zero catch-up that
+    // delivered entries names its end cursor, and the wrap's effect
+    // answers it with the one bottom-scroll. A reconnect (start > 0)
+    // or an empty catch-up emits nothing — appends land in place.
+    if start == 0 && total > 0 {
+        events.push(
+            PatchSignals::new(
+                serde_json::json!({ crate::contract::SIGNAL_CATCHUP_CURSOR: total }).to_string(),
+            )
+            .into_datastar_event(),
+        );
+    }
     // The trailing cursor-park: a signal patch whose `id:` parks the
     // browser's resume cursor at `total` (the settled boundary
     // mid-turn — never the live count). The payload is reader-less —

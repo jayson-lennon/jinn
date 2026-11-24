@@ -154,28 +154,27 @@ async fn every_declared_container_id_appears_in_the_rendered_page_shell() {
     // routes serve).
     let (state, shared) = harness();
     let id = seed_session(&state);
-    let sessions = crate::regions::sessions::sessions_fragment(&shared, None, Some(&id))
+    let sessions = crate::regions::sessions::sessions_fragment(&shared, None)
         .await
         .expect("sessions render");
     let transcript_html =
         crate::templates::render(&crate::templates::TranscriptTemplate::new(Vec::new(), 0))
             .expect("transcript renders");
-    let controls = crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
-        id.to_string(),
-        false,
-    ))
-    .expect("controls render");
-    let model = crate::regions::model_picker::button_fragment(&shared, &id.to_string())
+    let controls = crate::templates::render(&crate::templates::ControlsTemplate::with_contract())
+        .expect("controls render");
+    let model = crate::templates::render(&crate::templates::ModelButtonTemplate::with_contract())
         .expect("picker renders");
     let page = crate::templates::render(&crate::templates::PageTemplate::session(
         &id.to_string(),
         "Conformance".to_owned(),
+        false,
+        String::new(),
         0,
         sessions,
         transcript_html,
         controls,
         model,
-        crate::regions::menu::menu_fragment(&id.to_string(), 0),
+        crate::regions::menu::menu_fragment(0),
         0,
         "system".to_owned(),
     ))

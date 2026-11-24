@@ -129,18 +129,6 @@ async fn pull_handler(
     )
 }
 
-/// The session's current model label, read under one short-lived
-/// guard (dropped before any await, per the guard discipline).
-fn current_model_label(shared: &crate::server::ServerShared, session_id: &str) -> String {
-    let Some(id) = jinn_core_types::SessionId::try_from_string(session_id) else {
-        return String::new();
-    };
-    let guard = shared.read_state();
-    guard.session.get(&id).map_or_default(|session| {
-        crate::regions::transcript::model_label(session.model_selection())
-    })
-}
-
 /// The frontend's resolved theme, read under one short-lived guard.
 pub(crate) fn picker_theme(state: &jinn_kernel::State) -> jinn_theme::Theme {
     state.read().frontend.theme.clone()
@@ -202,24 +190,21 @@ fn picker_rows(
     jinn_provider_selection_msg::provider_rows::filter_entries(&sorted, filter)
 }
 
-/// The titlebar button fragment: the current model as a control —
-/// the bare button, patching into the page shell's `#model-picker`
-/// host span. The page shell renders it inline; the switch and
-/// refresh POSTs answer with this same render.
-///
-/// # Errors
-///
-/// Returns the render error; the caller maps it to a 500.
-pub fn button_fragment(
+/// The titlebar button's label — the viewed session's current model,
+/// read under one short-lived guard (dropped before any await). The
+/// page render seeds the `modelLabel` signal with it; the switch and
+/// refresh POSTs answer with a signal patch carrying it.
+pub(crate) fn current_model_label(
     shared: &crate::server::ServerShared,
     session_id: &str,
-) -> Result<String, crate::server::HandlerError> {
-    let current = current_model_label(shared, session_id);
-    crate::templates::render(&crate::templates::ModelButtonTemplate::with_contract(
-        session_id.to_owned(),
-        current,
-    ))
-    .map_err(|e| crate::server::map_render_error(&e))
+) -> String {
+    let Some(id) = jinn_core_types::SessionId::try_from_string(session_id) else {
+        return String::new();
+    };
+    let guard = shared.read_state();
+    guard.session.get(&id).map_or_default(|session| {
+        crate::regions::transcript::model_label(session.model_selection())
+    })
 }
 
 /// The modal fragment: the overlay with filter, refresh button, and

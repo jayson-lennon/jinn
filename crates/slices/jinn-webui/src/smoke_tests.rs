@@ -148,17 +148,39 @@ async fn clicking_a_session_in_a_real_browser_shows_its_transcript() {
         .await
         .expect("the landing page loads");
 
-    // The row for the seeded session, then the click that must swap
-    // the whole page (AC1).
+    // The row for the seeded session, then the click that must
+    // navigate (AC1).
     let row = page
         .find_element(format!("[data-session-id='{id}']"))
         .await
         .expect("the seeded session's row renders in the sidebar");
     row.click().await.expect("the row clicks");
 
-    // Then the transcript carries the session's entry — the swap
-    // replaced the page and the content followed. Poll: the swap is
-    // one fetch + one DOM replace after the click.
+    // Then the sidebar PERSISTED: the navigation response carries no
+    // elements over the sidebar's subtree (the targeted-patch
+    // contract), so the pre-click rows are still in the DOM — if
+    // they ever blank, the page lost its chrome and the row lookup
+    // below (and every later navigation) is dead. Poll: the
+    // activate POST's patches land within the window.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut sidebar_persisted = false;
+    while std::time::Instant::now() < deadline {
+        let content = page.content().await.expect("page content reads");
+        if content.contains("data-session-id") {
+            sidebar_persisted = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert!(
+        sidebar_persisted,
+        "after the navigation the sidebar must persist — the rows survive \
+         (the response carries no list fetch and no list fragment)"
+    );
+
+    // Then the transcript carries the session's entry — the catch-up
+    // delivered the history into the empty transcript. Poll: the
+    // stream connect + catch-up appends after the click.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let mut saw_entry = false;
     while std::time::Instant::now() < deadline {
@@ -172,7 +194,7 @@ async fn clicking_a_session_in_a_real_browser_shows_its_transcript() {
     assert!(
         saw_entry,
         "after the click the page must show the session's title and entry — \
-         the swap did not replace the transcript"
+         the catch-up did not deliver the history"
     );
 
     // The URL tracked the swap (pushState on activate).

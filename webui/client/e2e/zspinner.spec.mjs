@@ -75,15 +75,6 @@ async function selectModel(page) {
  * @param {import("@playwright/test").Page} page the browser page.
  * @returns {Promise<number>} the rendered attention count.
  */
-async function seedAttentionOf(page) {
-  const signals = await page.locator(sel.PAGE_ROOT).getAttribute("data-signals");
-  const match = signals?.match(/sessionsAttention:\s*(\d+)/);
-  if (!match) {
-    throw new Error("page root carries no sessionsAttention seed");
-  }
-  return Number.parseInt(match[1], 10);
-}
-
 /**
  * Sends `!response` — the delayed stream — through the composer of
  * the page's current session, returning once the turn is in flight
@@ -217,11 +208,12 @@ test("the settle bumps the sessions button's count and activation decrements it"
   );
   const button = page.locator(sel.SESSIONS_BUTTON);
   const badge = page.locator(sel.SESSIONS_BUTTON_COUNT);
-  // The seed comes from the page-root's rendered signals, not the
-  // badge's live text: a page-root swap (this row click was one)
-  // re-seeds the signal asynchronously, so an immediate textContent
-  // read can still hold the pre-swap value.
-  const seededCount = await seedAttentionOf(page);
+  // The count comes from the badge's live text (the navigation's
+  // signal patch has landed by the URL assertion above; the page
+  // root's static data-signals attribute no longer re-renders —
+  // the root survives navigation now, so its seed text stays at
+  // the page-load value).
+  const seededCount = Number(await badge.textContent());
 
   // When B runs a turn in its own tab and settles (the settle lands
   // while A is viewed — the unseen-settle mark). Page B arrives by a
@@ -260,7 +252,7 @@ test("the settle bumps the sessions button's count and activation decrements it"
     sel.PAGE_SESSION_ATTR,
     sessionB,
   );
-  const postClearSeed = await seedAttentionOf(page);
+  const postClearSeed = Number(await badge.textContent());
   if (postClearSeed === 0) {
     await expect(button).not.toHaveClass(
       new RegExp(sel.SESSIONS_ATTENTION_CLASS),

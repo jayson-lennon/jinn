@@ -11,13 +11,125 @@
 //!
 //! Escaping: askama escapes by extension — `.html` templates escape
 //! every interpolation — so a session title carrying markup cannot
-//! break the page. Pre-rendered HTML (the markdown bodies) rides
-//! through askama's `|safe` filter *only* on fields the transcript
-//! module produced, and that module is where the escaping contract
-//! lives.
+//! break the page. HTML escaping, however, does not protect a
+//! JavaScript string literal: the browser decodes entities in
+//! attribute values *before* the Datastar runtime evaluates the
+//! expression, so a title carrying an apostrophe terminates the
+//! literal early and the whole page's signal init fails. Everything
+//! interpolated into a Datastar expression's string literal therefore
+//! goes through [`filters::js_str`] (or the session-controlled seed
+//! fields the template builds through [`js_string_contents`]);
+//! pre-rendered HTML (the markdown bodies) rides through askama's
+//! `|safe` filter *only* on fields the transcript module produced,
+//! and that module is where the escaping contract lives.
 
 use askama::Template;
 use jinn_webui_msg::SessionListItem;
+
+/// The custom askama filters the Datastar expressions need.
+///
+/// One member, [`js_str`]: every user-controlled string interpolated
+/// into a Datastar expression's single-quoted literal (the signals
+/// seed's `title`, the rename editor's Escape/blur restores, and the
+/// row templates' name payloads) goes through it. Custom filters
+/// display verbatim — askama's HTML escaper never re-applies — which
+/// is exactly the contract here: the escapes below are already the
+/// final form, and an HTML pass would decode back to the characters
+/// that break the literal.
+///
+/// The module expects two clippy lints the askama `filter_fn` macro
+/// trips on its generated code: `#[inline(always)]` on the `execute`
+/// shim (the shim's cost is the filter call itself) and the missing
+/// `# Errors` doc on that shim (the macro carries no doc). The
+/// annotations are the macro's choices, not this module's.
+#[expect(
+    clippy::inline_always,
+    clippy::missing_errors_doc,
+    reason = "askama's filter_fn macro hardcodes #[inline(always)] and no error doc on its \
+              generated execute shim"
+)]
+pub mod filters {
+    /// Escapes a value for interpolation into a JavaScript
+    /// single-quoted string literal that itself sits inside a
+    /// double-quoted HTML attribute — the shape every Datastar
+    /// expression the templates render carries.
+    ///
+    /// The output contains no raw `'` (the literal's delimiter), no
+    /// raw `"` `&` or `<` (the attribute's entity/terminator hazards),
+    /// and no control characters (a raw newline would end the
+    /// literal). Every hazard becomes a `\uXXXX`-class escape the JS
+    /// engine decodes back to the original character, so the evaluated
+    /// string equals the input byte for byte.
+    ///
+    /// Returns [`askama::filters::Safe`]: askama auto-escapes even a
+    /// custom filter's output, and an HTML pass here would rewrite the
+    /// escaped apostrophe into `&#39;` — which the browser decodes
+    /// back to a raw `'` before evaluating, re-opening the bug. The
+    /// escapes below are the final form; nothing may rewrite them.
+    ///
+    /// # Errors
+    ///
+    /// Infallible in practice — [`js_string_contents`] degrades to an
+    /// empty literal if `serde_json` refuses the string (unreachable
+    /// for text) — but the `filter_fn` macro requires the
+    /// `askama::Result` shape.
+    #[askama::filter_fn]
+    pub fn js_str<S: ToString>(
+        s: S,
+        _: &dyn askama::Values,
+    ) -> askama::Result<askama::filters::Safe<String>> {
+        Ok(askama::filters::Safe(super::js_string_contents(
+            &s.to_string(),
+        )))
+    }
+}
+
+/// The escaped contents of a single-quoted JS string literal for
+/// `raw` — no surrounding quotes; the template or builder supplies
+/// those.
+///
+/// serde_json produces the double-quoted form first: its escapes
+/// (`\\`, `\"`, `\n`, `\uXXXX` for controls) are all valid
+/// single-quoted-literal escapes, so the JSON inner only needs the
+/// attribute-context rewrite on top.
+#[must_use]
+pub(crate) fn js_string_contents(raw: &str) -> String {
+    let json = serde_json::to_string(raw).unwrap_or_else(|_| "\"\"".to_owned());
+    json_inner(&json).map_or_else(String::new, escape_json_inner)
+}
+
+/// Strips a serialized JSON string literal's enclosing `"` pair and
+/// returns the interior text the JS literal wraps — the quotes are
+/// the document's own, so the strips are ASCII-safe. `None` for a
+/// document not shaped that way; the caller degrades gracefully.
+fn json_inner(json: &str) -> Option<&str> {
+    let inner = json.strip_prefix('"')?;
+    inner.strip_suffix('"')
+}
+
+/// Applies the attribute-context rewrite to a JSON string literal's
+/// inner text (outer quotes already stripped) — also the escape path
+/// for the tools-revert snapshot, whose field is a prebuilt JSON
+/// document rather than a plain string.
+fn escape_json_inner(inner: &str) -> String {
+    inner
+        // Entity hazard: a raw `&` could start a sequence the browser
+        // decodes into something else before the JS engine sees it.
+        .replace('&', "\\u0026")
+        // Script-context hygiene (the attribute never holds this raw).
+        .replace('<', "\\u003C")
+        // Quote that serde already escaped (`\"`): rewrite the pair
+        // to the bare unicode escape — leaving the backslash in place
+        // would decode as a literal backslash before the quote.
+        .replace("\\\"", "\\u0022")
+        // Attribute terminator: any remaining raw `"` (serde emits
+        // them for JSON structure, e.g. the snapshot's keys) would
+        // close the HTML attribute — rewrite to the equivalent
+        // unicode escape.
+        .replace('"', "\\u0022")
+        // Literal delimiter: serde does not escape apostrophes.
+        .replace('\'', "\\'")
+}
 
 /// The contract constants the templates interpolate. Kept as a local
 /// re-export so template expressions stay short.
@@ -281,6 +393,14 @@ pub struct PageTemplate {
     pub session_id: String,
     /// The session title.
     pub title: String,
+    /// The viewed session's busy flag, seeding the `busy` signal.
+    pub busy: bool,
+    /// The viewed session's current model label, seeding the
+    /// `modelLabel` signal the picker button binds its text to.
+    pub model_label: String,
+    /// The stream span's id — present so the shell's root fragment
+    /// and the full page agree on the rebind target's vocabulary.
+    pub stream_span_id: &'static str,
     /// The titlebar's model-picker button fragment (bare button; the
     /// page shell owns the `#model-picker` host span), rendered inline.
     pub button_html: String,
@@ -377,11 +497,6 @@ pub struct PageTemplate {
     /// The sessions pull's filter query parameter — the effect builds
     /// `?q=<text>` from it when a filter is in force.
     pub filter_query_param: &'static str,
-    /// The sessions pull's viewer query parameter — the effect builds
-    /// `&viewed=<id>` from it (when a session is viewed) so the
-    /// re-pulled list paints the viewed row, not the instance's
-    /// active one.
-    pub viewed_query_param: &'static str,
     /// The activate POST's route prefix — the rename editor's `@post`
     /// target builds `<prefix><id>/rename` from it.
     pub session_page_path: &'static str,
@@ -398,8 +513,13 @@ pub struct PageTemplate {
 }
 
 impl PageTemplate {
-    /// The no-session landing page: sessions list only, every other
-    /// region empty, cursor zero.
+    /// The no-session landing page: the full session-invariant chrome
+    /// (sessions list, menu, composer, model button, titled titlebar
+    /// span) with an empty transcript and no stream. Every region the
+    /// navigation's signal patches retarget must exist from the first
+    /// frame — the surviving DOM is what a navigation dresses, so the
+    /// landing render is the session render minus the session's
+    /// content.
     #[must_use]
     pub fn landing(
         sessions_html: String,
@@ -407,6 +527,16 @@ impl PageTemplate {
         attention_count: usize,
         web_theme: String,
     ) -> Self {
+        let controls_html = {
+            let rendered =
+                crate::templates::render(&crate::templates::ControlsTemplate::with_contract());
+            rendered.unwrap_or_default()
+        };
+        let button_html = {
+            let rendered =
+                crate::templates::render(&crate::templates::ModelButtonTemplate::with_contract());
+            rendered.unwrap_or_default()
+        };
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
@@ -414,8 +544,8 @@ impl PageTemplate {
             cursor: 0,
             sessions_html,
             transcript_html: String::new(),
-            controls_html: String::new(),
-            button_html: String::new(),
+            controls_html,
+            button_html,
             picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
             sessions_attention: attention_count,
@@ -436,7 +566,7 @@ impl PageTemplate {
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
             controls_id: contract::CONTROLS_ID,
-            session_title_id: "",
+            session_title_id: contract::SESSION_TITLE_ID,
             menu_id: contract::MENU_ID,
             drawer_scrim_id: contract::DRAWER_SCRIM_ID,
             menu_scrim_id: contract::MENU_SCRIM_ID,
@@ -445,10 +575,12 @@ impl PageTemplate {
             stream_url: String::new(),
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             theme_color: theme_color_for(&web_theme),
             web_theme,
+            busy: false,
+            model_label: String::new(),
+            stream_span_id: contract::STREAM_SPAN_ID,
         }
     }
 
@@ -465,6 +597,8 @@ impl PageTemplate {
     pub fn session(
         session_id: &str,
         title: String,
+        busy: bool,
+        model_label: String,
         cursor: usize,
         sessions_html: String,
         transcript_html: String,
@@ -512,21 +646,28 @@ impl PageTemplate {
             stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
             theme_color: theme_color_for(&web_theme),
             web_theme,
+            busy,
+            model_label,
+            stream_span_id: contract::STREAM_SPAN_ID,
         }
     }
 }
 
 /// The page-root fragment: exactly the shell's root `div` — the shape
 /// a navigation patch (`POST activate` / `POST session-new`) replaces
-/// the live root with. The full [`PageTemplate`] renders this same
-/// markup through the shared `page_root.html` include; this struct
-/// exists so the overlay patch carries only the root subtree (never a
-/// whole HTML document — the browser runtime morphs element patches,
-/// and a document-shaped patch would fight the page it lands in).
+/// the live root with. Chrome only, by the navigation-shape contract:
+/// the sessions container renders empty (the container's own tick
+/// effect is the one list fetch) and the transcript renders empty at
+/// cursor 0 (the new stream's catch-up is the one history transfer),
+/// so the response is bounded by chrome size regardless of session
+/// history. The full [`PageTemplate`] renders this same markup
+/// through the shared `page_root.html` include; this struct exists so
+/// the overlay patch carries only the root subtree (never a whole
+/// HTML document — the browser runtime morphs element patches, and a
+/// document-shaped patch would fight the page it lands in).
 #[derive(Template)]
 #[template(path = "page_root.html")]
 pub struct PageRootTemplate {
@@ -534,9 +675,10 @@ pub struct PageRootTemplate {
     pub session_id: String,
     /// The session title.
     pub title: String,
-    /// The sessions-list fragment.
+    /// The sessions-list fragment (empty on the navigation shapes).
     pub sessions_html: String,
-    /// The transcript fragment.
+    /// The transcript fragment (the empty template — `#streaming`
+    /// present, zero entries — on the navigation shapes).
     pub transcript_html: String,
     /// The composer-controls fragment.
     pub controls_html: String,
@@ -547,7 +689,9 @@ pub struct PageRootTemplate {
     pub picker_host_id: &'static str,
     /// The menu fragment.
     pub menu_html: String,
-    /// The rendered-entry cursor the inline transcript carries.
+    /// The rendered-entry cursor the inline transcript carries —
+    /// always 0 on the navigation shapes (the catch-up's starting
+    /// cursor; the stream URL carries `?since=0` to match).
     pub cursor: usize,
     /// The page-root id.
     pub page_root_id: &'static str,
@@ -594,16 +738,24 @@ pub struct PageRootTemplate {
     /// The sessions pull's filter query parameter — the effect builds
     /// `?q=<text>` from it when a filter is in force.
     pub filter_query_param: &'static str,
-    /// The sessions pull's viewer query parameter — the effect builds
-    /// `&viewed=<id>` from it (when a session is viewed) so the
-    /// re-pulled list paints the viewed row.
-    pub viewed_query_param: &'static str,
     /// The activate POST's route prefix — the rename editor's target.
     pub session_page_path: &'static str,
     /// The viewed session's stream URL (empty on the landing page) —
-    /// the `data-init` `@get` binding the root carries on session
-    /// pages, so a navigation patch re-opens the stream by itself.
+    /// the `data-init` `@get` binding the root's stream span carries
+    /// on session pages, so a fresh load opens the stream by itself.
     pub stream_url: String,
+    /// The stream span's id — the navigation response replaces this
+    /// span wholesale to rebind the stream (the old span's removal
+    /// cancels its fetch; the replacement's `data-init` opens the new
+    /// URL).
+    pub stream_span_id: &'static str,
+    /// The viewed session's busy flag, seeding the `busy` signal the
+    /// composer's spinner and button set bind their visibility to.
+    pub busy: bool,
+    /// The viewed session's current model label, seeding the
+    /// `modelLabel` signal the titlebar picker button binds its text
+    /// to.
+    pub model_label: String,
     /// The render-time unread-mark count — the menu's sessions
     /// button badge's seeded value in the root's signal seed.
     pub sessions_attention: usize,
@@ -613,9 +765,15 @@ pub struct PageRootTemplate {
 }
 
 impl PageRootTemplate {
-    /// Builds the root fragment for one viewed session — the same
-    /// shape `PageTemplate::session` renders inline (one field source,
-    /// two render targets).
+    /// Builds the root fragment for one viewed session — the
+    /// navigation shape: chrome with the transcript the caller
+    /// rendered (the empty template — `#streaming` present, zero
+    /// entries) and the sessions container empty. The constructor
+    /// accepts no sessions-HTML parameter by design: a navigation
+    /// response carries no rows, and a signature that still took the
+    /// fragment would invite a future caller to refill it (the list
+    /// travels only through the GET pull and the container's one
+    /// tick-effect fetch).
     #[must_use]
     #[expect(
         clippy::too_many_arguments,
@@ -624,8 +782,8 @@ impl PageRootTemplate {
     pub fn session(
         session_id: &str,
         title: String,
-        cursor: usize,
-        sessions_html: String,
+        busy: bool,
+        model_label: String,
         transcript_html: String,
         controls_html: String,
         button_html: String,
@@ -636,14 +794,16 @@ impl PageRootTemplate {
         Self {
             session_id: session_id.to_owned(),
             title,
-            cursor,
-            sessions_html,
+            cursor: 0,
+            sessions_html: String::new(),
             transcript_html,
             controls_html,
             button_html,
             picker_host_id: contract::MODEL_PICKER_ID,
             menu_html,
             sessions_attention: attention_count,
+            busy,
+            model_label,
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -666,12 +826,28 @@ impl PageRootTemplate {
             error_notice_id: contract::ERROR_NOTICE_ID,
             sessions_route: contract::SESSIONS_ROUTE,
             filter_query_param: contract::SESSIONS_FILTER_QUERY_PARAM,
-            viewed_query_param: contract::SESSIONS_VIEWED_QUERY_PARAM,
             session_page_path: contract::SESSION_PAGE_PREFIX,
-            stream_url: format!("{}{session_id}?since={cursor}", contract::STREAM_PREFIX),
+            stream_url: format!("{}{session_id}?since=0", contract::STREAM_PREFIX),
+            stream_span_id: contract::STREAM_SPAN_ID,
             web_theme,
         }
     }
+}
+
+/// The stream span: the SSE-bind element the navigation response
+/// replaces wholesale to rebind the stream. The old span's removal
+/// cancels its in-flight fetch (`requestCancellation: 'cleanup'`) and
+/// the replacement's `data-init` opens the new session's URL.
+#[derive(Template)]
+#[template(
+    source = "<span id=\"{{ stream_span_id }}\" data-init=\"@get('{{ stream_url }}', {openWhenHidden: true, retryMaxCount: Infinity, requestCancellation: 'cleanup'})\"></span>",
+    ext = "html"
+)]
+pub struct StreamSpanTemplate {
+    /// The span's contract id.
+    pub stream_span_id: &'static str,
+    /// The new session's stream URL (cursor 0 — the fresh catch-up).
+    pub stream_url: String,
 }
 
 /// One transcript entry of the transcript fragment.
@@ -788,11 +964,8 @@ impl SessionsTemplate {
 #[derive(Template)]
 #[template(path = "controls.html")]
 pub struct ControlsTemplate {
-    /// The session the composer targets.
-    pub session_id: String,
-    /// Whether the session is busy (true renders the cancel button).
-    pub busy: bool,
-    /// The streaming spinner's id (rendered only while busy).
+    /// The streaming spinner's id — always rendered, its visibility
+    /// bound to the `busy` signal.
     pub spinner_id: &'static str,
     /// The form container's id.
     pub composer_id: &'static str,
@@ -823,17 +996,19 @@ pub struct ControlsTemplate {
     pub file_input_id: &'static str,
     /// The visible attach label's id (the file input's click proxy).
     pub attach_button_id: &'static str,
-    /// The queue button's label (busy fragment only).
+    /// The queue button's label (visible only while busy, via the
+    /// `busy` signal binding).
     pub queue_label: &'static str,
 }
 
 impl ControlsTemplate {
-    /// Builds the template with the contract's hooks filled.
+    /// Builds the template with the contract's hooks filled. The
+    /// fragment is session- and phase-invariant: every per-session
+    /// detail (target id, busy state) rides the `$viewedSession` and
+    /// `$busy` signals, so the markup never needs re-rendering.
     #[must_use]
-    pub fn with_contract(session_id: String, busy: bool) -> Self {
+    pub fn with_contract() -> Self {
         Self {
-            session_id,
-            busy,
             spinner_id: contract::BUSY_SPINNER_ID,
             composer_id: contract::COMPOSER_ID,
             input_id: contract::INPUT_ID,
@@ -876,13 +1051,10 @@ pub struct MenuTemplate {
     pub menu_item_sessions_id: &'static str,
     /// The new-session item's id ("New session").
     pub menu_item_new_session_id: &'static str,
-    /// The persona item's id ("Persona"); rendered only when a session
-    /// is viewed.
+    /// The persona item's id ("Persona"); hidden client-side while
+    /// nothing is viewed (the menu markup is session-invariant, so a
+    /// navigation never re-renders it).
     pub menu_item_persona_id: &'static str,
-    /// Whether a session is viewed — the persona item's render gate.
-    /// Persona binds per-session and the landing page views nothing,
-    /// so the server omits the item rather than hiding it client-side.
-    pub has_session: bool,
     /// The attribute a button names its action with.
     pub action_attr: &'static str,
     /// The menu item's action name.
@@ -894,8 +1066,8 @@ pub struct MenuTemplate {
     /// The new-session modal host's id — the pull's swap target.
     pub session_new_host_id: &'static str,
     /// The persona-picker pull's URL prefix — the persona item's
-    /// `@get` target is `<prefix><viewed session id>`.
-    pub persona_picker_url: String,
+    /// `@get` target is `<prefix>` + `$viewedSession`.
+    pub persona_picker_prefix: &'static str,
     /// The persona modal host's CSS selector — the pull's swap target.
     pub persona_modal_host_selector: &'static str,
     /// The MCP item's id ("MCP servers"); rendered only when a session
@@ -903,8 +1075,8 @@ pub struct MenuTemplate {
     /// rule).
     pub menu_item_mcp_id: &'static str,
     /// The MCP pull's URL prefix — the MCP item's `@get` target is
-    /// `<prefix><viewed session id>`.
-    pub mcp_picker_url: String,
+    /// `<prefix>` + `$viewedSession`.
+    pub mcp_picker_prefix: &'static str,
     /// The MCP modal host's CSS selector — the pull's swap target.
     pub mcp_modal_host_selector: &'static str,
     /// The tools item's id ("Tools"); rendered only when a session is
@@ -913,7 +1085,7 @@ pub struct MenuTemplate {
     pub menu_item_tools_id: &'static str,
     /// The tools pull's URL prefix — the tools item's `@get` target is
     /// `<prefix><viewed session id>`.
-    pub tools_picker_url: String,
+    pub tools_picker_prefix: &'static str,
     /// The tools modal host's CSS selector — the pull's swap target.
     pub tools_modal_host_selector: &'static str,
     /// The skills item's id ("Skills"); rendered only when a session
@@ -922,7 +1094,7 @@ pub struct MenuTemplate {
     pub menu_item_skills_id: &'static str,
     /// The skills pull's URL prefix — the skills item's `@get` target
     /// is `<prefix><viewed session id>`.
-    pub skills_picker_url: String,
+    pub skills_picker_prefix: &'static str,
     /// The skills modal host's CSS selector — the pull's swap target.
     pub skills_modal_host_selector: &'static str,
     /// The render-time unread-mark count — the badge's seeded value.
@@ -949,12 +1121,10 @@ pub struct MenuTemplate {
 impl MenuTemplate {
     /// Builds the template with the contract's hooks filled.
     ///
-    /// `viewed_session` is the page's viewed session id — empty on the
-    /// landing page, which omits the persona item entirely.
     /// `attention_count` seeds the sessions button's unread count —
     /// the render-time fact the live signal updates between renders.
     #[must_use]
-    pub fn with_contract(viewed_session: &str, attention_count: usize) -> Self {
+    pub fn with_contract(attention_count: usize) -> Self {
         Self {
             menu_id: contract::MENU_ID,
             sessions_button_id: contract::SESSIONS_BUTTON_ID,
@@ -965,22 +1135,21 @@ impl MenuTemplate {
             menu_item_sessions_id: contract::MENU_ITEM_SESSIONS_ID,
             menu_item_new_session_id: contract::MENU_ITEM_NEW_SESSION_ID,
             menu_item_persona_id: contract::MENU_ITEM_PERSONA_ID,
-            has_session: !viewed_session.is_empty(),
             action_attr: contract::ACTION_DATA_ATTR,
             menu_action: contract::ACTION_MENU_SESSIONS,
             menu_new_session_action: contract::ACTION_MENU_NEW_SESSION,
             session_new_path: contract::SESSION_NEW_ROUTE,
             session_new_host_id: contract::SESSION_NEW_MODAL_HOST_ID,
-            persona_picker_url: format!("{}{viewed_session}", contract::PERSONA_PICKER_PREFIX),
+            persona_picker_prefix: contract::PERSONA_PICKER_PREFIX,
             persona_modal_host_selector: contract::PERSONA_MODAL_HOST_SELECTOR,
             menu_item_mcp_id: contract::MENU_ITEM_MCP_ID,
-            mcp_picker_url: format!("{}{viewed_session}", contract::MCP_PICKER_PREFIX),
+            mcp_picker_prefix: contract::MCP_PICKER_PREFIX,
             mcp_modal_host_selector: contract::MCP_MODAL_HOST_SELECTOR,
             menu_item_tools_id: contract::MENU_ITEM_TOOLS_ID,
-            tools_picker_url: format!("{}{viewed_session}", contract::TOOLS_PICKER_PREFIX),
+            tools_picker_prefix: contract::TOOLS_PICKER_PREFIX,
             tools_modal_host_selector: contract::TOOLS_MODAL_HOST_SELECTOR,
             menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
-            skills_picker_url: format!("{}{viewed_session}", contract::SKILL_PICKER_PREFIX),
+            skills_picker_prefix: contract::SKILL_PICKER_PREFIX,
             skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
             menu_item_theme_id: contract::MENU_ITEM_THEME_ID,
             menu_item_theme_light_id: contract::MENU_ITEM_THEME_LIGHT_ID,
@@ -1001,28 +1170,27 @@ impl MenuTemplate {
 #[derive(Template)]
 #[template(path = "model_button.html")]
 pub struct ModelButtonTemplate {
-    /// The session the picker targets.
-    pub session_id: String,
-    /// The current selection's label.
-    pub current: String,
     /// The button's id.
     pub button_id: &'static str,
-    /// The modal-open pull's URL (unfiltered) — the button's `@get`.
-    pub picker_url: String,
+    /// The modal-open pull's URL prefix — the button's `@get` target
+    /// is `<prefix>` + `$viewedSession`.
+    pub picker_prefix: &'static str,
     /// The modal host span's id — the pull's swap target.
     pub modal_host_id: &'static str,
 }
 
 impl ModelButtonTemplate {
-    /// Builds the template with the contract's hooks filled.
+    /// Builds the template with the contract's hooks filled. The
+    /// fragment is session- and selection-invariant: the label binds
+    /// the `modelLabel` signal and the pull URL composes
+    /// `$viewedSession` client-side, so the markup never needs
+    /// re-rendering.
     #[must_use]
-    pub fn with_contract(session_id: String, current: String) -> Self {
+    pub fn with_contract() -> Self {
         Self {
-            picker_url: format!("{}{session_id}", contract::MODEL_PICKER_PREFIX),
+            picker_prefix: contract::MODEL_PICKER_PREFIX,
             button_id: contract::MODEL_PICKER_BUTTON_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
-            session_id,
-            current,
         }
     }
 }
@@ -1635,7 +1803,14 @@ impl ToolsModalTemplate {
                     // A filter is a map and a set of plain strings; a
                     // serialization failure is unreachable. Rendering
                     // `null` degrades to "no revert on dismiss" — the
-                    // safe side of the failure.
+                    // safe side of the failure. The snapshot rides the
+                    // single-quoted string literal the revert POST
+                    // echoes back (the server parses the JSON text),
+                    // and askama's HTML escape renders the JSON's `"`
+                    // as `&#34;` — the browser decodes entities at the
+                    // attribute boundary before the Datastar runtime
+                    // evaluates the expression, so the JS engine sees
+                    // the pristine literal.
                     .map_or_else(|_| "null".to_owned(), |json| format!("'{json}'"))
             },
         );
