@@ -535,13 +535,23 @@ mod tests {
         let _ = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2);
         let _ = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2);
 
-        // When a differing call completes, then two repeats follow.
+        // When a differing call completes, then repeats follow: with the
+        // 2-deep basis the differing call debits the banked repeat once,
+        // but the remembered X re-banks on its next occurrence —
+        // X X Y X X spends the budget of 2 at the fifth call. An
+        // alternating loop cannot dodge the accumulator by interleaving;
+        // that shape is exactly why the basis is 2 deep.
         let _ = actor.on_call_completed(&session, "bash", "just check", "ok", 2);
         let _ = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2);
-
-        // Then only one repeat is banked: no nudge yet.
         let actions = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2);
-        assert!(actions.is_empty(), "the debit repaid the first repeat");
+
+        // Then the budget still spent: the interleaved call delayed the
+        // nudge by exactly one call.
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            RepeatWatchdogAction::Nudge(_, _)
+        ));
     }
 
     #[rstest::rstest]

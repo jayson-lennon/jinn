@@ -513,10 +513,16 @@ mod tests {
         let _ = actor.on_call_completed(&session, "bash", "just check", "ok", 2, 0.85, 500);
         let _ = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2, 0.85, 500);
 
-        // Then only one repeat is banked: no nudge yet.
+        // Then the budget still spent: with the 2-deep basis the
+        // differing call debits the banked repeat once, but the
+        // remembered pair re-banks on its next occurrence — X X' Y X X'
+        // spends the budget of 2 at the fifth call. An alternating loop
+        // cannot dodge the accumulator by interleaving; that shape is
+        // exactly why the basis is 2 deep.
         let actions =
             actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
-        assert!(actions.is_empty(), "the debit repaid the first near-repeat");
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(&actions[0], FuzzyWatchdogAction::Nudge(_, _)));
     }
 
     #[rstest::rstest]
