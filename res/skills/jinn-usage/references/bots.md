@@ -236,6 +236,10 @@ sessions, forks, subagents, and standalone bots; a bot **with a parent**
 stays where it is: a shelved parent-completed bot parks its trigger,
 and a parent link is permanent once made.
 
+The web UI has the same Library: the sidebar's **Sessions | Library**
+toggle shows its members in a flat list, and a row's `⋮` menu adds the
+session to the Library or removes it (`sessions-and-subagents.md`).
+
 ## Saved bots (`[[bot.entry]]`)
 
 A bot saved from the properties popup becomes one `[[bot.entry]]` block

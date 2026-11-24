@@ -58,5 +58,14 @@ build an applet from scratch. Either way:
   them. The picker rescans when opened, so external changes show up; an
   applet whose directory is deleted disappears from the list.
 
+**In the web UI**, the menu button's **Applets** item opens the same
+list as a modal: every saved applet, newest first, with a filter bar and
+the same status line (`<server offline>` until the server wakes, then
+`serving http://…`). Opening the modal wakes the server, and its rows
+refresh by themselves once it is up. Clicking a title opens the applet
+in a **new browser tab**; while the server is offline the rows are
+inert. There is no kiosk window, rename, or delete on the web — those
+stay in the TUI picker.
+
 Renaming and deleting in the picker rewrite the catalog: the picker,
 not the file, is the source of truth for titles and order.

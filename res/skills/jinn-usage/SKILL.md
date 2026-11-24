@@ -1,13 +1,14 @@
 ---
 name: jinn-usage
-description: Explain and configure jinn, the terminal agent harness: keybindings, workflows (pinning, forking, subagents, MCP, terminal overlay, dictation, Discord, canvas/applets, providers), browser automation (headed Chrome via the browser MCP or Lua host functions), the embedded Luau scripting runtime (`jinn luau`), adding new capability (MCP servers, skills, prompts, personas, themes), system prompt assembly, and jinn.toml/providers.toml configuration. Answers "what is this on screen / where is feature X" UI-identification questions via the ui-map reference. Use when the user asks how to do something in jinn, what a key does, how a feature works, what a UI element is or where it lives on screen, wants to add or extend a feature, or wants a behavior changed via configuration. Offer to edit the user's config when an ask maps to a TOML setting; config edits reload when saved, and the skill says when each change takes effect.
+description: Explain and configure jinn, the terminal agent harness: keybindings, workflows (pinning, forking, subagents, MCP, terminal overlay, dictation, Discord, canvas/applets, providers), the web UI (the browser page a running jinn serves: sessions, transcript, composer, pickers), browser automation (headed Chrome via the browser MCP or Lua host functions), the embedded Luau scripting runtime (`jinn luau`), adding new capability (MCP servers, skills, prompts, personas, themes), system prompt assembly, and jinn.toml/providers.toml configuration. Answers "what is this on screen / where is feature X" UI-identification questions via the ui-map reference, for the terminal and the web UI. Use when the user asks how to do something in jinn, what a key does, how a feature works, what a UI element is or where it lives on screen, how to open or use the web UI in a browser, wants to add or extend a feature, or wants a behavior changed via configuration. Offer to edit the user's config when an ask maps to a TOML setting; config edits reload when saved, and the skill says when each change takes effect.
 ---
 
 # jinn Usage Guide
 
 You are explaining **jinn**, a TUI agent harness with multi-session support,
 Vim-style keybinds, and fine-grained context management, to a user who is
-running it right now.
+running it right now. The same instance also serves a **web UI** — a browser
+page onto the same sessions — so most features have a TUI and a web way.
 
 ## How to answer
 
@@ -19,21 +20,31 @@ running it right now.
    right?" Identify the surface by name and position in the map, then
    cross-link to the feature reference that owns its behavior. Answer with
    the surface's name, its position, and how to interact with it.
-3. **Answer with real keybinds.** Every instruction cites a concrete binding:
+3. **Decide which surface the user is on: the TUI or the web UI.** jinn
+   serves both from one instance — same sessions, same active session. The
+   web UI is a browser page with no keybinds: every action is a click. Say
+   "browser", "web UI", or a URL, or name a web-only element (the `☰` menu,
+   the **Send** / `Q` / **Cancel** buttons) → read `references/webui.md`
+   first. Unsaid → answer for the TUI, and when the feature also exists on
+   the web add one line for it (each feature reference carries its web
+   passage beside the TUI one). A feature the web lacks is listed under
+   "What the web does not do" there — say it is TUI-only; never describe a
+   web control that does not exist.
+4. **Answer with real keybinds.** Every instruction cites a concrete binding:
    "press `p` in normal mode to pin", never "use the pin command". What's
    written here is the **defaults**; the user may be running different ones.
    When the exact key matters, tell them to press `?` (or `<f1>` in input
    mode) for the which-key popup, which shows the bindings live in the
    current scope.
-4. **Walk workflows as sequences.** Anchor each step to its binding. Name the
+5. **Walk workflows as sequences.** Anchor each step to its binding. Name the
    mode or scope it applies in. State the side effects: what enters or
    leaves context, what gets persisted.
-5. **Configuration asks → read `references/configuration.md` first.** Follow
+6. **Configuration asks → read `references/configuration.md` first.** Follow
    its protocol: explain the mechanism, show a snippet, offer to apply it to
    the user's config file. Config edits reload when saved; say when the
    change takes effect per its category table (re-read at next use,
    deferred update, new session only).
-6. **If it isn't covered, say so.** Don't invent a binding: a wrong bind
+7. **If it isn't covered, say so.** Don't invent a binding: a wrong bind
    costs the user more than an "I don't know" does.
 
 ## Adjusting your own session's capabilities
@@ -65,12 +76,13 @@ the current truth) and echo that.
 
 | File                                   | Covers                                                                                     |
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `references/ui-map.md`                 | The on-screen surfaces: layout diagram, what each element is, where it sits, its keys      |
+| `references/ui-map.md`                 | The on-screen surfaces, TUI and web UI: layout diagrams, what each element is, where it sits, its keys |
+| `references/webui.md`                  | The web UI itself: how to open it, its pages, its buttons, what the web cannot do — the hub that routes to each feature's web passage |
 | `references/keybindings.md`            | Every scope's default bindings, categorized                                                |
 | `references/context-management.md`     | Pinning, context toggles, isolate, compaction/pruning tuning                               |
-| `references/sessions-and-subagents.md` | Sessions, forks, the session tree, subagents/tasks                                         |
+| `references/sessions-and-subagents.md` | Sessions (create, switch, rename), the Library, forks, the session tree, subagents/tasks |
 | `references/bots.md`                  | Bots: properties popup, triggers, `[[bot.entry]]`, report history, the Library               |
-| `references/pickers-and-search.md`     | The `<leader>s*` pickers (incl. the web UI's Tools view), session search                   |
+| `references/pickers-and-search.md`     | The `<leader>s*` pickers (incl. the web UI's Tools and Skills modals), session search      |
 | `references/terminal-overlay.md`       | Interactive terminal overlay, control mode                                                 |
 | `references/mcp-servers.md`            | MCP server config, enabling, the inspector                                                 |
 | `references/discord.md`                | The Discord bot: forum threads as sessions, the commands, authorization, `gdc`             |
