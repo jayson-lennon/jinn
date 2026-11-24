@@ -900,3 +900,8 @@ Entries are added or amended **only with human approval**.
 - (webui) Clipboard paste in the web composer is handled by a vendored, sha256-pinned paste.js riding the vendor manifest. BECAUSE: Datastar's expressions are synchronous and cannot drive the async FileReader a paste needs.
 - (webui) Web-attached images ride the existing EnqueueUserMessage entry payload; no new bus schema exists for them. BECAUSE: the actor's attachment field and vision gate already own the semantics, and the command's ~47 construction sites say its shape is not to be touched lightly.
 ain
+
+- (webui) The web sidebar shows one session list at a time, chosen by a Sessions|Library segmented toggle; the library is never a second stacked section. BECAUSE: a permanent second section re-creates the clutter the split exists to avoid, and a toggle scales better on the web's scrollable, mobile-heavy surface.
+- (webui) The web sessions list excludes library members, loaded or archived, on both its pull and refresh render paths. BECAUSE: parity with the TUI's `is_listed` rule — membership hides a session from the sessions list on every surface.
+- (webui) Web session rows expose per-row actions through a three-dot popup menu, not dedicated row chrome, and the menu's entries are declared as data. BECAUSE: the user wants a general per-row action surface that will later carry archive and teardown entries.
+- (webui) Activating an archived library member reuses the ordinary session-activate POST with no unarchive special case. BECAUSE: the web lists archived sessions by design, so unarchive-then-view is already the normal web flow.
