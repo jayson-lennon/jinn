@@ -19,7 +19,7 @@ One more slash command works the same way in the input box: `/export`
 (write the session to a self-contained file). Context summarization is
 handoff compaction's job — see `context-management.md`.
 
-The **web UI** creates sessions too: the titlebar hamburger menu carries a
+The **web UI** creates sessions too: the menu button (top-left `☰`) carries a
 **New session** item that opens a modal over the page. Pick a project (the
 curated `[[project.entry]]` list — required; with none configured the modal
 says so), a lifecycle recipe (blank first, its args input appears only when
@@ -37,12 +37,23 @@ fetches once per page load; navigation costs no list retransmission
 list's tick once so the surviving sidebar picks up the new row).
 
 On a phone-width browser (under 768px) the session list is an off-canvas
-drawer, and the titlebar's sessions button (`#`, beside the hamburger)
+drawer, and the titlebar's sessions button (`#`, beside the menu button)
 opens it in one tap — no menu hop. The button turns yellow with a count
 badge when background sessions settled work you haven't viewed (the same
 unread mark that yellows the sidebar rows); activating a session clears its
 mark. At desktop widths the button is hidden — the sidebar is already on
 screen.
+
+The web UI renames a session too: click the title in the session page's
+titlebar, edit it, and press `Enter` (`Esc` or clicking away cancels). The
+title is the only session action on the web — archiving, closing, and
+tearing down are TUI-only, as is forking.
+
+The sidebar's **Sessions | Library** toggle switches the list between
+ordinary sessions and Library members. Membership is changed from the
+row's `⋮` menu — **add to library** / **remove from library** — and the
+row moves between the two lists on every open page without a reload.
+Opening an archived Library member loads it like any other row.
 
 A **lifecycle recipe** is a named pair of setup/teardown commands configured
 in `jinn.toml` (`[[session_lifecycle.script]]`, e.g. open a fossil branch

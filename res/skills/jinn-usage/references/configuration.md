@@ -9,7 +9,7 @@ accept the offer; that choice is theirs.
 
 | File             | Location                          | Contents                                                                                                                                                                           |
 | ---------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, handoff compaction, auto-prune, stream rules, web search, Discord, interactive terminal, remote surface, canvas/applets binds, shell paths, session retention |
+| `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, handoff compaction, auto-prune, stream rules, web search, Discord, interactive terminal, remote surface, canvas/applets binds, web UI bind, shell paths, session retention |
 | `providers.toml` | `~/.config/jinn/providers.toml`   | Providers, API keys, base URLs, per-model metadata                                                                                                                                 |
 | themes           | `~/.config/jinn/themes/*.toml`    | Color themes (picked with `<leader>sh`)                                                                                                                                            |
 | personas         | `~/.config/jinn/personas/*.md`    | Persona templates (markdown + TOML frontmatter)                                                                                                                                    |
@@ -31,7 +31,7 @@ one of three schedules:
 | Category | What it covers | When the edit takes effect |
 | --- | --- | --- |
 | **Re-read at next use** | `[tools]` timeouts & output caps, `[chat_log]`, `[context_curation.handoff_compaction]`, `[context_curation.auto_prune]`, `[provider.request_retry]`, `[provider.web_search]`, `[ui.cwd_selector]`, `[ui.minimap]`, every `[watchdog.*]` section, `[term]` settle keys, `[maintenance]`, `[[bot.entry]]` (next picker open or bot creation), `[[session_lifecycle.script]]`, `[[project.entry]]` | immediately: these items read the config on demand, so the next tool call, compaction, or picker open uses the new value |
-| **Deferred update** | `[canvas]`, `[applets]`, `[remote]` binds; `[discord]`; `[dictation]`; `[shell]`; `[mcp.<name>]` entries; `providers.toml` (registry, keys, models, `[[endpoint_defaults]]`); `stream_rules.toml` | when the affected piece next reconnects or rebuilds: sockets rebind, Discord applies when the bot next goes idle, dictation at the next arm, an edited MCP server entry reconnects it, provider settings apply when the next stream opens |
+| **Deferred update** | `[canvas]`, `[applets]`, `[remote]` binds; `[webui]` bind (next launch — it is frozen while running); `[discord]`; `[dictation]`; `[shell]`; `[mcp.<name>]` entries; `providers.toml` (registry, keys, models, `[[endpoint_defaults]]`); `stream_rules.toml` | when the affected piece next reconnects or rebuilds: sockets rebind, Discord applies when the bot next goes idle, dictation at the next arm, an edited MCP server entry reconnects it, provider settings apply when the next stream opens |
 | **New session only** | `[tools].tool_filter`, `[skills].skill_filter`, the session's enabled-MCP set (`auto_enable = true`) | in sessions created after the edit: existing sessions keep their picker/session configuration, which is the point. A session's pickers (`<leader>st` / `<leader>sk` / `<leader>sM`) are that session's control |
 
 A malformed or invalid edit is refused: the previous values stay in
@@ -393,6 +393,21 @@ and curl examples; `jinn remote send|instances`):
 A non-loopback bind aborts the launch outright: the surface ships with
 loopback as its only protection, so jinn accepts loopback binds alone.
 The resolved port is what `jinn remote instances` reports.
+
+**Web UI** (the browser page jinn serves beside the TUI; usage in
+`webui.md`). It has **no login** — keep it on loopback or behind a VPN
+or SSH tunnel you secure:
+
+```toml
+[webui]
+bind = "127.0.0.1:8387"   # default: loopback, fixed port (bookmarkable)
+```
+
+The bind is read once at launch; an edit applies at the next restart,
+never live — reconnecting every open page's live stream to a new
+address is not possible. Port `0` picks a fresh port each launch; the
+resolved URL is on the Dashboard tab's **webui** row. Unlike `[remote]`,
+a non-loopback bind is accepted as configured.
 
 **Watchdogs** (turn health; these cancel a turn that has gone bad):
 

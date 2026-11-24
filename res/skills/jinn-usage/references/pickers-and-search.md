@@ -55,8 +55,8 @@ highlights:
 - **Tool / Skill**: `<Tab>` toggles the highlighted entry on/off for this
   session. Toggles are per-session and persist for the session; the
   `tool_filter` / `skill_filter` defaults in `jinn.toml` stay as written.
-- **Tool, in the web UI**: the browser surface mirrors the tool picker's
-  seed and commit. Open the hamburger menu (top-left `☰`) on a session
+- **Tool, in the web UI**: the web mirrors the tool picker's
+  seed and commit. Open the menu button (top-left `☰`) on a session
   page and pick **Tools**. The modal lists the registry's tools for the
   viewed session — provider-gated (tools the current provider cannot run
   are absent), bot-gated (`conclude` always for a bot, `notify_parent`
@@ -69,7 +69,7 @@ highlights:
   click **reverts** to the filter the session held when the modal
   opened, absence included. The item does not render on the landing
   page (nothing is viewed there), and there is no context-cost figure
-  on the web surface — that stays TUI-only. A text filter bar (styled
+  on the web — that stays TUI-only. A text filter bar (styled
   like the persona and model filters') narrows the rows server-side on
   every keystroke with the matches highlighted; toggling under a
   filter keeps the filtered view, and the revert still restores the
@@ -85,6 +85,16 @@ highlights:
   pinned tool-result pair. The picker stays open so you can load several, and
   loading auto-enables a disabled skill. `<c-u>`/`<c-d>` scroll the markdown
   preview; `<c-r>` re-scans skill directories.
+- **Skill, in the web UI**: the menu button's **Skills** item (session
+  pages only) opens the same list for the viewed session — name,
+  description, and a `●` / `○` enabled mark, with the filter bar narrowing
+  it server-side. Clicking a row toggles the skill at once, the TUI
+  `<Tab>` + `<enter>` result with no staging. Each row's `+` is the web's
+  `<c-l>`: it loads the skill's body into context, auto-enabling a disabled
+  skill; loading one that is already loaded appends an "already loaded"
+  notice instead of a second copy. The modal refreshes itself when a
+  skill scan lands. The markdown preview and the context-cost footer are
+  TUI-only.
 - **MCP server**: `<Tab>` stages enable/disable. `<enter>` applies the staged
   toggles (enabling spawns the server, disabling kills it); `<esc>` reverts
   to how the picker opened. `<c-r>` restarts, `<c-t>` flips the preview pane

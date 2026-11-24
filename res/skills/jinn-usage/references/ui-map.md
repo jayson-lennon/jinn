@@ -1,13 +1,16 @@
 # UI Map: what is on screen
 
-Identifies every surface jinn draws. When the user asks "what is the thing on
-the right / at the bottom / above the input", find it here by position or
-appearance, then follow the cross-link for how it behaves.
+Identifies every surface jinn draws, in the terminal and in the browser
+web UI. When the user asks "what is the thing on the right / at the
+bottom / above the input", find it here by position or appearance, then
+follow the cross-link for how it behaves. If the ask does not say which
+surface, check both layouts.
 
 This file is **defaults** for the *layout*; the keys shown are the default
 bindings and may be rebound. The which-key popup (`?` in normal-like scopes,
 `<f1>` in input mode) shows the bindings live in the current scope, and the
-live screen is the truth if this file and your build disagree.
+live screen is the truth if this file and your build disagree. The
+web UI has no keybinds — it is all clicks (see [Web UI layout](#web-ui-layout)).
 
 ## Layout
 
@@ -154,6 +157,56 @@ stream rules. One popup each; keys and the full table live in
 `pickers-and-search.md`. Picker footers show a context-cost figure where it
 applies.
 
+## Web UI layout
+
+The browser page jinn serves beside the TUI (what it is and how to open
+it: `webui.md`). At desktop widths it is a session list on the left and
+the session on the right:
+
+```text
+┌──────────────┬──────────────────────────────────────────────┐
+│ # ☰  Title                 [model ▾]  ← titlebar (1 row)     │
+├──────────────┼──────────────────────────────────────────────┤
+│ Sessions     │                                              │
+│ [Sessions|   │  Transcript                                  │
+│  Library]    │  (scrolling conversation)                    │
+│ [filter…]    │                                              │
+│              │                                              │
+│ ▎Session A ⋮ │                     ↻  ← spinner, while busy  │
+│  Session B ⋮ ├──────────────────────────────────────────────┤
+│  Session C ⋮ │ [Message…            ] [+] [Q] [Cancel]      │
+│              │                    or [+] [Send]  ← composer  │
+└──────────────┴──────────────────────────────────────────────┘
+  sidebar                   main
+```
+
+The landing page (`/web`) is the left column only. Everything in the
+titlebar sits at the top of the main column.
+
+| Element | What it is | See |
+| --- | --- | --- |
+| `☰` (top-left) | The menu button. Opens a full-height slide-in panel: New session, Persona, MCP servers, Tools, Skills, Applets, Sessions, and a Light/Dark/System control at its foot. The per-session items are hidden on the landing page. | `webui.md`, then the feature's reference |
+| `#` + count (left of the title, phone widths only) | The sessions button: opens the session drawer. Turns **yellow** with a number when background sessions finished work you have not viewed. | `sessions-and-subagents.md` |
+| Title | The session's title. Click it to rename. | `sessions-and-subagents.md` |
+| `[model]` (titlebar, right) | The model picker button, naming the current model. | `models-and-providers.md` |
+| Sidebar `Sessions \| Library` | Switches the list between sessions and Library members. | `sessions-and-subagents.md`, `bots.md` |
+| Sidebar `filter…` box | Narrows the list with the session picker's fuzzy match. | `models-and-providers.md` |
+| **Blue** session row | The session this page is viewing. | `models-and-providers.md` |
+| **Yellow** session row | A session that finished work while you were not viewing it. | `models-and-providers.md` |
+| `· bot` after a row's title | A bot session. | `bots.md` |
+| `↻` before a row's title | That session is working right now. | `sessions-and-subagents.md` |
+| `⋮` on a session row | The row's action menu: add to / remove from the Library. | `sessions-and-subagents.md` |
+| Transcript | The conversation: markdown, collapsible thinking and tool blocks, a Sources list under entries that cite. | `webui.md` |
+| `↻` above the composer | The session is working. | `webui.md` |
+| `[+]` | Attach an image. | `chat-input-tokens.md` |
+| `Message…` box | The composer. `Enter` inserts a newline; it never sends. | `webui.md` |
+| `[Q]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui.md` |
+| `[Send]` (while idle) | Send the message. | `webui.md` |
+| "Loading session…" card | A full-page overlay while a clicked session's page loads. | `sessions-and-subagents.md` |
+
+On a phone (under 768px) the sidebar slides off-canvas and the `#`
+button appears; details are in `webui.md`.
+
 ## Feature → screen location (reverse lookup)
 
 | If asked about… | It lives in |
@@ -175,3 +228,7 @@ applies.
 | Interactive shell | Terminal overlay (`<M-t>`) |
 | Persona in use | Persona sidebar section |
 | Every `<leader>s*` chooser | Pickers (see `pickers-and-search.md`) |
+| The web UI's address | Dashboard tab, **webui** row |
+| The browser page's `☰` / `#` / `[model]` buttons | Web UI titlebar |
+| A blue or yellow session row, a spinning row, `⋮` | Web UI sidebar |
+| The browser page's Send / `Q` / Cancel buttons | Web UI composer |

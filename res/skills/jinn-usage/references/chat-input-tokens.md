@@ -41,9 +41,9 @@ files (directories with trailing slashes) as you type.
   rendering on any terminal with `[graphics] protocol = "halfblocks"`
   in jinn.toml — it applies live and needs no detection.
 
-## The browser UI's composer: image attachments
+## The web UI's composer: image attachments
 
-The web composer takes images three ways, all ingested when you send:
+The web UI's composer takes images three ways, all ingested when you send:
 
 - **Paste** a screenshot (or any image) from the clipboard — anywhere on
   the page.
@@ -60,6 +60,10 @@ sent message in the transcript, and the same vision gate applies: a
 model not confirmed image-capable blocks the attachment (mark it via
 `[[providers.model_info]]` `input_modalities` in providers.toml — the
 webui honors the marker even before the first model refresh).
+
+The three `#` / `@` / `/` tokens above do not exist in the web composer:
+text is sent verbatim. And the message goes out only through the **Send**
+button — `Enter` inserts a newline (`webui.md`).
 
 ## `/command`: command popup
 
