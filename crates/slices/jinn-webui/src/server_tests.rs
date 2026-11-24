@@ -32,7 +32,7 @@ use crate::server::router;
 /// offering `openai/gpt-4o`, so the picker renders an available row the
 /// switch endpoint accepts), and a recording bus. Returns the parts a
 /// test manipulates and asserts against.
-fn harness() -> (State, BusAudit, Slices, axum::Router) {
+pub(super) fn harness() -> (State, BusAudit, Slices, axum::Router) {
     let slices = Slices::new();
     let provider_cell = slices
         .register(
@@ -142,14 +142,14 @@ fn harness_registry() -> jinn_provider_config::ProviderRegistry {
 
 /// Inserts a fresh live session whose id is returned, so callers use
 /// the session's own id rather than pre-fabricating one.
-fn seed_session(state: &State) -> SessionId {
+pub(super) fn seed_session(state: &State) -> SessionId {
     let session = jinn_session_state::ChatSessionState::new();
     let id = session.session_id().clone();
     state.write().session.insert(session);
     id
 }
 
-async fn get(router: &axum::Router, uri: &str) -> (StatusCode, String) {
+pub(super) async fn get(router: &axum::Router, uri: &str) -> (StatusCode, String) {
     let response = router
         .clone()
         .oneshot(
@@ -318,6 +318,61 @@ fn title_of(state: &State, id: &SessionId) -> Option<String> {
         .session
         .get(id)
         .map_or_default(|session| session.title().map(str::to_owned))
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_library_toggle_post_publishes_set_session_library() {
+    // Given a live session and the router over it.
+    let (state, audit, _slices, router) = harness();
+    let id = seed_session(&state);
+
+    // When posting the library toggle.
+    let (status, body) = post_form(
+        &router,
+        &format!("/web/session/{id}/library"),
+        "in_library=true",
+    )
+    .await;
+
+    // Then the ack is bare (the sessions refresh rides the broadcast
+    // every page re-pulls), and exactly one SetSessionLibrary names
+    // the row with the flipped flag.
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.contains("<!DOCTYPE html>"), "no page shell: {body}");
+    let published = audit.of_type::<jinn_session_store_msg::SetSessionLibrary>();
+    let [command] = published.as_slice() else {
+        panic!("exactly one toggle published, got {}", published.len())
+    };
+    assert_eq!(command.session_id, id);
+    assert!(command.in_library);
+    assert!(
+        audit_count(&audit, "PersistSession") == 0,
+        "no persist rides         the toggle — the store actor's SetSessionLibrary handler owns the         write and the no-second-writer rule holds: {}",
+        audit.names().len()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_library_toggle_post_refuses_an_unknown_target() {
+    // Given the router over an empty harness and a well-formed id
+    // neither live state nor the store holds (the fake store serves
+    // no snapshots).
+    let (_state, _audit, _slices, router) = harness();
+    let missing = SessionId::new();
+
+    // When posting the library toggle for it.
+    let (status, body) = post_form(
+        &router,
+        &format!("/web/session/{missing}/library"),
+        "in_library=true",
+    )
+    .await;
+
+    // Then the refusal is a client error and nothing published —
+    // the rendered rows are the accepted set.
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 }
 
 /// A store serving one archived snapshot with an image attachment —

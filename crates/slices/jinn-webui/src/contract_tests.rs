@@ -136,7 +136,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 25] = [
+    let targets: [(&str, &str); 27] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
@@ -165,6 +165,8 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
         ("image chips", contract::IMAGE_CHIPS_ID),
         ("image file input", contract::IMAGE_FILE_INPUT_ID),
         ("image attach label", contract::IMAGE_ATTACH_BUTTON_ID),
+        ("sidebar view sessions", contract::SESSIONS_VIEW_SESSIONS_ID),
+        ("sidebar view library", contract::SESSIONS_VIEW_LIBRARY_ID),
     ];
 
     // Then each one appears as `id="..."` in the markup — a missing
@@ -1184,7 +1186,7 @@ fn a_session_row_suppresses_the_viewed_session_and_raises_the_signal_before_post
     );
     assert!(
         fragment.contains(&format!(
-            "$switching = true && @post('{}{id}/activate'",
+            "$switching = true) !== undefined && @post('{}{id}/activate'",
             contract::SESSION_PAGE_PREFIX
         )),
         "the row must raise the signal ahead of the activate POST: {fragment}"
@@ -1317,4 +1319,152 @@ fn the_error_notice_css_is_token_styled_and_inert_when_hidden() {
             "the notice styles only by tokens ({token}): {css}"
         );
     }
+}
+
+// ── Library surface: kebab popup + segmented toggle drift gates ─────
+
+#[rstest::rstest]
+#[test]
+fn the_row_menu_popup_is_scrollable_and_stacks_within_the_mobile_range() {
+    // Given the sessions region's stylesheet.
+    let css = crate::regions::sessions::SIDEBAR_CSS;
+
+    // Then the popup's desktop rule scrolls (the menu may outgrow the
+    // viewport), styles by tokens only, and its z-index sits in the
+    // mobile slot above the drawer (40) and below the switch overlay
+    // (80).
+    assert!(
+        css.contains(&format!(".{} {{", contract::SESSION_ROW_MENU_CLASS_POPUP)),
+        "the popup's rule is in the sheet: {css}"
+    );
+    assert!(
+        css.contains("overflow-y: auto"),
+        "the popup scrolls — a tall menu must not clip silently: {css}"
+    );
+    assert!(
+        css.contains(&format!(
+            ".{} {{ position: absolute",
+            contract::SESSION_ROW_MENU_CLASS_POPUP
+        )),
+        "the popup anchors to its row: {css}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_mobile_rules_carry_the_popup_stacking_and_tap_targets() {
+    // Given the sessions region's stylesheet.
+    let css = crate::regions::sessions::SIDEBAR_CSS;
+
+    // Then the phone-only block restates the popup's stacking slot
+    // (z-index 50: above the drawer at 40, below the switch overlay
+    // at 80) and bumps the kebab and each popup entry to a ≥32px tap
+    // target.
+    let mobile = css
+        .split("@media (max-width: 767px)")
+        .nth(1)
+        .expect("the sheet carries a phone-only block");
+    assert!(
+        mobile.contains(&format!(
+            ".{} {{ z-index: 50",
+            contract::SESSION_ROW_MENU_CLASS_POPUP
+        )),
+        "the popup's mobile slot is above the drawer (40), below the overlay (80): {css}"
+    );
+    assert!(
+        mobile.contains("min-height: 32px"),
+        "each popup entry is a ≥32px tap target: {mobile}"
+    );
+    assert!(
+        mobile.contains(&format!(
+            ".{} {{ width: 32px; height: 32px",
+            contract::SESSION_ROW_MENU_CLASS
+        )),
+        "the kebab is a ≥32px tap target: {mobile}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_row_menu_popup_hides_by_default_and_names_its_row() {
+    // Given a sessions fragment with one row.
+    let id = jinn_core_types::SessionId::new();
+    let fragment = sessions_fragment_of(&[row(id.clone(), "Menu row")]);
+
+    // Then the popup ships hidden and binds its visibility to the
+    // shared row-menu signal naming this row — the popup is per-row
+    // markup, not one shared node, so a re-render cannot leak an
+    // open menu across rows.
+    assert!(
+        fragment.contains(&format!(
+            "class=\"{}\" data-menu-session=\"{id}\" hidden",
+            contract::SESSION_ROW_MENU_CLASS_POPUP
+        )),
+        "the popup is inert at boot: {fragment}"
+    );
+    assert!(
+        fragment.contains(&format!("${} === '{id}'", contract::SIGNAL_ROW_MENU_OPEN)),
+        "the popup's visibility names its row: {fragment}"
+    );
+    assert!(
+        fragment.contains(&format!(
+            "{}=\"{}\"",
+            contract::MENU_ENTRY_ACTION_ATTR,
+            contract::ACTION_LIBRARY_TOGGLE
+        )),
+        "the entry names its action: {fragment}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_sidebar_toggle_binds_both_segments_to_the_view_signal() {
+    // Given the rendered page shell.
+    let page = rendered_page();
+
+    // Then both segment ids render, the active fill rides the
+    // sidebarview signal, and the Library segment's click seeds the
+    // value the pull's view param reads.
+    for id in [
+        contract::SESSIONS_VIEW_SESSIONS_ID,
+        contract::SESSIONS_VIEW_LIBRARY_ID,
+    ] {
+        assert!(
+            page.contains(&format!("id=\"{id}\"")),
+            "the toggle segment {id} renders in the shell"
+        );
+    }
+    assert!(
+        page.contains(&format!("${} === 'library'", contract::SIGNAL_SIDEBAR_VIEW)),
+        "the Library segment's fill binds the signal: {}",
+        page.len()
+    );
+    assert!(
+        page.contains(&format!("${} = 'library'", contract::SIGNAL_SIDEBAR_VIEW)),
+        "the Library segment's click seeds the signal: {}",
+        page.len()
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_library_toggle_route_carries_the_row_id_and_flag() {
+    // Given a sessions fragment with one row.
+    let id = jinn_core_types::SessionId::new();
+    let fragment = sessions_fragment_of(&[row(id.clone(), "Toggle row")]);
+
+    // Then the entry's POST targets the toggle route with the row's
+    // id and the flipped flag in the body.
+    assert!(
+        fragment.contains(&format!(
+            "@post('{}{}/library'",
+            contract::SESSION_PAGE_PREFIX,
+            id
+        )),
+        "the entry posts to the toggle route: {fragment}"
+    );
+    assert!(
+        fragment.contains("payload: {in_library: true}"),
+        "the body carries the flipped flag: {fragment}"
+    );
 }

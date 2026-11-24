@@ -77,12 +77,8 @@ impl SessionsRegion {
         filter: Option<&str>,
     ) -> Result<String, HandlerError> {
         match view {
-            jinn_webui_msg::SessionsView::Sessions => {
-                sessions_fragment(shared, filter).await
-            }
-            jinn_webui_msg::SessionsView::Library => {
-                library_fragment(shared, filter).await
-            }
+            jinn_webui_msg::SessionsView::Sessions => sessions_fragment(shared, filter).await,
+            jinn_webui_msg::SessionsView::Library => library_fragment(shared, filter).await,
         }
     }
 }
@@ -425,8 +421,14 @@ pub async fn sessions_fragment(
     // Archived rows: skip ids already live; the merged tree is the one
     // shape both render paths consume. The store's own list already
     // merges its live sessions the same way, so the append is the
-    // delta, not a duplicate.
+    // delta, not a duplicate. Library members are dropped here —
+    // `append_summaries` serves both lists, and the library needs its
+    // members, so the sessions view filters its own delta.
     if let Ok(summaries) = shared.load_summaries().await {
+        let summaries: Vec<_> = summaries
+            .into_iter()
+            .filter(|summary| !summary.in_library)
+            .collect();
         append_summaries(&mut entries, &mut bots, &mut memberships, summaries);
     }
     let rows = picker_rows(
@@ -495,7 +497,7 @@ pub async fn library_fragment(
             .collect();
         entries.extend(member_live_entries(&guard, &served));
     }
-    entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
 
     let rows = library_rows(
         entries,
@@ -565,7 +567,7 @@ fn member_live_entries(
             )
         })
         .collect();
-    entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
     entries
 }
 
@@ -661,10 +663,7 @@ fn picker_rows(
                     .map(|item| (item.entry().clone(), depth))
             })
             .map(|(entry, depth)| {
-                let in_library = memberships
-                    .get(&entry.session_id)
-                    .copied()
-                    .unwrap_or(false);
+                let in_library = memberships.get(&entry.session_id).copied().unwrap_or(false);
                 (entry, depth, in_library)
             })
             .collect()
@@ -672,10 +671,7 @@ fn picker_rows(
         entries
             .into_iter()
             .map(|entry| {
-                let in_library = memberships
-                    .get(&entry.session_id)
-                    .copied()
-                    .unwrap_or(false);
+                let in_library = memberships.get(&entry.session_id).copied().unwrap_or(false);
                 (entry, 0, in_library)
             })
             .collect()
@@ -683,24 +679,26 @@ fn picker_rows(
 
     visible
         .into_iter()
-        .map(|(entry, depth, in_library)| jinn_webui_msg::SessionListItem {
-            is_bot: bots.get(&entry.session_id).copied().unwrap_or(false),
-            loaded: entry.session_state == SessionState::Loaded,
-            unread: unread_marks
-                .as_ref()
-                .is_some_and(|marks| marks.is_marked(&entry.session_id)),
-            // The working flag is live-phase truth: only a session in
-            // state carries it (the working-set is built from the live
-            // map), so an archived row defaults to idle — an archived
-            // session has no turn in flight by definition.
-            working: working
-                .as_ref()
-                .is_some_and(|set| set.get(&entry.session_id).copied().unwrap_or(false)),
-            session_id: entry.session_id,
-            title: entry.title,
-            depth,
-            in_library,
-        })
+        .map(
+            |(entry, depth, in_library)| jinn_webui_msg::SessionListItem {
+                is_bot: bots.get(&entry.session_id).copied().unwrap_or(false),
+                loaded: entry.session_state == SessionState::Loaded,
+                unread: unread_marks
+                    .as_ref()
+                    .is_some_and(|marks| marks.is_marked(&entry.session_id)),
+                // The working flag is live-phase truth: only a session in
+                // state carries it (the working-set is built from the live
+                // map), so an archived row defaults to idle — an archived
+                // session has no turn in flight by definition.
+                working: working
+                    .as_ref()
+                    .is_some_and(|set| set.get(&entry.session_id).copied().unwrap_or(false)),
+                session_id: entry.session_id,
+                title: entry.title,
+                depth,
+                in_library,
+            },
+        )
         .collect()
 }
 
@@ -742,10 +740,7 @@ fn library_rows(
     visible
         .into_iter()
         .map(|entry| {
-            let in_library = memberships
-                .get(&entry.session_id)
-                .copied()
-                .unwrap_or(true);
+            let in_library = memberships.get(&entry.session_id).copied().unwrap_or(true);
             jinn_webui_msg::SessionListItem {
                 is_bot: bots.get(&entry.session_id).copied().unwrap_or(false),
                 loaded: entry.session_state == SessionState::Loaded,
