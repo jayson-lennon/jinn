@@ -19,6 +19,7 @@
 - Remove `#generate-persona` prompt.
 - Agents should avoid using `dump_to_path` more often.
   - Blocked using `/dev/null` and similar "null" paths for `dump_to_path`
+- (webui) Add applet picker
 
 ## 2026-11-21 v1.26.1
 
