@@ -9,15 +9,16 @@
 //! after the stream settles, so the queued entry is visible in the
 //! transcript without a reload when it lands in history.
 
-import { expect, test } from "@playwright/test";
-import { openSession } from "./nav.mjs";
+import { expect, test } from "./fixture.mjs";
+import { openSession } from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
 
 test("send produces a user entry and a streamed assistant reply", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open with an empty transcript.
-  await openSession(page);
+  await openSession(jinn, page);
 
   // When sending a plain prompt through the composer.
   await page.locator(sel.INPUT).fill("hello");
@@ -36,9 +37,10 @@ test("send produces a user entry and a streamed assistant reply", async ({
 
 test("cancel mid-stream ends the turn and restores the send control", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open.
-  await openSession(page);
+  await openSession(jinn, page);
 
   // When sending `!response` — the delayed stream — and cancelling
   // as soon as the busy controls present the cancel button. The
@@ -68,10 +70,11 @@ test("cancel mid-stream ends the turn and restores the send control", async ({
 
 test("busy composer shows queue before cancel and idle shows send alone", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open with an empty transcript (the busy
   // window's settle must not race the idle-fragment assertion).
-  await openSession(page);
+  await openSession(jinn, page);
 
   // Then the idle composer shows the send button and neither busy
   // control — the composer is session-invariant markup (all three
@@ -110,9 +113,10 @@ test("busy composer shows queue before cancel and idle shows send alone", async 
 
 test("queueing while busy lands the message at the turn's end", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open and a streamed turn in flight.
-  await openSession(page);
+  await openSession(jinn, page);
   await page.locator(sel.INPUT).fill("!response");
   await page.locator(sel.SEND_BUTTON).click();
   await expect(page.locator(sel.QUEUE_BUTTON)).toBeVisible();
@@ -149,12 +153,13 @@ test("queueing while busy lands the message at the turn's end", async ({
 
 test("pressing Enter in the composer sends nothing and inserts a newline", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open, an observer counting POSTs to the
   // send endpoint, and the transcript's current user-entry count —
-  // the session's transcript persists across specs, so "nothing was
-  // sent" is a count that does not grow, not an empty transcript.
-  await openSession(page);
+  // "nothing was sent" is a count that does not grow, not an empty
+  // transcript (the boot session carries its greeting entries).
+  await openSession(jinn, page);
   const sendPosts = [];
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().includes("/web/send")) {
