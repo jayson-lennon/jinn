@@ -14,6 +14,10 @@
 //! result content verbatim.
 
 /// One completed tool call from the recorded session.
+#[expect(
+    clippy::field_scoped_visibility_modifiers,
+    reason = "fixture fields need pub(crate) for cross-module test access"
+)]
 pub(crate) struct ExcerptCall {
     /// The tool's name.
     pub(crate) tool_name: &'static str,
@@ -396,8 +400,10 @@ mod tests {
     async fn the_exact_watchdog_nudges_then_kills_the_lock_phase() {
         // Given the exact watchdog at its shipped default of 4.
         let mut actor =
-            crate::repeat_tool_call_watchdog_actor::RepeatToolCallWatchdogActor::with_max_repeats(4)
-                .await;
+            crate::repeat_tool_call_watchdog_actor::RepeatToolCallWatchdogActor::with_max_repeats(
+                4,
+            )
+            .await;
         let session = SessionId::new();
 
         // When the 12-call lock phase replays, the nudge landing in
@@ -409,7 +415,12 @@ mod tests {
             let args = tool_call_similarity::normalize(call.arguments);
             let result = tool_call_similarity::result_prefix(call.result_content);
             let actions = actor.on_call_completed(&session, call.tool_name, &args, &result, 4);
-            if actions.iter().any(|a| matches!(a, crate::repeat_tool_call_watchdog_actor::RepeatWatchdogAction::Nudge(_, _))) {
+            if actions.iter().any(|a| {
+                matches!(
+                    a,
+                    crate::repeat_tool_call_watchdog_actor::RepeatWatchdogAction::Nudge(_, _)
+                )
+            }) {
                 if first_nudge == 0 {
                     first_nudge = i + 1;
                 }
@@ -423,7 +434,12 @@ mod tests {
                         "nudge body",
                     ));
             }
-            if actions.iter().any(|a| matches!(a, crate::repeat_tool_call_watchdog_actor::RepeatWatchdogAction::CancelTurn(_))) {
+            if actions.iter().any(|a| {
+                matches!(
+                    a,
+                    crate::repeat_tool_call_watchdog_actor::RepeatWatchdogAction::CancelTurn(_)
+                )
+            }) {
                 killed = i + 1;
             }
         }
@@ -458,8 +474,10 @@ mod tests {
     async fn the_exact_watchdog_stays_silent_on_legit_work() {
         // Given the exact watchdog at its default.
         let mut actor =
-            crate::repeat_tool_call_watchdog_actor::RepeatToolCallWatchdogActor::with_max_repeats(4)
-                .await;
+            crate::repeat_tool_call_watchdog_actor::RepeatToolCallWatchdogActor::with_max_repeats(
+                4,
+            )
+            .await;
         let session = SessionId::new();
 
         // When the legitimate-work excerpt replays.
@@ -494,9 +512,15 @@ mod tests {
         for (i, call) in DRIFT_PHASE.iter().enumerate() {
             let args = tool_call_similarity::normalize(call.arguments);
             let result = tool_call_similarity::result_prefix(call.result_content);
-            let actions = actor.on_call_completed(&session, call.tool_name, &args, &result, 8, 0.85, 500);
+            let actions =
+                actor.on_call_completed(&session, call.tool_name, &args, &result, 8, 0.85, 500);
             if first_nudge == 0
-                && actions.iter().any(|a| matches!(a, crate::fuzzy_tool_call_watchdog_actor::FuzzyWatchdogAction::Nudge(_, _)))
+                && actions.iter().any(|a| {
+                    matches!(
+                        a,
+                        crate::fuzzy_tool_call_watchdog_actor::FuzzyWatchdogAction::Nudge(_, _)
+                    )
+                })
             {
                 first_nudge = i + 1;
             }
@@ -522,7 +546,8 @@ mod tests {
         for call in LEGIT_WORK {
             let args = tool_call_similarity::normalize(call.arguments);
             let result = tool_call_similarity::result_prefix(call.result_content);
-            let actions = actor.on_call_completed(&session, call.tool_name, &args, &result, 8, 0.85, 500);
+            let actions =
+                actor.on_call_completed(&session, call.tool_name, &args, &result, 8, 0.85, 500);
             if !actions.is_empty() {
                 any_action += 1;
             }
@@ -537,8 +562,10 @@ mod tests {
     async fn the_exact_watchdog_catches_the_drift_phase_only_partially() {
         // Given the exact watchdog at its default.
         let mut actor =
-            crate::repeat_tool_call_watchdog_actor::RepeatToolCallWatchdogActor::with_max_repeats(4)
-                .await;
+            crate::repeat_tool_call_watchdog_actor::RepeatToolCallWatchdogActor::with_max_repeats(
+                4,
+            )
+            .await;
         let session = SessionId::new();
 
         // When the drift phase replays through the exact rule.
@@ -548,7 +575,12 @@ mod tests {
             let result = tool_call_similarity::result_prefix(call.result_content);
             let actions = actor.on_call_completed(&session, call.tool_name, &args, &result, 4);
             if first_nudge == 0
-                && actions.iter().any(|a| matches!(a, crate::repeat_tool_call_watchdog_actor::RepeatWatchdogAction::Nudge(_, _)))
+                && actions.iter().any(|a| {
+                    matches!(
+                        a,
+                        crate::repeat_tool_call_watchdog_actor::RepeatWatchdogAction::Nudge(_, _)
+                    )
+                })
             {
                 first_nudge = i + 1;
             }
@@ -562,10 +594,12 @@ mod tests {
             !actor
                 .on_call_completed(&session, "bash", "x", "y", 4)
                 .iter()
-                .any(|a| matches!(a, crate::repeat_tool_call_watchdog_actor::RepeatWatchdogAction::CancelTurn(_))),
+                .any(|a| matches!(
+                    a,
+                    crate::repeat_tool_call_watchdog_actor::RepeatWatchdogAction::CancelTurn(_)
+                )),
             "the exact rule must not have killed on drift data"
         );
         let _ = first_nudge;
     }
-
 }

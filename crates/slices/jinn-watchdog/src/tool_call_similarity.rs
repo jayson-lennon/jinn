@@ -78,21 +78,42 @@ pub fn exact_match(a: &str, b: &str) -> bool {
     a == b
 }
 
-/// Wagner-Fischer edit distance with a single rolling row.
+/// Wagner-Fischer edit distance over two full rows. No indexing: each
+/// row is built by zipping character iterators with the previous row's
+/// `windows(2)` values, so the workspace's no-panic-indexing gate holds
+/// without `.get()` ceremony.
 fn levenshtein_distance(a: &[char], b: &[char]) -> usize {
-    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
-    let mut row: Vec<usize> = (0..=short.len()).collect();
-    for (i, lch) in long.iter().enumerate() {
-        let mut previous = i + 1;
-        for (j, sch) in short.iter().enumerate() {
-            let substitution = row[j] + usize::from(lch != sch);
-            let next = previous.min(substitution.min(row[j + 1] + 1));
-            row[j] = previous;
-            previous = next;
-        }
-        row[short.len()] = previous;
+    if a.is_empty() {
+        return b.len();
     }
-    row[short.len()]
+    if b.is_empty() {
+        return a.len();
+    }
+    let mut previous_row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ach) in a.iter().enumerate() {
+        let row: Vec<usize> = std::iter::once(i + 1)
+            .chain(
+                previous_row
+                    .windows(2)
+                    .zip(b.iter())
+                    .map(|(pair, bch)| {
+                        // `windows(2)` yields exactly two elements; take
+                        // the pair as (diagonal, up).
+                        let diagonal = pair.first().copied().unwrap_or_default();
+                        let up = pair.last().copied().unwrap_or_default();
+                        // `up` is the cell above plus one deletion.
+                        up.saturating_add(1).min(diagonal + usize::from(ach != bch))
+                    })
+                    .scan(i + 1, |left, candidate| {
+                        let value = candidate.min(*left + 1);
+                        *left = value;
+                        Some(value)
+                    }),
+            )
+            .collect();
+        previous_row = row;
+    }
+    previous_row.pop().unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -150,7 +171,8 @@ mod tests {
     fn one_appended_word_keeps_high_similarity() {
         // Given the loop's signature: the same command with a pipe added.
         let a = normalize("grep -n \"lrow\" crates/slices/jinn-webui/src/regions/sessions.rs");
-        let b = normalize("grep -n \"lrow\" crates/slices/jinn-webui/src/regions/sessions.rs | wc -l");
+        let b =
+            normalize("grep -n \"lrow\" crates/slices/jinn-webui/src/regions/sessions.rs | wc -l");
 
         // Then the similarity stays above the shipped 0.85 threshold.
         assert!(similarity_ratio(&a, &b) >= 0.85);

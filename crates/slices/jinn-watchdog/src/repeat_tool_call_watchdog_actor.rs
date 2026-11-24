@@ -61,9 +61,10 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_core_types::SessionId;
+use jinn_core_types::tool_types::ToolCall;
 use jinn_inference_msg::CancelTurn;
-use jinn_kernel::common::state::State;
 use jinn_kernel::Services;
+use jinn_kernel::common::state::State;
 use jinn_preferences_config::schemas::RepeatToolCallWatchdogConfig;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::TurnCompleted;
@@ -105,14 +106,15 @@ pub struct RepeatToolCallWatchdogActorDeps {
 /// The repeat-tool-call watchdog actor.
 ///
 /// Per-session accumulator, nudged flag, and parked call arguments.
+#[expect(
+    clippy::field_scoped_visibility_modifiers,
+    reason = "state is read-only in production but crate-visible for the replay tests"
+)]
 pub struct RepeatToolCallWatchdogActor {
     services: Services,
-    /// Read-only application state, exposed for the crate's replay tests
-    /// to seed nudge entries into history.
-    #[cfg(test)]
+    /// Read-only application state; the crate's replay tests seed nudge
+    /// entries into history through it.
     pub(crate) state: State,
-    #[cfg(not(test))]
-    state: State,
     /// Repeat counts keyed by session id.
     accumulators: HashMap<SessionId, u32>,
     /// Sessions that already received this turn's nudge.
@@ -180,6 +182,10 @@ impl RepeatToolCallWatchdogActor {
     /// Builds an actor with a private fake `Services` and the given
     /// maximum (test seam, the family's shape).
     #[cfg(test)]
+    #[expect(
+        clippy::expect_used,
+        reason = "test seam: the fake layer cannot fail for a known key"
+    )]
     pub(crate) async fn with_max_repeats(max_failures: u8) -> Self {
         let services = Services::new_fake().await;
         services
@@ -249,12 +255,7 @@ impl MsgHandler<TurnCompleted> for RepeatToolCallWatchdogActor {
 
 impl MsgHandler<ToolCallsDispatched> for RepeatToolCallWatchdogActor {
     async fn handle(&mut self, msg: &ToolCallsDispatched, _ctx: &mut MsgCtx<'_>) {
-        for call in &msg.tool_calls {
-            self.parked.insert(
-                call.id.clone(),
-                (call.name.clone(), tool_call_similarity::normalize(&call.arguments)),
-            );
-        }
+        self.park_calls(&msg.tool_calls);
     }
 }
 
@@ -285,6 +286,20 @@ fn effective_max_repeats(services: &Services) -> u8 {
 }
 
 impl RepeatToolCallWatchdogActor {
+    /// Park the arguments of a dispatched batch, keyed by tool-call id,
+    /// until the matching completion arrives.
+    fn park_calls(&mut self, calls: &[ToolCall]) {
+        self.parked.extend(calls.iter().map(|call| {
+            (
+                call.id.clone(),
+                (
+                    call.name.clone(),
+                    tool_call_similarity::normalize(&call.arguments),
+                ),
+            )
+        }));
+    }
+
     /// Records one completed call and returns the actions to publish, in
     /// order.
     ///
@@ -307,9 +322,10 @@ impl RepeatToolCallWatchdogActor {
             return Vec::new();
         }
 
-        let verdict = self.previous.get(session_id).map_or(
-            Verdict::FirstCall,
-            |basis| {
+        let verdict = self
+            .previous
+            .get(session_id)
+            .map_or(Verdict::FirstCall, |basis| {
                 let hit = basis.iter().any(|(prev_name, prev_args, prev_result)| {
                     prev_name == tool_name
                         && prev_args == normalized_args
@@ -320,8 +336,7 @@ impl RepeatToolCallWatchdogActor {
                 } else {
                     Verdict::Different
                 }
-            },
-        );
+            });
 
         let count = match verdict {
             Verdict::FirstCall => 0,
@@ -368,10 +383,7 @@ impl RepeatToolCallWatchdogActor {
         self.nudged.insert(session_id.clone(), false);
         self.accumulators.insert(session_id.clone(), 0);
         vec![
-            RepeatWatchdogAction::Marker(
-                session_id.clone(),
-                kill_text(u32::from(max_repeats)),
-            ),
+            RepeatWatchdogAction::Marker(session_id.clone(), kill_text(u32::from(max_repeats))),
             RepeatWatchdogAction::CancelTurn(session_id.clone()),
         ]
     }
@@ -407,17 +419,15 @@ impl RepeatToolCallWatchdogActor {
     /// the session actor.
     fn nudge_visible(&self, session_id: &SessionId) -> bool {
         let state = self.state.read();
-        state
-            .try_session(session_id)
-            .is_some_and(|session| {
-                session.history().iter().any(|entry| {
-                    matches!(
-                        &entry.kind,
-                        jinn_core_types::ChatEntryKind::RuleInterrupt { rule, .. }
-                            if rule == REPEAT_RULE_NAME
-                    )
-                })
+        state.try_session(session_id).is_some_and(|session| {
+            session.history().iter().any(|entry| {
+                matches!(
+                    &entry.kind,
+                    jinn_core_types::ChatEntryKind::RuleInterrupt { rule, .. }
+                        if rule == REPEAT_RULE_NAME
+                )
             })
+        })
     }
 
     /// Clears the session's per-turn state when its turn ends.
@@ -548,10 +558,7 @@ mod tests {
         // Then the budget still spent: the interleaved call delayed the
         // nudge by exactly one call.
         assert_eq!(actions.len(), 1);
-        assert!(matches!(
-            &actions[0],
-            RepeatWatchdogAction::Nudge(_, _)
-        ));
+        assert!(matches!(&actions[0], RepeatWatchdogAction::Nudge(_, _)));
     }
 
     #[rstest::rstest]

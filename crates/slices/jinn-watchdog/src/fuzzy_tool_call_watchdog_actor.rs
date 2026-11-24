@@ -35,9 +35,10 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_core_types::SessionId;
+use jinn_core_types::tool_types::ToolCall;
 use jinn_inference_msg::CancelTurn;
-use jinn_kernel::common::state::State;
 use jinn_kernel::Services;
+use jinn_kernel::common::state::State;
 use jinn_preferences_config::schemas::FuzzyToolCallWatchdogConfig;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::TurnCompleted;
@@ -149,6 +150,10 @@ impl FuzzyToolCallWatchdogActor {
 
     /// Builds an actor with a private fake `Services` (test seam).
     #[cfg(test)]
+    #[expect(
+        clippy::expect_used,
+        reason = "test seam: the fake layer cannot fail for a known key"
+    )]
     pub(crate) async fn with_config(config: FuzzyToolCallWatchdogConfig) -> Self {
         let services = Services::new_fake().await;
         services
@@ -216,12 +221,7 @@ impl MsgHandler<TurnCompleted> for FuzzyToolCallWatchdogActor {
 
 impl MsgHandler<ToolCallsDispatched> for FuzzyToolCallWatchdogActor {
     async fn handle(&mut self, msg: &ToolCallsDispatched, _ctx: &mut MsgCtx<'_>) {
-        for call in &msg.tool_calls {
-            self.parked.insert(
-                call.id.clone(),
-                (call.name.clone(), tool_call_similarity::normalize(&call.arguments)),
-            );
-        }
+        self.park_calls(&msg.tool_calls);
     }
 }
 
@@ -250,6 +250,20 @@ impl MsgHandler<ToolExecutionCompleted> for FuzzyToolCallWatchdogActor {
 }
 
 impl FuzzyToolCallWatchdogActor {
+    /// Park the arguments of a dispatched batch, keyed by tool-call id,
+    /// until the matching completion arrives.
+    fn park_calls(&mut self, calls: &[ToolCall]) {
+        self.parked.extend(calls.iter().map(|call| {
+            (
+                call.id.clone(),
+                (
+                    call.name.clone(),
+                    tool_call_similarity::normalize(&call.arguments),
+                ),
+            )
+        }));
+    }
+
     /// Records one completed call and returns the actions to publish, in
     /// order.
     ///
@@ -271,25 +285,27 @@ impl FuzzyToolCallWatchdogActor {
         similarity: f32,
         max_argument_chars: usize,
     ) -> Vec<FuzzyWatchdogAction> {
-        let skipped = max_argument_chars > 0 && normalized_args.chars().count() > max_argument_chars;
+        let skipped =
+            max_argument_chars > 0 && normalized_args.chars().count() > max_argument_chars;
 
         let verdict = if skipped {
             SkippedVerdict::Skip
         } else {
-            let hit = self
-                .previous
-                .get(session_id)
-                .is_some_and(|basis| {
-                    basis.iter().any(|(prev_name, prev_args, prev_result)| {
-                        prev_name == tool_name
-                            && tool_call_similarity::similarity_ratio(prev_args, normalized_args)
-                                >= similarity
-                            && tool_call_similarity::similarity_ratio(prev_result, normalized_result)
-                                >= similarity
-                    })
-                });
+            let hit = self.previous.get(session_id).is_some_and(|basis| {
+                basis.iter().any(|(prev_name, prev_args, prev_result)| {
+                    prev_name == tool_name
+                        && tool_call_similarity::similarity_ratio(prev_args, normalized_args)
+                            >= similarity
+                        && tool_call_similarity::similarity_ratio(prev_result, normalized_result)
+                            >= similarity
+                })
+            });
             if self.previous.contains_key(session_id) {
-                if hit { SkippedVerdict::Repeat } else { SkippedVerdict::Different }
+                if hit {
+                    SkippedVerdict::Repeat
+                } else {
+                    SkippedVerdict::Different
+                }
             } else {
                 SkippedVerdict::FirstCall
             }
@@ -375,17 +391,15 @@ impl FuzzyToolCallWatchdogActor {
     /// history. Matched by rule name, per the sibling's reasoning.
     fn nudge_visible(&self, session_id: &SessionId) -> bool {
         let state = self.state.read();
-        state
-            .try_session(session_id)
-            .is_some_and(|session| {
-                session.history().iter().any(|entry| {
-                    matches!(
-                        &entry.kind,
-                        jinn_core_types::ChatEntryKind::RuleInterrupt { rule, .. }
-                            if rule == FUZZY_RULE_NAME
-                    )
-                })
+        state.try_session(session_id).is_some_and(|session| {
+            session.history().iter().any(|entry| {
+                matches!(
+                    &entry.kind,
+                    jinn_core_types::ChatEntryKind::RuleInterrupt { rule, .. }
+                        if rule == FUZZY_RULE_NAME
+                )
             })
+        })
     }
 
     /// Clears the session's per-turn state when its turn ends.
@@ -475,12 +489,27 @@ mod tests {
         // variant again (the comparison basis moved, but similarity
         // holds).
         let _ = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2, 0.85, 500);
-        let _ = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+        let _ = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
 
         // Then the third call — near-identical to the variant — trips the
         // nudge.
-        let actions =
-            actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+        let actions = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], FuzzyWatchdogAction::Nudge(_, _)));
     }
@@ -493,7 +522,8 @@ mod tests {
         let mut actor = watchdog(config(2)).await;
 
         // When one call completes.
-        let actions = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2, 0.85, 500);
+        let actions =
+            actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2, 0.85, 500);
 
         // Then nothing: the first call is the basis.
         assert!(actions.is_empty());
@@ -506,7 +536,15 @@ mod tests {
         let session = SessionId::new();
         let mut actor = watchdog(config(2)).await;
         let _ = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2, 0.85, 500);
-        let _ = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+        let _ = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
 
         // When a genuinely different call completes, then two near-repeats
         // follow.
@@ -519,8 +557,15 @@ mod tests {
         // spends the budget of 2 at the fifth call. An alternating loop
         // cannot dodge the accumulator by interleaving; that shape is
         // exactly why the basis is 2 deep.
-        let actions =
-            actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+        let actions = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], FuzzyWatchdogAction::Nudge(_, _)));
     }
@@ -534,9 +579,24 @@ mod tests {
         let _ = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2, 0.85, 500);
 
         // When a read call with similar arguments arrives twice.
-        let _ = actor.on_call_completed(&session, "read", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
-        let actions =
-            actor.on_call_completed(&session, "read", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+        let _ = actor.on_call_completed(
+            &session,
+            "read",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
+        let actions = actor.on_call_completed(
+            &session,
+            "read",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
 
         // Then no nudge: the tool names differ, so every verdict is a
         // debit.
@@ -552,8 +612,24 @@ mod tests {
         let _ = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2, 0.85, 500);
 
         // When the near-variant returns entirely different output, twice.
-        let _ = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, "totally other", 2, 0.85, 500);
-        let actions = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, "more other", 2, 0.85, 500);
+        let _ = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            "totally other",
+            2,
+            0.85,
+            500,
+        );
+        let actions = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            "more other",
+            2,
+            0.85,
+            500,
+        );
 
         // Then no nudge: the results did not agree.
         assert!(actions.is_empty());
@@ -566,7 +642,15 @@ mod tests {
         let session = SessionId::new();
         let mut actor = watchdog(config(2)).await;
         let _ = actor.on_call_completed(&session, "bash", GREP_ARGS, GREP_RESULT, 2, 0.85, 500);
-        let _ = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+        let _ = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
 
         // When a call with arguments far past the limit completes, then a
         // near-repeat of it.
@@ -610,13 +694,36 @@ mod tests {
         let session = SessionId::new();
         let mut actor = watchdog(config(2)).await;
         for _ in 0..3 {
-            let _ = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+            let _ = actor.on_call_completed(
+                &session,
+                "bash",
+                GREP_ARGS_VARIANT,
+                GREP_RESULT,
+                2,
+                0.85,
+                500,
+            );
         }
 
         // When the second budget is spent.
-        let _ = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
-        let actions =
-            actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+        let _ = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
+        let actions = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
 
         // Then nothing is published: the trip waits for the nudge to land.
         assert!(actions.is_empty(), "got: {actions:?}");
@@ -630,7 +737,15 @@ mod tests {
         let session = SessionId::new();
         let mut actor = watchdog(config(2)).await;
         for _ in 0..3 {
-            let _ = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+            let _ = actor.on_call_completed(
+                &session,
+                "bash",
+                GREP_ARGS_VARIANT,
+                GREP_RESULT,
+                2,
+                0.85,
+                500,
+            );
         }
         actor
             .state
@@ -643,9 +758,24 @@ mod tests {
             ));
 
         // When the second budget is spent.
-        let _ = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
-        let actions =
-            actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+        let _ = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
+        let actions = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
 
         // Then the kill pair publishes: the marker first, then the cancel.
         assert_eq!(actions.len(), 2, "expected the kill pair, got: {actions:?}");
@@ -660,14 +790,37 @@ mod tests {
         let session = SessionId::new();
         let mut actor = watchdog(config(2)).await;
         for _ in 0..3 {
-            let _ = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+            let _ = actor.on_call_completed(
+                &session,
+                "bash",
+                GREP_ARGS_VARIANT,
+                GREP_RESULT,
+                2,
+                0.85,
+                500,
+            );
         }
 
         // When the turn ends terminally and near-repeats resume.
         actor.on_turn_end(&session, TurnOutcome::Succeeded);
-        let _ = actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
-        let actions =
-            actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+        let _ = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
+        let actions = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
 
         // Then a fresh turn starts a fresh budget: a nudge, not a kill
         // attempt.
@@ -683,7 +836,8 @@ mod tests {
         let b = SessionId::new();
         let mut actor = watchdog(config(2)).await;
         for _ in 0..3 {
-            let _ = actor.on_call_completed(&a, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+            let _ =
+                actor.on_call_completed(&a, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
         }
 
         // When session B spends its own budget.
@@ -706,15 +860,29 @@ mod tests {
 
         // When five near-identical calls complete.
         for _ in 0..5 {
-            let actions =
-                actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 0, 0.85, 500);
+            let actions = actor.on_call_completed(
+                &session,
+                "bash",
+                GREP_ARGS_VARIANT,
+                GREP_RESULT,
+                0,
+                0.85,
+                500,
+            );
             assert!(actions.is_empty());
         }
 
         // Then nothing tripped — and when re-enabled, the first verdict is
         // still a fresh basis.
-        let actions =
-            actor.on_call_completed(&session, "bash", GREP_ARGS_VARIANT, GREP_RESULT, 2, 0.85, 500);
+        let actions = actor.on_call_completed(
+            &session,
+            "bash",
+            GREP_ARGS_VARIANT,
+            GREP_RESULT,
+            2,
+            0.85,
+            500,
+        );
         assert!(actions.is_empty());
     }
 }
