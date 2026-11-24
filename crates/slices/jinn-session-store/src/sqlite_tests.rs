@@ -3885,3 +3885,72 @@ async fn is_bot_survives_reloading_the_session() {
         "the bot must still be a bot after a reload"
     );
 }
+
+#[rstest::rstest]
+#[tokio::test]
+async fn load_summaries_returns_archived_non_members() {
+    // Given a store holding one loaded session and one ARCHIVED
+    // session, neither in the library.
+    let (_dir, store) = make_store().await;
+    let loaded_id = SessionId::new();
+    let archived_id = SessionId::new();
+    store
+        .save(&make_session(&loaded_id, "Loaded").capture_snapshot())
+        .await
+        .expect("save loaded");
+    store
+        .save(&make_session(&archived_id, "Archived").capture_snapshot())
+        .await
+        .expect("save archived");
+    store
+        .set_archived(&archived_id, true)
+        .await
+        .expect("archive");
+
+    // When loading summaries.
+    let summaries = store.load_summaries().await.expect("summaries");
+
+    // Then both sessions return — the archive flag filters nothing
+    // (the sessions surface ranks loaded first and serves archived
+    // below; exclusion is the library filter's job, not the query's).
+    let ids: Vec<_> = summaries.iter().map(|s| s.session_id.clone()).collect();
+    assert!(
+        ids.contains(&loaded_id) && ids.contains(&archived_id),
+        "archived non-members stay in the summaries: {ids:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .find(|s| s.session_id == archived_id)
+            .is_some_and(|s| s.session_state == jinn_session_store_msg::SessionState::Archived),
+        "the archived row keeps its archived state"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn library_members_returns_archived_members() {
+    // Given an ARCHIVED library member.
+    let (_dir, store) = make_store().await;
+    let member_id = SessionId::new();
+    store
+        .save(&make_session(&member_id, "Member").capture_snapshot())
+        .await
+        .expect("save member");
+    store
+        .set_in_library(&member_id, true)
+        .await
+        .expect("set library");
+    store
+        .set_archived(&member_id, true)
+        .await
+        .expect("archive member");
+
+    // When loading the library membership.
+    let members = store.library_members().await.expect("members");
+
+    // Then the archived member returns — the library lists members
+    // loaded or archived alike.
+    assert_eq!(members.len(), 1, "the archived member lists: {members:?}");
+    assert_eq!(members[0].session_id, member_id);
+}

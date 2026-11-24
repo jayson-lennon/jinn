@@ -1189,8 +1189,12 @@ impl MsgHandler<SessionArchived> for WebUiFanoutActor {
 }
 
 impl MsgHandler<SessionLibraryMembershipChanged> for WebUiFanoutActor {
-    async fn handle(&mut self, msg: &SessionLibraryMembershipChanged, _ctx: &mut MsgCtx<'_>) {
-        self.push_sessions_refresh(&msg.session_id);
+    async fn handle(&mut self, _msg: &SessionLibraryMembershipChanged, _ctx: &mut MsgCtx<'_>) {
+        // The membership change moves a row between views on every
+        // surface viewing the list — not only the page viewing that
+        // session — so the refresh is page-global like the mark
+        // transitions, not addressed like the archive path.
+        self.refresh_all_sessions_lists();
     }
 }
 

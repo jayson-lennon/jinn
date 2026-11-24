@@ -139,6 +139,81 @@ pub const ACTION_REFRESH_MODELS: &str = "refresh-models";
 /// The class hook every session row carries.
 pub const SESSION_ROW_CLASS: &str = "srow";
 
+// ── Sidebar views (Sessions | Library) ───────────────────────────────
+
+/// The sidebar's view toggle host — the segmented Sessions | Library
+/// control rendered inside the sidebar column, above the filter input.
+/// Exactly one list is visible; the toggle swaps the list body through
+/// the existing pull cycle.
+pub const SESSIONS_VIEW_TOGGLE_ID: &str = "sessions-view-toggle";
+
+/// The toggle's Sessions segment id — the segment whose active state
+/// (the [`THEME_ACTIVE_CLASS`] pattern: a `data-class` binding on the
+/// `sidebarview` signal) marks the sessions list as the visible one.
+pub const SESSIONS_VIEW_SESSIONS_ID: &str = "sessions-view-sessions";
+
+/// The toggle's Library segment id — the Library view's segment.
+pub const SESSIONS_VIEW_LIBRARY_ID: &str = "sessions-view-library";
+
+/// The active sidebar view's signal — the value the toggle's segments
+/// bind their active class to and the list re-pull effect reads to
+/// build its `view=` query value (`sessions` / `library`). Client
+/// view-local state: a page reload reseeds it to `sessions` (the
+/// default), so the reload lands on the Sessions view.
+pub const SIGNAL_SIDEBAR_VIEW: &str = "sidebarview";
+
+/// The sessions pull's view query parameter
+/// (`GET /web/sessions?view=…`) — the toggle's re-pull carries it;
+/// absent or unknown reads as the sessions view, which is what makes
+/// a reload land there.
+pub const SESSIONS_VIEW_QUERY_PARAM: &str = "view";
+
+/// The class hook every library row carries — the library list's row
+/// shape (flat, one `<a>` per member like a session row, no tree
+/// indent).
+pub const LIBRARY_ROW_CLASS: &str = "lrow";
+
+/// The kebab (three-dot) button's class hook — one per row in either
+/// list; clicking it opens the row's action popup.
+pub const SESSION_ROW_MENU_CLASS: &str = "srow-menu";
+
+/// The per-row action popup's class hook — one per row, rendered by
+/// every row and shown only while that row's [`SIGNAL_ROW_MENU_OPEN`]
+/// names the row. Scrollable; carries the row's action entries.
+pub const SESSION_ROW_MENU_CLASS_POPUP: &str = "srow-menu-popup";
+
+/// The attribute a kebab button and its popup carry the owning row's
+/// session id in — the open-signal comparison and the toggle POST's
+/// payload both read it.
+pub const SESSION_ROW_MENU_ID_ATTR: &str = "data-menu-session";
+
+/// Whether a row's action popup is open — the popup's `data-show`
+/// signal. Value: the owning row's session id while its popup is
+/// open, empty otherwise; one signal serves every row's popup and an
+/// outside tap anywhere clears it.
+pub const SIGNAL_ROW_MENU_OPEN: &str = "rowMenuSession";
+
+/// The popup entry's action name for the library toggle — the one
+/// entry the popup ships today. The entry's POST carries the
+/// membership flag matching its row's `in_library`; the label is
+/// data-declared alongside it in the row templates.
+pub const ACTION_LIBRARY_TOGGLE: &str = "library-toggle";
+
+/// The popup's menu-entry attribute — the element carrying
+/// [`ACTION_LIBRARY_TOGGLE`] (or a future entry's action) names the
+/// action it performs in it; the click binding posts to the matching
+/// route.
+pub const MENU_ENTRY_ACTION_ATTR: &str = "data-menu-action";
+
+/// Route pattern — set a session's library membership (`POST`). The
+/// rename precedent: per-session path param, small form, publishes an
+/// existing store command (`SetSessionLibrary`).
+pub const LIBRARY_TOGGLE_ROUTE: &str = "/web/session/{id}/library";
+
+/// The path suffix client code appends for a library-toggle request
+/// (the activate/rename suffix precedent).
+pub const LIBRARY_TOGGLE_SUFFIX: &str = "/library";
+
 /// The working row's class hook, and the class of the spinner span it
 /// renders ahead of the title — one hook for both, the span living
 /// inside the row. Present only while the session's live phase is
@@ -984,6 +1059,18 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_REFRESH_MODELS,
     SESSION_ROW_CLASS,
     WORKING_CLASS,
+    SESSIONS_VIEW_TOGGLE_ID,
+    SESSIONS_VIEW_SESSIONS_ID,
+    SESSIONS_VIEW_LIBRARY_ID,
+    SIGNAL_SIDEBAR_VIEW,
+    SESSIONS_VIEW_QUERY_PARAM,
+    LIBRARY_ROW_CLASS,
+    SESSION_ROW_MENU_CLASS,
+    SESSION_ROW_MENU_CLASS_POPUP,
+    SESSION_ROW_MENU_ID_ATTR,
+    SIGNAL_ROW_MENU_OPEN,
+    ACTION_LIBRARY_TOGGLE,
+    MENU_ENTRY_ACTION_ATTR,
     SESSION_TITLE_ID,
     MODEL_PICKER_BUTTON_ID,
     MODEL_PICKER_MODAL_ID,
@@ -1108,6 +1195,8 @@ pub const CLIENT_PATHS: &[&str] = &[
     APPLET_FILTER_QUERY_PARAM,
     APPLET_ROWS_SELECTOR,
     SESSIONS_FILTER_QUERY_PARAM,
+    SESSIONS_VIEW_QUERY_PARAM,
+    LIBRARY_TOGGLE_SUFFIX,
     VENDOR_PREFIX,
     THEME_PATH,
 ];
@@ -1150,4 +1239,6 @@ pub const CLIENT_URLS: &[&str] = &[
     APPLET_ROWS_SELECTOR,
     VENDOR_PREFIX,
     THEME_PATH,
+    LIBRARY_TOGGLE_SUFFIX,
+    ACTION_LIBRARY_TOGGLE,
 ];

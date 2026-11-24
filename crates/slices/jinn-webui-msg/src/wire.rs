@@ -262,6 +262,21 @@ pub struct RenameForm {
     pub title: String,
 }
 
+/// `POST /web/session/{id}/library` — set a session's library membership.
+///
+/// The path carries the session id (the rename precedent); the body
+/// names only the desired membership flag. The flag is the absolute
+/// state, not a delta: the row's kebab entry renders "add to library"
+/// or "remove from library" matching the membership it sees, so the
+/// POST carries exactly what that entry promises.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct LibraryToggleForm {
+    /// The membership the POST requests — `true` moves the session
+    /// into the library, `false` removes it.
+    #[serde(alias = "inLibrary")]
+    pub in_library: bool,
+}
+
 /// `POST /web/theme` — set the webui's color mode.
 ///
 /// The body names only the chosen mode (`light`/`dark`/`system`);
@@ -305,12 +320,16 @@ impl TranscriptQuery {
     }
 }
 
-/// The sessions pull's query: `GET /web/sessions?q=<text>`.
+/// The sessions pull's query: `GET /web/sessions?q=<text>&view=…`.
 ///
-/// The filter narrows the merged list to the sessions whose titles
+/// The filter narrows the active list to the sessions whose titles
 /// fuzzy-match `q` — matched server-side with the TUI session picker's
 /// matcher, so exactly one matching implementation exists. An absent
-/// or empty `q` reads as "no filter"; the full grouped list returns.
+/// or empty `q` reads as "no filter"; the full list returns. `view`
+/// names which of the sidebar's two lists the pull should render
+/// (sessions or library); absent or unknown reads as the sessions
+/// view — a page reload lands there because the browser sends no
+/// `view` on the initial pull.
 ///
 /// No viewer parameter exists: the blue row is the *viewed* session,
 /// bound client-side to the page root's `$viewedSession` signal — one
@@ -322,6 +341,45 @@ pub struct SessionsQuery {
     /// every session.
     #[serde(default)]
     pub q: Option<String>,
+    /// Which list the pull renders. Absent or unknown → sessions.
+    #[serde(default)]
+    pub view: Option<String>,
+}
+
+/// The sidebar list a sessions pull renders — the `view` query
+/// parameter's vocabulary.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SessionsView {
+    /// The TUI picker's session tree, library members excluded —
+    /// the default and the view a page reload lands on.
+    #[default]
+    Sessions,
+    /// The flat member list, most recently updated first.
+    Library,
+}
+
+impl SessionsView {
+    /// The view the query names. Absent, empty, or not one of the two
+    /// vocabulary values reads as [`SessionsView::Sessions`] — the
+    /// query was never rendered by the toggle control, so an unknown
+    /// value cannot be a client the control produced.
+    #[must_use]
+    pub fn from_query(value: Option<&str>) -> Self {
+        match value {
+            Some("library") => Self::Library,
+            _ => Self::Sessions,
+        }
+    }
+
+    /// The value the pull route's query param carries for this view —
+    /// the toggle control renders exactly this vocabulary.
+    #[must_use]
+    pub const fn as_query_value(self) -> &'static str {
+        match self {
+            Self::Sessions => "sessions",
+            Self::Library => "library",
+        }
+    }
 }
 
 impl SessionsQuery {
@@ -334,9 +392,15 @@ impl SessionsQuery {
     pub fn filter_text(&self) -> Option<&str> {
         self.q.as_deref().filter(|text| !text.is_empty())
     }
+
+    /// Which list this pull renders.
+    #[must_use]
+    pub fn view(&self) -> SessionsView {
+        SessionsView::from_query(self.view.as_deref())
+    }
 }
 
-/// One session row of the sessions list fragment.
+/// One session row of the sessions or library list fragment.
 ///
 /// The merge of what `AppState` knows about live sessions and what the
 /// store knows about archived ones — one row shape for both, so the
@@ -366,8 +430,13 @@ pub struct SessionListItem {
     pub working: bool,
     /// Tree depth under this row's parent session — 0 for a root, 1
     /// for its subagent children. The webui renders the picker's tree,
-    /// so children indent under the session that spawned them.
+    /// so children indent under the session that spawned them. The
+    /// library list is flat by definition; its rows all carry 0.
     pub depth: usize,
+    /// Whether the session is a library member — the kebab popup's
+    /// entry label ("add to library" / "remove from library") and the
+    /// membership exclusion's input both read it.
+    pub in_library: bool,
 }
 
 /// The kind of SSE push — the event name the client dispatches on.
@@ -493,7 +562,10 @@ impl jinn_slices::BusMessage for SessionPageOpened {}
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
 
-    use super::{McpToggleForm, SkillLoadForm, SkillToggleForm, SseKind, TranscriptQuery};
+    use super::{
+        LibraryToggleForm, McpToggleForm, SessionsQuery, SessionsView, SkillLoadForm,
+        SkillToggleForm, SseKind, TranscriptQuery,
+    };
 
     #[rstest::rstest]
     #[test]
@@ -591,5 +663,64 @@ mod tests {
         assert_eq!(toggle_camel.skill, "rust-programming");
         assert_eq!(load_camel, load_snake);
         assert_eq!(load_camel.session_id, "abc");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn library_toggle_form_deserializes_snake_and_camel_flag_keys() {
+        // Given the urlencoded shape the browser posts (camelCase
+        // alias) and the shape curl/tests post (snake_case field).
+        let camel: LibraryToggleForm =
+            serde_json::from_str("{\"inLibrary\":true}").expect("camelCase parses");
+        let snake: LibraryToggleForm =
+            serde_json::from_str("{\"in_library\":false}").expect("snake_case parses");
+
+        // Then both encodings land in the same form — the dual
+        // extractor accepts either body shape.
+        assert!(camel.in_library);
+        assert!(!snake.in_library);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_sessions_query_without_a_view_names_the_sessions_view() {
+        // Given queries with the view absent, empty, and unknown.
+        let absent = SessionsQuery::default();
+        let empty = SessionsQuery {
+            q: None,
+            view: Some(String::new()),
+        };
+        let unknown = SessionsQuery {
+            q: None,
+            view: Some("sidebar".to_owned()),
+        };
+
+        // Then every one reads as the sessions view — a reload's pull
+        // carries no view at all, and an unrecognized value was never
+        // rendered by the toggle control.
+        assert_eq!(absent.view(), SessionsView::Sessions);
+        assert_eq!(empty.view(), SessionsView::Sessions);
+        assert_eq!(unknown.view(), SessionsView::Sessions);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_library_view_query_roundtrips_through_its_vocabulary_value() {
+        // Given the library view's query value.
+        let value = SessionsView::Library.as_query_value();
+        let query = SessionsQuery {
+            q: None,
+            view: Some(value.to_owned()),
+        };
+
+        // When resolving the query's view.
+        // Then it is the library view, and the sessions value
+        // roundtrips the same way.
+        assert_eq!(query.view(), SessionsView::Library);
+        let sessions_query = SessionsQuery {
+            q: None,
+            view: Some(SessionsView::Sessions.as_query_value().to_owned()),
+        };
+        assert_eq!(sessions_query.view(), SessionsView::Sessions);
     }
 }

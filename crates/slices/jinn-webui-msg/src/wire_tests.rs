@@ -27,6 +27,7 @@ fn sessions_query_empty_q_reads_as_no_filter() {
     // cleared but still sent).
     let query = SessionsQuery {
         q: Some(String::new()),
+        view: None,
     };
 
     // Then no filter is in force — the matcher's empty-pattern
@@ -40,6 +41,7 @@ fn sessions_query_text_names_the_filter() {
     // Given a query carrying filter text.
     let query = SessionsQuery {
         q: Some("fix".to_owned()),
+        view: None,
     };
 
     // When reading the filter.
@@ -185,6 +187,7 @@ fn session_list_row_roundtrips_its_flags() {
         unread: false,
         working: true,
         depth: 0,
+        in_library: false,
     };
 
     // When serializing (the wire direction is server→client only).

@@ -4334,3 +4334,58 @@ async fn a_jinn_toml_reload_leaves_the_live_sessions_enabled_mcp_untouched() {
         "the live session's enabled_mcp_servers must not move on a reload"
     );
 }
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_archived_library_member_loads_and_unarchives() {
+    // Given a persisted, ARCHIVED, in-library session absent from the
+    // live map — the exact state a web library row for an archived
+    // member names when its page is opened or clicked.
+    let fixture = actor_fixture().await;
+    let session_id = jinn_core_types::SessionId::new();
+    let mut stored = ChatSessionState::new();
+    stored.set_session_id(session_id.clone());
+    stored.push_entry(jinn_core_types::ChatEntry::user("archived member"));
+    fixture
+        .store
+        .save(&stored.capture_snapshot())
+        .await
+        .expect("save session");
+    fixture
+        .store
+        .set_in_library(&session_id, true)
+        .await
+        .expect("set library");
+    fixture
+        .store
+        .set_archived(&session_id, true)
+        .await
+        .expect("archive");
+    {
+        let mut state = fixture.state.write();
+        state.session.remove(&session_id);
+        state.session.begin_load(session_id.clone());
+    }
+
+    // When the load request is published — the ordinary activate path.
+    fixture
+        .harness
+        .publish(SessionLoadRequested {
+            session_id: session_id.clone(),
+            content_width: Some(60),
+        })
+        .await;
+
+    // Then the session loads live and becomes the active session —
+    // a library member's archived state never refuses a load.
+    jinn_testutil::wait::poll_until_async_fn(Duration::from_secs(2), || async {
+        fixture.state.read().session.contains(&session_id)
+    })
+    .await;
+    let state = fixture.state.read();
+    assert!(
+        state.session.contains(&session_id),
+        "the archived member loads"
+    );
+    assert_eq!(state.session.active_session_id(), &session_id);
+}

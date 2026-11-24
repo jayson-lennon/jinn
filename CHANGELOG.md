@@ -23,6 +23,7 @@
 - Errors related to webui now use `error_stack` correctly instead of formatting into a string.
 - (webui) Add applet picker
 - Remove `#` flag in OpenRouter model market (the one that indicates if we have ECI/Vals data)
+- (webui) Add Library/session split
 
 - Add two new watchdogs monitoring for repeated tool calls:
 
