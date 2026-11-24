@@ -388,6 +388,28 @@ export async function openModal(page, kind) {
   return overlay;
 }
 
+/**
+ * Enables the tier's one MCP server for the viewed session through the
+ * row click — the user's path — and waits for the connection to reach
+ * `running`: the coordinator spawns the stdio connection, writes the
+ * runtime cell, and the mcp-status signal patch re-pulls the open
+ * modal's rows. The boot session enables nothing, so a test that needs
+ * the server enabled arranges it here.
+ *
+ * @param {import("@playwright/test").Page} page the browser page.
+ * @returns {Promise<void>} resolves once the row is enabled and its
+ *   badge reads `running`.
+ */
+export async function enableMcpServer(page) {
+  const row = page.locator(sel.MCP_ROW(sel.MCP_SERVER));
+  await expect(row).not.toHaveClass(new RegExp(sel.MCP_ROW_ENABLED));
+  await row.click();
+  await expect(row).toHaveClass(new RegExp(sel.MCP_ROW_ENABLED));
+  await expect(row.locator(`.${sel.MCP_BADGE_RUNNING}`)).toBeVisible({
+    timeout: 15_000,
+  });
+}
+
 // ── Composer ────────────────────────────────────────────────────────
 
 /**
