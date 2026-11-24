@@ -36,11 +36,27 @@
 //!   to the ordinary error settle (surrender marker +
 //!   `GiveUpProviderRetries`). An empty wait list disables it, and the
 //!   spawn is skipped entirely on one.
+//! - [`repeat_tool_call_watchdog_actor::RepeatToolCallWatchdogActor`] and
+//!   [`fuzzy_tool_call_watchdog_actor::FuzzyToolCallWatchdogActor`] watch
+//!   *across* tool calls — the fault no stream-buffer detector can see: a
+//!   model re-issuing the same call (`[watchdog.repeat_tool_call]`) or a
+//!   near-variant of it (`[watchdog.fuzzy_tool_call]`) with the same
+//!   result. Both join the call's arguments (`ToolCallsDispatched`, the
+//!   orchestrator's batch-accept event) to its result
+//!   (`ToolExecutionCompleted`) by tool-call id, accumulate with the
+//!   family's +1/−1 policy, nudge once per turn (a `RuleInterrupt` entry
+//!   the model reads), and cancel when the repeat recurs past the nudge —
+//!   gated on the nudge actually being in history. `max_repeats = 0`
+//!   disables either; the spawn is skipped on one.
 //!
-//! All four actors publish through `Services`' bus (kernel dependency, see
-//! Cargo.toml) and write no shared state.
+//! All six actors publish through `Services`' bus (kernel dependency, see
+//! Cargo.toml) and write no shared state — the two cross-call actors'
+//! nudge-visibility read through the read-only `State` is the family's
+//! only state access, and it never writes.
 
+pub mod fuzzy_tool_call_watchdog_actor;
 pub mod provider_error_watchdog_actor;
+pub mod repeat_tool_call_watchdog_actor;
 pub mod stall_watchdog_actor;
 pub mod stream_rule_watchdog_actor;
 pub mod stuck_loop_watchdog_actor;
@@ -49,8 +65,10 @@ pub mod tool_call_watchdog_actor;
 
 use jinn_kernel::Services;
 use jinn_kernel::common::state::State;
+use jinn_preferences_config::schemas::FuzzyToolCallWatchdogConfig;
 use jinn_preferences_config::schemas::LegacyStreamRulesBudget;
 use jinn_preferences_config::schemas::ProviderErrorWatchdogConfig;
+use jinn_preferences_config::schemas::RepeatToolCallWatchdogConfig;
 use jinn_preferences_config::schemas::STREAM_RULE_WATCHDOG_KEY;
 use jinn_preferences_config::schemas::STREAM_RULES_BUDGET_KEY;
 use jinn_preferences_config::schemas::StreamRuleWatchdogConfig;
@@ -105,7 +123,7 @@ pub(crate) fn stream_rule_max_failures(config: &jinn_preferences_config::ConfigL
     clippy::needless_pass_by_value,
     reason = "activation surface matches the sibling slices' convention; Services is an Arc-backed handle, cheap to clone"
 )]
-pub fn activate(host: &mut SliceHost<'_, RenderFacts>, _state: &State, services: Services) {
+pub fn activate(host: &mut SliceHost<'_, RenderFacts>, state: &State, services: Services) {
     // The stall watchdog needs the system for its self-addressed tick.
     // Its window and budget are read from the live layer at each tick
     // (`effective_budget`), so a jinn.toml reload applies to the next
@@ -144,6 +162,51 @@ pub fn activate(host: &mut SliceHost<'_, RenderFacts>, _state: &State, services:
             max_failures: loop_cfg.effective_max_failures(),
         },
     );
+
+    // The cross-call repeat watchdogs. Both read their budgets from the
+    // live layer per completion; `max_repeats = 0` means disabled, and
+    // the actor is not spawned at all — its subscriptions would be
+    // noise. Each holds the read-only State clone for its
+    // nudge-visibility check.
+    if services
+        .config
+        .get::<RepeatToolCallWatchdogConfig>()
+        .unwrap_or_default()
+        .max_repeats
+        == 0
+    {
+        tracing::info!(
+            "repeat-tool-call watchdog disabled by [watchdog.repeat_tool_call] max_repeats = 0"
+        );
+    } else {
+        repeat_tool_call_watchdog_actor::RepeatToolCallWatchdogActor::spawn(
+            host.system(),
+            repeat_tool_call_watchdog_actor::RepeatToolCallWatchdogActorDeps {
+                services: services.clone(),
+                state: state.clone(),
+            },
+        );
+    }
+
+    if services
+        .config
+        .get::<FuzzyToolCallWatchdogConfig>()
+        .unwrap_or_default()
+        .max_repeats
+        == 0
+    {
+        tracing::info!(
+            "fuzzy-tool-call watchdog disabled by [watchdog.fuzzy_tool_call] max_repeats = 0"
+        );
+    } else {
+        fuzzy_tool_call_watchdog_actor::FuzzyToolCallWatchdogActor::spawn(
+            host.system(),
+            fuzzy_tool_call_watchdog_actor::FuzzyToolCallWatchdogActorDeps {
+                services: services.clone(),
+                state: state.clone(),
+            },
+        );
+    }
 
     // The provider-error watchdog's schedule is read at activation; an
     // empty (or floored-empty) list means the user disabled it, and the
