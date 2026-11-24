@@ -1607,9 +1607,10 @@ fn table_headers_align_over_their_data_columns() {
 
     // Then the header row — two rows below the popup's top border, the
     // filter line and its separator above it — carries every column
-    // name in order, and PROJ is dollar-headed with no cent sign.
+    // name in order, and PROJ is dollar-headed with no cent sign. FLAGS
+    // is clipped to `FL` by its two-cell column.
     let header = row_text(&buffer, popup.y + 3, popup.width);
-    for name in ["PROJ", "IN/M", "OUT/M", "CACHE/M", "ECI", "MODEL", "FLAGS"] {
+    for name in ["PROJ", "IN/M", "OUT/M", "CACHE/M", "ECI", "MODEL", "FL"] {
         assert!(
             header.contains(name),
             "header row must name {name}, got: {header:?}"
