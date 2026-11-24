@@ -3894,7 +3894,7 @@ mod switch_markup {
     async fn creating_a_session_bumps_the_sessions_tick_in_the_response() {
         // Given the router with one configured project (the create
         // form's minimum config).
-        let (state, _audit, router) =
+        let (_state, _audit, router) =
             mcp_actions::harness_with_config("[[project.entry]]\npath = \"/tmp/e2e-scratch\"\n");
 
         // When posting a create.

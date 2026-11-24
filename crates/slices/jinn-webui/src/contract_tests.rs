@@ -55,6 +55,7 @@ fn row(session_id: jinn_core_types::SessionId, title: &str) -> SessionListItem {
         unread: false,
         working: false,
         depth: 0,
+        in_library: false,
     }
 }
 
@@ -80,6 +81,7 @@ fn rendered_page() -> String {
         stream_span_id: contract::STREAM_SPAN_ID,
         cursor: 0,
         sessions_html: sessions,
+        toggle_html: templates::sidebar_toggle_html(),
         transcript_html: transcript,
         controls_html: controls,
         button_html: button,
@@ -321,6 +323,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         stream_span_id: contract::STREAM_SPAN_ID,
         cursor: 3,
         sessions_html: sessions,
+        toggle_html: templates::sidebar_toggle_html(),
         transcript_html: String::new(),
         controls_html: String::new(),
         button_html: String::new(),
@@ -391,6 +394,7 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
         stream_span_id: contract::STREAM_SPAN_ID,
         cursor: 0,
         sessions_html: sessions_fragment_of(&[]),
+        toggle_html: templates::sidebar_toggle_html(),
         transcript_html: String::new(),
         controls_html: String::new(),
         button_html: String::new(),

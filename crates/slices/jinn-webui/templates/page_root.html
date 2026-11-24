@@ -1,16 +1,18 @@
 <div id="{{ page_root_id }}" data-attr:{{ page_session_attr }}="$viewedSession"
-     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', skillsfilter: '', toolsfilter: '', mcpfilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, catchupCursor: 0, switching: false, errorNotice: '', sessionsAttention: {{ sessions_attention }}, modelsTick: '', busy: {{ busy }}, modelLabel: '{{ model_label|js_str }}', title: '{{ title|js_str }}', titlePre: '{{ title|js_str }}', viewedSession: '{{ session_id }}', sessionsfilter: '', text: '', webTheme: '{{ web_theme }}', images: [] }"
+     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', skillsfilter: '', toolsfilter: '', mcpfilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, catchupCursor: 0, switching: false, errorNotice: '', sessionsAttention: {{ sessions_attention }}, modelsTick: '', busy: {{ busy }}, modelLabel: '{{ model_label|js_str }}', title: '{{ title|js_str }}', titlePre: '{{ title|js_str }}', viewedSession: '{{ session_id }}', sessionsfilter: '', sidebarview: 'sessions', rowMenuSession: '', text: '', webTheme: '{{ web_theme }}', images: [] }"
      data-class:drawer-open="$drawerOpen"
      data-on:keydown__document="evt.key === 'Escape' && ($menuOpen ? $menuOpen = false : ($drawerOpen ? $drawerOpen = false : undefined))"
      data-on:datastar-fetch="$switching && evt.detail.type === 'error' && ($switching = false, $errorNotice = 'Session switch failed (status ' + (evt.detail.argsRaw && evt.detail.argsRaw.status || '?') + '). The session did not load.')">
   <nav id="sidebar">
     <h2>Sessions</h2>
+    {{ toggle_html|safe }}
     <input id="{{ sessions_filter_input_id }}" type="text" placeholder="filter sessions…"
            autocomplete="off" spellcheck="false" data-bind:sessionsfilter
            data-on:input="$sessionsTick = $sessionsTick + 1">
     <div id="{{ sessions_id }}"
-         data-init="@get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true, filterSignals: {include: '^(sessionsTick|sessionsfilter)$'}})"
-         data-effect__debounce.150ms="$sessionsTick && @get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true, filterSignals: {include: '^(sessionsTick|sessionsfilter)$'}})">{{ sessions_html|safe }}</div>
+         data-init="@get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true, filterSignals: {include: '^(sessionsTick|sessionsfilter|sidebarview)$'}})"
+         data-effect__debounce.150ms="$sessionsTick && @get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true, filterSignals: {include: '^(sessionsTick|sessionsfilter|sidebarview)$'}})">{{ sessions_html|safe }}</div>
+    <div data-on:click__window="$rowMenuSession !== '' && ($rowMenuSession = '') !== undefined"></div>
   </nav>
   <main id="main">
     <div id="titlebar">

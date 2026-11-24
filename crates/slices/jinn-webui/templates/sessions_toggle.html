@@ -1,0 +1,13 @@
+{#- The sidebar's segmented Sessions | Library toggle. Exactly one
+    list is visible; the control swaps the list body through the
+    pull cycle — the constant-URL rule: the URL arguments are
+    constants, so each click's pull aborts the in-flight previous
+    one and the last-issued pull always lands last. -#}
+<div id="{{ toggle_id }}" role="tablist" aria-label="sidebar list">
+  <button id="{{ sessions_segment_id }}" type="button" role="tab"
+          data-class:{{ active_class }}="${{ view_signal }} !== 'library'"
+          data-on:click="${{ view_signal }} = 'sessions' && (${{ tick_signal }} = ${{ tick_signal }} + 1) !== undefined">Sessions</button>
+  <button id="{{ library_segment_id }}" type="button" role="tab"
+          data-class:{{ active_class }}="${{ view_signal }} === 'library'"
+          data-on:click="${{ view_signal }} = 'library' && (${{ tick_signal }} = ${{ tick_signal }} + 1) !== undefined">Library</button>
+</div>

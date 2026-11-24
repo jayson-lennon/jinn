@@ -303,6 +303,7 @@ fn overlay_seed_pairs() -> Vec<(&'static str, serde_json::Value)> {
         crate::contract::SIGNAL_MCP_TICK,
         crate::contract::SIGNAL_MODELS_TICK,
         crate::contract::SIGNAL_ERROR_NOTICE,
+        crate::contract::SIGNAL_ROW_MENU_OPEN,
     ];
     let false_off = flags
         .iter()
@@ -506,6 +507,16 @@ impl ServerShared {
         error_stack::Report<jinn_session_state::SessionStoreError>,
     > {
         self.session_store.load_summaries().await
+    }
+
+    /// Loads the library-member summaries through the session store.
+    pub(crate) async fn library_members(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        self.session_store.library_members().await
     }
 
     /// The app state, for the delivery paths that take `&State` (the
