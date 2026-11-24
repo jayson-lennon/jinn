@@ -693,6 +693,7 @@ pub fn router(shared: ServerShared) -> Router {
         .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
         .route("/web/session/{id}/activate", post(activate))
         .route(crate::contract::RENAME_ROUTE, post(rename))
+        .route(crate::contract::LIBRARY_TOGGLE_ROUTE, post(library_toggle))
         .route(crate::contract::SESSION_CREATE_PATH, post(create_session))
         .route("/vendor/{*path}", get(serve_vendor))
         .route("/healthz", get(health));
@@ -1742,6 +1743,36 @@ async fn rename(
             serde_json::Value::Bool(false),
         )]),
     ]))
+}
+
+/// `POST /web/session/{id}/library` — set a session's library
+/// membership (the row kebab popup's toggle).
+///
+/// Publishes the existing `SetSessionLibrary` command (see
+/// [`crate::delivery::handle_library_toggle`]); every open page — this
+/// one included — refreshes its list from the command's
+/// `SessionLibraryMembershipChanged` announcement through the fan-out
+/// (the store actor publishes it strictly after the persist lands), so
+/// the response itself needs no fragment: a barer ack would fight the
+/// broadcast the same way the cancel POST's empty response does. The
+/// initiating page's kebab popup is already closed (its click cleared
+/// the signal ahead of the POST).
+async fn library_toggle(
+    AxumState(shared): AxumState<ServerShared>,
+    AxPath(session_id): AxPath<String>,
+    form: Result<WebForm<jinn_webui_msg::LibraryToggleForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
+    crate::delivery::handle_library_toggle(
+        shared.state(),
+        shared.bus(),
+        shared.session_store(),
+        &session_id,
+        form.in_library,
+    )
+    .await
+    .map_err(|error| fail(error.status(), error.sentence()))?;
+    Ok(SseAction::empty())
 }
 
 // ── SSE ─────────────────────────────────────────────────────────────
