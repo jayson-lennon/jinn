@@ -21,6 +21,8 @@
   - Blocked using `/dev/null` and similar "null" paths for `dump_to_path`
 - (webui) Report errors when state is idle.
 - Errors related to webui now use `error_stack` correctly instead of formatting into a string.
+- (webui) Add applet picker
+- Remove `#` flag in OpenRouter model market (the one that indicates if we have ECI/Vals data)
 
 ## 2026-11-21 v1.26.1
 

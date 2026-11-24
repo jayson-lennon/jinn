@@ -62,6 +62,13 @@ jinn-tools-msg = { workspace = true }
 # implementation slice. The load path publishes the session slice's
 # `MarkSessionInteracted`, already a dependency above.
 jinn-skills-msg = { workspace = true }
+# The applets modal's rows come from the saved-app catalog the
+# applets slice's store actor writes into its cell
+# (`AppletsCatalog`), and the modal's GET publishes that crate's
+# `RescanApplets` and `WakeAppletsServer` — contract crate only:
+# never the applets implementation slice (the href re-derives the
+# applets URL from the cell's `ServingAddress.bind`).
+jinn-applets-msg = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-provider-config = { workspace = true }
 # Image ingestion: the bytes-based converter (sniff/transcode) shared with

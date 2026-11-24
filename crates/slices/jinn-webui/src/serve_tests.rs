@@ -78,6 +78,18 @@ async fn harness_seeded_with_fanout(
             jinn_mcp_msg::McpRuntimeState::default(),
         )
         .expect("the MCP runtime cell registers once");
+    let applets_catalog_cell = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once per harness");
+    let applets_picker_cell = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once per harness");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -111,17 +123,7 @@ async fn harness_seeded_with_fanout(
         crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
     };
     let shared = {
-        let mut registry = jinn_provider_config::ProviderRegistry::from_config(
-            jinn_provider_config::ProvidersConfig {
-                providers: std::collections::BTreeMap::default(),
-                aliases: vec![],
-                default_provider: None,
-                endpoint_defaults: vec![],
-            },
-        )
-        .expect("an empty providers config expands");
-        let mut api_keys = jinn_provider_config::ApiKeys::new();
-        seed(&mut registry, &mut api_keys);
+        let services = seeded_services(seed);
         ServerShared::new(
             state,
             bus,
@@ -132,8 +134,10 @@ async fn harness_seeded_with_fanout(
             provider_cell,
             personas_cell,
             mcp_runtime_cell,
-            jinn_provider_config::ProviderRegistryService::new(registry),
-            jinn_provider_config::ApiKeysService::new(api_keys),
+            applets_catalog_cell,
+            applets_picker_cell,
+            jinn_provider_config::ProviderRegistryService::new(services.registry),
+            jinn_provider_config::ApiKeysService::new(services.keys),
             jinn_config::empty_config_layer().clone(),
             fanout.clone(),
             0,
@@ -149,6 +153,40 @@ async fn harness_seeded_with_fanout(
         let _ = axum::serve(listener, router(shared)).await;
     });
     (format!("http://{addr}"), seeded, fanout)
+}
+
+/// The seeded provider registry and API keys the harness's
+/// `ServerShared` carries, expanded from the seed closure.
+fn seeded_services<S>(seed: S) -> seeded::Seeded
+where
+    S: FnOnce(&mut jinn_provider_config::ProviderRegistry, &mut jinn_provider_config::ApiKeys),
+{
+    let mut registry = jinn_provider_config::ProviderRegistry::from_config(
+        jinn_provider_config::ProvidersConfig {
+            providers: std::collections::BTreeMap::default(),
+            aliases: vec![],
+            default_provider: None,
+            endpoint_defaults: vec![],
+        },
+    )
+    .expect("an empty providers config expands");
+    let mut api_keys = jinn_provider_config::ApiKeys::new();
+    seed(&mut registry, &mut api_keys);
+    seeded::Seeded {
+        registry,
+        keys: api_keys,
+    }
+}
+
+/// The seeded service pair, so the harness binds them in one call.
+mod seeded {
+    /// The registry + keys a seed closure produced.
+    pub(super) struct Seeded {
+        /// The expanded provider registry.
+        pub registry: jinn_provider_config::ProviderRegistry,
+        /// The seed's API keys.
+        pub keys: jinn_provider_config::ApiKeys,
+    }
 }
 
 /// Installs the ring crypto provider for the reqwest client. The

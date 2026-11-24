@@ -768,6 +768,75 @@ pub const SKILL_ROWS_PREFIX: &str = "/web/skills/rows/";
 /// swap target (never the modal host: the input must not re-render).
 pub const SKILL_ROWS_SELECTOR: &str = "#skills-rows";
 
+// ── Applets modal ───────────────────────────────────────────────────
+
+/// The menu's Applets item — closes the menu and pulls the applets
+/// modal into its host. Rendered on every page: the saved-app catalog
+/// is instance-wide (not per-session), so unlike the persona/MCP/
+/// tools/skills items it carries no `data-show` guard.
+pub const MENU_ITEM_APPLETS_ID: &str = "menu-item-applets";
+
+/// The Applets menu item's action name.
+pub const ACTION_MENU_APPLETS: &str = "menu-applets";
+
+/// The applets **modal's** host — an empty span sibling to the other
+/// modal hosts in the page shell (the host-not-container rule:
+/// opening this modal can never destroy the menu item that opened
+/// it). The modal fragment swaps into this host on open; the filter's
+/// rows-only re-pull swaps the rows container inside it.
+pub const APPLET_MODAL_HOST_ID: &str = "applet-modal-host";
+
+/// The same host spelled as a CSS selector — the swap-target header
+/// the fragment pull stamps and the Datastar bindings name.
+pub const APPLET_MODAL_HOST_SELECTOR: &str = "#applet-modal-host";
+
+/// The applets modal overlay — the server-rendered row list the menu
+/// item opens; present in the page only after the pull renders it in.
+pub const APPLET_MODAL_ID: &str = "applet-modal";
+
+/// The modal's filter input — each keystroke re-queries the **rows**
+/// pull with the filter applied server-side (the skills rows-only
+/// pattern: the input is never re-rendered mid-typing).
+pub const APPLET_FILTER_ID: &str = "applet-filter";
+
+/// The modal's status line — the applets server's serving phase
+/// (`serving http://<bind>` or `<server offline>`).
+pub const APPLET_STATUS_ID: &str = "applet-status";
+
+/// The modal's row container — the list the filter's rows-only
+/// re-pull re-renders.
+pub const APPLET_ROWS_ID: &str = "applet-rows";
+
+/// The attribute an applet row carries its app id in — the row's
+/// `href` is built from the same id.
+pub const APPLET_NAME_DATA_ATTR: &str = "data-webui-applet";
+
+/// The applets modal's open toggle (view-local signal).
+pub const SIGNAL_APPLETS_OPEN: &str = "appletsOpen";
+/// The applets modal's filter text.
+pub const SIGNAL_APPLETS_FILTER: &str = "appletsfilter";
+
+/// Route pattern — the applets modal fragment pull (`GET
+/// /web/applet-picker`): no session id in the path — the catalog is
+/// instance-wide.
+pub const APPLET_PICKER_ROUTE: &str = "/web/applet-picker";
+
+/// Route pattern — the applets modal's **rows fragment** pull
+/// (`GET /web/applet-picker/rows?filter=…`). The filter keystrokes'
+/// target: it swaps the rows container only, so the response never
+/// re-renders the filter input (the keystroke-drop bug the skills/
+/// tools rows routes exist for).
+pub const APPLET_ROWS_ROUTE: &str = "/web/applet-picker/rows";
+
+/// The applets rows pull's filter query parameter — absent or empty
+/// renders every row in catalog order.
+pub const APPLET_FILTER_QUERY_PARAM: &str = "filter";
+
+/// The applets rows container spelled as a CSS selector — the
+/// re-pull's swap target (never the modal host: the input must not
+/// re-render).
+pub const APPLET_ROWS_SELECTOR: &str = "#applet-rows";
+
 // ── Endpoints ───────────────────────────────────────────────────────
 
 /// The landing/session page path (the client's entry URL).
@@ -976,6 +1045,14 @@ pub const DOM_CONSTANTS: &[&str] = &[
     SKILL_LOAD_CLASS,
     ACTION_SKILL_TOGGLE,
     ACTION_SKILL_LOAD,
+    MENU_ITEM_APPLETS_ID,
+    ACTION_MENU_APPLETS,
+    APPLET_MODAL_HOST_ID,
+    APPLET_MODAL_ID,
+    APPLET_FILTER_ID,
+    APPLET_STATUS_ID,
+    APPLET_ROWS_ID,
+    APPLET_NAME_DATA_ATTR,
     DRAWER_SCRIM_ID,
     MENU_SCRIM_ID,
     SWITCH_OVERLAY_ID,
@@ -1026,6 +1103,10 @@ pub const CLIENT_PATHS: &[&str] = &[
     SKILL_LOAD_PATH,
     SKILL_ROWS_PREFIX,
     SKILL_ROWS_SELECTOR,
+    APPLET_PICKER_ROUTE,
+    APPLET_ROWS_ROUTE,
+    APPLET_FILTER_QUERY_PARAM,
+    APPLET_ROWS_SELECTOR,
     SESSIONS_FILTER_QUERY_PARAM,
     VENDOR_PREFIX,
     THEME_PATH,
@@ -1064,6 +1145,9 @@ pub const CLIENT_URLS: &[&str] = &[
     SKILL_LOAD_PATH,
     SKILL_ROWS_PREFIX,
     SKILL_ROWS_SELECTOR,
+    APPLET_PICKER_ROUTE,
+    APPLET_ROWS_ROUTE,
+    APPLET_ROWS_SELECTOR,
     VENDOR_PREFIX,
     THEME_PATH,
 ];

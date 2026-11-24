@@ -9,6 +9,7 @@
 //! server half of the region contract names. The TypeScript half of
 //! each region's browser behavior rides declarative Datastar attributes
 
+pub mod applets;
 pub mod composer;
 pub mod mcp_servers;
 pub mod menu;

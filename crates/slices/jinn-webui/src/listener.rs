@@ -84,6 +84,12 @@ pub struct WebUiListenerActorDeps {
     /// The MCP runtime cell, for the MCP modal's status projection
     /// (read-only; the coordinator is the writer).
     pub mcp_runtime_cell: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
+    /// The applets catalog cell, for the applets modal's rows
+    /// (read-only; the applets slice's store actor is the writer).
+    pub applets_catalog_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
+    /// The applets picker cell, for the modal's serving phase
+    /// (read-only; the applets slice's republisher is the writer).
+    pub applets_picker_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
     /// The provider registry, for the picker rows' shared builder.
     pub provider_registry: jinn_provider_config::ProviderRegistryService,
     /// The resolved API keys, for the picker rows' availability flags.
@@ -145,6 +151,8 @@ impl WebUiListenerActor {
             deps.provider_cell.clone(),
             deps.personas_cell.clone(),
             deps.mcp_runtime_cell.clone(),
+            deps.applets_catalog_cell.clone(),
+            deps.applets_picker_cell.clone(),
             deps.provider_registry.clone(),
             deps.api_keys.clone(),
             deps.config.clone(),

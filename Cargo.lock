@@ -6050,6 +6050,7 @@ dependencies = [
  "image",
  "jiff",
  "jinn-app-state",
+ "jinn-applets-msg",
  "jinn-cell-catalog",
  "jinn-chat-input-msg",
  "jinn-config",
