@@ -8,16 +8,16 @@
 //! and the client must re-render the button even when the model does
 //! not change.
 
-import { expect, test } from "@playwright/test";
-import { openSession } from "./nav.mjs";
+import { expect, openSession, test } from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
 const { MODEL_ID } = sel;
 
 test("opening the picker shows the current model promoted as active", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open.
-  await openSession(page);
+  await openSession(jinn, page);
 
   // When opening the model picker.
   await page.locator(sel.PICKER_BUTTON).click();
@@ -31,9 +31,9 @@ test("opening the picker shows the current model promoted as active", async ({
   await expect(row).toHaveClass(/model-row-active/);
 });
 
-test("fuzzy filter highlights matches with a mark", async ({ page }) => {
+test("fuzzy filter highlights matches with a mark", async ({ page, jinn }) => {
   // Given the picker open.
-  await openSession(page);
+  await openSession(jinn, page);
   await page.locator(sel.PICKER_BUTTON).click();
 
   // When typing a fuzzy-only query (`spl` matches `sample`).
@@ -55,9 +55,10 @@ test("fuzzy filter highlights matches with a mark", async ({ page }) => {
 
 test("switching from the inner model-name span re-renders the button", async ({
   page,
+  jinn,
 }) => {
   // Given the picker open on the boot session.
-  await openSession(page);
+  await openSession(jinn, page);
   await page.locator(sel.PICKER_BUTTON).click();
   const modal = page.locator(sel.PICKER_MODAL);
   await expect(modal).toBeVisible();
@@ -73,9 +74,9 @@ test("switching from the inner model-name span re-renders the button", async ({
   await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(MODEL_ID);
 });
 
-test("clicking the backdrop closes the picker", async ({ page }) => {
+test("clicking the backdrop closes the picker", async ({ page, jinn }) => {
   // Given the model picker open.
-  await openSession(page);
+  await openSession(jinn, page);
   await page.locator(sel.PICKER_BUTTON).click();
   const modal = page.locator(sel.PICKER_MODAL);
   await expect(modal).toBeVisible();
@@ -91,9 +92,10 @@ test("clicking the backdrop closes the picker", async ({ page }) => {
 
 test("unavailable rows are inert: no switch action, modal stays open", async ({
   page,
+  jinn,
 }) => {
   // Given the picker open.
-  await openSession(page);
+  await openSession(jinn, page);
   await page.locator(sel.PICKER_BUTTON).click();
   const modal = page.locator(sel.PICKER_MODAL);
 
@@ -113,11 +115,12 @@ test("unavailable rows are inert: no switch action, modal stays open", async ({
 
 test("refresh shows the busy state and clears it when the cache lands", async ({
   page,
+  jinn,
 }) => {
   // Given the picker open with a filter typed — and the refresh POST
   // held, so the busy window is deterministic (the scratch backend
   // answers in milliseconds; an unheld assertion races the clear).
-  await openSession(page);
+  await openSession(jinn, page);
   await page.locator(sel.PICKER_BUTTON).click();
   const refresh = page.locator(sel.PICKER_REFRESH);
   await page.locator(sel.PICKER_FILTER).fill("sample");
@@ -147,9 +150,10 @@ test("refresh shows the busy state and clears it when the cache lands", async ({
 
 test("typing into the filter keeps the modal open, Escape closes it", async ({
   page,
+  jinn,
 }) => {
   // Given the picker open.
-  await openSession(page);
+  await openSession(jinn, page);
   await page.locator(sel.PICKER_BUTTON).click();
   const modal = page.locator(sel.PICKER_MODAL);
   await expect(modal).toBeVisible();
@@ -170,9 +174,9 @@ test("typing into the filter keeps the modal open, Escape closes it", async ({
   await expect(modal).toBeHidden();
 });
 
-test("the filter input renders themed, not browser-default", async ({ page }) => {
+test("the filter input renders themed, not browser-default", async ({ page, jinn }) => {
   // Given the picker open.
-  await openSession(page);
+  await openSession(jinn, page);
   await page.locator(sel.PICKER_BUTTON).click();
   const modal = page.locator(sel.PICKER_MODAL);
   await expect(modal).toBeVisible();
