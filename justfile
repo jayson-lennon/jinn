@@ -604,6 +604,14 @@ gh-pr-close N COMMENT="":
 #   webui-build   — verify the vendored bundle (gzip + sha256 pin)
 #   webui-smoke   — the headless-chromium test (JINN_WEBUI_SMOKE=1 just webui-smoke)
 #   webui-e2e     — full-stack Playwright e2e (real jinn + sample backend)
+#   webui-e2e-one F — the same tier, only the tests matching FILTER (the inner loop)
+#
+# Every e2e test boots its own jinn against its own scratch db and
+# config, so no test can see state another test left behind, and each
+# test arranges its own precondition. The tier runs in a shuffled
+# order with the seed printed: an order-dependent test fails the run
+# and names how to reproduce it. Both e2e recipes build the binary
+# themselves, so a run against a stale binary is not reachable.
 
 # Verify the vendored Datastar bundle against its manifest pin.
 webui-build:
@@ -637,19 +645,60 @@ webui-e2e-clean:
     rm -rf "/tmp/jinn-webui-e2e/${SLUG}/run-"*
     echo '==> webui-e2e-clean green'
 
-# Run webui-e2e test suite.
-webui-e2e:
+# Shared preamble of both e2e recipes: sweep, build, ensure Node deps.
+#
+# The build runs on every invocation and cargo's own fingerprinting
+# decides whether anything recompiles — the binary embeds the askama
+# templates and the vendored web assets at compile time, so a template
+# edit must reach it without a hand-rolled staleness check.
+#
+# The dependency install is skipped when node_modules is present and
+# newer than the lock file; `npm ci` otherwise (reproducible from the
+# lock, and the only npm command in the tier). Playwright's own
+# command-line entry is invoked straight from node_modules/.bin: a
+# package-runner wrapper would silently fetch a different version
+# whenever the install were missing, and the tier pins one version.
+[private]
+webui-e2e-prep:
     #!/usr/bin/env bash
     set -euo pipefail
     just webui-e2e-clean
     echo '==> cargo build --bin jinn'
     cargo build --bin jinn
-    echo '==> npm ci (webui/client/e2e)'
-    npm ci --prefix webui/client/e2e
+    if [ ! -d webui/client/e2e/node_modules ] \
+        || [ -n "$(find webui/client/e2e/package-lock.json -newer webui/client/e2e/node_modules -print -quit 2>/dev/null)" ]; then
+        echo '==> npm ci (webui/client/e2e)'
+        npm ci --prefix webui/client/e2e
+    else
+        echo '==> node_modules current (npm ci skipped)'
+    fi
+
+# Run webui-e2e test suite (shuffled; the runner prints the seed).
+webui-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just webui-e2e-prep
     echo '==> playwright e2e'
-    npx --prefix webui/client/e2e playwright test \
-        --config webui/client/e2e/playwright.config.mjs
+    webui/client/e2e/node_modules/.bin/playwright test \
+        --config webui/client/e2e/playwright.config.mjs --shuffle
     echo '==> webui-e2e green'
+
+# Run only the webui e2e tests matching FILTER — the sanctioned
+# iterate-on-failure loop (a file name, a -g title fragment, ...).
+# Same build, same isolation, same shuffle as the full tier.
+#
+# FILTER is placed BEFORE --shuffle on purpose: --shuffle takes an
+# optional seed argument, so a filter written after it would be eaten
+# as the seed and the whole tier would run.
+[doc("Run only webui e2e tests matching FILTER (after build + clean).")]
+webui-e2e-one FILTER:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just webui-e2e-prep
+    echo '==> playwright e2e (filter: {{FILTER}})'
+    webui/client/e2e/node_modules/.bin/playwright test {{FILTER}} \
+        --config webui/client/e2e/playwright.config.mjs --shuffle
+    echo '==> webui-e2e-one green'
 
 # Bump version (major/minor/patch), commit, and tag in git
 bump LEVEL:

@@ -1,13 +1,29 @@
 //! The jinn subprocess lifecycle for the webui e2e tier.
 //!
-//! One run of `just webui-e2e` boots one real jinn binary in a scratch
-//! paths root: probe a free loopback port, write scratch config files
-//! (sample-only providers, the probed port in `[webui] bind`), spawn
-//! the binary detached so the whole process group dies together, poll
-//! the bind until it accepts, and tear it all down. Nothing outside
-//! the scratch root is read or written — `JINN_PATHS_ROOT` redirects
-//! config/data/state discovery, `--db-path` and `--config` pin the
-//! rest. See `.plans/webui-e2e/plan.md` for the spec.
+//! Every e2e test boots its own jinn against its own scratch root — a
+//! fresh database, config, data, cache, and state tree — and tears it
+//! down when the test ends, whatever way it ends. Nothing a test does
+//! can be seen by another test, because nothing outlives the test.
+//!
+//! One launch site. `bootJinn` is the only place the binary is
+//! spawned, and it is hermetic by construction:
+//!
+//! - the paths-root override (`JINN_PATHS_ROOT`) rebinds every base
+//!   directory under the scratch root (`app_paths.rs`: read once at
+//!   startup, the only place the workspace reads the environment for
+//!   path derivation);
+//! - `--db-path` and `--config` name files inside that root, so the
+//!   real `~/.config/jinn` and `~/.local/share/jinn` are never opened;
+//! - the working directory is inside the root, so the session-init scan
+//!   reads the scratch root's project-local skills, not the checkout's;
+//! - the environment is BUILT from an allowlist, never inherited, so
+//!   the caller's `RUST_LOG`, provider keys, and shell variables do not
+//!   reach the instance.
+//!
+//! Staged scratch resources (the block-less persona, the scratch skill,
+//! the scratch applet) are parameters of each boot — a test that needs
+//! one asks for it; a test that does not gets an instance without it.
+//! There is no module-level staged state to leak between boots.
 
 import { spawn } from "node:child_process";
 import net from "node:net";
@@ -18,14 +34,9 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-/** Where the run's pid/baseUrl bookkeeping file lives (gitignored). */
-const RUN_DIR = path.join(here, ".run");
-/** Bookkeeping file so teardown works even after a crashed run. */
-const RUN_FILE = path.join(RUN_DIR, "run.json");
-
 /** Root of the repo (three up from webui/client/e2e). */
 const REPO_ROOT = path.resolve(here, "..", "..", "..");
-/** The debug binary the recipe builds before the suite runs. */
+/** The debug binary the e2e recipes build before every run. */
 const BIN_PATH = path.join(REPO_ROOT, "target", "debug", "jinn");
 /** The scratch luau script the `[mcp.echo]` entry serves. */
 const MCP_ECHO_SCRIPT = path.join(here, "mcp-echo-tool.lua");
@@ -43,9 +54,57 @@ export const TMP_BASE = path.join(os.tmpdir(), "jinn-webui-e2e", WORKTREE_SLUG);
 /** How long to wait for the bind before declaring boot failed. */
 const BIND_TIMEOUT_MS = 30_000;
 /** Delay between bind probes. */
-const BIND_POLL_MS = 250;
-/** SIGTERM grace before escalating to SIGKILL. */
-const KILL_GRACE_MS = 5_000;
+const BIND_POLL_MS = 50;
+
+/**
+ * The environment every instance receives — an allowlist, not an
+ * inheritance. Each entry is something the process needs to run or
+ * the tier itself sets; everything else in the caller's environment
+ * (`RUST_LOG`, provider key variables, shell customizations) is left
+ * behind on purpose.
+ *
+ * `SHELL` is pinned to `/bin/sh` so `script -c` launches the binary
+ * through a known shell that `exec`s it, with no rc file of the
+ * caller's to source. `TERM=dumb` keeps the pty wrapper from emitting
+ * terminal queries nothing answers.
+ */
+function allowedEnv(root) {
+  const keep = (name) => (process.env[name] === undefined ? {} : { [name]: process.env[name] });
+  return {
+    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    HOME: root,
+    TMPDIR: path.join(root, "tmp"),
+    SHELL: "/bin/sh",
+    TERM: "dumb",
+    LANG: process.env.LANG ?? "C.UTF-8",
+    ...keep("LC_ALL"),
+    // The paths-root override — the isolation lever. Rebinds config,
+    // data, cache, state, and home under the scratch root.
+    JINN_PATHS_ROOT: root,
+    // The attachments spec's loopback TLS fixture serves a committed
+    // self-signed cert; the image-URL fetch client trusts it in test
+    // runs only (production never sets this var).
+    JINN_WEBUI_TEST_ROOT_CERT: path.join(here, "loopback-cert.pem"),
+  };
+}
+
+/**
+ * Probes the kernel for a free loopback port.
+ *
+ * # Errors
+ *
+ * Rejects when the kernel refuses to hand out a port.
+ */
+export function probePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
 
 /** The scratch providers.toml — sample-only, keyless, network-free.
  *
@@ -53,7 +112,7 @@ const KILL_GRACE_MS = 5_000;
  * key from an env var no run sets, so it always renders with the
  * unavailable attribute and no switch action.
  */
-let PROVIDERS_TOML = `version = 1
+const PROVIDERS_TOML = `version = 1
 
 default_provider = "sample"
 
@@ -81,21 +140,22 @@ models = ["phantom"]
  * container is genuinely scrollable — the scroll spec asserts
  * scrollHeight > clientHeight, which two rows never produce. Keyless
  * static providers: they render rows, need no network, and no spec
- * addresses them by name (the picker specs pivot on `sample/sample`
- * and `ghost`, both kept).
+ * addresses them by name except the text-only filler the attachment
+ * gate spec switches to (`filler1`), which is kept.
  */
-for (let i = 1; i <= 14; i += 1) {
-  PROVIDERS_TOML += `
-[providers.filler${i}]
+const FILLERS_TOML = Array.from({ length: 14 }, (_, index) => {
+  const number = index + 1;
+  return `
+[providers.filler${number}]
 backend = "sample"
 requires_key = false
-models = ["filler-${i}"]
+models = ["filler-${number}"]
 `;
-}
+}).join("");
 
 /**
- * Builds the scratch jinn.toml body — the bind is the only knob the
- * tier turns; the port is probed so the config can name it.
+ * The scratch jinn.toml body — the bind is the only knob the tier
+ * turns; the port is probed so the config can name it.
  *
  * The `[mcp.echo]` entry points at the repo's debug binary serving the
  * scratch echo tool over stdio (`jinn luau serve`, network-free), so
@@ -124,147 +184,106 @@ args = ["luau", "serve", "${MCP_ECHO_SCRIPT}"]
 }
 
 /**
- * Probes the kernel for a free loopback port.
- *
- * # Errors
- *
- * Rejects when the kernel refuses to hand out a port.
+ * The staged resources a boot may write before jinn starts. Each is
+ * a plain value: the persona's full file body, the skill's name and
+ * body, the applet's id and title. Discovery scans at activation, so
+ * a file written after boot is invisible — they must exist first.
  */
-export function probePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-  });
-}
+export const staged = {
+  /** The block-less scratch persona the persona-picker warning path
+   * pivots on. Every shipped persona carries a `<compaction>` block,
+   * so the loud-error path has no row to click without this one. */
+  blocklessPersona: {
+    file: "blockless-e2e.md",
+    body: `+++
+name = "blockless-e2e"
+description = "scratch persona without a compaction handoff block"
++++
 
-/** Staged scratch persona body — written into the run's personas dir. */
-let stagedPersona;
+You are the e2e scratch persona. Keep replies to one line.
+`,
+  },
+  /** The scratch skill the skills spec pivots on. Discovered from the
+   * scratch root's global skills dir (under the paths-root override the
+   * root IS the home). Valid frontmatter: `name` must match the parent
+   * directory, and `description` is required. */
+  scratchSkill: {
+    name: "e2e-scratch-skill",
+    body: `---
+name: e2e-scratch-skill
+description: scratch skill for the skills modal flow
+---
 
-/** Staged scratch skill body — written into the run's skills dir. */
-let stagedSkill;
+# e2e scratch skill
 
-/** Staged scratch applet — written into the run's applets dir. */
-let stagedApplet;
+Say the magic word: e2e-scratch-skill-body-marker.
+`,
+  },
+  /** The scratch saved-applet the applets spec pivots on: an
+   * `index.html` plus its catalog row under the scratch data dir. */
+  scratchApplet: { id: "e2e-scratch-applet", title: "E2E Scratch Applet" },
+};
 
-/**
- * Stages one scratch persona `.md` for the run's personas dir.
- *
- * MUST run before {@linkcode startJinn}: the persona scan happens at
- * activation, so a file written after boot is invisible for the whole
- * run. {@linkcode writeScratch} lands it in
- * `<root>/config/jinn/personas/` under the SAME root the run boots
- * with — a separate temp dir would be invisible (`JINN_PATHS_ROOT`).
- *
- * @param {string} content the full persona file body (frontmatter +
- *   markdown).
- */
-export function writeScratchPersona(content) {
-  stagedPersona = content;
-}
-
-/**
- * Stages one scratch `SKILL.md` for the run's skills dir.
- *
- * MUST run before {@linkcode startJinn} for the same reason the
- * persona is: discovery scans at activation. {@linkcode writeScratch}
- * lands it at `<root>/.agents/skills/<name>/SKILL.md` — under
- * `JINN_PATHS_ROOT`, `AppPaths::new_in` sets `home_dir` to the root,
- * so the global skills dir is `<root>/.agents/skills` (NOT under
- * `config/jinn/`, where the staged persona lives).
- *
- * @param {string} name the skill's frontmatter `name` — it must match
- *   the parent directory.
- * @param {string} content the full SKILL.md body (frontmatter +
- *   markdown).
- */
-export function writeScratchSkill(name, content) {
-  stagedSkill = { name, content };
-}
-
-/**
- * Stages one scratch saved-applet for the run's applets dir: an
- * `index.html` body plus the applet's catalog row.
- *
- * Staged before boot for determinism, the persona/skill hook's
- * reason: nothing scans at activation, and the catalog cell
- * populates on the picker's first rescan (the modal's GET publishes
- * it), so staging after boot would also work — but the run's scratch
- * root only exists once {@linkcode startJinn} mints it, so the
- * pre-boot hook is how {@linkcode writeScratch} can place it.
- * Lands at `<root>/data/jinn/applets/<id>/index.html` plus
- * `applets.json` — under `JINN_PATHS_ROOT` the root IS the home, so
- * the applets dir is `data/jinn/applets` (`app_paths.rs`'s
- * `applets_dir_lands_under_data_base` pins the layout).
- *
- * @param {string} id the applet's directory id — must pass the
- *   catalog's `is_valid_app_id` gate (a URL path segment).
- * @param {string} title the display title the picker row shows.
- */
-export function writeScratchApplet(id, title) {
-  stagedApplet = {
-    id,
-    title,
-    indexHtml: `<!DOCTYPE html><html><body><h1>${title}</h1><p>e2e scratch applet ${id}</p></body></html>`,
-  };
-}
-
-/**
- * Writes the scratch tree: config dir, providers.toml, jinn.toml, db.
- *
- * Both files live under `<root>/config/jinn/` — `AppPaths::new_in`
- * sets the config dir to `<root>/config` and the file paths append
- * `jinn/`, so anything written one level up is invisible to the run
- * (which would then seed a default providers.toml over it).
- *
- * # Errors
- *
- * Rejects when the scratch tree cannot be created.
- */
-export function writeScratch(root, port) {
+/** Writes the config dir's two files and the staged persona. */
+function writeConfig(root, port, persona) {
   const configDir = path.join(root, "config", "jinn");
   fs.mkdirSync(configDir, { recursive: true });
-  fs.mkdirSync(path.join(root, "db"), { recursive: true });
-  fs.writeFileSync(path.join(configDir, "providers.toml"), PROVIDERS_TOML);
+  fs.writeFileSync(path.join(configDir, "providers.toml"), PROVIDERS_TOML + FILLERS_TOML);
   fs.writeFileSync(path.join(configDir, "jinn.toml"), jinnTomlFor(port));
-  if (stagedPersona !== undefined) {
+  if (persona !== undefined) {
     const personasDir = path.join(configDir, "personas");
     fs.mkdirSync(personasDir, { recursive: true });
-    fs.writeFileSync(path.join(personasDir, "blockless-e2e.md"), stagedPersona);
+    fs.writeFileSync(path.join(personasDir, persona.file), persona.body);
   }
-  if (stagedSkill !== undefined) {
-    const skillsDir = path.join(root, ".agents", "skills", stagedSkill.name);
-    fs.mkdirSync(skillsDir, { recursive: true });
-    fs.writeFileSync(path.join(skillsDir, "SKILL.md"), stagedSkill.content);
-  }
-  if (stagedApplet !== undefined) {
-    const appletDir = path.join(root, "data", "jinn", "applets", stagedApplet.id);
-    fs.mkdirSync(appletDir, { recursive: true });
-    fs.writeFileSync(path.join(appletDir, "index.html"), stagedApplet.indexHtml);
-    const catalog = {
+}
+
+/** Writes the staged skill under the scratch root's global skills dir. */
+function writeSkill(root, skill) {
+  const skillsDir = path.join(root, ".agents", "skills", skill.name);
+  fs.mkdirSync(skillsDir, { recursive: true });
+  fs.writeFileSync(path.join(skillsDir, "SKILL.md"), skill.body);
+}
+
+/** Writes the staged applet: its `index.html` and the catalog row. */
+function writeApplet(root, applet) {
+  const base = path.join(root, "data", "jinn", "applets");
+  const appletDir = path.join(base, applet.id);
+  fs.mkdirSync(appletDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(appletDir, "index.html"),
+    `<!DOCTYPE html><html><body><h1>${applet.title}</h1><p>e2e scratch applet ${applet.id}</p></body></html>`,
+  );
+  fs.writeFileSync(
+    path.join(base, "applets.json"),
+    JSON.stringify({
       entries: [
-        {
-          id: stagedApplet.id,
-          title: stagedApplet.title,
-          created_at: "2026-01-01T00:00:00Z",
-        },
+        { id: applet.id, title: applet.title, created_at: "2026-01-01T00:00:00Z" },
       ],
-    };
-    fs.writeFileSync(
-      path.join(root, "data", "jinn", "applets", "applets.json"),
-      JSON.stringify(catalog),
-    );
+    }),
+  );
+}
+
+/** The empty trees every scratch root starts with. */
+function writeSkeleton(root) {
+  for (const dir of ["db", "tmp", "cwd"]) {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
   }
 }
 
 /**
- * Reads the last `lines` lines of the jinn log for failure reports.
- *
- * jinn writes its log to `<paths-root>/state/jinn/jinn.log` — the
- * paths root IS the scratch root, so the tail is read from there.
+ * Writes one scratch root: the skeleton, the config files, and
+ * whichever staged resources this boot asked for.
+ */
+function writeScratch(root, port, stage) {
+  writeSkeleton(root);
+  writeConfig(root, port, stage.persona);
+  if (stage.skill !== undefined) writeSkill(root, stage.skill);
+  if (stage.applet !== undefined) writeApplet(root, stage.applet);
+}
+
+/**
+ * Reads the tail of an instance's log for failure reports — jinn logs
+ * to `<paths-root>/state/jinn/jinn.log`, inside the scratch root.
  *
  * # Errors
  *
@@ -286,13 +305,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
  * Polls the bind until a TCP connect succeeds or the deadline passes.
  *
- * `bootRoot` is the scratch root the log tail is read from on failure.
- *
  * # Errors
  *
- * Rejects with the jinn log tail when the boot deadline expires.
+ * Rejects with the instance's log tail when the boot deadline expires.
  */
-export async function awaitBind(port, bootRoot) {
+async function awaitBind(port, root) {
   const deadline = Date.now() + BIND_TIMEOUT_MS;
   for (;;) {
     const open = await new Promise((resolve) => {
@@ -310,18 +327,244 @@ export async function awaitBind(port, bootRoot) {
     if (Date.now() > deadline) {
       throw new Error(
         `jinn did not bind 127.0.0.1:${port} within ${BIND_TIMEOUT_MS}ms\n` +
-          `--- jinn.log tail ---\n${bootRoot ? logTail(bootRoot, 40) : "(no root yet)"}`,
+          `--- jinn.log tail ---\n${logTail(root, 40)}`,
       );
     }
     await sleep(BIND_POLL_MS);
   }
 }
 
+/** One /proc stat record: the parent pid, process group, and session. */
+function statOf(pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    // The comm field is parenthesized and may contain spaces; the
+    // fields below start two characters after the closing paren.
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    return { ppid: Number(fields[1]), pgid: Number(fields[2]), sid: Number(fields[3]) };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Every live process's stat, keyed by pid, read from /proc once. */
+function processTable() {
+  const table = new Map();
+  for (const entry of fs.readdirSync("/proc")) {
+    if (!/^\d+$/.test(entry)) continue;
+    const stat = statOf(entry);
+    if (stat !== undefined) table.set(Number(entry), stat);
+  }
+  return table;
+}
+
 /**
- * Kills a stale run left behind by a crashed earlier run, if any.
+ * The instance's whole process tree: every live process whose command
+ * line names `root`, and every descendant of one. The scratch root is
+ * unique per boot and appears in the `--db-path` argument of the pty
+ * wrapper and the binary; a child the binary spawns (the scratch
+ * config's `[mcp.echo]` entry runs the binary again as an MCP server)
+ * carries no root on its command line and lands in a session of its
+ * own, so the tree is walked parent-to-child from the root-naming
+ * processes rather than inferred from sessions or groups.
+ */
+function processesOfRoot(root) {
+  const table = processTable();
+  const seeds = [];
+  for (const pid of table.keys()) {
+    try {
+      const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8");
+      if (cmdline.includes(root)) seeds.push(pid);
+    } catch {
+      // The process exited between the scan and the read — not a seed.
+    }
+  }
+  const tree = new Set(seeds);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [pid, stat] of table) {
+      if (!tree.has(pid) && tree.has(stat.ppid)) {
+        tree.add(pid);
+        grew = true;
+      }
+    }
+  }
+  return [...tree];
+}
+
+/**
+ * Kills an instance's whole tree, then waits for the kernel to reap so
+ * a following scratch-root removal does not race a still-open file.
+ * SIGKILL, no grace: a test instance has no durable work to finish,
+ * and the pty wrapper outlives a SIGTERM that already took its child
+ * down.
  *
  * # Errors
  *
+ * Never rejects — killing an already-dead instance is a no-op.
+ */
+async function killTree(root) {
+  for (const pid of processesOfRoot(root)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Exited between the scan and the signal — fine.
+    }
+  }
+  const reaped = Date.now() + 2_000;
+  while (processesOfRoot(root).length > 0) {
+    if (Date.now() > reaped) return;
+    await sleep(50);
+  }
+}
+
+/**
+ * Boots one scratch-isolated, hermetically-launched jinn and returns
+ * its run coordinates.
+ *
+ * The binary runs under util-linux `script`, which hands it a pty and
+ * keeps the process (and the webui) up: the default TUI mode needs a
+ * tty — without one it dies at "failed to enable raw mode" right after
+ * binding — and `headless` mode runs the activation then exits. The
+ * command goes through `/bin/sh -c 'exec …'` so the shell is replaced
+ * by the binary: the tree is `script → jinn`, one session, one group.
+ * `setsid` puts the wrapper outside the caller's session. The tree is
+ * not one session — the binary calls `setsid` on the pty slave — so
+ * teardown finds it by the scratch root on the command line and walks
+ * it parent-to-child (`processesOfRoot`).
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.persona] stage the block-less scratch persona.
+ * @param {boolean} [options.skill] stage the scratch skill.
+ * @param {boolean} [options.applet] stage the scratch applet.
+ * @returns {Promise<{port: number, root: string, baseUrl: string}>}
+
+ * # Errors
+ *
+ * Rejects when the binary is missing, the scratch tree cannot be
+ * written, or the boot deadline expires before the bind accepts. A
+ * failed boot tears its own instance down before rejecting.
+ */
+export async function bootJinn(options = {}) {
+  if (!fs.existsSync(BIN_PATH)) {
+    throw new Error(
+      `jinn binary not found at ${BIN_PATH} — run the tier through a recipe (just webui-e2e / just webui-e2e-one), which builds it`,
+    );
+  }
+  const port = await probePort();
+  fs.mkdirSync(TMP_BASE, { recursive: true });
+  const root = fs.mkdtempSync(path.join(TMP_BASE, "run-"));
+  writeScratch(root, port, {
+    persona: options.persona ? staged.blocklessPersona : undefined,
+    skill: options.skill ? staged.scratchSkill : undefined,
+    applet: options.applet ? staged.scratchApplet : undefined,
+  });
+
+  const child = spawn(
+    "setsid",
+    [
+      "script",
+      "-qfec",
+      `exec ${BIN_PATH} --db-path ${path.join(root, "db", "state.db")} --config ${path.join(root, "config", "jinn", "jinn.toml")}`,
+      "/dev/null",
+    ],
+    {
+      env: allowedEnv(root),
+      cwd: path.join(root, "cwd"),
+      detached: true,
+      stdio: "ignore",
+    },
+  );
+  child.unref();
+
+  const run = { port, root, baseUrl: `http://127.0.0.1:${port}` };
+  try {
+    await awaitBind(port, root);
+  } catch (error) {
+    await teardownJinn(run);
+    throw error;
+  }
+  return run;
+}
+
+/**
+ * Tears one instance down: kill its whole session, remove its scratch
+ * root. Safe to call twice and on an instance that already died.
+ *
+ * # Errors
+ *
+ * Never rejects — teardown best-effort cleans whatever exists.
+ */
+export async function teardownJinn(run) {
+  if (!run || typeof run.root !== "string") return;
+  await killTree(run.root);
+  fs.rmSync(run.root, { recursive: true, force: true });
+}
+
+// ── The pre-fixture lifecycle ────────────────────────────────────────
+//
+// The one-shared-instance boot the not-yet-migrated specs still run
+// through `global-setup.mjs`. Same launch site as `bootJinn` (every
+// hermetic property above holds); this wrapper only pins the staging
+// set and the `.run` bookkeeping the old teardown reads. It goes away
+// with the last unmigrated spec.
+
+/** Where the pre-fixture run's bookkeeping file lives (gitignored). */
+const RUN_DIR = path.join(here, ".run");
+const RUN_FILE = path.join(RUN_DIR, "run.json");
+
+/** Staged resources for the one shared pre-fixture instance. */
+let preFixtureStage = {};
+
+/**
+ * Stages the scratch persona for the shared pre-fixture instance.
+ * MUST run before `startJinn`: discovery scans at activation.
+ */
+export function writeScratchPersona(content) {
+  preFixtureStage.persona = content;
+}
+
+/** Stages the scratch skill for the shared pre-fixture instance. */
+export function writeScratchSkill(name, content) {
+  preFixtureStage.skill = { name, content };
+}
+
+/** Stages the scratch applet for the shared pre-fixture instance. */
+export function writeScratchApplet(id, title) {
+  preFixtureStage.applet = { id, title };
+}
+
+/**
+ * Boots the shared pre-fixture instance and records its coordinates in
+ * `.run/run.json` for the old teardown. Stages every resource.
+ */
+export async function startJinn() {
+  cleanupStaleRun();
+  const run = await bootJinn({ persona: true, skill: true, applet: true });
+  fs.mkdirSync(RUN_DIR, { recursive: true });
+  fs.writeFileSync(RUN_FILE, JSON.stringify(run, null, 2));
+  return run;
+}
+
+/**
+ * Tears the shared pre-fixture instance down from its bookkeeping file.
+ */
+export async function teardown(run) {
+  const target =
+    run ?? (() => {
+      try {
+        return JSON.parse(fs.readFileSync(RUN_FILE, "utf8"));
+      } catch {
+        return null;
+      }
+    })();
+  if (target) await teardownJinn(target);
+  fs.rmSync(RUN_DIR, { recursive: true, force: true });
+}
+
+/**
+ * Kills a stale shared instance left by a crashed earlier run.
  * Never rejects — a missing or already-dead stale run is a no-op.
  */
 export function cleanupStaleRun() {
@@ -331,155 +574,15 @@ export function cleanupStaleRun() {
   } catch {
     return;
   }
-  if (typeof stale.pid === "number") {
-    try {
-      process.kill(-stale.pid, "SIGKILL");
-    } catch {
-      // Already gone — the normal case after a clean teardown.
-    }
-  }
   if (typeof stale.root === "string") {
+    for (const pid of processesOfRoot(stale.root)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
     fs.rmSync(stale.root, { recursive: true, force: true });
-  }
-  fs.rmSync(RUN_DIR, { recursive: true, force: true });
-}
-
-/**
- * Boots one scratch-isolated jinn and returns its run coordinates.
- *
- * The binary is spawned detached (its own process group) so teardown
- * can kill the whole group — jinn spawns children of its own. Stdout
- * and stderr stream into the run dir's jinn.log for diagnostics.
- *
- * # Errors
- *
- * Rejects when the binary is missing, the scratch tree cannot be
- * written, or the boot deadline expires before the bind accepts.
- */
-export async function startJinn() {
-  cleanupStaleRun();
-  fs.mkdirSync(RUN_DIR, { recursive: true });
-  fs.mkdirSync(TMP_BASE, { recursive: true });
-
-  if (!fs.existsSync(BIN_PATH)) {
-    throw new Error(
-      `jinn binary not found at ${BIN_PATH} — build it first (cargo build --bin jinn)`,
-    );
-  }
-
-  const port = await probePort();
-  const root = fs.mkdtempSync(path.join(TMP_BASE, "run-"));
-  writeScratch(root, port);
-
-  // The webui binds during system activation in every mode, but only
-  // a run that stays alive serves it: `headless` runs the activation,
-  // then exits once settled (it is a batch runner), and the default
-  // TUI mode needs a tty — without one it dies at "failed to enable
-  // raw mode" right after binding. So the binary runs under
-  // util-linux `script`, which hands it a pty and keeps the process
-  // (and the webui) up for the whole suite. `setsid` detaches the
-  // wrapper into its own session/process group so teardown can kill
-  // the whole tree with one group signal.
-  const child = spawn(
-    "setsid",
-    [
-      "script",
-      "-qfec",
-      `${BIN_PATH} --db-path ${path.join(root, "db", "state.db")} --config ${path.join(root, "config", "jinn", "jinn.toml")}`,
-      "/dev/null",
-    ],
-    {
-      env: {
-        ...process.env,
-        JINN_PATHS_ROOT: root,
-        // The attachments spec's loopback TLS fixture serves a committed
-        // self-signed cert; the image-URL fetch client trusts it in test
-        // runs only (production never sets this var).
-        JINN_WEBUI_TEST_ROOT_CERT: path.join(here, "loopback-cert.pem"),
-      },
-      detached: true,
-      stdio: "ignore",
-    },
-  );
-  child.unref();
-
-  try {
-    await awaitBind(port, root);
-  } catch (err) {
-    try {
-      process.kill(-child.pid, "SIGKILL");
-    } catch {
-      // The process may have already exited on its own.
-    }
-    fs.rmSync(root, { recursive: true, force: true });
-    throw err;
-  }
-
-  const run = {
-    pid: child.pid,
-    port,
-    root,
-    baseUrl: `http://127.0.0.1:${port}`,
-  };
-  fs.writeFileSync(RUN_FILE, JSON.stringify(run, null, 2));
-  return run;
-}
-
-/**
- * Escalating process-group kill: SIGTERM, grace period, SIGKILL.
- *
- * # Errors
- *
- * Never rejects — killing an already-dead group is a no-op.
- */
-async function killGroup(pid) {
-  try {
-    process.kill(-pid, "SIGTERM");
-  } catch {
-    return;
-  }
-  const deadline = Date.now() + KILL_GRACE_MS;
-  for (;;) {
-    let alive = false;
-    try {
-      process.kill(-pid, 0);
-      alive = true;
-    } catch {
-      alive = false;
-    }
-    if (!alive) return;
-    if (Date.now() > deadline) break;
-    await sleep(100);
-  }
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch {
-    // Gone between the check and the kill — fine.
-  }
-}
-
-/**
- * Tears the run down: kill the process group, remove the scratch root
- * and the run bookkeeping.
- *
- * # Errors
- *
- * Never rejects — teardown best-effort cleans whatever exists.
- */
-export async function teardown(run) {
-  if (run && typeof run.pid === "number") {
-    await killGroup(run.pid);
-  } else {
-    // No coordinates in hand — fall back to the bookkeeping file.
-    try {
-      const stale = JSON.parse(fs.readFileSync(RUN_FILE, "utf8"));
-      if (typeof stale.pid === "number") await killGroup(stale.pid);
-    } catch {
-      // Nothing recorded; nothing to kill.
-    }
-  }
-  if (run && typeof run.root === "string") {
-    fs.rmSync(run.root, { recursive: true, force: true });
   }
   fs.rmSync(RUN_DIR, { recursive: true, force: true });
 }
