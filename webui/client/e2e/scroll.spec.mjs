@@ -1,12 +1,6 @@
 //! Transcript scroll discipline — the page is still while tokens
-//! arrive.
-//!
-//! Sorts after `znew-session.spec.mjs` on purpose: the session-click
-//! spec needs a second session row to click, and that world belongs
-//! to the z-prefixed run order (the scratch db accumulates sessions;
-//! rows are addressed by `data-session-id`, never by index). Sorts
-//! before `zspinner.spec.mjs` so the spinner specs' two-page turn
-//! sees the same alphabetical world they were written against.
+//! arrive. Every test boots its own jinn and grows its own transcript;
+//! rows are addressed by `data-session-id`, never by index.
 //!
 //! The sample backend streams `!response` word-by-word (10–50 ms per
 //! token, ~1 s total), which is exactly the window a token-follow
@@ -18,8 +12,14 @@
 //! (which is what puts the row-click swap at the bottom) — never a
 //! live token event.
 
-import { expect, test } from "@playwright/test";
-import { openSession } from "./nav.mjs";
+import {
+  createSession,
+  expect,
+  openSession,
+  selectModel,
+  switchToSession,
+  test,
+} from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
 
 /** Polls the wrap's scrollTop (an integer; 0 before any scroll). */
@@ -39,23 +39,6 @@ const maxScroll = (page) =>
     },
     sel.TRANSCRIPT_WRAP,
   );
-
-/**
- * Selects the scratch tier's one model for the viewed session — a
- * send without a selection errors instantly instead of going busy.
- * The zspinner spec's condensed copy of this flow.
- *
- * @param {import("@playwright/test").Page} page the browser page.
- * @returns {Promise<void>} resolves once the switch landed.
- */
-async function selectModel(page) {
-  await page.locator(sel.PICKER_BUTTON).click();
-  await expect(page.locator(sel.PICKER_MODAL)).toBeVisible();
-  await page.locator(sel.PICKER_ROW_MODEL_SPAN(sel.MODEL_ID)).click();
-  // The picker button is the model display now (the redundant
-  // titlebar label is gone — main's model-btn merge).
-  await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(sel.MODEL_ID);
-}
 
 /**
  * Sends one plain prompt and waits for its OWN reply — the shortest
@@ -92,11 +75,12 @@ async function sendPlainTurn(page, prompt) {
 
 test("send scrolls once and the streamed reply arrives without scrolling", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open, on the sample model, and its wrap
   // already overflowing — grown by plain prompts so "at the bottom"
   // is a position to hold, not a degenerate zero.
-  await openSession(page);
+  await openSession(jinn, page);
   await selectModel(page);
   await sendPlainTurn(page, "filler one");
   await sendPlainTurn(page, "filler two");
@@ -134,47 +118,24 @@ test("send scrolls once and the streamed reply arrives without scrolling", async
 
 test("a session row click lands the page at the transcript bottom", async ({
   page,
+  jinn,
 }) => {
   // Given two sessions: the boot session holding an overflowing
   // transcript (padded plain prompts' help-text replies), and a
   // second session to click away to and back from. The boot
   // session's id is captured before creating the sibling — the
   // list renders newest-first, so the created row sorts ahead.
-  await openSession(page);
+  const grownId = await openSession(jinn, page);
   await sendPlainTurn(page, "grow one");
   await sendPlainTurn(page, "grow two");
-  const grownId = await page
-    .locator(sel.PAGE_ROOT)
-    .getAttribute(sel.PAGE_SESSION_ATTR);
-  if (!grownId) {
-    throw new Error("page root carries no session id");
-  }
-  await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
 
   // When creating a sibling session through the modal (navigating
   // away from the grown transcript), then clicking back to the
   // grown session — the row-click page swap that re-inserts the
   // wrap.
-  await page.locator(sel.MENU_BUTTON).click();
-  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
-  await expect(page.locator(sel.SESSION_NEW_MODAL)).toBeVisible();
-  await page.locator(sel.SESSION_NEW_SUBMIT).click();
-  // The create's navigation is an async SSE patch now — the id read
-  // must wait for the root to actually carry the created session
-  // (reading immediately can still hold the pre-create id, and every
-  // step below would then address the wrong row).
-  const root = page.locator(sel.PAGE_ROOT);
-  await expect(root).not.toHaveAttribute(sel.PAGE_SESSION_ATTR, grownId);
-  const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
-  if (!createdId) {
-    throw new Error("create did not navigate; page root carries no session id");
-  }
+  const createdId = await createSession(jinn, page);
   await expect(page.locator(sel.SESSION_ROW_BY_ID(createdId))).toBeVisible();
-  await page.locator(sel.SESSION_ROW_BY_ID(grownId)).click();
-  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
-    sel.PAGE_SESSION_ATTR,
-    grownId,
-  );
+  await switchToSession(page, grownId);
 
   // Then the swapped-in wrap sits at the bottom: the stream's
   // from-zero catch-up appended the history into the empty transcript
