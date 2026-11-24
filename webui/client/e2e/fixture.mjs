@@ -410,6 +410,24 @@ export async function enableMcpServer(page) {
   });
 }
 
+/**
+ * Withholds the `get_time` builtin for the viewed session through its
+ * row click in the tools modal — the user's path, and the only one the
+ * UI has (the write goes through the session's live tool filter). A
+ * fresh session restricts nothing, so a test that needs the tool off
+ * arranges it here. Resolves once the re-rendered modal marks the row
+ * off.
+ *
+ * @param {import("@playwright/test").Page} page the browser page.
+ * @returns {Promise<void>} resolves once the row is marked off.
+ */
+export async function withholdTool(page) {
+  const row = page.locator(sel.TOOL_ROW(sel.TOOLS_SPEC_TOOL));
+  await expect(row).not.toHaveClass(new RegExp(sel.TOOL_ROW_OFF));
+  await row.click();
+  await expect(row).toHaveClass(new RegExp(sel.TOOL_ROW_OFF));
+}
+
 // ── Composer ────────────────────────────────────────────────────────
 
 /**
