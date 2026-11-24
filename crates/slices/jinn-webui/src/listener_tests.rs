@@ -105,8 +105,19 @@ async fn a_taken_port_fails_activation_fast() {
     let result = WebUiListenerActor::spawn(&system, &deps).await;
 
     // Then activation aborts: the error names the bind failure among
-    // its attachments.
+    // its attachments AND the io error rides as a nested source
+    // context (its own Display line), never a flattened string — the
+    // io error as `format!`-smashed text would render the whole chain
+    // through derived Debug and escape every ANSI sequence literally.
     let error = result.expect_err("a taken port refuses the bind");
     let rendered = format!("{error:?}");
     assert!(rendered.contains("failed to bind the web UI"), "{rendered}");
+    assert!(
+        rendered.contains("Address already in use"),
+        "the io error is a source context, not a smashed string: {rendered}"
+    );
+    assert!(
+        !rendered.contains(r"\u{1b}") && !rendered.contains('\\'),
+        "no escaped control sequences in the render: {rendered}"
+    );
 }
