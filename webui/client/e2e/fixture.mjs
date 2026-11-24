@@ -314,21 +314,29 @@ export async function viewSession(jinn, page, id) {
  * @returns {Promise<string>} the created session's id.
  */
 export async function createSession(jinn, page) {
+  // The URL is the stable identity: the swap's pushState lands with
+  // it atomically, where a single read of #page-root can race the
+  // swap's replace (the element is detached and re-inserted, and an
+  // instantaneous getAttribute waits on the detached node).
   const before = page.url();
-  const root = page.locator(sel.PAGE_ROOT);
-  const beforeId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
   await page.locator(sel.MENU_BUTTON).click();
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   await expect(page.locator(sel.SESSION_NEW_MODAL)).toBeVisible();
   await page.locator(sel.SESSION_NEW_SUBMIT).click();
   await expect(page).not.toHaveURL(before);
-  await expect(root).not.toHaveAttribute(sel.PAGE_SESSION_ATTR, beforeId ?? "");
   await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
-  const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
+  await expect(page).toHaveURL(new RegExp(`${sel.SESSION_PAGE_PATH}.+`));
+  const createdId = page
+    .url()
+    .slice(page.url().indexOf(sel.SESSION_PAGE_PATH) + sel.SESSION_PAGE_PATH.length)
+    .replace(/[?#].*$/, "");
   if (!createdId) {
-    throw new Error("create did not navigate; page root carries no session id");
+    throw new Error("create did not navigate; the URL names no session");
   }
-  await expect(page).toHaveURL(new RegExp(`${sel.SESSION_PAGE_PATH}${createdId}`));
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
+    sel.PAGE_SESSION_ATTR,
+    createdId,
+  );
   return createdId;
 }
 
@@ -370,7 +378,10 @@ export async function openMenu(page) {
  * @param {import("@playwright/test").Page} page the browser page.
  * @param {"mcp"|"persona"|"tools"|"skills"|"applets"} kind the modal.
  * @returns {Promise<import("@playwright/test").Locator>} the modal's
- *   overlay locator.
+ *   overlay locator, once its open pull's rows have settled — the
+ *   skills rows morph after the pull (attribute rebind), and a click
+ *   racing that rebind lands on a row whose bound toggle payload is
+ *   the pre-morph one and silently no-ops.
  */
 export async function openModal(page, kind) {
   const modals = {
@@ -385,6 +396,7 @@ export async function openModal(page, kind) {
   await page.locator(item).click();
   const overlay = page.locator(modal);
   await expect(overlay).toBeVisible();
+  if (kind === "skills") await page.waitForTimeout(400);
   return overlay;
 }
 
@@ -408,6 +420,38 @@ export async function enableMcpServer(page) {
   await expect(row.locator(`.${sel.MCP_BADGE_RUNNING}`)).toBeVisible({
     timeout: 15_000,
   });
+}
+
+/**
+ * Disables the scratch skill for the viewed session through its row
+ * click in the open skills modal, and waits for the hollow re-render.
+ * A fresh session's absent filter permits all, so a test that needs
+ * the skill disabled arranges it here.
+ *
+ * @param {import("@playwright/test").Page} page the browser page.
+ * @returns {Promise<void>} resolves once the row is marked disabled.
+ */
+export async function disableSkill(page) {
+  const row = page.locator(sel.SKILL_ROW(staged.scratchSkill.name));
+  await expect(row).toHaveClass(new RegExp(sel.SKILL_ROW_ENABLED));
+  await row.click();
+  await expect(row).not.toHaveClass(new RegExp(sel.SKILL_ROW_ENABLED));
+}
+
+/**
+ * Force-loads the scratch skill through its row's `+` button — the
+ * pin path — and waits for the pinned body to land in the transcript.
+ *
+ * @param {import("@playwright/test").Page} page the browser page.
+ * @returns {Promise<void>} resolves once the body marker is visible.
+ */
+export async function loadSkill(page) {
+  const row = page.locator(sel.SKILL_ROW(staged.scratchSkill.name));
+  await page.locator(`${sel.SKILL_ROW(staged.scratchSkill.name)} ${sel.SKILL_LOAD_BUTTON}`).click();
+  await expect(page.locator(sel.TRANSCRIPT)).toContainText(
+    "e2e-scratch-skill-body-marker",
+    { timeout: 10_000 },
+  );
 }
 
 /**
