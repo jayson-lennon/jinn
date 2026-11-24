@@ -408,6 +408,34 @@ max_failures = 6      # tool failures before the turn cancels
 `max_failures` is a simple accumulator: up on failure, down on success.
 Consecutive failures count too: any failure in the turn adds.
 
+**Cross-call repeat watchdogs** (a model re-issuing the same tool call
+across responses — the fault no single-response check can see):
+
+```toml
+[watchdog.repeat_tool_call]
+max_repeats = 4      # byte-identical repeats before the turn is nudged
+
+[watchdog.fuzzy_tool_call]
+max_repeats = 8      # near-identical repeats before the turn is nudged
+similarity = 0.85    # 0.0–1.0; at or above this, a call is a repeat
+max_argument_chars = 500   # longer arguments are skipped; 0 = no limit
+```
+
+Both watch a tool call against the previous two completed calls of the
+session (same tool name required). The exact watchdog fires on arguments
+and results that are byte-equal after whitespace normalization; the fuzzy
+watchdog fires when both are within `similarity` of their predecessors.
+Either counts with the same accumulator as the tool-failure watchdog — up
+on a repeat, down by one on a differing call, floor at zero — so repeats
+need not be strictly consecutive.
+
+The intervention is two-staged per turn: the first time the budget is
+spent, a `RuleInterrupt` guidance entry is injected ("you have called X N
+times with identical arguments and the same result — change approach") and
+the turn continues. If the repeat continues and the budget is spent again,
+the turn is cancelled. `max_repeats = 0` disables a watchdog entirely
+(the actor is not spawned); the other watchdog runs on independently.
+
 **Stream rules** (regex over the assistant's output as it is produced; the
 only rule kind that can act mid-response):
 
