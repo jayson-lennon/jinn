@@ -604,7 +604,8 @@ gh-pr-close N COMMENT="":
 #   webui-build   — verify the vendored bundle (gzip + sha256 pin)
 #   webui-smoke   — the headless-chromium test (JINN_WEBUI_SMOKE=1 just webui-smoke)
 #   webui-e2e     — full-stack Playwright e2e (real jinn + sample backend)
-#   webui-e2e-one F — the same tier, only the tests matching FILTER (the inner loop)
+#   webui-e2e-one F [G] — the same tier, only the spec files matching F (a path regex),
+#                   narrowed to titles matching G when G is given (the inner loop)
 #
 # Every e2e test boots its own jinn against its own scratch db and
 # config, so no test can see state another test left behind, and each
@@ -691,14 +692,18 @@ webui-e2e:
 # optional seed argument, so a filter written after it would be eaten
 # as the seed and the whole tier would run.
 [doc("Run only webui e2e tests matching FILTER (after build + clean).")]
-webui-e2e-one FILTER:
+webui-e2e-one FILTER Grep="":
     #!/usr/bin/env bash
     set -euo pipefail
     just webui-e2e-prep
-    echo '==> playwright e2e (filter: {{FILTER}})'
-    # FILTER is a Playwright regex: quoted whole, so an alternation
-    # such as 'a|b' reaches the runner instead of the shell.
-    webui/client/e2e/node_modules/.bin/playwright test '{{FILTER}}' \
+    echo "==> playwright e2e (files: {{FILTER}}, titles: '{{Grep}}')"
+    # FILTER is a Playwright FILE filter (a regex over spec paths, e.g.
+    # 'skills' or 'smoke|scroll'); GREP, when given, narrows to the
+    # tests whose TITLE matches its regex. Each is quoted whole, so an
+    # alternation such as 'a|b' reaches the runner instead of the shell.
+    grep_args=()
+    if [[ -n '{{Grep}}' ]]; then grep_args=(--grep '{{Grep}}'); fi
+    webui/client/e2e/node_modules/.bin/playwright test '{{FILTER}}' "${grep_args[@]}" \
         --config webui/client/e2e/playwright.config.mjs --shuffle
     echo '==> webui-e2e-one green'
 
