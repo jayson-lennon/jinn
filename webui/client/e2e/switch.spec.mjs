@@ -1,9 +1,8 @@
 //! Session-switch interstitial — the loading overlay a session-row
 //! click raises until the activation response's page swap lands.
 //!
-//! Sorts after `zskills.spec.mjs` on purpose: it creates a second
-//! session through the modal (the `znew-session` flow) and needs the
-//! multi-session world the earlier specs establish. The overlay is
+//! Every test boots its own jinn and creates the second session it
+//! needs through the modal. The overlay is
 //! feedback for the activate POST's whole round trip — in-memory
 //! activation can clear it within milliseconds, so the spec's timing
 //! is made deterministic by intercepting the `*/activate` POST and
@@ -15,64 +14,26 @@
 //! stream `@get` retries infinitely and a broad route pattern would
 //! poison the page.
 
-import { expect, test } from "@playwright/test";
+import {
+  createSession,
+  expect,
+  openDrawer,
+  openSession,
+  PHONE,
+  test,
+  viewSession,
+} from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
-import { openSession } from "./nav.mjs";
-import { baseUrl } from "./run.mjs";
-
-/** The phone viewport the drawer tests run at (mobile.spec's 390×844). */
-const PHONE = { width: 390, height: 844 };
-
-/**
- * Creates a session through the new-session modal and lands on its
- * page — the znew-session flow, condensed to the id it returns.
- *
- * @param {import("@playwright/test").Page} page the browser page.
- * @returns {Promise<string>} the created session's id.
- */
-async function createSession(page) {
-  const beforeId = await page
-    .locator(sel.PAGE_ROOT)
-    .getAttribute(sel.PAGE_SESSION_ATTR);
-  await page.locator(sel.MENU_BUTTON).click();
-  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
-  const modal = page.locator(sel.SESSION_NEW_MODAL);
-  await expect(modal).toBeVisible();
-  await page.locator(sel.SESSION_NEW_SUBMIT).click();
-  const root = page.locator(sel.PAGE_ROOT);
-  // The create's swap is async: the id must CHANGE before this
-  // returns, or the caller reads the pre-create session and clicks
-  // the viewed row (inert).
-  await expect(root).not.toHaveAttribute(
-    sel.PAGE_SESSION_ATTR,
-    beforeId ?? "",
-  );
-  await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
-  const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
-  if (!createdId) {
-    throw new Error("create did not navigate; page root carries no session id");
-  }
-  await expect(page).toHaveURL(
-    new RegExp(`${sel.SESSION_PAGE_PATH.replace("/", "/")}${createdId}`),
-  );
-  return createdId;
-}
 
 test("switching shows the interstitial until the new page lands", async ({
   page,
+  jinn,
 }) => {
   // Given two sessions: A viewed, B created and left behind — and an
   // activate POST whose fulfillment is delayed until the spec says so.
-  await openSession(page);
-  const sessionA = await page
-    .locator(sel.PAGE_ROOT)
-    .getAttribute(sel.PAGE_SESSION_ATTR);
-  const sessionB = await createSession(page);
-  await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionA}`);
-  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
-    sel.PAGE_SESSION_ATTR,
-    sessionA,
-  );
+  const sessionA = await openSession(jinn, page);
+  const sessionB = await createSession(jinn, page);
+  await viewSession(jinn, page, sessionA);
 
   let releaseActivate;
   const gate = new Promise((resolve) => {
@@ -106,13 +67,10 @@ test("switching shows the interstitial until the new page lands", async ({
   );
 });
 
-test("clicking the viewed session's row does nothing", async ({ page }) => {
+test("clicking the viewed session's row does nothing", async ({ page, jinn }) => {
   // Given a session page with a request counter on the activate
   // endpoint.
-  await openSession(page);
-  const viewedId = await page
-    .locator(sel.PAGE_ROOT)
-    .getAttribute(sel.PAGE_SESSION_ATTR);
+  const viewedId = await openSession(jinn, page);
   let activateCalls = 0;
   await page.route("**/activate", (route) => {
     activateCalls += 1;
@@ -133,11 +91,11 @@ test("clicking the viewed session's row does nothing", async ({ page }) => {
   );
 });
 
-test("every row activates from the landing page", async ({ page }) => {
+test("every row activates from the landing page", async ({ page, jinn }) => {
   // Given the landing page — nothing is viewed there, so even the
   // active row must activate (this is how the tier's own navigation
   // reaches a session).
-  await page.goto(`${baseUrl()}/web`);
+  await page.goto(`${jinn.baseUrl}/web`);
   await expect(page.locator(sel.SESSION_ROW).first()).toBeVisible();
   const rowId = await page
     .locator(sel.SESSION_ROW)
@@ -160,6 +118,7 @@ test("every row activates from the landing page", async ({ page }) => {
 
 test("a session switch fetches no list and reopens the stream exactly once", async ({
   page,
+  jinn,
 }) => {
   // Given a page with a request counter on the sessions list pull and
   // the stream — the targeted-patch navigation law's observable
@@ -169,16 +128,9 @@ test("a session switch fetches no list and reopens the stream exactly once", asy
   // exactly ONE stream reopens (the old connection cancels with the
   // replaced span). A list pull per click is the rework's blank-flash
   // regression; a second stream is a leaked connection.
-  await openSession(page);
-  const sessionA = await page
-    .locator(sel.PAGE_ROOT)
-    .getAttribute(sel.PAGE_SESSION_ATTR);
-  const sessionB = await createSession(page);
-  await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionA}`);
-  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
-    sel.PAGE_SESSION_ATTR,
-    sessionA,
-  );
+  const sessionA = await openSession(jinn, page);
+  const sessionB = await createSession(jinn, page);
+  await viewSession(jinn, page, sessionA);
 
   let settled = false;
   const counts = { list: 0, stream: 0 };
@@ -226,38 +178,22 @@ test.describe("phone drawer", () => {
 
   test("selecting a non-viewed row closes the drawer via the page swap", async ({
     page,
+    jinn,
   }) => {
-    // Given two sessions: A viewed, B created — then A re-opened by
-    // URL (the created session sorts first, so openSession's
-    // first-row click is not addressable here) — and the drawer open.
-    // The boot session's page opens by URL: at phone width the rows
-    // live in the off-canvas drawer, and openSession's row click
-    // cannot reach them (the drawer's own spec documents this).
-    await page.goto(`${baseUrl()}/web`);
+    // Given two sessions — A viewed by URL (at phone width the rows
+    // live in the off-canvas drawer, so the row click cannot reach
+    // them), B created through the modal — then A viewed again, and
+    // the drawer open.
+    await page.goto(`${jinn.baseUrl}/web`);
     await expect(page.locator(sel.SESSION_ROW).first()).toBeAttached();
     const sessionA = await page
       .locator(sel.SESSION_ROW)
       .first()
       .getAttribute(sel.SESSION_ID_ATTR);
-    await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionA}`);
-    await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
-      sel.PAGE_SESSION_ATTR,
-      sessionA,
-    );
-    const sessionB = await createSession(page);
-    await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionA}`);
-    await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
-      sel.PAGE_SESSION_ATTR,
-      sessionA,
-    );
-    // The drawer opens from the menu's Sessions item — the real path
-    // a finger performs (mobile.spec's openDrawer flow, condensed).
-    await page.locator(sel.MENU_BUTTON).click();
-    await page.locator(sel.MENU_ITEM_SESSIONS).click();
-    await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
-      new RegExp(sel.DRAWER_OPEN_CLASS),
-    );
-    await expect(page.locator(sel.DRAWER_SCRIM)).toBeVisible();
+    await viewSession(jinn, page, sessionA);
+    const sessionB = await createSession(jinn, page);
+    await viewSession(jinn, page, sessionA);
+    await openDrawer(page);
 
     // When selecting the non-viewed row (the activate response's
     // signal patch re-seeds drawerOpen false).
