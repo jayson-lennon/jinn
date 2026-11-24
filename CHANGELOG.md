@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-11-24 v1.27.0
 
 - (webui) Keystrokes no longer erroneously close modals.
 - (webui) Sessions no longer auto-scroll while the model is generating tokens.
