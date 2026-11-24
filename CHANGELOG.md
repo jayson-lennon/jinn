@@ -20,6 +20,7 @@
 - Agents should avoid using `dump_to_path` more often.
   - Blocked using `/dev/null` and similar "null" paths for `dump_to_path`
 - (webui) Add applet picker
+- Remove `#` flag in OpenRouter model market (the one that indicates if we have ECI/Vals data)
 
 ## 2026-11-21 v1.26.1
 
