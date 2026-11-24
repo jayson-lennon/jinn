@@ -78,6 +78,14 @@ const test = base.extend({
  * be "current". The switch goes through the same POST the page's own
  * delegation issues, so it is the user's path, not a back door.
  *
+ * The bind accepting is not the registry being ready: the provider
+ * registry fills its model rows asynchronously after the web surface is
+ * up, and a switch that lands before then is refused with "not in the
+ * available model rows" — a few boots in forty under per-test boots,
+ * where nothing else delays the first request. So the switch waits for
+ * the picker to list the model first — a poll on the registry's own
+ * answer, not a sleep.
+ *
  * @param {{ baseUrl: string }} run the instance handle.
  * @returns {Promise<void>} resolves once the switch landed.
  */
@@ -85,12 +93,37 @@ async function switchBootModel(run) {
   const sessionsHtml = await fetch(`${run.baseUrl}/web/sessions`).then((r) => r.text());
   const sessionId = /data-session-id="([^"]+)"/.exec(sessionsHtml)?.[1];
   if (!sessionId) throw new Error("no session row in the freshly booted sessions list");
+  await awaitModelRows(run, sessionId);
   const res = await fetch(`${run.baseUrl}/web/model`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ session_id: sessionId, provider_id: MODEL_ID }),
   });
   if (!res.ok) throw new Error(`model switch failed: ${res.status} ${await res.text()}`);
+}
+
+/**
+ * Waits until the boot session's picker lists the tier's model — the
+ * registry's own readiness answer. Bounded; a registry that never
+ * fills its rows is a boot failure, not a slow one.
+ *
+ * @param {{ baseUrl: string }} run the instance handle.
+ * @param {string} sessionId the boot session.
+ * @returns {Promise<void>} resolves once the row is listed.
+ */
+async function awaitModelRows(run, sessionId) {
+  const pickerUrl = `${run.baseUrl}${sel.MODEL_PICKER_PREFIX}${sessionId}`;
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    const listed = await fetch(pickerUrl)
+      .then((r) => (r.ok ? r.text() : ""))
+      .then((html) => html.includes(`data-webui-model="${MODEL_ID}"`));
+    if (listed) return;
+    if (Date.now() > deadline) {
+      throw new Error(`the model picker never listed ${MODEL_ID} for the boot session`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 // ── Observers ───────────────────────────────────────────────────────

@@ -696,7 +696,9 @@ webui-e2e-one FILTER:
     set -euo pipefail
     just webui-e2e-prep
     echo '==> playwright e2e (filter: {{FILTER}})'
-    webui/client/e2e/node_modules/.bin/playwright test {{FILTER}} \
+    # FILTER is a Playwright regex: quoted whole, so an alternation
+    # such as 'a|b' reaches the runner instead of the shell.
+    webui/client/e2e/node_modules/.bin/playwright test '{{FILTER}}' \
         --config webui/client/e2e/playwright.config.mjs --shuffle
     echo '==> webui-e2e-one green'
 
