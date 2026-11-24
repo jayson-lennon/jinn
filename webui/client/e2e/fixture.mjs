@@ -490,6 +490,24 @@ export async function selectModel(page) {
 }
 
 /**
+ * Starts a streamed turn — `!response`, word-by-word over ~1 s — in
+ * the page's current session and returns once the turn is in flight
+ * (the cancel button present). A session created through the modal
+ * boots with no model selection and a send without one errors instead
+ * of going busy, so the sample model is selected first.
+ *
+ * @param {import("@playwright/test").Page} page the browser page,
+ *   on the session to run the turn in.
+ * @returns {Promise<void>} resolves once the turn is busy.
+ */
+export async function startBusyTurn(page) {
+  await selectModel(page);
+  await page.locator(sel.INPUT).fill("!response");
+  await page.locator(sel.SEND_BUTTON).click();
+  await expect(page.locator(sel.CANCEL_BUTTON)).toBeVisible();
+}
+
+/**
  * Sends `text` and waits for the reply — the sample backend echoes
  * "sample response". Resolves once the turn's assistant entry is
  * visible AND the turn has settled (the send control is back), so a
