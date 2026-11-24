@@ -91,9 +91,12 @@ pub struct FuzzyToolCallWatchdogActor {
     /// normalized arguments). One entry per in-flight call; cleared on
     /// its completion.
     parked: HashMap<jinn_core_types::ToolCallId, (String, String)>,
-    /// The previous completed call per session: (tool name, normalized
-    /// arguments, normalized result prefix) — the comparison basis.
-    previous: HashMap<SessionId, (String, String, String)>,
+    /// The last two completed calls per session, most recent first —
+    /// the comparison basis. Two deep for the same reason as the exact
+    /// sibling: a basis one deep misses the alternating-pair shape, and
+    /// the drift phase's differing results alternate too. A hit against
+    /// either entry counts.
+    previous: HashMap<SessionId, Vec<(String, String, String)>>,
 }
 
 impl ServiceActor for FuzzyToolCallWatchdogActor {
@@ -146,7 +149,7 @@ impl FuzzyToolCallWatchdogActor {
 
     /// Builds an actor with a private fake `Services` (test seam).
     #[cfg(test)]
-    async fn with_config(config: FuzzyToolCallWatchdogConfig) -> Self {
+    pub(crate) async fn with_config(config: FuzzyToolCallWatchdogConfig) -> Self {
         let services = Services::new_fake().await;
         services
             .config
@@ -273,21 +276,23 @@ impl FuzzyToolCallWatchdogActor {
         let verdict = if skipped {
             SkippedVerdict::Skip
         } else {
-            self.previous
+            let hit = self
+                .previous
                 .get(session_id)
-                .map_or(SkippedVerdict::FirstCall, |(prev_name, prev_args, prev_result)| {
-                    if prev_name != tool_name {
-                        SkippedVerdict::Different
-                    } else if tool_call_similarity::similarity_ratio(prev_args, normalized_args)
-                        >= similarity
-                        && tool_call_similarity::similarity_ratio(prev_result, normalized_result)
-                            >= similarity
-                    {
-                        SkippedVerdict::Repeat
-                    } else {
-                        SkippedVerdict::Different
-                    }
-                })
+                .is_some_and(|basis| {
+                    basis.iter().any(|(prev_name, prev_args, prev_result)| {
+                        prev_name == tool_name
+                            && tool_call_similarity::similarity_ratio(prev_args, normalized_args)
+                                >= similarity
+                            && tool_call_similarity::similarity_ratio(prev_result, normalized_result)
+                                >= similarity
+                    })
+                });
+            if self.previous.contains_key(session_id) {
+                if hit { SkippedVerdict::Repeat } else { SkippedVerdict::Different }
+            } else {
+                SkippedVerdict::FirstCall
+            }
         };
 
         let count = match verdict {
@@ -309,10 +314,7 @@ impl FuzzyToolCallWatchdogActor {
             }
         };
 
-        self.previous.insert(
-            session_id.clone(),
-            (tool_name.to_owned(), normalized_args.to_owned(), normalized_result.to_owned()),
-        );
+        self.advance_basis(session_id, tool_name, normalized_args, normalized_result);
 
         if count < u32::from(max_repeats) || max_repeats == 0 {
             return Vec::new();
@@ -345,6 +347,28 @@ impl FuzzyToolCallWatchdogActor {
             FuzzyWatchdogAction::Marker(session_id.clone(), kill_text(u32::from(max_repeats))),
             FuzzyWatchdogAction::CancelTurn(session_id.clone()),
         ]
+    }
+
+    /// Advances the comparison basis: the last two completed calls,
+    /// most recent first, deduplicated.
+    fn advance_basis(
+        &mut self,
+        session_id: &SessionId,
+        tool_name: &str,
+        normalized_args: &str,
+        normalized_result: &str,
+    ) {
+        let basis = self.previous.entry(session_id.clone()).or_default();
+        let entry = (
+            tool_name.to_owned(),
+            normalized_args.to_owned(),
+            normalized_result.to_owned(),
+        );
+        if basis.first().is_some_and(|prev| *prev == entry) {
+            return;
+        }
+        basis.insert(0, entry);
+        basis.truncate(2);
     }
 
     /// Whether this watchdog's nudge entry is present in the session's
