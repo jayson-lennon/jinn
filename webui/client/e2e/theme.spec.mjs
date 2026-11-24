@@ -1,12 +1,9 @@
 //! Web theme — the Light/Dark/System toggle, its persistence, and the
 //! system default.
 //!
-//! One behavior per test, mirroring the Rust suite's discipline. The
-//! spec's ordering matters: it runs after the plain specs and before
-//! the z-prefixed tail (alphabetical file order, one worker), and its
-//! persistence test changes server state (state.toml's web_theme) —
-//! the file resets nothing, so the last test restores system to keep
-//! the tail's pages on the default palette.
+//! One behavior per test, mirroring the Rust suite's discipline. Every
+//! test boots its own jinn, so each starts from the scratch boot's
+//! persisted default (no choice) whatever the tests before it picked.
 //!
 //! The mechanics, per the two realities the other specs document:
 //!
@@ -19,28 +16,29 @@
 //!   actually keys), not computed colors; the palette values
 //!   themselves are pinned by the Rust contrast tests.
 
-import { expect, test } from "@playwright/test";
+import { expect, openMenu, test } from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
-import { baseUrl } from "./run.mjs";
 
 /**
  * Opens the landing page with the menu panel open — the theme
  * control's host.
  *
+ * @param {{ baseUrl: string }} jinn the test's instance handle.
  * @param {import("@playwright/test").Page} page the browser page.
  */
-async function openMenuWithThemeControl(page) {
-  await page.goto(`${baseUrl()}/web`);
+async function openMenuWithThemeControl(jinn, page) {
+  await page.goto(`${jinn.baseUrl}/web`);
   await expect(page.locator(sel.PAGE_ROOT)).toBeVisible();
-  await page.locator(sel.MENU_BUTTON).click();
+  await openMenu(page);
   await expect(page.locator(sel.MENU_ITEM_THEME)).toBeVisible();
 }
 
 test("a fresh page marks System active and carries no forced mode", async ({
   page,
+  jinn,
 }) => {
   // Given a fresh page with no persisted choice (the scratch boot).
-  await openMenuWithThemeControl(page);
+  await openMenuWithThemeControl(jinn, page);
 
   // Then the System option carries the active class, and the body's
   // data-theme is "system" — the CSS default the OS query overrides.
@@ -56,11 +54,11 @@ test("a fresh page marks System active and carries no forced mode", async ({
 test.describe("system default, light OS", () => {
   test.use({ colorScheme: "light" });
 
-  test("a light-OS fresh page renders the light palette", async ({ page }) => {
+  test("a light-OS fresh page renders the light palette", async ({ page, jinn }) => {
     // Given a browser emulating a light OS scheme.
 
     // When loading a fresh page.
-    await page.goto(`${baseUrl()}/web`);
+    await page.goto(`${jinn.baseUrl}/web`);
     await expect(page.locator(sel.PAGE_ROOT)).toBeVisible();
 
     // Then the body paints the light background (the media-query block
@@ -75,11 +73,11 @@ test.describe("system default, light OS", () => {
 test.describe("system default, dark OS", () => {
   test.use({ colorScheme: "dark" });
 
-  test("a dark-OS fresh page renders the dark palette", async ({ page }) => {
+  test("a dark-OS fresh page renders the dark palette", async ({ page, jinn }) => {
     // Given a browser emulating a dark OS scheme.
 
     // When loading a fresh page.
-    await page.goto(`${baseUrl()}/web`);
+    await page.goto(`${jinn.baseUrl}/web`);
     await expect(page.locator(sel.PAGE_ROOT)).toBeVisible();
 
     // Then the body paints the dark background.
@@ -92,9 +90,10 @@ test.describe("system default, dark OS", () => {
 
 test("picking Light flips the live page and marks the option", async ({
   page,
+  jinn,
 }) => {
   // Given the menu open on a dark-default page.
-  await openMenuWithThemeControl(page);
+  await openMenuWithThemeControl(jinn, page);
 
   // When clicking Light.
   await page.locator(sel.THEME_OPTION("light")).click();
@@ -113,9 +112,9 @@ test("picking Light flips the live page and marks the option", async ({
   );
 });
 
-test("a pick survives a reload", async ({ page }) => {
+test("a pick survives a reload", async ({ page, jinn }) => {
   // Given Light picked on the landing page.
-  await openMenuWithThemeControl(page);
+  await openMenuWithThemeControl(jinn, page);
   await page.locator(sel.THEME_OPTION("light")).click();
   await expect(page.locator("body")).toHaveAttribute(
     sel.DATA_THEME_ATTR,
@@ -130,13 +129,5 @@ test("a pick survives a reload", async ({ page }) => {
   await expect(page.locator("body")).toHaveAttribute(
     sel.DATA_THEME_ATTR,
     "light",
-  );
-
-  // Restore system so the specs after this file keep the default.
-  await page.locator(sel.MENU_BUTTON).click();
-  await page.locator(sel.THEME_OPTION("system")).click();
-  await expect(page.locator("body")).toHaveAttribute(
-    sel.DATA_THEME_ATTR,
-    "system",
   );
 });
