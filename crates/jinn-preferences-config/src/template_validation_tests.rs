@@ -153,6 +153,8 @@ const OWNED_KEYS: &[&str] = &[
     "ui.minimap",
     "watchdog.stall",
     "watchdog.tool_call",
+    "watchdog.repeat_tool_call",
+    "watchdog.fuzzy_tool_call",
     "context_curation.auto_prune",
     "term",
     "shell",

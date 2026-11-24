@@ -37,7 +37,8 @@ use jinn_tools_msg::dump::{
 };
 use jinn_tools_msg::{CancelToolBatch, ExecuteTool, ExecuteToolBatch, RegisterTools};
 use jinn_tools_msg::{
-    ProviderVisibilityChanged, ToolExecutionCompleted, ToolsRegistered, ToolsUnregistered,
+    ProviderVisibilityChanged, ToolCallsDispatched, ToolExecutionCompleted, ToolsRegistered,
+    ToolsUnregistered,
 };
 use marked_path::MarkedPathAccess as _;
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
@@ -251,6 +252,7 @@ impl ToolOrchestratorActor {
             .handles::<ExecuteToolBatch>()
             .handles::<CancelToolBatch>()
             .handles::<ToolExecutionCompleted>()
+            .emits::<ToolCallsDispatched>()
             .handles::<SessionClosed>()
             .handles::<ToolsUnregistered>()
             .handles::<ProviderVisibilityChanged>()
@@ -686,6 +688,16 @@ impl ToolOrchestratorActor {
                 names.insert(tc.id.clone(), tc.name.clone());
             }
         }
+        // The read-only observation point: the batch is accepted and every
+        // call will run. Consumers that need a call's arguments (the
+        // cross-call repeat watchdogs) join this event to the completion
+        // by tool_call_id.
+        self.publish(ToolCallsDispatched {
+            session_id: session_id.clone(),
+            tool_calls: tool_calls.clone(),
+            turn,
+        })
+        .await;
         for tc in tool_calls {
             if let Some(handle) = self
                 .dispatch_tool_call(session_id.clone(), tc, dispatched_at, turn)

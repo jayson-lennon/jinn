@@ -36,6 +36,27 @@ pub struct ToolExecutionCompleted {
     pub synthesized: bool,
 }
 
+/// A batch of tool calls was dispatched for execution.
+///
+/// Emitted by the tools orchestrator when it accepts an
+/// `ExecuteToolBatch`. This is the read-only observation point for the
+/// call's arguments: the batch itself is a Command routed to one handler
+/// (the orchestrator), and the completion event carries only the result,
+/// so consumers that need both halves of a call — the arguments and the
+/// result — join them by `ToolCallId` across this event and
+/// [`ToolExecutionCompleted`].
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
+#[schema(description = "A batch of tool calls was dispatched for execution.")]
+pub struct ToolCallsDispatched {
+    /// The session the batch belongs to.
+    pub session_id: SessionId,
+    /// The calls, in batch order, with their arguments.
+    pub tool_calls: Vec<ToolCall>,
+    /// The turn this batch belongs to, as minted by the turn ledger.
+    #[serde(default)]
+    pub turn: jinn_core_types::turn_identity::TurnToken,
+}
+
 /// Tools were registered by an actor.
 ///
 /// Emitted after an actor sends `RegisterTools` to confirm registration.
@@ -199,6 +220,8 @@ pub struct ToolExecutionOutput {
 }
 
 impl jinn_slices::BusMessage for ToolExecutionCompleted {}
+
+impl jinn_slices::BusMessage for ToolCallsDispatched {}
 
 impl jinn_slices::BusMessage for ToolsRegistered {}
 

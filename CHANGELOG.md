@@ -24,6 +24,35 @@
 - (webui) Add applet picker
 - Remove `#` flag in OpenRouter model market (the one that indicates if we have ECI/Vals data)
 
+- Add two new watchdogs monitoring for repeated tool calls:
+
+```toml
+# > Monitors for a tool call repeated byte-for-byte across responses — the
+# > same command, the same arguments, the same result, over and over.
+[watchdog.repeat_tool_call]
+# > Identical repeats tolerated before the turn is nudged (a guidance entry
+# > the model reads) and a further run of repeats cancels it. The
+# > accumulator rises on a repeat and falls by one on a differing call, so
+# > the repeats need not be strictly consecutive. 0 disables the watchdog.
+max_repeats = 4
+
+# > Monitors for a tool call repeated with small variations across responses
+# > — near-identical commands producing near-identical results.
+[watchdog.fuzzy_tool_call]
+# > Near-identical repeats tolerated before the turn is nudged and a further
+# > run of near-repeats cancels it, on the same accumulator as
+# > [watchdog.repeat_tool_call]. 0 disables the watchdog.
+max_repeats = 8
+# > Similarity (0.0–1.0) at or above which a call's arguments count as a
+# > repeat of the previous call's.
+similarity = 0.85
+# > Calls whose normalized arguments exceed this many characters are not
+# > examined (a long argument is usually a script, not a stuck call).
+# > 0 means no limit.
+max_argument_chars = 500
+```
+
+
 ## 2026-11-21 v1.26.1
 
 - `#goal` prompt saves the contract to disk instead of as a chat response.
