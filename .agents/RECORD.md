@@ -286,7 +286,6 @@ Entries are added or amended **only with human approval**.
 - (config) The RenderCtx carries a ConfigLayer reference so render-path consumers read config the same way every other consumer does.
 - (config) jinn.toml keys are not migrated between layouts; a pre-umbrella document is not read, not translated, and not warned about, so a stale file reads as a fresh install.
 - (slices) The discord slice reads its [discord] section from the configuration layer, and an absent section activates the slice disabled.
-
 - (config) ModelSelection, AlloyStrategy, and ReasoningEffort live in jinn-core-types; they persist across state.toml, SessionCore, and the SQLite legacy schema.
 - (slices) The entry token cache was pruned-family vocabulary misfiled under auto_prune_worker; it lives in jinn-slices and the prune family consumes it from the token-count slice's cell.
 - (slices) The mcp slice is a crate owning both MCP actors (coordinator and per-connection); its wire contracts live in jinn-mcp-msg and the kernel reaches the coordinator through the McpCoordinatorHandle trait.
@@ -377,7 +376,6 @@ Entries are added or amended **only with human approval**.
 - (slices) The chat input draft for a session is served from the chat-input slice's cell rather than from the session struct.
 - (chat-log-view) The chat log's per-entry line cache lives in a jinn-chat-log-view cell, invalidated when the theme changes.
 - (slices) A cell's payload type lives in the slice's `-msg` crate, so a catalog depending on it pulls in no slice implementation.
-
 - (bot) A bot is a session that may reference a parent without inheriting its conversation; an attached bot may re-run when its parent's turn completes successfully.
 - (bot) A parent bot's default seed template is one line naming <parent_id> and <prior_report>; a standalone bot's default is empty.
 - (bot) A parentless bot is standalone: its trigger is fixed to manual and the notify_parent tool is withheld while conclude is kept.
@@ -488,7 +486,6 @@ Entries are added or amended **only with human approval**.
 - (sessions) Tool-call and tool-result index tracking lives on the session phase machine rather than on an individual phase, because a tool call's arguments stream in across the whole provider burst — which spans both busy phases — and the burst's first prose token drives the `Sending → Streaming` edge, so a per-phase copy is discarded by a transition that happens mid-arguments.
 - (sessions) Tool-call tracking is cleared where the streaming turn ends rather than as a side effect of leaving a phase: a finished, errored, or cancelled stream, a stall-retry rewind, and the tool-use handoff that closes a burst whose calls have already been finalized.
 - (sessions) Registering a tool call or tool result checks the session phase rather than the availability of a tracking map, because the maps are machine-level and always present. A result arriving with no turn in flight is refused before its entry is pushed, so a cancelled session accumulates no orphan entries.
-
 - (rules) A stream rule has one behaviour: a match interrupts the turn and resumes it with the rule body as guidance. There is no second outcome to configure. A rule scoped to `tool:<name>` matches that call's arguments as they accumulate, and interrupting the call is what stops it running, so blocking a call is the same mechanism as catching a model mid-sentence.
 - (rules) An interrupted tool call is paired with a synthetic tool result carrying the error and the truncated arguments, so the model reads its own failed attempt in the resumed request. Without it the model resumes blind and re-emits the identical call, and the request is one every provider rejects.
 - (rules) The synthetic result rides in the tool result's content rather than the call's arguments: arguments are parsed as JSON by every provider and a truncated fragment is not JSON, so Google degrades one to `{}` silently. Result content is free text on all three providers.
@@ -501,7 +498,6 @@ Entries are added or amended **only with human approval**.
 - (cancel) `AbortStream` stops a stream without ending the turn and is deliberately distinct from `CancelTurn`; merging them would end every intercepted turn, defeating stream rules entirely.
 - (watchdog) A watchdog disarms on `TurnCompleted`, not on `StreamCompleted`. A cancel can end a turn with no stream completion to hear about -- when the cancelled dispatch was already dropped downstream -- so the stream-level event misses exactly the terminations a watchdog most needs to see.
 - (watchdog) `TurnCompleted` also carries `TurnOutcome::RuleIntercepted`, which is not a turn ending: the turn is rewound and re-dispatched. Anything reacting to a turn ending must check `TurnOutcome::is_terminal`, and the decision methods take the outcome rather than trusting the caller to filter. Clearing on an intercept is silent and total -- a watchdog disarms mid-turn, and a bounded count can never accumulate at all.
-
 - (session) A dedicated phase actor owns every session phase transition; no other component writes the phase, the in-flight-stream guard, or a turn's terminal state.
 - (session) Phase changes reach the phase actor through one message enum; each variant names the event that causes the transition.
 - (session) Whether a stream may start is decided by a per-session monotonic generation: a stream whose generation is at or below the generation a preceding cancel recorded is not started.
@@ -520,7 +516,6 @@ Entries are added or amended **only with human approval**.
 - (mcp) The singleton MCP flag spawns one shared connection regardless of transport; stdio and HTTP servers both honor it.
 - (mcp) A <jinn> replacement token in an MCP server's command or args expands to the running jinn executable at spawn, so bundled-server entries work without jinn being on PATH.
 - (mcp) Bundled MCP servers are intercepted during config prepare, so a server child runs without opening the session store or reading the user's jinn.toml.
-
 - (graph) The overgraph server's database directory defaults to a jinn-managed AppPaths location and is overridden per entry with a --db argument, so each [mcp.<name>] entry is its own graph database.
 - (graph) The overgraph server exposes six tools: graph_query (GQL), graph_upsert_node, graph_upsert_edge, graph_vector_search, graph_ingest_file, and graph_docs (bundled GQL reference).
 - (graph) The overgraph server vendors overgraph's gql-subset.md verbatim from the pinned upstream source and serves it through the graph_docs tool, refreshed only when the overgraph pin is bumped.
@@ -534,7 +529,6 @@ Entries are added or amended **only with human approval**.
 - (graph) The overgraph server embeds node text locally via fastembed with bge-small-en-v1.5 on CPU; the model loads at first embed and stays resident until the server process exits.
 - (graph) The embedder model downloads from HuggingFace on first use into a jinn-managed cache directory, is announced on the server's stderr, and is pre-fetchable headlessly via jinn mcp overgraph --fetch-model.
 - (graph) graph_upsert_node embeds only when the caller passes embed_text; graph_vector_search embeds its query text server-side.
-
 - (workflows) Workflow definitions are authored by convention under the config dir's workflows folder: one directory per workflow holding a workflow.md flow description and per-step prompt files.
 - (skills) The bundled workflows skill teaches running workflows on the session task list: stamping steps as task entries, dispatching each step to a subagent as an orchestrator, and materializing loop iterations by adding task entries.
 - (skills) The bundled workflows skill gates authoring on a user-approved preview: orient with searches on unmapped or fast-moving domains, one batched question round for structural forks and environment prerequisites and steps the user did not name, then nothing is written to disk until the user approves the preview; an explicit pre-approval collapses the gates.
@@ -674,7 +668,6 @@ Entries are added or amended **only with human approval**.
 - (remote) Each instance registers its pid, port, and cwd in a registry file under the AppPaths state dir, and instance discovery reads that registry.
 - (remote) An external send delivers to an existing live session only; no external path creates a session.
 - (remote) A steer aimed at an idle session falls back to ordinary queue delivery, the same rule the tell_session tool applies.
-
 - (dictation) Voice input is delivered by the jinn-dictation slice: one actor owns the backend lifecycle (Offline, Fetching, Loading, Ready, Arming, Recording, Error), self-inits at startup, and reports state through the dictation cell.
 - (dictation) The DictationBackend trait in jinn-dictation-backend defines model_name, is_cached, is_loaded, fetch, load, feed, and flush; every backend owns its own utterance endpointing and returns closed utterances from feed.
 - (dictation) The real Parakeet backend is a linux-and-windows target-scoped dependency outside the workspace member globs; every other platform runs NullBackend with the full lifecycle intact.
@@ -736,7 +729,6 @@ Entries are added or amended **only with human approval**.
 - (mcp) An MCP server entry may declare an env map applied additively over jinn's inherited environment at child spawn, with ${VAR} tokens expanded like header values. BECAUSE: the env block is the de-facto standard MCP config shape and secrets must stay out of jinn.toml.
 - (mcp) A <session_cwd> token in an MCP entry's env values or args expands to the enabling session's working directory at each spawn. BECAUSE: cwd-sensitive servers need per-worktree pinning without per-project config edits.
 - (mcp) A singleton MCP server entry referencing <session_cwd> refuses to spawn with an error naming the conflict. BECAUSE: one shared process cannot answer which session's directory.
-
 - (compaction) Handoff compaction is opt-in via [context_curation.handoff_compaction], configured as a single work-token fire line (workset_trigger_tokens), and fires at every model-request boundary per session. BECAUSE: the trigger bounds each session's accumulated work explicitly, and jinn's sessions are the reference implementation's conversations.
 - (compaction) Handoff compaction is jinn's only compaction; the manual /compact surface, [context_curation.compaction], and the background compaction worker are removed. BECAUSE: the worker's only production caller was /compact and handoff supersedes both.
 - (config) Launching with handoff compaction enabled and workset_trigger_tokens at or below auto_prune.accumulation_threshold_tokens aborts jinn; the same cross-section check refuses a live reload and the pruner-accumulation popup refuses the write. BECAUSE: a trigger at or below the accumulation threshold silently disables every auto-pruner.
@@ -749,13 +741,11 @@ Entries are added or amended **only with human approval**.
 - (compaction) Applying compaction-sourced history mutations invalidates the session's cached context and system sizes until the next honest size recalc lands. BECAUSE: a gate reading a pre-compaction size re-fires on the fresh history — the paired-compaction race.
 - (compaction) The handoff gate refuses a second fold until a new User or Intersession entry arrives: the fold arms a flag, the next such entry clears it. BECAUSE: a fold with nothing new to summarize would loop on the recap itself.
 - (session) The derived turn counter treats an assistant response immediately following a RuleInterrupt as the same turn, not a new one. BECAUSE: harness steering — the handoff recap included — is same-turn work; the agent never gave up control.
-
 - (cwd) The `<leader>cd` popup ghosts a fuzzy-matched subdirectory completion after the cursor in muted_text, ranked by SkimMatcherV2 score with shorter-then-alphabetical tiebreaks, and reads exactly one directory per suggestion -- never recursing. BECAUSE: blind path typing pushed users to the external fzf flow, and unbounded search would make keystrokes hit the disk recursively.
 - (cwd) The cwd popup's suggestion requests ride a CwdSuggestActor through a Command carrying a monotonic request_id, and the actor writes the ghost only when the id still matches the cell's expected id. BECAUSE: disk reads must stay off the key thread and a slow reply must not overwrite a newer request.
 - (cwd) CwdInputState carries the popup's resolve base beside the input text, stamped at open, so the popup's input hook can mint suggestion requests without kernel state access. BECAUSE: input hooks receive only their cell, and the opener action is the one point holding SliceActionState.
 - (cwd) Tab in the cwd popup accepts the ghost (append the remainder, or replace the cursor segment on a type-over) while Enter still commits only the typed text. BECAUSE: the ghost is a suggestion, and silently committing a path the user never confirmed would change what Enter means.
 - (model-market) The market popup's scroll window derives each frame as offset = selection − viewport/2 clamped to the row count, with no stored scroll state, in both table and detail mode. BECAUSE: ratatui's minimal auto-scroll pinned the cursor at the window's bottom edge on the way back up, and per-frame centering is stateless like the sidebar's layout.
-
 - (applets) The applet picker's `<c-enter>` opens the applet in a kiosk window: a built-in Chromium-family launcher (PATH-first detection, platform install paths as fallback) by default, fully replaced by the `[applets] kiosk_command` template when set. BECAUSE: kiosk must work zero-config on every platform while non-standard setups like Firefox need full launch control.
 - (applets) `[applets] kiosk_command` is substituted with {url}, {profile}, {id}, and {title} verbatim and run through the platform shell; quoting is the template author's, demonstrated by the shipped example. BECAUSE: jinn cannot know whether a placeholder sits inside user-written quotes, and the example carries the correct quoting.
 - (applets) Kiosk launches receive a jinn-managed persistent kiosk profile directory and a ?kiosk=1-marked URL. BECAUSE: Chromium ignores --kiosk when the profile is already in use, and pages adapt to kiosk via the marker.
@@ -865,8 +855,6 @@ Entries are added or amended **only with human approval**.
 - (skills) A loaded skill's toggle is a silent no-op on both the TUI picker and the web skills modal. BECAUSE: a disabled marker would promise an unload that never happens while the body stays pinned in history.
 - (webui) The web skills modal's per-row force-load repeats the TUI `<c-l>` load verbatim — pinned skill tool pair, durable auto-enable, MarkSessionInteracted, and the duplicate's "already loaded" transient. BECAUSE: one load semantic must hold across surfaces.
 - (webui) The webui fan-out subscribes SkillsLoaded and bumps a skillsTick signal that makes an open skills modal re-pull its rows. BECAUSE: discovery lands async after the modal can be opened, and the pull route remains the correctness dependency.
-=======
-- (webui) A web modal, menu, or drawer dismisses on Escape through a guard on `evt.key === 'Escape'` inside the `data-on:keydown__document` expression, never through an attribute modifier. BECAUSE: Datastar recognizes no key modifiers and silently ignores unknown ones, so `keydown__escape__document` registered a document-level closer firing on every keystroke — typing one character into a modal input closed the surface.
 - (webui) The webui e2e specs exercise modal typing and dismissal with real key presses (keyboard type/press), never `fill()` alone. BECAUSE: `fill()` dispatches no keydown events, which is exactly how the every-keystroke modal-close bug shipped unnoticed.
 - (webui) The webui's page and region CSS is fully tokenized: every color is a var(--token) reference and BASE_CSS's token definitions are the only color literals in the stylesheet. BECAUSE: three-mode theming required one restyle point instead of ten regions' worth of scattered literals.
 - (webui) The webui carries three palettes over one token vocabulary — dark lifted role-for-role from res/themes/sonokai.toml, light from nord-light.toml, and system resolved by prefers-color-scheme with zero client script. BECAUSE: the user directed the dark rework follow the sonokai theme ("the colors are supposed to be sonokai based") and picked nord-light for the light half.
@@ -893,14 +881,12 @@ Entries are added or amended **only with human approval**.
 - (mcp) The stdio connect path re-checks the child process after the handshake and fails the connect with the captured stderr tail if it has already exited. BECAUSE: a fast-exiting child could win the connect-success race under load and surface a phantom working server.
 - (webui) The MCP modal's keystroke re-pull swaps a rows-only fragment, never the modal skeleton, so the filter input survives typing. BECAUSE: re-rendering the skeleton mid-typing reset the input and dropped characters — the tools-region precedent.
 - (webui) Every modal's rows re-pull effect is debounce-modified (`data-effect__debounce.150ms`), and the rows filter rides the Datastar signal dump query param rather than an explicit `?filter=` URL suffix. BECAUSE: per-keystroke URLs made slow responses land out of order and overwrite the newest render with a stale filter's rows.
-||||||| c642caf63
-- (webui) The web composer accepts image attachments by clipboard paste, a file-attach button, and https URLs ending in an image extension, all ingested at the POST boundary. BECAUSE: paste is the desktop screenshot flow, the button is the mobile photo-library gesture, and the extension gate keeps ordinary links unfetched.
 - (webui) Web image ingestion sniffs bytes, transcodes non-native formats to PNG through jinn-llm-support, and caps each image at 5 MB with a synchronous 400 naming the offender. BECAUSE: the read_image tool already converts outside an actor, and boundary feedback beats a failed turn.
 - (webui) The web transcript renders a user entry's image attachments inline through a GET attachment route that serves bytes from live state (bounded wait), falling back to the session store for archived sessions. BECAUSE: inline base64 would multiply every settle push by every image's size, and the bounded wait is the activate endpoint's precedent.
 - (webui) Clipboard paste in the web composer is handled by a vendored, sha256-pinned paste.js riding the vendor manifest. BECAUSE: Datastar's expressions are synchronous and cannot drive the async FileReader a paste needs.
 - (webui) Web-attached images ride the existing EnqueueUserMessage entry payload; no new bus schema exists for them. BECAUSE: the actor's attachment field and vision gate already own the semantics, and the command's ~47 construction sites say its shape is not to be touched lightly.
-ain
-
+- (webui) A web modal, menu, or drawer dismisses on Escape through a guard on `evt.key === 'Escape'` inside the `data-on:keydown__document` expression, never through an attribute modifier. BECAUSE: Datastar recognizes no key modifiers and silently ignores unknown ones, so `keydown__escape__document` registered a document-level closer firing on every keystroke — typing one character into a modal input closed the surface.
+- (webui) The web composer accepts image attachments by clipboard paste, a file-attach button, and https URLs ending in an image extension, all ingested at the POST boundary. BECAUSE: paste is the desktop screenshot flow, the button is the mobile photo-library gesture, and the extension gate keeps ordinary links unfetched.
 - (webui) The web sidebar shows one session list at a time, chosen by a Sessions|Library segmented toggle; the library is never a second stacked section. BECAUSE: a permanent second section re-creates the clutter the split exists to avoid, and a toggle scales better on the web's scrollable, mobile-heavy surface.
 - (webui) The web sessions list excludes library members, loaded or archived, on both its pull and refresh render paths. BECAUSE: parity with the TUI's `is_listed` rule — membership hides a session from the sessions list on every surface.
 - (webui) Web session rows expose per-row actions through a three-dot popup menu, not dedicated row chrome, and the menu's entries are declared as data. BECAUSE: the user wants a general per-row action surface that will later carry archive and teardown entries.
