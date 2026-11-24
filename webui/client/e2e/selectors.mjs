@@ -31,6 +31,10 @@ export const PAGE_SESSION_ATTR = "data-webui-session";
 export const TRANSCRIPT = "#transcript";
 /** The transcript's scroll container id (`wire.TRANSCRIPT_WRAP_ID`). */
 export const TRANSCRIPT_WRAP = "#transcript-wrap";
+/** The attribute on #transcript stamping the settled history the page
+ * rendered inline (`wire.TRANSCRIPT_CURSOR_DATA_ATTR`) — zero on a
+ * swapped-in root whose history the stream is still to catch up. */
+export const TRANSCRIPT_CURSOR = "data-webui-cursor";
 /** One transcript entry's article element and its kind class. */
 export const ENTRY = (kind) => `article.entry.${kind}`;
 /** The composer textarea id (`wire.INPUT_ID`). */
@@ -58,6 +62,8 @@ export const PICKER_ROWS = "#model-picker-rows";
 export const PICKER_REFRESH = "#model-picker-refresh";
 /** One picker row, by its model id attr (`wire.MODEL_ID_DATA_ATTR`). */
 export const PICKER_ROW = (model) => `[data-webui-model="${model}"]`;
+/** The model-picker pull's route prefix (`wire.MODEL_PICKER_PREFIX`). */
+export const MODEL_PICKER_PREFIX = "/web/model-picker/";
 /** The row's inner model-name span — the switch delegation's target. */
 export const PICKER_ROW_MODEL_SPAN = (model) =>
   `[data-webui-model="${model}"] .model-row-model`;

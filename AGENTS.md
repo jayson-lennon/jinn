@@ -705,7 +705,14 @@ A region is one trait object on the server plus its askama templates, paired by 
 **Build & test tiers.**
 
 - `just webui-build` is a **pure verifier** of the vendored bundle (`datastar.js.gz`: gzip integrity + sha256 pin). Nothing regenerates the bundle; there is no client build step. A fresh checkout needs no emit before `just check`.
-- The browser test tiers are: the env-gated headless-chromium Rust test (`JINN_WEBUI_SMOKE=1 just webui-smoke`), and the standalone Playwright tier under `webui/client/e2e/` (`just webui-e2e`), whose specs stage scratch fixtures pre-boot through `harness.mjs` and select through `selectors.mjs`.
+- The browser test tiers are: the env-gated headless-chromium Rust test (`JINN_WEBUI_SMOKE=1 just webui-smoke`), and the standalone Playwright tier under `webui/client/e2e/` (`just webui-e2e`).
+
+**The Playwright e2e tier — one jinn per test.** Every e2e test runs against its own freshly booted jinn with its own scratch database, config, and data tree, booted before the test and torn down after it however it ends. No test can observe state another test created, so the order the tests run in carries no meaning: `just webui-e2e` shuffles the files (`--shuffle`) and prints the seed, and a test that only passes in one order is a bug in the test.
+
+- **A test arranges its own precondition.** A spec imports `test` and `expect` from `./fixture.mjs`, never from `@playwright/test`. The fixture's `jinn` handle (`{ baseUrl, root, pid }`) is the test's own instance, and its setup verbs — `openSession`, `createSession`, `openMenu`, `openModal`, `sendAndWaitForEcho`, `setViewport`, `toggleLibrary`, and the rest — reach a starting state; a spec never re-derives them. Helpers that only *assert* stay in the spec that asserts them. A resource the harness stages (the block-less persona, the scratch skill, the scratch applet) is requested per test through `test.with({ persona: true })` and named through the fixture's `staged` export — a spec never spells an on-disk location, a port, or a base URL.
+- **The inner loop is `just webui-e2e-one <files> [titles]`**: `files` is a regex over spec paths (`skills`, `smoke|scroll`), and the optional `titles` narrows it to the tests whose title matches (`just webui-e2e-one skills "fresh session"`). Use it after every edit; run the full tier before committing.
+- **Both recipes build the binary on every invocation** (`cargo build --bin jinn`) and install the tier's Node dependencies only when `node_modules` is absent or older than its lock file. The binary embeds the templates and vendored assets at compile time, so a run outside the recipes is a run against a stale binary — which is why the recipes invoke Playwright directly from the tier's `node_modules/.bin` and the tier never runs it any other way.
+- **A failure prints the runner's full report** — expected and received values, the call log — and leaves a trace under `webui/client/e2e/test-results/<test>/trace.zip`, which `playwright show-trace` replays. Read the report whole; a bare timeout is a hung interaction, and the trace shows the page at every step.
 
 **Adding a webui region:**
 

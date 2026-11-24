@@ -1,8 +1,17 @@
 //! Playwright config for the webui e2e tier.
 //!
-//! One jinn per run, serial specs, headless chromium. The base URL is
-//! NOT set here: the config is evaluated before globalSetup boots
-//! jinn, so specs read the URL at import time from `run.mjs`.
+//! One worker, headless chromium, the list reporter, and a trace kept
+//! for every failure. There is no global setup or teardown: every test
+//! boots its own jinn through the fixture (`fixture.mjs`) and tears it
+//! down when it ends, so nothing is shared between tests and the order
+//! the tests run in carries no meaning. The recipes shuffle that order
+//! (`--shuffle`) and print the seed, so an order dependence fails with
+//! the seed that reproduces it.
+//!
+//! A failure prints the runner's full report (expected, received, the
+//! call log) and leaves a trace under `test-results/<test>/trace.zip`,
+//! which `playwright show-trace` replays. That report is the point of
+//! the run — read it whole, never filtered.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,11 +24,6 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  // The persona spec creates its own scratch persona via
-  // global-setup's staged file; the z-prefixed specs keep their
-  // after-this-one ordering untouched.
-  globalSetup: path.join(here, "global-setup.mjs"),
-  globalTeardown: path.join(here, "global-teardown.mjs"),
   reporter: [["list"]],
   timeout: 30_000,
   use: {
@@ -29,5 +33,6 @@ export default defineConfig({
     // The attachments spec's loopback TLS fixture serves a committed
     // self-signed cert; the page's own fetches must not fail on it.
     ignoreHTTPSErrors: true,
+    trace: "retain-on-failure",
   },
 });

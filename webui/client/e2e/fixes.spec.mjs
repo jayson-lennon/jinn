@@ -2,68 +2,37 @@
 //! switching overlay, the create spinner, the picker's scroll and
 //! right alignment, and the composer's full-height controls.
 //!
-//! Sorts after `zswitch.spec.mjs` on purpose: it reuses the multi-
-//! session world the earlier specs establish (createSession is the
-//! znew-session flow, condensed). Every route intercept scopes to the
-//! one endpoint it gates — the page's SSE `@get` retries infinitely
-//! and a broad pattern poisons the page.
+//! Every test boots its own jinn and creates the second session it
+//! needs through the modal. Every route intercept scopes to the one
+//! endpoint it gates — the page's SSE `@get` retries infinitely and a
+//! broad pattern poisons the page.
 //!
 //! Geometry assertions (scrollability, alignment, heights) read
 //! bounding boxes and scroll dimensions off the live page — computed
 //! truth, not style strings.
 
-import { expect, test } from "@playwright/test";
+import {
+  createSession,
+  DESKTOP,
+  expect,
+  openSession,
+  PHONE,
+  startBusyTurn,
+  test,
+  viewSession,
+} from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
-import { openSession } from "./nav.mjs";
-import { baseUrl } from "./run.mjs";
-
-/** The phone viewport the mobile tier runs at (≤767px breakpoint). */
-const PHONE = { width: 390, height: 844 };
-/** The desktop viewport (the default, named for the height specs). */
-const DESKTOP = { width: 1280, height: 800 };
-
-/**
- * Creates a session through the new-session modal and lands on its
- * page — the znew-session flow, condensed to the id it returns.
- *
- * @param {import("@playwright/test").Page} page the browser page.
- * @returns {Promise<string>} the created session's id.
- */
-async function createSession(page) {
-  const beforeId = await page
-    .locator(sel.PAGE_ROOT)
-    .getAttribute(sel.PAGE_SESSION_ATTR);
-  await page.locator(sel.MENU_BUTTON).click();
-  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
-  const modal = page.locator(sel.SESSION_NEW_MODAL);
-  await expect(modal).toBeVisible();
-  await page.locator(sel.SESSION_NEW_SUBMIT).click();
-  const root = page.locator(sel.PAGE_ROOT);
-  await expect(root).not.toHaveAttribute(sel.PAGE_SESSION_ATTR, beforeId ?? "");
-  await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
-  const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
-  if (!createdId) {
-    throw new Error("create did not navigate; page root carries no session id");
-  }
-  return createdId;
-}
 
 test("a failed activate clears the overlay and surfaces the error", async ({
   page,
+  jinn,
 }) => {
   // Given two sessions — A viewed, B left behind — and an activate
   // POST that fails with a 500 (gated, so the overlay's stuck window
   // is observable before the failure lands).
-  await openSession(page);
-  const sessionA = await page
-    .locator(sel.PAGE_ROOT)
-    .getAttribute(sel.PAGE_SESSION_ATTR);
-  const sessionB = await createSession(page);
-  await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionA}`);
-  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
-    sel.PAGE_SESSION_ATTR,
-    sessionA,
-  );
+  const sessionA = await openSession(jinn, page);
+  const sessionB = await createSession(jinn, page);
+  await viewSession(jinn, page, sessionA);
 
   let releaseActivate;
   const gate = new Promise((resolve) => {
@@ -102,9 +71,10 @@ test("a failed activate clears the overlay and surfaces the error", async ({
 
 test("creating a session raises the interstitial until the swap lands", async ({
   page,
+  jinn,
 }) => {
   // Given a session page and a create POST whose fulfillment is held.
-  await openSession(page);
+  await openSession(jinn, page);
   let releaseCreate;
   const gate = new Promise((resolve) => {
     releaseCreate = resolve;
@@ -140,19 +110,12 @@ test("creating a session raises the interstitial until the swap lands", async ({
 
 test("cancel crossing a settle boundary settles the composer, never pins it", async ({
   page,
+  jinn,
 }) => {
   // Given a session page with a real turn running — the busy
   // fragment (cancel + queue) is up.
-  await openSession(page);
-  await page.locator(sel.PICKER_BUTTON).click();
-  await expect(page.locator(sel.PICKER_MODAL)).toBeVisible();
-  await page.locator(sel.PICKER_ROW_MODEL_SPAN(sel.MODEL_ID)).click();
-  await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(sel.MODEL_ID);
-  await page.locator(sel.INPUT).fill("!response");
-  await page.locator(sel.SEND_BUTTON).click();
-  await expect(page.locator(sel.CANCEL_BUTTON)).toBeVisible({
-    timeout: 10_000,
-  });
+  await openSession(jinn, page);
+  await startBusyTurn(page);
 
   // And a cancel POST held at the gate — the press fires now, while
   // the busy fragment is up, but the request hangs until released.
@@ -188,10 +151,11 @@ test("cancel crossing a settle boundary settles the composer, never pins it", as
 
 test("the picker's rows scroll inside the modal and the button right-aligns", async ({
   page,
+  jinn,
 }) => {
   // Given a session page. The scratch config fills the picker with
   // enough provider rows to overflow the modal's 70vh card.
-  await openSession(page);
+  await openSession(jinn, page);
 
   // Then the titlebar button's right edge sits at the titlebar's
   // right padding edge — the dead-CSS repair's alignment pin.
@@ -224,10 +188,10 @@ test("the picker's rows scroll inside the modal and the button right-aligns", as
 test.describe("composer control heights", () => {
   test("send button and attach control match the textarea height", async ({
     page,
+    jinn,
   }) => {
     // Given a desktop session page.
-    await page.setViewportSize(DESKTOP);
-    await openSession(page);
+    await openSession(jinn, page, undefined, { viewport: DESKTOP });
 
     // Then the send button and the attach control occupy the
     // textarea's full height.
@@ -246,29 +210,14 @@ test.describe("composer control heights", () => {
 
   test("queue and cancel match the textarea height at the phone breakpoint", async ({
     page,
+    jinn,
   }) => {
     // Given a phone-width session page mid-turn — the busy controls
     // (queue + cancel) are the fragment the mobile media query used
     // to pin short. A real turn runs: the send POST starts it, the
     // busy controls push swaps the fragment in.
-    await page.setViewportSize(PHONE);
-    await page.goto(`${baseUrl()}/web`);
-    await expect(page.locator(sel.SESSION_ROW).first()).toBeAttached();
-    const rowId = await page
-      .locator(sel.SESSION_ROW)
-      .first()
-      .getAttribute(sel.SESSION_ID_ATTR);
-    await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${rowId}`);
-    await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
-      sel.PAGE_SESSION_ATTR,
-      rowId,
-    );
-    await page.locator(sel.PICKER_BUTTON).click();
-    await expect(page.locator(sel.PICKER_MODAL)).toBeVisible();
-    await page.locator(sel.PICKER_ROW_MODEL_SPAN(sel.MODEL_ID)).click();
-    await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(sel.MODEL_ID);
-    await page.locator(sel.INPUT).fill("!response");
-    await page.locator(sel.SEND_BUTTON).click();
+    await openSession(jinn, page, undefined, { viewport: PHONE });
+    await startBusyTurn(page);
     await expect(page.locator(sel.QUEUE_BUTTON)).toBeVisible();
 
     // Then the queue and cancel buttons occupy the textarea's full
@@ -328,21 +277,11 @@ async function attachImages(page, count) {
 
 test("attached chips stack above the input row without horizontal overflow", async ({
   page,
+  jinn,
 }) => {
   // Given a phone-width session page (the broken shape: the chips row
   // used to share the flex row and push the textarea off-screen).
-  await page.setViewportSize(PHONE);
-  await page.goto(`${baseUrl()}/web`);
-  await expect(page.locator(sel.SESSION_ROW).first()).toBeAttached();
-  const rowId = await page
-    .locator(sel.SESSION_ROW)
-    .first()
-    .getAttribute(sel.SESSION_ID_ATTR);
-  await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${rowId}`);
-  await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
-    sel.PAGE_SESSION_ATTR,
-    rowId,
-  );
+  await openSession(jinn, page, undefined, { viewport: PHONE });
 
   // When attaching several images (enough chips to wrap inside the
   // strip and prove the vertical stacking).

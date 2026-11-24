@@ -3,22 +3,20 @@
 //! applets server's resolved bind, and the filter excludes a row it
 //! does not match.
 //!
-//! The scratch applet is staged in global-setup (pre-boot, the
-//! persona/skill hook's pattern): `<root>/data/jinn/applets/<id>/`
-//! plus `applets.json`. The applets server binds on the modal's first
-//! wake (the GET publishes it), so the row's href carries the
-//! OS-resolved loopback bind.
+//! The scratch applet is staged into the test's own scratch root
+//! before jinn boots (`{ stage: { applet: true } }`):
+//! `<root>/data/jinn/applets/<id>/` plus `applets.json`. The applets
+//! server binds on the modal's first wake (the GET publishes it), so
+//! the row's href carries the OS-resolved loopback bind.
 
-import { expect, test } from "@playwright/test";
-import { openSession } from "./nav.mjs";
-import { baseUrl } from "./run.mjs";
+import { expect, openModal, openSession, staged, test } from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
-const { APPLET } = sel;
+const APPLET = staged.scratchApplet;
 
-test("the menu item opens the modal into its host", async ({ page }) => {
+test("the menu item opens the modal into its host", async ({ page, jinn }) => {
   // Given the landing page (no session viewed — the Applets item
   // carries no data-show guard, the catalog is instance-wide).
-  await page.goto(`${baseUrl()}/web`);
+  await page.goto(`${jinn.baseUrl}/web`);
   await page.locator(sel.MENU_BUTTON).click();
   await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
 
@@ -39,15 +37,13 @@ test("the menu item opens the modal into its host", async ({ page }) => {
   await expect(modal).not.toBeVisible();
 });
 
-test("a seeded applet renders one row linking to the server bind", async ({
-  page,
-}) => {
-  // Given the boot session open and the menu opened.
-  await openSession(page);
-  await page.locator(sel.MENU_BUTTON).click();
-  await page.locator(sel.MENU_ITEM_APPLETS).click();
-  const modal = page.locator(sel.APPLET_MODAL);
-  await expect(modal).toBeVisible();
+test.with({ applet: true })(
+  "a seeded applet renders one row linking to the server bind",
+  async ({ page, jinn }) => {
+  // Given the scratch applet staged, the boot session open, and the
+  // applets modal opened.
+  await openSession(jinn, page);
+  const modal = await openModal(page, "applets");
 
   // Then the seeded applet renders exactly one row — an anchor with
   // an http href ending in the applet's path with the trailing
@@ -63,17 +59,16 @@ test("a seeded applet renders one row linking to the server bind", async ({
   expect(await row.getAttribute("rel")).toBe("noopener");
   // And the title renders in the row.
   await expect(row).toContainText(APPLET.title);
-});
+  },
+);
 
-test("a filter that matches nothing leaves the row absent", async ({
-  page,
-}) => {
-  // Given the applets modal open with the seeded row visible.
-  await openSession(page);
-  await page.locator(sel.MENU_BUTTON).click();
-  await page.locator(sel.MENU_ITEM_APPLETS).click();
-  const modal = page.locator(sel.APPLET_MODAL);
-  await expect(modal).toBeVisible();
+test.with({ applet: true })(
+  "a filter that matches nothing leaves the row absent",
+  async ({ page, jinn }) => {
+  // Given the scratch applet staged, the boot session open, and the
+  // applets modal open with the seeded row visible.
+  await openSession(jinn, page);
+  await openModal(page, "applets");
   const row = page.locator(sel.APPLET_ROW(APPLET.id));
   await expect(row).toHaveCount(1);
 
@@ -85,4 +80,5 @@ test("a filter that matches nothing leaves the row absent", async ({
   // survives (never re-rendered mid-typing).
   await expect(row).toHaveCount(0);
   await expect(page.locator(sel.APPLET_FILTER)).toBeVisible();
-});
+  },
+);

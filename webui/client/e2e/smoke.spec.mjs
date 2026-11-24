@@ -1,20 +1,19 @@
 //! Smoke spec — the page loads against the real binary.
 //!
-//! Proves the whole tier's foundation in one spec: the spawned jinn
-//! binds, the page renders its shell, the boot session's row is in
+//! Proves the whole tier's foundation in one spec: each test's own
+//! jinn binds, the page renders its shell, the boot session's row is in
 //! the sidebar, clicking it lands on the session page, and the
 //! model-picker button is in the titlebar.
 
-import { expect, test } from "@playwright/test";
-import { openSession } from "./nav.mjs";
+import { expect, test } from "./fixture.mjs";
+import { createSession, openSession } from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
-import { baseUrl } from "./run.mjs";
 const { MODEL_ID } = sel;
 
-test("page root renders the boot session row and opens it", async ({ page }) => {
+test("page root renders the boot session row and opens it", async ({ page, jinn }) => {
   // Given a freshly booted scratch jinn.
   // When navigating to the page root and opening the boot session.
-  const sessionId = await openSession(page);
+  const sessionId = await openSession(jinn, page);
 
   // Then the page root names the session.
   await expect(page.locator(sel.PAGE_ROOT)).toHaveAttribute(
@@ -27,9 +26,10 @@ test("page root renders the boot session row and opens it", async ({ page }) => 
 
 test("session page shows the model picker button in the titlebar", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open.
-  await openSession(page);
+  await openSession(jinn, page);
 
   // When reading the titlebar.
   // Then the model-picker button is visible and carries the boot
@@ -39,19 +39,15 @@ test("session page shows the model picker button in the titlebar", async ({
   await expect(page.locator(sel.PICKER_BUTTON)).toHaveText(MODEL_ID);
 });
 
-test("navigating sessions never blanks the sidebar", async ({ page }) => {
-  // Given a landing page whose sidebar carries at least two rows —
-  // a fresh scratch db boots with one, so a second is created through
-  // the modal (the znew-session flow, condensed).
-  await page.goto(`${baseUrl()}/web`);
-  await expect(page.locator(sel.SESSION_ROW).first()).toBeAttached();
-  await page.locator(sel.MENU_BUTTON).click();
-  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
-  await page.locator(sel.SESSION_NEW_SUBMIT).click();
-  await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
-  await page.goto(`${baseUrl()}/web`);
+test("navigating sessions never blanks the sidebar", async ({ page, jinn }) => {
+  // Given a landing page whose sidebar carries two rows — a fresh
+  // scratch db boots with one, so a second is created through the
+  // modal.
+  await openSession(jinn, page);
+  await createSession(jinn, page);
+  await page.goto(`${jinn.baseUrl}/web`);
   const rowCount = await page.locator(sel.SESSION_ROW).count();
-  expect(rowCount).toBeGreaterThanOrEqual(2);
+  expect(rowCount).toBe(2);
   const firstId = await page
     .locator(sel.SESSION_ROW)
     .first()

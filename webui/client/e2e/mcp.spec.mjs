@@ -9,28 +9,28 @@
 //! network-free, so the coordinator's spawn actually reaches
 //! `running`.
 
-import { expect, test } from "@playwright/test";
-import { openSession } from "./nav.mjs";
-import { baseUrl } from "./run.mjs";
+import {
+  enableMcpServer,
+  expect,
+  openModal,
+  openSession,
+  test,
+} from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
 const { MCP_SERVER } = sel;
 
-/** Opens the session page and the MCP modal through the menu. */
-async function openMcpModal(page) {
-  await openSession(page);
-  await page.locator(sel.MENU_BUTTON).click();
-  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
-  await page.locator(sel.MENU_ITEM_MCP).click();
-  const modal = page.locator(sel.MCP_MODAL);
-  await expect(modal).toBeVisible();
-  return modal;
+/** Opens the boot session and the MCP modal through the menu. */
+async function openMcpModal(jinn, page) {
+  await openSession(jinn, page);
+  return openModal(page, "mcp");
 }
 
 test("the menu item opens the modal listing the configured server as disabled", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open and the menu opened.
-  const modal = await openMcpModal(page);
+  const modal = await openMcpModal(jinn, page);
 
   // Then the modal renders inside its own host span (never the menu's
   // container) and the scratch server renders as one disabled row
@@ -47,9 +47,10 @@ test("the menu item opens the modal listing the configured server as disabled", 
 
 test("clicking the row enables the server and the badge reaches running without a reload", async ({
   page,
+  jinn,
 }) => {
   // Given the MCP modal open on the boot session.
-  await openMcpModal(page);
+  await openMcpModal(jinn, page);
   const row = page.locator(sel.MCP_ROW(MCP_SERVER));
 
   // When clicking the row — the per-click toggle, no staged apply.
@@ -73,15 +74,15 @@ test("clicking the row enables the server and the badge reaches running without 
 
 test("a reload persists the enablement: re-opening shows the running badge", async ({
   page,
+  jinn,
 }) => {
-  // Given the enabled boot session (the previous spec toggled it on;
-  // the tier runs serially against one scratch jinn).
-  await page.goto(`${baseUrl()}/web`);
-  await page.locator(sel.SESSION_ROW).first().click();
-  await page.waitForURL(new RegExp(sel.SESSION_PAGE_PATH));
-  await page.locator(sel.MENU_BUTTON).click();
-  await page.locator(sel.MENU_ITEM_MCP).click();
-  await expect(page.locator(sel.MCP_MODAL)).toBeVisible();
+  // Given the boot session's server enabled through the row click,
+  // then the page reloaded and the modal re-opened.
+  await openMcpModal(jinn, page);
+  await enableMcpServer(page);
+  await page.reload();
+  await expect(page.locator(sel.PAGE_ROOT)).toBeVisible();
+  await openModal(page, "mcp");
 
   // Then the re-opened modal renders the persisted enabled set with
   // the live connection's `running` badge — enablement and status
@@ -95,11 +96,11 @@ test("a reload persists the enablement: re-opening shows the running badge", asy
   ).toBeVisible({ timeout: 15_000 });
 });
 
-test("clicking the enabled row disables the server again", async ({ page }) => {
-  // Given the MCP modal open with the server still enabled from the
-  // earlier specs (the tier runs serially against one scratch jinn,
-  // so the boot session's set persists across specs).
-  await openMcpModal(page);
+test("clicking the enabled row disables the server again", async ({ page, jinn }) => {
+  // Given the MCP modal open with the server enabled through the row
+  // click.
+  await openMcpModal(jinn, page);
+  await enableMcpServer(page);
   const row = page.locator(sel.MCP_ROW(MCP_SERVER));
   await expect(row).toHaveClass(new RegExp(sel.MCP_ROW_ENABLED));
 
@@ -113,9 +114,9 @@ test("clicking the enabled row disables the server again", async ({ page }) => {
   );
 });
 
-test("the landing page's menu carries no MCP item", async ({ page }) => {
+test("the landing page's menu carries no MCP item", async ({ page, jinn }) => {
   // Given the landing page (nothing viewed).
-  await page.goto(`${baseUrl()}/web`);
+  await page.goto(`${jinn.baseUrl}/web`);
 
   // When opening the hamburger menu.
   await page.locator(sel.MENU_BUTTON).click();
@@ -131,9 +132,10 @@ test("the landing page's menu carries no MCP item", async ({ page }) => {
 
 test("typing in the filter narrows the rows with marked runs", async ({
   page,
+  jinn,
 }) => {
   // Given the MCP modal open with the scratch server listed.
-  await openMcpModal(page);
+  await openMcpModal(jinn, page);
   const row = page.locator(sel.MCP_ROW(sel.MCP_SERVER));
   await expect(row).toBeVisible();
   const query = sel.MCP_SERVER.slice(0, 2);
@@ -158,9 +160,10 @@ test("typing in the filter narrows the rows with marked runs", async ({
 
 test("a toggle under a filter keeps the filtered view with the input intact", async ({
   page,
+  jinn,
 }) => {
   // Given the MCP modal open, the server disabled, and a filter typed.
-  await openMcpModal(page);
+  await openMcpModal(jinn, page);
   const row = page.locator(sel.MCP_ROW(sel.MCP_SERVER));
   const query = sel.MCP_SERVER.slice(0, 2);
   await page.locator(sel.MCP_FILTER).click();
@@ -181,10 +184,7 @@ test("a toggle under a filter keeps the filtered view with the input intact", as
   // the enablement kept (the filter is view-local).
   await page.keyboard.press("Escape");
   await expect(page.locator(sel.MCP_MODAL)).toBeHidden();
-  await page.locator(sel.MENU_BUTTON).click();
-  await page.locator(sel.MENU_ITEM_MCP).click();
-  const reopened = page.locator(sel.MCP_MODAL);
-  await expect(reopened).toBeVisible();
+  await openModal(page, "mcp");
   // The reopen's fresh skeleton carries an empty filter; the bound
   // signal still holds the closed view's query, so clear it by typing
   // select-all + delete through the real input — the same path a user
@@ -196,14 +196,6 @@ test("a toggle under a filter keeps the filtered view with the input intact", as
     timeout: 10_000,
   });
   await expect(page.locator(sel.MCP_ROW(sel.MCP_SERVER))).toHaveClass(
-    /mcp-row-enabled/,
-  );
-
-  // Cleanup: the serial tier's later specs pivot on the disabled
-  // state this file's earlier specs restore, so disable again (the
-  // click is the XOR; the view filter is gone in the reopened modal).
-  await page.locator(sel.MCP_ROW(sel.MCP_SERVER)).click();
-  await expect(page.locator(sel.MCP_ROW(sel.MCP_SERVER))).not.toHaveClass(
     /mcp-row-enabled/,
   );
 });

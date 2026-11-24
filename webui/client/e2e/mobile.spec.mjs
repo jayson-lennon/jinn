@@ -18,9 +18,10 @@
 //! - **A closed drawer's rows cannot be clicked.** The session rows
 //!   live inside the off-canvas sidebar; Playwright cannot hit-test
 //!   what a finger could not reach either. Tests that need the
-//!   session page navigate to it by URL (the row's id attribute reads
-//!   fine on hidden elements); the one row-click test opens the
-//!   drawer first — the real path a finger performs.
+//!   session page open it with `openFirstSession`, which views it by
+//!   URL (the row's id attribute reads fine on hidden elements); the
+//!   drawer tests open the drawer first — the real path a finger
+//!   performs.
 //!
 //! The geometry claims (End States 5–7) are computed-style and
 //! bounding-box reads at phone width — the only tier that can see a
@@ -28,35 +29,20 @@
 //! left edge over its own scrim at every width (Addendum 1), so its
 //! assertions read the same transform/scrim hooks the drawer's do.
 
-import { expect, test } from "@playwright/test";
+import {
+  expect,
+  openDrawer,
+  openFirstSession,
+  openMenu,
+  PHONE,
+  test,
+} from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
-import { baseUrl } from "./run.mjs";
 
-const PHONE = { width: 390, height: 844 };
 const NARROW = { width: 360, height: 740 };
 const DESKTOP = { width: 1280, height: 800 };
 
 test.use({ viewport: PHONE });
-
-/**
- * Opens the boot session's page at the current viewport without
- * clicking through the drawer: reads the row's session id from the
- * landing page (an attribute read works on the off-canvas row) and
- * navigates to its page URL.
- *
- * @param {import("@playwright/test").Page} page the browser page.
- */
-async function openBootedSession(page) {
-  await page.goto(`${baseUrl()}/web`);
-  const row = page.locator(sel.SESSION_ROW).first();
-  await expect(row).toBeAttached();
-  const sessionId = await row.getAttribute(sel.SESSION_ID_ATTR);
-  if (!sessionId) {
-    throw new Error("the boot session row carries no session id");
-  }
-  await page.goto(`${baseUrl()}${sel.SESSION_PAGE_PATH}${sessionId}`);
-  await expect(page.locator(sel.PAGE_ROOT)).toBeVisible();
-}
 
 /**
  * Asserts the sidebar is currently off-canvas: parked left of the
@@ -137,40 +123,12 @@ async function expectMenuPanelOnCanvas(page) {
     .toBe(0);
 }
 
-/**
- * Opens the menu panel via the hamburger and settles its slide-in.
- *
- * @param {import("@playwright/test").Page} page the browser page.
- */
-async function openMenuPanel(page) {
-  await page.locator(sel.MENU_BUTTON).click();
-  await expectMenuPanelOnCanvas(page);
-  await expect(page.locator(sel.MENU_SCRIM)).toBeVisible();
-}
-
-/**
- * Opens the drawer via the real path: hamburger, then the Sessions
- * item. Every drawer test goes through the UI, never straight to the
- * class — the spec tests the flow a finger performs.
- *
- * @param {import("@playwright/test").Page} page the browser page.
- */
-async function openDrawer(page) {
-  await openMenuPanel(page);
-  await page.locator(sel.MENU_ITEM_SESSIONS).click();
-  await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
-    new RegExp(sel.DRAWER_OPEN_CLASS),
-  );
-  await expect(page.locator(sel.DRAWER_SCRIM)).toBeVisible();
-  await expectSidebarOnCanvas(page);
-}
-
 // ── The drawer at a phone viewport ──────────────────────────────────
 
-test("a fresh page shows no sidebar below 768px", async ({ page }) => {
+test("a fresh page shows no sidebar below 768px", async ({ page, jinn }) => {
   // Given a freshly booted scratch jinn at 390×844.
   // When navigating to the page root (no drawer-open class exists).
-  await page.goto(`${baseUrl()}/web`);
+  await page.goto(`${jinn.baseUrl}/web`);
   await expect(page.locator(sel.PAGE_ROOT)).toBeVisible();
 
   // Then the sidebar is off-canvas: the drawer transform parks it
@@ -181,9 +139,9 @@ test("a fresh page shows no sidebar below 768px", async ({ page }) => {
   );
 });
 
-test("the hamburger is visible at a phone viewport", async ({ page }) => {
+test("the hamburger is visible at a phone viewport", async ({ page, jinn }) => {
   // Given the session page at 390×844.
-  await openBootedSession(page);
+  await openFirstSession(jinn, page);
 
   // Then the hamburger renders — the menu is visible at every width.
   await expect(page.locator(sel.MENU_BUTTON)).toBeVisible();
@@ -191,9 +149,10 @@ test("the hamburger is visible at a phone viewport", async ({ page }) => {
 
 test("the hamburger slides in the panel with its scrim and one Sessions item", async ({
   page,
+  jinn,
 }) => {
   // Given the session page at 390×844.
-  await openBootedSession(page);
+  await openFirstSession(jinn, page);
 
   // When tapping the hamburger.
   await page.locator(sel.MENU_BUTTON).click();
@@ -220,10 +179,11 @@ test("the hamburger slides in the panel with its scrim and one Sessions item", a
 
 test("the Sessions item closes the menu and opens the drawer", async ({
   page,
+  jinn,
 }) => {
   // Given the session page with the menu open.
-  await openBootedSession(page);
-  await openMenuPanel(page);
+  await openFirstSession(jinn, page);
+  await openMenu(page);
 
   // When activating the Sessions item.
   await page.locator(sel.MENU_ITEM_SESSIONS).click();
@@ -240,9 +200,9 @@ test("the Sessions item closes the menu and opens the drawer", async ({
   await expect(page.locator(sel.DRAWER_SCRIM)).toBeVisible();
 });
 
-test("the sessions button opens the drawer in one tap", async ({ page }) => {
+test("the sessions button opens the drawer in one tap", async ({ page, jinn }) => {
   // Given the session page at a phone viewport, drawer closed.
-  await openBootedSession(page);
+  await openFirstSession(jinn, page);
   await expect(page.locator(sel.PAGE_ROOT)).not.toHaveClass(
     new RegExp(sel.DRAWER_OPEN_CLASS),
   );
@@ -261,10 +221,11 @@ test("the sessions button opens the drawer in one tap", async ({ page }) => {
 
 test("a tap on the scrim closes the drawer the sessions button opened", async ({
   page,
+  jinn,
 }) => {
   // Given the session page with the drawer already open via the
   // sessions button.
-  await openBootedSession(page);
+  await openFirstSession(jinn, page);
   await page.locator(sel.SESSIONS_BUTTON).click();
   await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
     new RegExp(sel.DRAWER_OPEN_CLASS),
@@ -293,10 +254,11 @@ test("a tap on the scrim closes the drawer the sessions button opened", async ({
 
 test("the sessions button is hidden at a desktop viewport", async ({
   page,
+  jinn,
 }) => {
   // Given the page at the desktop viewport (the describe's override).
   await page.setViewportSize(DESKTOP);
-  await page.goto(`${baseUrl()}/web`);
+  await page.goto(`${jinn.baseUrl}/web`);
   const button = page.locator(sel.SESSIONS_BUTTON);
   await expect(button).toBeAttached();
 
@@ -311,11 +273,11 @@ test("the sessions button is hidden at a desktop viewport", async ({
   await expect(page.locator(sel.SESSIONS_BUTTON_COUNT)).toBeHidden();
 });
 
-test("a scrim tap closes the drawer", async ({ page }) => {
+test("a scrim tap closes the drawer", async ({ page, jinn }) => {
   // Given the session page with the drawer open. The drawer covers
   // the viewport's left side; the exposed strip is the tap target a
   // finger would actually use.
-  await openBootedSession(page);
+  await openFirstSession(jinn, page);
   await openDrawer(page);
   const scrim = page.locator(sel.DRAWER_SCRIM);
 
@@ -335,11 +297,11 @@ test("a scrim tap closes the drawer", async ({ page }) => {
   await expect(scrim).not.toBeVisible();
 });
 
-test("Escape with focus on body closes the drawer", async ({ page }) => {
+test("Escape with focus on body closes the drawer", async ({ page, jinn }) => {
   // Given the session page with the drawer open and focus parked on
   // body (no element focused — the case the selector dispatch cannot
   // see).
-  await openBootedSession(page);
+  await openFirstSession(jinn, page);
   await openDrawer(page);
   await page.evaluate(() => document.activeElement?.blur());
   await expect
@@ -360,10 +322,11 @@ test("Escape with focus on body closes the drawer", async ({ page }) => {
 
 test("Escape closes an open menu when the drawer is closed", async ({
   page,
+  jinn,
 }) => {
   // Given the session page with only the menu open.
-  await openBootedSession(page);
-  await openMenuPanel(page);
+  await openFirstSession(jinn, page);
+  await openMenu(page);
   await page.evaluate(() => document.activeElement?.blur());
 
   // When pressing Escape.
@@ -379,19 +342,14 @@ test("Escape closes an open menu when the drawer is closed", async ({
   await expectSidebarOffCanvas(page);
 });
 
-// The row-click drawer-close test lives in zswitch.spec.mjs: a row
-// click must target a NON-viewed session (the viewed row is inert),
-// which needs a second session — this file sorts before the specs
-// that create one.
-
 // ── Geometry claims (End States 5–7) at phone widths ────────────────
 
 test.describe("phone geometry", () => {
   test.use({ viewport: NARROW });
 
-  test("a 360px viewport has no horizontal overflow", async ({ page }) => {
+  test("a 360px viewport has no horizontal overflow", async ({ page, jinn }) => {
     // Given the session page at 360×740.
-    await openBootedSession(page);
+    await openFirstSession(jinn, page);
 
     // Then the document never scrolls horizontally — every titlebar
     // element shrinks or ellipsizes instead of pushing the page wide.
@@ -408,9 +366,10 @@ test.describe("phone geometry", () => {
 
 test("the session title ellipsizes instead of overflowing", async ({
   page,
+  jinn,
 }) => {
   // Given the session page at 390×844.
-  await openBootedSession(page);
+  await openFirstSession(jinn, page);
   const title = page.locator("#titlebar .t");
 
   // Then the title carries the ellipsis chain and stays inside the
@@ -436,9 +395,10 @@ test("the session title ellipsizes instead of overflowing", async ({
 
 test("the page root's height tracks the viewport (the dvh application)", async ({
   page,
+  jinn,
 }) => {
   // Given the session page at 390×844.
-  await openBootedSession(page);
+  await openFirstSession(jinn, page);
 
   // Then the page root's computed height is the viewport height —
   // less than a pixel of drift — proving the dvh declaration applied.
@@ -452,9 +412,9 @@ test("the page root's height tracks the viewport (the dvh application)", async (
   }
 });
 
-test("text inputs render at 16px at a phone viewport", async ({ page }) => {
+test("text inputs render at 16px at a phone viewport", async ({ page, jinn }) => {
   // Given the session page at 390×844 (the iOS focus-zoom guard).
-  await openBootedSession(page);
+  await openFirstSession(jinn, page);
 
   // Then the composer textarea and the sessions filter both compute
   // 16px.
@@ -471,12 +431,13 @@ test("text inputs render at 16px at a phone viewport", async ({ page }) => {
 
 test("interactive controls reach the 40px hit height at a phone viewport", async ({
   page,
+  jinn,
 }) => {
   // Given the session page at 390×844 with the menu open (the item is
   // a menu-panel child — it measures only while the panel is slid in;
   // the drawer stays closed).
-  await openBootedSession(page);
-  await openMenuPanel(page);
+  await openFirstSession(jinn, page);
+  await openMenu(page);
 
   // When measuring the row, the send button, the hamburger, and the
   // menu item.
@@ -509,9 +470,10 @@ test.describe("desktop no-op", () => {
 
   test("the sidebar stays in flow and the panel slides over it", async ({
     page,
+    jinn,
   }) => {
     // Given the session page at 1280×800.
-    await openBootedSession(page);
+    await openFirstSession(jinn, page);
 
     // Then the sidebar is statically visible (in flow, not fixed) and
     // the hamburger is present.
@@ -524,7 +486,7 @@ test.describe("desktop no-op", () => {
     await expect(page.locator(sel.MENU_BUTTON)).toBeVisible();
 
     // When opening the menu.
-    await openMenuPanel(page);
+    await openMenu(page);
 
     // Then the panel slid in OVER the permanent sidebar (the menu is
     // the entry surface): fixed, stacked above it, scrim showing, and

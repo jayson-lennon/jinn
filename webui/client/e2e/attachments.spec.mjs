@@ -11,11 +11,9 @@
 //! the optimistic entry has been reconciled with the transcript's
 //! server render, and the surviving user entry is the served one.
 
-import { expect, test } from "@playwright/test";
+import { expect, openSession, sendAndWaitForEcho, test } from "./fixture.mjs";
 import { readFileSync } from "node:fs";
 import https from "node:https";
-import { openSession } from "./nav.mjs";
-import { baseUrl } from "./run.mjs";
 import * as sel from "./selectors.mjs";
 
 /** A 1x1 PNG, base64 — the smallest image the sniffer accepts. */
@@ -61,27 +59,9 @@ function servePng() {
   });
 }
 
-/**
- * Sends whatever is pending (text and/or chips) and waits for the
- * sample backend's assistant echo — the settle convergence marker.
- *
- * @param {import("@playwright/test").Page} page
- * @param {string} text the prompt text.
- */
-async function sendAndWaitForEcho(page, text) {
-  await page.locator(sel.INPUT).fill(text);
-  await page.locator(sel.SEND_BUTTON).click();
-  await expect(
-    page
-      .locator(`${sel.TRANSCRIPT} ${sel.ENTRY("assistant")}`)
-      .filter({ hasText: "sample response" })
-      .last(),
-  ).toBeVisible({ timeout: 15_000 });
-}
-
-test("a pasted screenshot attaches and renders inline", async ({ page }) => {
+test("a pasted screenshot attaches and renders inline", async ({ page, jinn }) => {
   // Given the boot session open.
-  await openSession(page);
+  await openSession(jinn, page);
 
   // When pasting an image (the clipboard event carrying a file), the
   // paste path runs the FileReader and a chip appears before any send.
@@ -113,16 +93,17 @@ test("a pasted screenshot attaches and renders inline", async ({ page }) => {
   await expect(img).toHaveCount(1);
   const src = await img.getAttribute("src");
   expect(src).toMatch(/^\/web\/attachment\//);
-  const fetched = await page.request.get(`${baseUrl()}${src}`);
+  const fetched = await page.request.get(`${jinn.baseUrl}${src}`);
   expect(fetched.ok()).toBeTruthy();
   expect(await fetched.body()).toEqual(PNG_BYTES);
 });
 
 test("the attach button picks a file and renders it inline", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open.
-  await openSession(page);
+  await openSession(jinn, page);
 
   // When choosing a file through the hidden input the attach label
   // drives (Playwright drives the input directly — the same handler
@@ -154,20 +135,21 @@ test("the attach button picks a file and renders it inline", async ({
   const img = userEntry.locator("img.attachment");
   await expect(img).toHaveCount(1);
   const src = await img.getAttribute("src");
-  const fetched = await page.request.get(`${baseUrl()}${src}`);
+  const fetched = await page.request.get(`${jinn.baseUrl}${src}`);
   expect(fetched.ok()).toBeTruthy();
   expect(await fetched.body()).toEqual(PNG_BYTES);
 });
 
 test("an https image URL in the text is scanned, fetched, and rendered", async ({
   page,
+  jinn,
 }) => {
   // Given a loopback server serving the PNG — never the internet.
   const image = await servePng();
 
   try {
     // And the boot session open.
-    await openSession(page);
+    await openSession(jinn, page);
 
     // When sending text whose URL ends in an image extension.
     await sendAndWaitForEcho(page, `look at ${image.url} please`);
@@ -183,7 +165,7 @@ test("an https image URL in the text is scanned, fetched, and rendered", async (
     const img = userEntry.locator("img.attachment");
     await expect(img).toHaveCount(1);
     const src = await img.getAttribute("src");
-    const fetched = await page.request.get(`${baseUrl()}${src}`);
+    const fetched = await page.request.get(`${jinn.baseUrl}${src}`);
     expect(fetched.ok()).toBeTruthy();
     expect(await fetched.body()).toEqual(PNG_BYTES);
   } finally {
@@ -193,13 +175,14 @@ test("an https image URL in the text is scanned, fetched, and rendered", async (
 
 test("an image to a text-only model is blocked with a visible error row", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open on the sample model, then switched to
   // a filler model — keyless, sample-backed, and absent from the
   // models.dev reference data with no `model_info` marker, so the
   // attachment gate blocks its image sends while the session stays
   // Idle (no phase change, no echo).
-  await openSession(page);
+  await openSession(jinn, page);
   await page.locator(sel.PICKER_BUTTON).click();
   const modal = page.locator(sel.PICKER_MODAL);
   await expect(modal).toBeVisible();
@@ -232,10 +215,11 @@ test("an image to a text-only model is blocked with a visible error row", async 
 
 test("a blocked image send does not double-render the entries", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session open and switched to the text-only filler
   // model (the blocked-send setup).
-  await openSession(page);
+  await openSession(jinn, page);
   await page.locator(sel.PICKER_BUTTON).click();
   const modal = page.locator(sel.PICKER_MODAL);
   await expect(modal).toBeVisible();
@@ -254,9 +238,9 @@ test("a blocked image send does not double-render the entries", async ({
   // Then after a settle window the counts are exact: one user entry,
   // and the error row directly following it is exactly one — the
   // convergence pushes are inner replaces, so an overlap never
-  // duplicates a row. (The tier's serial boot session carries earlier
-  // specs' error rows with the same gate sentence, so the error is
-  // addressed relative to this test's own user entry, not by text.)
+  // duplicates a row. The error is addressed relative to this test's
+  // own user entry — the count under test is the pair's, not the
+  // transcript's.
   const userEntry = page
     .locator(`${sel.TRANSCRIPT} ${sel.ENTRY("user")}`)
     .filter({ hasText: "describe this once" });

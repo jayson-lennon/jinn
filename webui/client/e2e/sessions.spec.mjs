@@ -1,25 +1,23 @@
 //! Sessions region flow — the sidebar list and its filter.
 //!
-//! Alphabetical file order puts the chat specs first: by the time
-//! these run, the boot session has been messaged and its title minted
-//! from the first user line. The list's observable contract is that
+//! Every test boots its own jinn, so the list holds exactly the one
+//! session a fresh db mints. The list's observable contract is that
 //! the active session renders as a row — not which words the row
 //! carries — so the title assertions are relative (non-empty, and
 //! narrowed away by a non-matching filter).
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
-import { baseUrl } from "./run.mjs";
 
-test("sidebar lists the boot session as a row", async ({ page }) => {
-  // Given the scratch jinn — by this spec's alphabetical position the
-  // serial tier may hold earlier-created sessions (the mobile pivot
-  // creates one), so the count is a lower bound, not a pin.
+test("sidebar lists the boot session as a row", async ({ page, jinn }) => {
+  // Given a freshly booted scratch jinn — one session, the one the
+  // db mints at boot.
   // When navigating to the page root.
-  await page.goto(`${baseUrl()}/web`);
+  await page.goto(`${jinn.baseUrl}/web`);
 
-  // Then at least one row renders, with a non-empty title.
+  // Then exactly that one row renders, with a non-empty title.
   const rows = page.locator(sel.SESSION_ROW);
+  await expect(rows).toHaveCount(1);
   await expect(rows.first()).toBeAttached();
   await expect(rows.first().locator(".stitle")).toBeVisible();
   const title = rows.first().locator(".stitle");
@@ -30,10 +28,10 @@ test("sidebar lists the boot session as a row", async ({ page }) => {
   }
 });
 
-test("sessions filter narrows the list", async ({ page }) => {
-  // Given the page root with its rows (at least the boot session's).
-  await page.goto(`${baseUrl()}/web`);
-  await expect(page.locator(sel.SESSION_ROW).first()).toBeAttached();
+test("sessions filter narrows the list", async ({ page, jinn }) => {
+  // Given the page root with its one row (the boot session's).
+  await page.goto(`${jinn.baseUrl}/web`);
+  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(1);
 
   // When filtering for a string no title contains.
   const filter = page.locator(sel.SESSIONS_FILTER);
