@@ -468,6 +468,23 @@ export async function sendAndWaitForEcho(page, text) {
   await expect(page.locator(sel.SEND_BUTTON)).toBeVisible({ timeout: 15_000 });
 }
 
+/**
+ * Opens the sidebar drawer the way a finger does — hamburger, then
+ * the Sessions item — and waits for it to slide in. At phone width the
+ * rows live off-canvas and cannot be clicked until this runs.
+ *
+ * @param {import("@playwright/test").Page} page the browser page.
+ * @returns {Promise<void>} resolves once the drawer is open.
+ */
+export async function openDrawer(page) {
+  await openMenu(page);
+  await page.locator(sel.MENU_ITEM_SESSIONS).click();
+  await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
+    new RegExp(sel.DRAWER_OPEN_CLASS),
+  );
+  await expect(page.locator(sel.DRAWER_SCRIM)).toBeVisible();
+}
+
 // ── Viewport ────────────────────────────────────────────────────────
 
 /** The phone viewport the mobile specs pivot on. */
