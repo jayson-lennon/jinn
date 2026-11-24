@@ -40,8 +40,8 @@
 //! - [`region`] — the region registry: the trait each page region
 //!   declares, and the fan-out/router's resolution surface.
 //! - [`regions`] — one module per region (sessions, transcript,
-//!   composer, model picker): the region's renders, pull handler, and
-//!   settle declaration.
+//!   composer, model picker, applets): the region's renders, pull
+//!   handler, and settle declaration.
 //! - [`delivery`] — the action paths: validate → publish, with the
 //!   remote slice's one-guard discipline.
 //! - [`transcript`] — the transcript projection and render functions.
@@ -131,6 +131,8 @@ pub async fn activate(
     state: State,
     session_store: jinn_session_state::SessionStoreService,
     services: &jinn_kernel::common::services::Services,
+    applets_catalog_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
+    applets_picker_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
 ) -> Result<(), error_stack::Report<WebUiActivationError>> {
     // Frozen at activation, deliberately: the web page's SSE streams are
     // long-lived pipes tied to the address they opened on. A hot rebind
@@ -183,6 +185,13 @@ pub async fn activate(
         .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
         .expect("the cell catalog registers the MCP runtime slot before any slice activates");
 
+    // The applets cells ride in as parameters — composition resolves
+    // them (`Ctx::cell`, the catalog's read handles) and passes them
+    // here, the same shape the personas and MCP cells resolve through
+    // from the catalog on the TUI side. A read handle only: the
+    // catalog cell's writer is the applets slice's store actor, the
+    // picker cell's its republisher — the web never writes either.
+
     // The unread-mark cell. Its write handle goes to the fan-out and
     // nowhere else: the fan-out actor is the mark's only writer (set
     // on an unseen settle, cleared when the session activates); the
@@ -211,6 +220,8 @@ pub async fn activate(
             provider_cell,
             personas_cell,
             mcp_runtime_cell,
+            applets_catalog_cell,
+            applets_picker_cell,
             provider_registry: services.provider_registry.clone(),
             api_keys: services.api_keys.clone(),
             config: config.clone(),

@@ -13,7 +13,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { startJinn, writeScratchPersona, writeScratchSkill } from "./harness.mjs";
+import {
+  startJinn,
+  writeScratchApplet,
+  writeScratchPersona,
+  writeScratchSkill,
+} from "./harness.mjs";
+import { APPLET } from "./selectors.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const BASE_URL_FILE = path.join(here, ".run", "base-url.txt");
@@ -90,6 +96,7 @@ async function switchBootModel(baseUrl) {
 export default async function globalSetup() {
   writeScratchPersona(BLOCKLESS_PERSONA);
   writeScratchSkill(SKILL, SKILL_BODY);
+  writeScratchApplet(APPLET.id, APPLET.title);
   const run = await startJinn();
   const sessionId = await switchBootModel(run.baseUrl);
   fs.mkdirSync(path.dirname(BASE_URL_FILE), { recursive: true });
