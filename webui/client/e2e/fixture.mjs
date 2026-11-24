@@ -293,6 +293,29 @@ export async function openSession(jinn, page, id, options) {
 }
 
 /**
+ * Opens the session the landing page lists first — by URL, since at
+ * phone width the rows live in the off-canvas drawer and a click
+ * cannot reach them. Views without activating.
+ *
+ * @param {{ baseUrl: string }} jinn the test's instance handle.
+ * @param {import("@playwright/test").Page} page the browser page.
+ * @returns {Promise<string>} the viewed session's id.
+ */
+export async function openFirstSession(jinn, page) {
+  // The row's id attribute reads fine on an off-canvas row, where a
+  // click cannot reach it — read it from the landing page and view.
+  await page.goto(`${jinn.baseUrl}/web`);
+  const row = page.locator(sel.SESSION_ROW).first();
+  await expect(row).toBeAttached();
+  const id = await row.getAttribute(sel.SESSION_ID_ATTR);
+  if (!id) {
+    throw new Error("the landing page's first session row carries no session id");
+  }
+  await viewSession(jinn, page, id);
+  return id;
+}
+
+/**
  * Views a session by loading its page URL — no row click, so the
  * session is NOT activated instance-wide. The page renders the settled
  * history inline; the stream connects and has nothing to catch up.
@@ -377,6 +400,18 @@ export async function switchToSession(page, id) {
 export async function openMenu(page) {
   await page.locator(sel.MENU_BUTTON).click();
   await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+  await expect(page.locator(sel.MENU_SCRIM)).toBeVisible();
+  // The panel slides in from the left: settle the transition (the
+  // matrix x reaches 0) so a caller's geometry reads land on the
+  // parked panel. Playwright's visibility check is transform-blind, so
+  // `toBeVisible` alone passes while the panel is still moving.
+  await expect
+    .poll(() =>
+      page
+        .locator(sel.MENU_PANEL)
+        .evaluate((panel) => new DOMMatrix(getComputedStyle(panel).transform).e),
+    )
+    .toBe(0);
 }
 
 /**
@@ -554,6 +589,17 @@ export async function openDrawer(page) {
     new RegExp(sel.DRAWER_OPEN_CLASS),
   );
   await expect(page.locator(sel.DRAWER_SCRIM)).toBeVisible();
+  // The slide-in is a transition: settle it (the matrix x reaches 0)
+  // so a caller's geometry reads land on the parked drawer.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const sidebar = document.getElementById("sidebar");
+        if (!sidebar) return -1;
+        return new DOMMatrix(getComputedStyle(sidebar).transform).e;
+      }),
+    )
+    .toBe(0);
 }
 
 // ── Viewport ────────────────────────────────────────────────────────
