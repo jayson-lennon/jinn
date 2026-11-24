@@ -1,10 +1,9 @@
 //! Library flow — the sidebar's Sessions|Library toggle, the kebab
 //! popup, membership persistence, and cross-surface refresh.
 //!
-//! Runs after the plain specs and before the z-prefixed tail
-//! (alphabetical file order, one worker). Each test creates its own
-//! session through the new-session modal so no test depends on rows
-//! an earlier test's membership moves may have hidden.
+//! Every test boots its own jinn and creates its own session through
+//! the new-session modal, so no test depends on rows another test's
+//! membership moves may have hidden.
 //!
 //! Two mechanics shape the tests:
 //!
@@ -15,73 +14,23 @@
 //!   column before the fan-out announces the change, so every open
 //!   page re-pulls both lists through the existing sessions refresh.
 
-import { expect, test } from "@playwright/test";
+import {
+  createSession,
+  expect,
+  openSession,
+  test,
+  toggleLibrary,
+} from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
-import { openSession } from "./nav.mjs";
-import { baseUrl } from "./run.mjs";
-
-/**
- * Creates a session through the new-session modal and lands on its
- * page — the znew-session flow, condensed to the id it returns.
- *
- * @param {import("@playwright/test").Page} page the browser page.
- * @returns {Promise<string>} the created session's id.
- */
-async function createSession(page) {
-  const before = page.url();
-  const beforeId = await page
-    .locator(sel.PAGE_ROOT)
-    .getAttribute(sel.PAGE_SESSION_ATTR);
-  await page.locator(sel.MENU_BUTTON).click();
-  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
-  const modal = page.locator(sel.SESSION_NEW_MODAL);
-  await expect(modal).toBeVisible();
-  await page.locator(sel.SESSION_NEW_SUBMIT).click();
-  const root = page.locator(sel.PAGE_ROOT);
-  await expect(page).not.toHaveURL(before);
-  await expect(root).not.toHaveAttribute(
-    sel.PAGE_SESSION_ATTR,
-    beforeId ?? "",
-  );
-  await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
-  const createdId = await root.getAttribute(sel.PAGE_SESSION_ATTR);
-  if (!createdId) {
-    throw new Error("create did not navigate; page root carries no session id");
-  }
-  await expect(page).toHaveURL(
-    new RegExp(`${sel.SESSION_PAGE_PATH.replace("/", "/")}${createdId}`),
-  );
-  return createdId;
-}
-
-/**
- * Opens the kebab popup of the named row and clicks its library entry.
- *
- * @param {import("@playwright/test").Page} page the browser page.
- * @param {string} id the session id whose row to toggle.
- * @returns {Promise<void>} resolves once the POST has been clicked.
- */
-async function toggleLibrary(page, id) {
-  await page.locator(sel.ROW_MENU_IN(id)).click();
-  await expect(
-    page
-      .locator(sel.ROW_MENU_POPUP)
-      .filter({ has: page.locator(sel.MENU_ENTRY(sel.ACTION_LIBRARY_TOGGLE)) })
-      .first(),
-  ).toBeVisible();
-  await page
-    .locator(sel.MENU_ENTRY(sel.ACTION_LIBRARY_TOGGLE))
-    .first()
-    .click();
-}
 
 test("adding a member moves the row out of Sessions into Library", async ({
   page,
+  jinn,
 }) => {
   // Given the boot session viewed and a fresh session created through
   // the modal (this test owns its row; the boot session stays put).
-  await openSession(page);
-  const created = await createSession(page);
+  await openSession(jinn, page);
+  const created = await createSession(jinn, page);
   const createdRow = page.locator(sel.ROW_BY_ID(created));
 
   // When toggling the created row into the library through its kebab.
@@ -94,11 +43,11 @@ test("adding a member moves the row out of Sessions into Library", async ({
   await expect(page.locator(sel.ROW_BY_ID(created))).toBeVisible();
 });
 
-test("membership survives a page reload", async ({ page }) => {
+test("membership survives a page reload", async ({ page, jinn }) => {
   // Given a member added through the previous flow's mechanism on a
   // fresh session.
-  await openSession(page);
-  const created = await createSession(page);
+  await openSession(jinn, page);
+  const created = await createSession(jinn, page);
   await toggleLibrary(page, created);
 
   // When the page reloads — the view lands back on Sessions (the
@@ -114,15 +63,16 @@ test("membership survives a page reload", async ({ page }) => {
 
 test("a membership change on a second page refreshes the first without reload", async ({
   page,
+  jinn,
 }) => {
   // Given a fresh session, a page viewing it, and a second page open
   // on a real session (the second page must hold a stream — the
   // landing page renders no stream by design, so it cannot receive
   // the push; clicking a row navigates it and rebinds one).
-  await openSession(page);
-  const created = await createSession(page);
+  await openSession(jinn, page);
+  const created = await createSession(jinn, page);
   const second = await page.context().newPage();
-  await second.goto(`${baseUrl()}/web`);
+  await second.goto(`${jinn.baseUrl}/web`);
   await expect(second.locator(sel.PAGE_ROOT)).toBeVisible();
   await second.locator(sel.SESSION_ROW).first().click();
   await expect(second).toHaveURL(
@@ -140,10 +90,10 @@ test("a membership change on a second page refreshes the first without reload", 
   ).toHaveCount(0);
 });
 
-test("the library filter narrows the flat member list", async ({ page }) => {
+test("the library filter narrows the flat member list", async ({ page, jinn }) => {
   // Given a member whose title is unique.
-  await openSession(page);
-  const created = await createSession(page);
+  await openSession(jinn, page);
+  const created = await createSession(jinn, page);
   await toggleLibrary(page, created);
   await page.locator(sel.VIEW_LIBRARY).click();
   await expect(page.locator(sel.ROW_BY_ID(created))).toBeVisible();
@@ -166,10 +116,11 @@ test("the library filter narrows the flat member list", async ({ page }) => {
 
 test("a non-member row's kebab offers add; a member's offers remove", async ({
   page,
+  jinn,
 }) => {
   // Given a fresh session row in the Sessions view.
-  await openSession(page);
-  const created = await createSession(page);
+  await openSession(jinn, page);
+  const created = await createSession(jinn, page);
 
   // When opening its kebab.
   await page.locator(sel.ROW_MENU_IN(created)).click();
@@ -197,6 +148,7 @@ test("a non-member row's kebab offers add; a member's offers remove", async ({
 
 test("activating an archived member opens its page through the ordinary route", async ({
   page,
+  jinn,
 }) => {
   // Given a member added through the kebab, whose store row persists
   // after the run ends only as long as the scratch db lives — this
@@ -206,8 +158,8 @@ test("activating an archived member opens its page through the ordinary route", 
   // serve_tests.rs (`an_archived_member_lists_in_the_library_view_and_activates`,
   // real SQLite store, real activate POST) and the store actor test
   // `an_archived_library_member_loads_and_unarchives`).
-  await openSession(page);
-  const created = await createSession(page);
+  await openSession(jinn, page);
+  const created = await createSession(jinn, page);
   await toggleLibrary(page, created);
   await page.locator(sel.VIEW_LIBRARY).click();
   await expect(page.locator(sel.ROW_BY_ID(created))).toBeVisible();
@@ -236,8 +188,8 @@ test.describe("mobile popup rules", () => {
   // cannot be clicked — Playwright cannot hit-test what a finger
   // could not reach). Every kebab interaction below opens the drawer
   // first, the real path a finger performs.
-  test.beforeEach(async ({ page }) => {
-    await page.goto(`${baseUrl()}/web`);
+  test.beforeEach(async ({ page, jinn }) => {
+    await page.goto(`${jinn.baseUrl}/web`);
     await page.locator(sel.SESSIONS_BUTTON).click();
     await expect(page.locator(sel.PAGE_ROOT)).toHaveClass(
       new RegExp(sel.DRAWER_OPEN_CLASS),
@@ -246,6 +198,7 @@ test.describe("mobile popup rules", () => {
 
   test("the popup stacks above the drawer and below the switch overlay", async ({
     page,
+    jinn,
   }) => {
     // Given the open drawer at phone width with one row's kebab open.
     const row = page.locator(sel.SESSION_ROW).first();
