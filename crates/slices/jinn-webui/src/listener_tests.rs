@@ -34,6 +34,18 @@ fn deps_on(bind: std::net::SocketAddr) -> WebUiListenerActorDeps {
             jinn_mcp_msg::McpRuntimeState::default(),
         )
         .expect("the MCP runtime cell registers once");
+    let applets_catalog_cell = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once");
+    let applets_picker_cell = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -56,6 +68,8 @@ fn deps_on(bind: std::net::SocketAddr) -> WebUiListenerActorDeps {
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
+        applets_catalog_cell,
+        applets_picker_cell,
         provider_registry: jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
@@ -105,8 +119,19 @@ async fn a_taken_port_fails_activation_fast() {
     let result = WebUiListenerActor::spawn(&system, &deps).await;
 
     // Then activation aborts: the error names the bind failure among
-    // its attachments.
+    // its attachments AND the io error rides as a nested source
+    // context (its own Display line), never a flattened string — the
+    // io error as `format!`-smashed text would render the whole chain
+    // through derived Debug and escape every ANSI sequence literally.
     let error = result.expect_err("a taken port refuses the bind");
     let rendered = format!("{error:?}");
     assert!(rendered.contains("failed to bind the web UI"), "{rendered}");
+    assert!(
+        rendered.contains("Address already in use"),
+        "the io error is a source context, not a smashed string: {rendered}"
+    );
+    assert!(
+        !rendered.contains(r"\u{1b}") && !rendered.contains('\\'),
+        "no escaped control sequences in the render: {rendered}"
+    );
 }

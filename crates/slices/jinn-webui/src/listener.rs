@@ -15,6 +15,8 @@
 
 use std::sync::Arc;
 
+use error_stack::ResultExt as _;
+
 use crate::fanout::FanoutHandle;
 use jinn_kernel::State;
 use jinn_slices::bus::BusService;
@@ -22,9 +24,18 @@ use trouper::actor::ActorPath;
 use trouper::actor::ServiceActor;
 use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
+use wherror::Error;
 
 /// The actor's registered path segment — also the dashboard row name.
 pub const WEBUI_ACTOR_NAME: &str = "webui";
+
+/// The web UI listener could not bind its address or resolve the
+/// bound listener's local port. The io error rides as the report's
+/// source context (`Address already in use (os error 98)` renders as
+/// its own frame), never as a flattened attachment string.
+#[derive(Debug, Error)]
+#[error(debug)]
+pub struct WebUiBindError;
 
 /// The listener actor: bound and serving from init onward.
 pub struct WebUiListenerActor {
@@ -73,6 +84,12 @@ pub struct WebUiListenerActorDeps {
     /// The MCP runtime cell, for the MCP modal's status projection
     /// (read-only; the coordinator is the writer).
     pub mcp_runtime_cell: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
+    /// The applets catalog cell, for the applets modal's rows
+    /// (read-only; the applets slice's store actor is the writer).
+    pub applets_catalog_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
+    /// The applets picker cell, for the modal's serving phase
+    /// (read-only; the applets slice's republisher is the writer).
+    pub applets_picker_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
     /// The provider registry, for the picker rows' shared builder.
     pub provider_registry: jinn_provider_config::ProviderRegistryService,
     /// The resolved API keys, for the picker rows' availability flags.
@@ -116,16 +133,14 @@ impl WebUiListenerActor {
     ) -> Result<ActorPath, error_stack::Report<RegistryError>> {
         let listener = tokio::net::TcpListener::bind(deps.bind)
             .await
-            .map_err(|e| {
-                error_stack::Report::new(RegistryError::InvalidSpec)
-                    .attach(format!("failed to bind the web UI on {}: {e}", deps.bind))
-            })?;
+            .change_context(WebUiBindError)
+            .attach(format!("failed to bind the web UI on {}", deps.bind))
+            .change_context(RegistryError::InvalidSpec)?;
         let resolved = listener
             .local_addr()
-            .map_err(|e| {
-                error_stack::Report::new(RegistryError::InvalidSpec)
-                    .attach(format!("bound listener has no local address: {e}"))
-            })?
+            .change_context(WebUiBindError)
+            .attach("bound listener has no local address")
+            .change_context(RegistryError::InvalidSpec)?
             .port();
 
         let shared = Arc::new(crate::server::ServerShared::new(
@@ -136,6 +151,8 @@ impl WebUiListenerActor {
             deps.provider_cell.clone(),
             deps.personas_cell.clone(),
             deps.mcp_runtime_cell.clone(),
+            deps.applets_catalog_cell.clone(),
+            deps.applets_picker_cell.clone(),
             deps.provider_registry.clone(),
             deps.api_keys.clone(),
             deps.config.clone(),

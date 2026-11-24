@@ -52,6 +52,18 @@ pub(super) fn harness() -> (State, BusAudit, Slices, axum::Router) {
             jinn_mcp_msg::McpRuntimeState::default(),
         )
         .expect("the MCP runtime cell registers once");
+    let applets_catalog_cell = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once per harness");
+    let applets_picker_cell = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once per harness");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -79,6 +91,8 @@ pub(super) fn harness() -> (State, BusAudit, Slices, axum::Router) {
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
+        applets_catalog_cell,
+        applets_picker_cell,
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         jinn_config::empty_config_layer().clone(),
@@ -280,27 +294,40 @@ async fn harness_with_store_actor() -> (State, BusAudit, Slices, axum::Router) {
             unread_marks,
         )
     };
-    let shared = ServerShared::new(
-        state.clone(),
-        actor_services.bus.clone(),
-        actor_services.session_store,
-        actor_services.turn_ledger.clone(),
-        provider_cell,
-        actor_services
-            .slices
-            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            .expect("the cell catalog registers the personas slot"),
-        actor_services
-            .slices
-            .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
-            .expect("the cell catalog registers the MCP runtime slot"),
-        jinn_provider_config::ProviderRegistryService::new(harness_registry()),
-        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
-        jinn_config::empty_config_layer().clone(),
-        fanout,
-        8388,
-        "test-store-actor".to_owned(),
-    );
+    let shared =
+        ServerShared::new(
+            state.clone(),
+            actor_services.bus.clone(),
+            actor_services.session_store,
+            actor_services.turn_ledger.clone(),
+            provider_cell,
+            actor_services
+                .slices
+                .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+                .expect("the cell catalog registers the personas slot"),
+            actor_services
+                .slices
+                .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
+                .expect("the cell catalog registers the MCP runtime slot"),
+            actor_services
+                .slices
+                .reader::<jinn_applets_msg::AppletsCatalog>(
+                    &jinn_applets_msg::applets_catalog_slot(),
+                )
+                .expect("the cell catalog registers the applets catalog slot"),
+            actor_services
+                .slices
+                .reader::<jinn_applets_msg::AppletsPickerState>(
+                    &jinn_applets_msg::applets_picker_slot(),
+                )
+                .expect("the cell catalog registers the applets picker slot"),
+            jinn_provider_config::ProviderRegistryService::new(harness_registry()),
+            jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+            jinn_config::empty_config_layer().clone(),
+            fanout,
+            8388,
+            "test-store-actor".to_owned(),
+        );
     let (_bus, audit) = BusService::new_recording();
     (state, audit, slices, router(shared))
 }
@@ -587,6 +614,18 @@ fn harness_with_archived_attachment(
             jinn_mcp_msg::McpRuntimeState::default(),
         )
         .expect("the MCP runtime cell registers once");
+    let applets_catalog_cell = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once per harness");
+    let applets_picker_cell = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once per harness");
     let (bus, _audit) = BusService::new_recording();
     let (fanout, _rx) =
         crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone(), unread_marks);
@@ -603,6 +642,8 @@ fn harness_with_archived_attachment(
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
+        applets_catalog_cell,
+        applets_picker_cell,
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         jinn_config::empty_config_layer().clone(),
@@ -805,6 +846,18 @@ fn harness_with_archived_row_and_receiver() -> (
             jinn_mcp_msg::McpRuntimeState::default(),
         )
         .expect("the MCP runtime cell registers once");
+    let applets_catalog_cell = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once per harness");
+    let applets_picker_cell = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once per harness");
     let (bus, audit) = BusService::new_recording();
     let (fanout, rx) =
         crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone(), unread_marks_for(&slices));
@@ -819,6 +872,8 @@ fn harness_with_archived_row_and_receiver() -> (
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
+        applets_catalog_cell,
+        applets_picker_cell,
         jinn_provider_config::ProviderRegistryService::new(harness_registry()),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         jinn_config::empty_config_layer().clone(),
@@ -1446,6 +1501,72 @@ mod actions {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body.contains("the limit is"), "cap sentence: {body}");
         assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn an_image_send_response_appends_no_optimistic_entry() {
+        // Given a live session and a data URL carrying real PNG bytes.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let png = tiny_png_for_tests();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&png)
+        );
+
+        // When posting a send whose images array carries it.
+        let (status, body) = post_json(
+            &router,
+            "/web/send",
+            &format!(r#"{{"sessionId": "{id}", "text": "look", "images": ["{data_url}"]}}"#),
+        )
+        .await;
+
+        // Then the response patches the composer signals only — NO
+        // append patch rides it. The attachment gate may block this
+        // send while the session stays Idle, and that block's
+        // HistoryAppended convergence push races (and can beat) this
+        // response; a sentinel appended after it is never wiped — the
+        // duplicate-user-row bug. The real entries reach the page
+        // through the convergence pushes instead.
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !body.contains("datastar-patch-elements"),
+            "no element patch: {body}"
+        );
+        assert!(body.contains("text"), "the text-clear signal rode: {body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_text_send_response_still_appends_the_optimistic_entry() {
+        // Given a live session.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting a text-only send.
+        let (status, body) = post_form(
+            &router,
+            "/web/send",
+            &format!("session_id={id}&text=note+to+self"),
+        )
+        .await;
+
+        // Then the response still carries the optimistic append patch —
+        // the sentinel's instant-visibility job on the text path is
+        // untouched (a text send can never be gate-blocked).
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("datastar-patch-elements"),
+            "the append rode: {body}"
+        );
+        assert!(
+            body.contains("entry-18446744073709551615"),
+            "the sentinel-id entry rode: {body}"
+        );
+        let published = audit.of_type::<jinn_chat_input_msg::EnqueueUserMessage>();
+        assert_eq!(published.len(), 1);
     }
 
     #[rstest::rstest]
@@ -2291,6 +2412,18 @@ singleton = true
                 jinn_mcp_msg::McpRuntimeState::default(),
             )
             .expect("the MCP runtime cell registers once");
+        let applets_catalog_cell = slices
+            .register(
+                jinn_applets_msg::applets_catalog_slot(),
+                jinn_applets_msg::AppletsCatalog::default(),
+            )
+            .expect("the applets catalog cell registers once per harness");
+        let applets_picker_cell = slices
+            .register(
+                jinn_applets_msg::applets_picker_slot(),
+                jinn_applets_msg::AppletsPickerState::default(),
+            )
+            .expect("the applets picker cell registers once per harness");
         let unread_marks = slices
             .register(
                 jinn_webui_msg::webui_unread_slot(),
@@ -2323,6 +2456,8 @@ singleton = true
             provider_cell,
             personas_cell,
             mcp_runtime_cell,
+            applets_catalog_cell,
+            applets_picker_cell,
             jinn_provider_config::ProviderRegistryService::new(harness_registry()),
             jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
             jinn_config::testutil::config_layer(doc),
@@ -4020,6 +4155,15 @@ mod tools_actions {
         let mcp_runtime_cell = slices
             .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
             .expect("the catalog registered the MCP runtime slot");
+        let applets_catalog_cell = slices
+            .reader::<jinn_applets_msg::AppletsCatalog>(&jinn_applets_msg::applets_catalog_slot())
+            .expect("the catalog registered the applets catalog slot");
+        let applets_picker_cell =
+            slices
+                .reader::<jinn_applets_msg::AppletsPickerState>(
+                    &jinn_applets_msg::applets_picker_slot(),
+                )
+                .expect("the catalog registered the applets picker slot");
         let unread_marks = slices
             .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
             .expect("the catalog registered the unread slot");
@@ -4050,6 +4194,8 @@ mod tools_actions {
             provider_cell,
             personas_cell,
             mcp_runtime_cell,
+            applets_catalog_cell,
+            applets_picker_cell,
             jinn_provider_config::ProviderRegistryService::new(harness_registry()),
             jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
             jinn_config::empty_config_layer().clone(),

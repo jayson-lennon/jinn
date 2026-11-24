@@ -691,37 +691,42 @@ Skills refer to commands by **role**; the table below resolves each role to this
 
 ## 8. WebUI Regions
 
-The web UI is organized into **regions** — sessions, transcript, composer, model picker — each owning its template fragment, GET route, SSE event, client swap, and settle convergence inside one slice (`crates/slices/jinn-webui`). The region is the unit of parallel agent work: two region assignments share zero mutable files, so agents add webui features without merge collisions. This mirrors the `jinn-sidebar` `sections/` pattern at the web tier.
+The web UI is **server-rendered**: askama templates in `crates/slices/jinn-webui/templates/` carrying declarative Datastar attributes, one vendored Datastar bundle, and a Playwright e2e tier. The UI is organized into **regions** — sessions, transcript, composer, model picker — each owning its template fragment, GET route, SSE event, and settle convergence inside one slice (`crates/slices/jinn-webui`). A region is the unit of parallel agent work: two region assignments share zero mutable files, so agents add webui features without merge collisions.
 
-A region is one trait object on the server (`src/region.rs`), one module on the client (`webui/client/src/regions/`), paired by id:
+A region is one trait object on the server plus its askama templates, paired by id:
 
 - **Server** — `src/regions/<name>.rs` implements `WebRegion` (`id`, `parts`, `event_kinds`, `pull`, `container_id`, `render`), registers in the static `regions()` list, and owns its fragment rendering + region-scoped tests.
-- **Client** — `webui/client/src/regions/<name>.ts` registers selectors, delegation handlers, SSE handlers, and CSS in `regions/mod.ts`; `main.ts` (the boot orchestrator) dispatches generically and names no region.
+- **Browser behavior** — declarative Datastar attributes in the region's templates (`data-on:click`, `data-bind`, `data-effect__debounce.150ms`, `@get`/`@post`); there is no hand-written client module per region. Modal state rides named signals seeded on the page shell's `data-signals` line and re-seeded by the navigation patch in `server.rs`.
 
-**The five parts — and the conformance gate.** Every region declares which parts it carries, and `check_registry`/`check_region` (enforced by `region_tests.rs` + the jsdom gate in `regions/regions.test.ts`) asserts each **declared** part exists. The declaration is the design: the composer legitimately has no GET pull route and the picker legitimately has no SSE event — declare the part only when the region carries it, never to satisfy a checklist.
+**The parts — and the conformance gate.** Every region declares which parts it carries (settle render, pull route, SSE event, page fill), and `check_registry`/`check_region` (enforced by `region_tests.rs`) asserts each **declared** part exists. The declaration is the design: a region legitimately lacking a pull route or an SSE event declares only what it carries — never to satisfy a checklist.
 
-**The state boundary.** The backend is authoritative. Client region modules keep only view-local DOM state (an optimistic entry the next server push reconciles); view state that must survive a reload is server-owned display state rendered into fragments (the `jinn-chat-log-view` cell precedent). A client module reading from a shared state store is violating the contract, not extending it.
+**The state boundary.** The backend is authoritative. Fragments render from `AppState` and cell readers on the server; the browser holds no state store — view state that must survive a reload is server-owned display state rendered into fragments. A template reading anything but its contract-declared signals is violating the contract, not extending it.
+
+**Build & test tiers.**
+
+- `just webui-build` is a **pure verifier** of the vendored bundle (`datastar.js.gz`: gzip integrity + sha256 pin). Nothing regenerates the bundle; there is no client build step. A fresh checkout needs no emit before `just check`.
+- The browser test tiers are: the env-gated headless-chromium Rust test (`JINN_WEBUI_SMOKE=1 just webui-smoke`), and the standalone Playwright tier under `webui/client/e2e/` (`just webui-e2e`), whose specs stage scratch fixtures pre-boot through `harness.mjs` and select through `selectors.mjs`.
 
 **Adding a webui region:**
 
-1. **Contract constants** — add the DOM/path constants to `src/contract.rs` and list them in `DOM_CONSTANTS`/`CLIENT_PATHS`. The drift tests (`contract_tests.rs`, `wire.test.ts` against the generated `wire-fixture.ts`) fail until `webui/client/src/wire.ts` mirrors them — run `just webui-build` to regenerate the fixture.
-2. **Server region module** — `src/regions/<name>.rs`: the fragment renderer(s), the `WebRegion` impl with an honest `parts()` declaration, and region-scoped tests. The router and fan-out pick the region up from the registry — zero edits there.
-3. **Client region module** — `webui/client/src/regions/<name>.ts` with contract-derived selectors, its SSE handlers, its CSS const, and swap functions; register it in `regions/mod.ts`.
-4. **Template + CSS** — the page-shell container for the region's `container_id`, if it fills one.
-5. **Conformance** — extend the id-vocabulary assertions (`region_tests.rs`, `regions.test.ts`) to name the new region; the gate then holds it to its declaration.
+1. **Contract constants** — add the DOM/path constants to `src/contract.rs` and list them in `DOM_CONSTANTS`/`CLIENT_PATHS`; `contract_tests.rs` pins the drift.
+2. **Server region module** — `src/regions/<name>.rs`: the fragment renderer(s) as askama templates, the `WebRegion` impl with an honest `parts()` declaration, and region-scoped tests under `regions/<name>/`. The router and fan-out pick the region up from the registry — zero edits there.
+3. **Templates** — the region's fragment templates and CSS (every colour a `var(--token)`); the page-shell container for the region's `container_id`, if it fills one.
+4. **Conformance** — extend the id-vocabulary assertion in `region_tests.rs` to name the new region; the gate then holds it to its declaration.
 
 **Single-owner files** — these cross every region and are sequenced, never concurrent; every other webui file belongs to exactly one region or is region-local:
 
 | File | Why single-owner |
 |---|---|
 | `src/fanout.rs` | the batching cadence + registry-driven settle order (behavioral; existing tests pin the order) |
-| `src/server.rs` | router assembly + the SSE stream + page shell |
-| `scripts/pin-webui-client.py` | the vendor pin pipeline (import rewriting, hash stamping) |
-| `webui/client/src/main.ts` | the client boot module (page swap, delegation loop, stream lifecycle) |
+| `src/server.rs` | router assembly + the SSE stream + page shell + the navigation patch's signal re-seed |
+| `src/region.rs` | the `WebRegion` trait + the static `regions()` registry |
+| `templates/page_root.html` | the page shell: signal seeds, modal hosts, inline-transcript wiring |
+| `templates/menu.html` | the hamburger menu every region hangs an item from |
 
 **Parallel-work etiquette:** assignments are by region; a task touching a single-owner file is sequenced after the in-flight one, not merged alongside it.
 
-**Build output is not committed.** The compiled client bundle (`resources/vendor/*.js.gz`) and the generated fixture (`webui/client/src/wire-fixture.ts`) are gitignored artifacts, reproducible from the tracked TypeScript sources; `vendor-manifest.toml` is the tracked pin record `build.rs` verifies the bytes against. Cargo builds of `jinn-webui` require the emit to have run — a fresh checkout runs `just webui-build` (or any `webui-*` recipe, which chain it) before `just check` succeeds, and `build.rs` fails with that instruction when the bytes are absent. Never `git add` the `.gz` files or the fixture back; the merge churn they caused is exactly what untracking removes.
+**Build output is committed.** The compiled client bundle is the committed `.gz` verified by `build.rs` against `vendor-manifest.toml`'s sha256 pin — reproducible by any verifier run of `just webui-build`, never regenerated by it.
 
 ## 9. Misc
 

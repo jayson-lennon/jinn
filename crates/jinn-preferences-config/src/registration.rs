@@ -15,8 +15,9 @@ use jinn_config::ConfigLayer;
 
 use crate::schemas::{
     AppletsConfig, AutoPruneConfig, BrowserConfig, CanvasConfig, ChatLogConfig, CwdSelectorConfig,
-    DictationConfig, DiscordConfig, GraphicsConfig, HandoffCompactionConfig, InteractiveTermPrefs,
-    MaintenanceConfig, McpServersConfig, MinimapConfig, ProviderErrorWatchdogConfig, RemoteConfig,
+    DictationConfig, DiscordConfig, FuzzyToolCallWatchdogConfig, GraphicsConfig,
+    HandoffCompactionConfig, InteractiveTermPrefs, MaintenanceConfig, McpServersConfig,
+    MinimapConfig, ProviderErrorWatchdogConfig, RemoteConfig, RepeatToolCallWatchdogConfig,
     RequestRetryConfig, ShellConfig, SkillsConfig, StallWatchdogConfig, StreamRuleWatchdogConfig,
     StuckLoopWatchdogConfig, ToolCallWatchdogConfig, ToolsConfig, WebSearchConfig, WebUiConfig,
 };
@@ -69,6 +70,8 @@ pub fn register_all_sections(config: &ConfigLayer) {
     config.register::<StallWatchdogConfig>();
     config.register::<ToolCallWatchdogConfig>();
     config.register::<StuckLoopWatchdogConfig>();
+    config.register::<RepeatToolCallWatchdogConfig>();
+    config.register::<FuzzyToolCallWatchdogConfig>();
     config.register::<StreamRuleWatchdogConfig>();
     config.register::<ProviderErrorWatchdogConfig>();
     config.register::<AutoPruneConfig>();

@@ -30,6 +30,10 @@ jinn-selection-widget = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-theme = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
+# The fan-out subscribes `HistoryAppended` (the event every blocking
+# path that appends to history while idle publishes) — contract crate
+# only: never the session-turn implementation slice.
+jinn-session-history-msg = { workspace = true }
 # The new-session form reuses the lifecycle contract's arg vocabulary —
 # `parse_quoted_args` (the TUI arg popup's parser) and `CommandTemplate`
 # parameter counts. Contract crate only: never the lifecycle
@@ -58,6 +62,13 @@ jinn-tools-msg = { workspace = true }
 # implementation slice. The load path publishes the session slice's
 # `MarkSessionInteracted`, already a dependency above.
 jinn-skills-msg = { workspace = true }
+# The applets modal's rows come from the saved-app catalog the
+# applets slice's store actor writes into its cell
+# (`AppletsCatalog`), and the modal's GET publishes that crate's
+# `RescanApplets` and `WakeAppletsServer` — contract crate only:
+# never the applets implementation slice (the href re-derives the
+# applets URL from the cell's `ServingAddress.bind`).
+jinn-applets-msg = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-provider-config = { workspace = true }
 # Image ingestion: the bytes-based converter (sniff/transcode) shared with

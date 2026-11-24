@@ -101,6 +101,7 @@ fn rendered_page() -> String {
         mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
         tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
         skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
+        applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -136,7 +137,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 27] = [
+    let targets: [(&str, &str); 29] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
@@ -160,6 +161,8 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
         ("mcp modal host", contract::MCP_MODAL_HOST_ID),
         ("menu item skills", contract::MENU_ITEM_SKILLS_ID),
         ("skills modal host", contract::SKILL_MODAL_HOST_ID),
+        ("menu item applets", contract::MENU_ITEM_APPLETS_ID),
+        ("applets modal host", contract::APPLET_MODAL_HOST_ID),
         ("drawer scrim", contract::DRAWER_SCRIM_ID),
         ("menu scrim", contract::MENU_SCRIM_ID),
         ("image chips", contract::IMAGE_CHIPS_ID),
@@ -345,6 +348,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
         tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
         skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
+        applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -415,6 +419,7 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
         mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
         tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
         skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
+        applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -930,6 +935,18 @@ fn test_shared() -> crate::server::ServerShared {
             jinn_mcp_msg::McpRuntimeState::default(),
         )
         .expect("the MCP runtime cell registers once");
+    let applets_catalog_cell = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once per harness");
+    let applets_picker_cell = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once per harness");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -957,6 +974,8 @@ fn test_shared() -> crate::server::ServerShared {
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
+        applets_catalog_cell,
+        applets_picker_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
@@ -1466,5 +1485,88 @@ fn the_library_toggle_route_carries_the_row_id_and_flag() {
     assert!(
         fragment.contains("payload: {in_library: true}"),
         "the body carries the flipped flag: {fragment}"
+    );
+}
+
+// ── The applets modal's contract ─────────────────────────────────────
+
+#[rstest::rstest]
+#[test]
+fn the_applets_menu_item_is_unguarded_so_both_pages_carry_it() {
+    // Given the menu fragment (one template — the landing page's
+    // menu is the same markup with the session-scoped items hidden
+    // by their `data-show`).
+    let html = crate::regions::menu::menu_fragment(0);
+    let item_id = contract::MENU_ITEM_APPLETS_ID;
+    let start = html
+        .find(&format!("id=\"{item_id}\""))
+        .expect("the Applets item renders");
+    let window = html
+        .get(start.saturating_sub(40)..(start + 300).min(html.len()))
+        .unwrap_or_default()
+        .to_owned();
+
+    // Then the item carries no `data-show` guard — the saved-app
+    // catalog is instance-wide, so the item renders on the landing
+    // page and on session pages alike (server-omitted is the only
+    // visibility mechanism this page uses for session-scoped items;
+    // the Applets item is not session-scoped).
+    assert!(
+        !window.contains("data-show"),
+        "the Applets item must carry no data-show guard: {window}"
+    );
+    // And its pull is a bare route — no session id concatenation.
+    assert!(
+        window.contains(&format!("@get('{}'", contract::APPLET_PICKER_ROUTE)),
+        "the item pulls the applets picker route: {window}"
+    );
+    assert!(
+        window.contains(&format!(
+            "$appletsOpen = true; @get('{route}', {{selector: '{host}'",
+            route = contract::APPLET_PICKER_ROUTE,
+            host = contract::APPLET_MODAL_HOST_SELECTOR,
+        )),
+        "the item opens the modal into its host: {window}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_page_shell_seeds_the_applets_signals() {
+    // Given the fully rendered page shell.
+    let page = rendered_page();
+
+    // Then the signals block seeds the applets modal's open flag and
+    // filter — a page whose seed omits a signal throws at bind time
+    // and silently kills every binding that reads it.
+    assert!(
+        page.contains(&format!("{}: false", contract::SIGNAL_APPLETS_OPEN)),
+        "the open flag is seeded in the page shell's signal set: {page}"
+    );
+    assert!(
+        page.contains(&format!("{}: ''", contract::SIGNAL_APPLETS_FILTER)),
+        "the filter signal is seeded in the page shell's signal set: {page}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_navigation_reseed_clears_the_applets_overlay_signals() {
+    // Given the navigation patch's re-seed set (the overlay seed the
+    // activate/create responses carry — read here through the same
+    // list server.rs builds its patch from).
+    let pairs = crate::server::overlay_seed_pairs_for_test();
+    let names: Vec<&str> = pairs.iter().map(|(name, _)| *name).collect();
+
+    // Then both applets signals are in the re-seed set — an
+    // `appletsOpen` left out survives a session switch as `true` and
+    // leaves an orphan modal on the new page.
+    assert!(
+        names.contains(&contract::SIGNAL_APPLETS_OPEN),
+        "appletsOpen must be re-seeded after navigation: {names:?}"
+    );
+    assert!(
+        names.contains(&contract::SIGNAL_APPLETS_FILTER),
+        "appletsfilter must be re-seeded after navigation: {names:?}"
     );
 }

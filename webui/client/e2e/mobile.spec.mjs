@@ -199,22 +199,23 @@ test("the hamburger slides in the panel with its scrim and one Sessions item", a
   await page.locator(sel.MENU_BUTTON).click();
 
   // Then the panel slid in from the left over its scrim, carrying
-  // exactly nine buttons — the six items (new-session, persona, MCP,
-  // tools, skills, sessions) plus the theme control's three options
-  // (light, dark, system) at the panel's tail.
+  // exactly ten buttons — the seven items (new-session, persona, MCP,
+  // tools, skills, applets, sessions) plus the theme control's three
+  // options (light, dark, system) at the panel's tail.
   await expectMenuPanelOnCanvas(page);
   await expect(page.locator(sel.MENU_SCRIM)).toBeVisible();
   const items = page.locator(`${sel.MENU_PANEL} button`);
-  await expect(items).toHaveCount(9);
+  await expect(items).toHaveCount(10);
   await expect(items.nth(0)).toHaveText("New session");
   await expect(items.nth(1)).toHaveText("Persona");
   await expect(items.nth(2)).toHaveText("MCP servers");
   await expect(items.nth(3)).toHaveText("Tools");
   await expect(items.nth(4)).toHaveText("Skills");
-  await expect(items.nth(5)).toHaveText("Sessions");
-  await expect(items.nth(6)).toHaveText("Light");
-  await expect(items.nth(7)).toHaveText("Dark");
-  await expect(items.nth(8)).toHaveText("System");
+  await expect(items.nth(5)).toHaveText("Applets");
+  await expect(items.nth(6)).toHaveText("Sessions");
+  await expect(items.nth(7)).toHaveText("Light");
+  await expect(items.nth(8)).toHaveText("Dark");
+  await expect(items.nth(9)).toHaveText("System");
 });
 
 test("the Sessions item closes the menu and opens the drawer", async ({

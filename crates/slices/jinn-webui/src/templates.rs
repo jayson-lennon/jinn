@@ -462,6 +462,9 @@ pub struct PageTemplate {
     /// The skills modal's host id — the sixth empty span sibling (the
     /// same host-not-container rule).
     pub skills_modal_host_id: &'static str,
+    /// The applets modal's host id — the seventh empty span sibling
+    /// (the same host-not-container rule).
+    pub applet_modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -567,6 +570,7 @@ impl PageTemplate {
             mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
             tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
             skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
+            applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -640,6 +644,7 @@ impl PageTemplate {
             mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
             tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
             skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
+            applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -723,6 +728,8 @@ pub struct PageRootTemplate {
     pub tools_modal_host_id: &'static str,
     /// The skills modal's host id.
     pub skills_modal_host_id: &'static str,
+    /// The applets modal's host id.
+    pub applet_modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -825,6 +832,7 @@ impl PageRootTemplate {
             mcp_modal_host_id: contract::MCP_MODAL_HOST_ID,
             tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
             skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
+            applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -1238,6 +1246,17 @@ pub struct MenuTemplate {
     pub skills_picker_prefix: &'static str,
     /// The skills modal host's CSS selector — the pull's swap target.
     pub skills_modal_host_selector: &'static str,
+    /// The applets item's id ("Applets"). Rendered on every page —
+    /// the saved-app catalog is instance-wide, not per-session, so
+    /// unlike the persona/MCP/tools/skills items it carries no
+    /// `data-show` guard.
+    pub menu_item_applets_id: &'static str,
+    /// The applets pull's URL — the item's `@get` target is a bare
+    /// string (no session id in the route: the catalog is
+    /// instance-wide, the new-session item's shape).
+    pub applet_picker_route: &'static str,
+    /// The applets modal host's CSS selector — the pull's swap target.
+    pub applet_modal_host_selector: &'static str,
     /// The render-time unread-mark count — the badge's seeded value.
     pub attention_count: usize,
     /// The theme control's host id — the segmented Light/Dark/System
@@ -1292,6 +1311,9 @@ impl MenuTemplate {
             menu_item_skills_id: contract::MENU_ITEM_SKILLS_ID,
             skills_picker_prefix: contract::SKILL_PICKER_PREFIX,
             skills_modal_host_selector: contract::SKILL_MODAL_HOST_SELECTOR,
+            menu_item_applets_id: contract::MENU_ITEM_APPLETS_ID,
+            applet_picker_route: contract::APPLET_PICKER_ROUTE,
+            applet_modal_host_selector: contract::APPLET_MODAL_HOST_SELECTOR,
             menu_item_theme_id: contract::MENU_ITEM_THEME_ID,
             menu_item_theme_light_id: contract::MENU_ITEM_THEME_LIGHT_ID,
             menu_item_theme_dark_id: contract::MENU_ITEM_THEME_DARK_ID,
@@ -2136,6 +2158,148 @@ impl SkillRowsTemplate {
         }
     }
 }
+
+/// The applets modal's overlay: the filter input, the serving-phase
+/// status line, and the filtered saved-app rows. Present in the page
+/// only after the GET pull renders it in; the client toggles its
+/// visibility, and the filter's debounce-modified effect re-pulls the
+/// **rows fragment** so the input is never re-rendered mid-typing
+/// (the skills/tools rows-only rule). The rows arrive pre-rendered
+/// (each [`AppletRowTemplate`] renders first).
+#[derive(Template)]
+#[template(path = "applet_modal.html")]
+pub struct AppletModalTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// Whether the saved-applet server is serving — the status line's
+    /// phase (`serving http://<bind>` vs `<server offline>`).
+    pub online: bool,
+    /// The resolved bind the status line names when `online`.
+    pub bind: String,
+    /// The filter text the rows were rendered with (the input's
+    /// initial value, so a re-pull keeps what the user typed).
+    pub filter: String,
+    /// The modal overlay's id.
+    pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The filter text signal's name — the input binds it; the rows
+    /// effect reads it.
+    pub filter_signal: &'static str,
+    /// The status line's id.
+    pub status_id: &'static str,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+    /// The rows-fragment pull's URL — the modal effect's `@get`
+    /// target (the filter query appends client-side).
+    pub rows_url: &'static str,
+    /// The rows container's CSS selector — the modal effect's swap
+    /// target (never the modal host: the input must not re-render).
+    pub rows_selector: &'static str,
+}
+
+impl AppletModalTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(rows: Vec<String>, online: bool, bind: String, filter: String) -> Self {
+        Self {
+            rows,
+            online,
+            bind,
+            filter,
+            modal_id: contract::APPLET_MODAL_ID,
+            filter_id: contract::APPLET_FILTER_ID,
+            filter_signal: contract::SIGNAL_APPLETS_FILTER,
+            status_id: contract::APPLET_STATUS_ID,
+            rows_id: contract::APPLET_ROWS_ID,
+            rows_url: contract::APPLET_ROWS_ROUTE,
+            rows_selector: contract::APPLET_ROWS_SELECTOR,
+        }
+    }
+}
+
+/// One row of the applets modal: a `target="_blank"` link to the
+/// saved applet at its server's resolved bind, or the disabled span
+/// when the server is offline (or the id fails the gate — a refused
+/// id renders no `href`, the modal's injection surface closed).
+/// Rendered standalone; the modal embeds the pre-rendered rows.
+#[derive(Template)]
+#[template(path = "applet_row.html")]
+pub struct AppletRowTemplate {
+    /// The catalog entry the row renders.
+    pub entry: jinn_applets_msg::AppletEntry,
+    /// Whether the row renders the link (`<a>`) form — the server is
+    /// online and the id passed the gate.
+    pub is_link: bool,
+    /// The row's `href` when `is_link`; empty on the disabled span.
+    pub href: String,
+    /// The offline sentence — the disabled span's `title` hint; empty
+    /// when the row is a link or the refusal is the gate's.
+    pub offline_hint: String,
+    /// The title split into matched/plain runs from the fuzzy filter
+    /// — matched runs render in `<mark>`.
+    pub title_segments: Vec<jinn_selection_widget::TextRun>,
+    /// The attribute a row names its applet id with.
+    pub applet_attr: &'static str,
+}
+
+impl AppletRowTemplate {
+    /// Builds the template from one catalog entry: a `Some` href
+    /// makes the link row; `None`, the disabled span with the offline
+    /// `title` hint when `offline` (an id that failed the gate
+    /// renders disabled without it — the server is not the reason).
+    #[must_use]
+    pub fn from_entry(
+        entry: &jinn_applets_msg::AppletEntry,
+        href: Option<&str>,
+        offline: bool,
+        title_segments: Vec<jinn_selection_widget::TextRun>,
+    ) -> Self {
+        Self {
+            entry: entry.clone(),
+            is_link: href.is_some(),
+            href: href.unwrap_or_default().to_owned(),
+            offline_hint: if href.is_none() && offline {
+                "The applets server is offline".to_owned()
+            } else {
+                String::new()
+            },
+            title_segments,
+            applet_attr: contract::APPLET_NAME_DATA_ATTR,
+        }
+    }
+}
+
+/// The applets modal's rows fragment: the filtered rows alone,
+/// rendered into the rows container by the modal effect's re-pull —
+/// never the skeleton, so the filter input is never re-rendered
+/// (a re-render would reset it to the pull's query mid-typing).
+#[derive(Template)]
+#[template(path = "applet_rows.html")]
+pub struct AppletRowsTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+}
+
+impl AppletRowsTemplate {
+    /// Builds the template: the contract's rows id filled, the rows
+    /// pre-rendered by the region.
+    #[must_use]
+    pub fn with_contract(rows: Vec<String>) -> Self {
+        Self {
+            rows,
+            rows_id: contract::APPLET_ROWS_ID,
+        }
+    }
+}
+
+/// The empty catalog's row: the one explanatory div the rows
+/// container renders when no applet is saved yet.
+#[derive(Template)]
+#[template(path = "applet_empty.html")]
+pub struct AppletEmptyTemplate;
 
 /// Renders a template to its HTML string.
 ///

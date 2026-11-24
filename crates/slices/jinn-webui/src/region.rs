@@ -156,6 +156,10 @@ pub fn regions() -> &'static [&'static dyn WebRegion] {
         // overlay CSS may need to win a tie against the modals that
         // registered earlier.
         &crate::regions::skills::SkillsRegion,
+        // The applets modal appends at the tail like every region
+        // before it: same rule — its overlay CSS may need to win a
+        // tie against the modals that registered earlier.
+        &crate::regions::applets::AppletsRegion,
     ]
 }
 

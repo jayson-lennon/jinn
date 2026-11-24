@@ -78,6 +78,7 @@ async fn harness_seeded_with_fanout(
             jinn_mcp_msg::McpRuntimeState::default(),
         )
         .expect("the MCP runtime cell registers once");
+    let (applets_catalog_cell, applets_picker_cell) = applets_cells_for(&slices);
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -111,17 +112,7 @@ async fn harness_seeded_with_fanout(
         crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
     };
     let shared = {
-        let mut registry = jinn_provider_config::ProviderRegistry::from_config(
-            jinn_provider_config::ProvidersConfig {
-                providers: std::collections::BTreeMap::default(),
-                aliases: vec![],
-                default_provider: None,
-                endpoint_defaults: vec![],
-            },
-        )
-        .expect("an empty providers config expands");
-        let mut api_keys = jinn_provider_config::ApiKeys::new();
-        seed(&mut registry, &mut api_keys);
+        let services = seeded_services(seed);
         ServerShared::new(
             state,
             bus,
@@ -132,8 +123,10 @@ async fn harness_seeded_with_fanout(
             provider_cell,
             personas_cell,
             mcp_runtime_cell,
-            jinn_provider_config::ProviderRegistryService::new(registry),
-            jinn_provider_config::ApiKeysService::new(api_keys),
+            applets_catalog_cell,
+            applets_picker_cell,
+            jinn_provider_config::ProviderRegistryService::new(services.registry),
+            jinn_provider_config::ApiKeysService::new(services.keys),
             jinn_config::empty_config_layer().clone(),
             fanout.clone(),
             0,
@@ -149,6 +142,40 @@ async fn harness_seeded_with_fanout(
         let _ = axum::serve(listener, router(shared)).await;
     });
     (format!("http://{addr}"), seeded, fanout)
+}
+
+/// The seeded provider registry and API keys the harness's
+/// `ServerShared` carries, expanded from the seed closure.
+fn seeded_services<S>(seed: S) -> seeded::Seeded
+where
+    S: FnOnce(&mut jinn_provider_config::ProviderRegistry, &mut jinn_provider_config::ApiKeys),
+{
+    let mut registry = jinn_provider_config::ProviderRegistry::from_config(
+        jinn_provider_config::ProvidersConfig {
+            providers: std::collections::BTreeMap::default(),
+            aliases: vec![],
+            default_provider: None,
+            endpoint_defaults: vec![],
+        },
+    )
+    .expect("an empty providers config expands");
+    let mut api_keys = jinn_provider_config::ApiKeys::new();
+    seed(&mut registry, &mut api_keys);
+    seeded::Seeded {
+        registry,
+        keys: api_keys,
+    }
+}
+
+/// The seeded service pair, so the harness binds them in one call.
+mod seeded {
+    /// The registry + keys a seed closure produced.
+    pub(super) struct Seeded {
+        /// The expanded provider registry.
+        pub registry: jinn_provider_config::ProviderRegistry,
+        /// The seed's API keys.
+        pub keys: jinn_provider_config::ApiKeys,
+    }
 }
 
 /// Installs the ring crypto provider for the reqwest client. The
@@ -1142,6 +1169,70 @@ async fn an_mcp_status_push_reaches_a_live_stream_as_a_dispatchable_signal_frame
 // fake stores earlier harnesses use return `None` for every read,
 // which would make every archived flow a 404 by construction.
 
+/// Registers the applets catalog + picker cells on a harness-local
+/// registry — `ServerShared` needs both, and the archived-flow
+/// harness must mirror what production `activate` resolves.
+fn applets_cells_for(
+    slices: &Slices,
+) -> (
+    jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
+    jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
+) {
+    let catalog = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once per harness");
+    let picker = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once per harness");
+    (catalog, picker)
+}
+
+/// Opens a real `SqliteSessionStore` in a scratch dir with one
+/// session (titled `title`) persisted ARCHIVED, flagged a member
+/// when `in_library`. Returns the dir guard (hold it — sqlite keeps
+/// the file open), the store, and the session id.
+async fn archived_store_with(
+    title: &str,
+    in_library: bool,
+) -> (
+    jinn_testutil::temp::JinnTempDir,
+    std::sync::Arc<jinn_session_store::sqlite::SqliteSessionStore>,
+    SessionId,
+) {
+    use jinn_session_state::SessionStore as _;
+    let dir = jinn_testutil::tempdir();
+    let store = std::sync::Arc::new(
+        jinn_session_store::sqlite::SqliteSessionStore::new_in(&dir.path)
+            .await
+            .expect("a real sqlite store opens in the scratch dir"),
+    );
+    let session = jinn_session_state::ChatSessionState::new();
+    let id = session.session_id().clone();
+    let mut session = session;
+    session.set_title(title.to_owned());
+    session.push_entry(jinn_core_types::ChatEntry::user("archived body"));
+    store
+        .save(&session.capture_snapshot())
+        .await
+        .expect("the archived session persists");
+    store
+        .set_in_library(&id, in_library)
+        .await
+        .expect("membership persists");
+    store
+        .set_archived(&id, true)
+        .await
+        .expect("the session archives");
+
+    (dir, store, id)
+}
+
 /// Boots the serve harness against a real `SqliteSessionStore` in a
 /// scratch dir, with the named session persisted ARCHIVED (and, when
 /// `in_library`, flagged a member). Returns the base URL and the id.
@@ -1165,6 +1256,18 @@ async fn harness_with_real_store_archived(title: &str, in_library: bool) -> (Str
             jinn_mcp_msg::McpRuntimeState::default(),
         )
         .expect("the MCP runtime cell registers once");
+    let applets_catalog_cell = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once per harness");
+    let applets_picker_cell = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once per harness");
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -1176,31 +1279,8 @@ async fn harness_with_real_store_archived(title: &str, in_library: bool) -> (Str
         app.session.attach_slices(slices.clone());
         State::new(app)
     };
-    let dir = jinn_testutil::tempdir();
-    let store = std::sync::Arc::new(
-        jinn_session_store::sqlite::SqliteSessionStore::new_in(&dir.path)
-            .await
-            .expect("a real sqlite store opens in the scratch dir"),
-    );
-    let session = jinn_session_state::ChatSessionState::new();
-    let id = session.session_id().clone();
-    let mut session = session;
-    session.set_title(title.to_owned());
-    session.push_entry(jinn_core_types::ChatEntry::user("archived body"));
-    use jinn_session_state::SessionStore as _;
-    store
-        .save(&session.capture_snapshot())
-        .await
-        .expect("the archived session persists");
-    store
-        .set_in_library(&id, in_library)
-        .await
-        .expect("membership persists");
-    store
-        .set_archived(&id, true)
-        .await
-        .expect("the session archives");
-
+    // The dir guard must outlive the store — sqlite keeps the file open.
+    let (_dir, store, id) = archived_store_with(title, in_library).await;
     let (bus, _audit) = BusService::new_recording();
     let fanout = {
         use trouper::system::ActorSystem;
@@ -1215,6 +1295,8 @@ async fn harness_with_real_store_archived(title: &str, in_library: bool) -> (Str
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
+        applets_catalog_cell,
+        applets_picker_cell,
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {

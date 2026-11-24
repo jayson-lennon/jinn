@@ -272,6 +272,13 @@ fn element_patch_inner(selector: String, html: String) -> datastar::DatastarEven
 /// the surviving list's tick effect (the multi-trigger trap), and
 /// the user's filter view persists across navigation by design.
 fn overlay_seed_pairs() -> Vec<(&'static str, serde_json::Value)> {
+    overlay_seed_pairs_for_test()
+}
+
+/// The overlay seed list, exposed to the contract tests — the same
+/// list the navigation patch builds from, so the tests pin the real
+/// set, not a copy.
+pub(crate) fn overlay_seed_pairs_for_test() -> Vec<(&'static str, serde_json::Value)> {
     // The false-valued overlay flags, then the empty-string draft and
     // filter slots, then the special seeds (images empty, revert null,
     // cursor 0) — grouped so the list reads as the page shell's seed
@@ -285,6 +292,7 @@ fn overlay_seed_pairs() -> Vec<(&'static str, serde_json::Value)> {
         crate::contract::SIGNAL_MCP_OPEN,
         crate::contract::SIGNAL_TOOLS_OPEN,
         crate::contract::SIGNAL_SKILLS_OPEN,
+        crate::contract::SIGNAL_APPLETS_OPEN,
         crate::contract::SIGNAL_TITLE_EDITING,
         crate::contract::SIGNAL_TITLE_COMMITTING,
         crate::contract::SIGNAL_MODELS_REFRESHING,
@@ -298,6 +306,7 @@ fn overlay_seed_pairs() -> Vec<(&'static str, serde_json::Value)> {
         crate::contract::SIGNAL_MCP_FILTER,
         crate::contract::SIGNAL_TOOLS_FILTER,
         crate::contract::SIGNAL_SKILLS_FILTER,
+        crate::contract::SIGNAL_APPLETS_FILTER,
         crate::contract::SIGNAL_TOOLS_TICK,
         crate::contract::SIGNAL_SKILLS_TICK,
         crate::contract::SIGNAL_MCP_TICK,
@@ -431,6 +440,14 @@ pub struct ServerShared {
     /// effective status projection — read-only: the cell's writer is
     /// the MCP coordinator, never the web).
     mcp_runtime: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
+    /// The applets catalog cell, for the applets modal's rows
+    /// (read-only: the cell's writer is the applets slice's store
+    /// actor, never the web).
+    applets_catalog: jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
+    /// The applets picker cell, for the modal's serving phase
+    /// (read-only: the cell's writer is the applets slice's
+    /// republisher, never the web).
+    applets_picker: jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
     /// The provider registry, for the picker's TUI-parity rows (the
     /// shared builder reads it for static providers, aliases, and
     /// availability).
@@ -460,6 +477,8 @@ impl ServerShared {
         provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
         personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
         mcp_runtime: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
+        applets_catalog: jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
+        applets_picker: jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
         provider_registry: jinn_provider_config::ProviderRegistryService,
         api_keys: jinn_provider_config::ApiKeysService,
         config: jinn_slices::ConfigLayer,
@@ -475,6 +494,8 @@ impl ServerShared {
             provider_cell,
             personas_cell,
             mcp_runtime,
+            applets_catalog,
+            applets_picker,
             provider_registry,
             api_keys,
             config,
@@ -562,6 +583,26 @@ impl ServerShared {
     #[must_use]
     pub(crate) fn mcp_runtime(&self) -> &jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState> {
         &self.mcp_runtime
+    }
+
+    /// The applets catalog cell, for the applets modal's rows
+    /// (read-only — the applets slice's store actor is the cell's
+    /// only writer).
+    #[must_use]
+    pub(crate) fn applets_catalog(
+        &self,
+    ) -> &jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog> {
+        &self.applets_catalog
+    }
+
+    /// The applets picker cell, for the modal's serving phase
+    /// (read-only — the applets slice's republisher is the cell's
+    /// only writer).
+    #[must_use]
+    pub(crate) fn applets_picker(
+        &self,
+    ) -> &jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState> {
+        &self.applets_picker
     }
 
     /// The provider registry, for the picker rows' shared builder.
@@ -687,6 +728,10 @@ pub fn router(shared: ServerShared) -> Router {
         .route(
             crate::contract::SKILL_ROWS_ROUTE,
             get(crate::regions::skills::rows_pull_handler),
+        )
+        .route(
+            crate::contract::APPLET_ROWS_ROUTE,
+            get(crate::regions::applets::rows_pull_handler),
         )
         .route(crate::contract::SKILL_TOGGLE_PATH, post(skill_toggle))
         .route(crate::contract::SKILL_LOAD_PATH, post(skill_load))
@@ -1187,13 +1232,39 @@ async fn send(
     // chat spec pins the no-double). It is the *published* entry
     // object, not a second build: the id the echo carries is the id
     // the attachment route resolves.
-    let html = crate::templates::render(&crate::templates::EntryTemplate {
-        entry: crate::transcript::render_entry(&entry, &published_session_id),
-        index: usize::MAX,
-    })
-    .map_err(|e| fail(500, e.to_string()))?;
-    Ok(SseAction::new(vec![
-        signal_patch(&[
+    //
+    // EXCEPT for a send carrying image attachments: the attachment
+    // gate may block it in the enqueue pipeline while the session
+    // stays Idle (a blocking path's append — no phase change, no
+    // settle), whose HistoryAppended convergence push races this POST
+    // response and can land BEFORE the append patch below. A sentinel
+    // appended after that push is never wiped — the duplicate-user-row
+    // bug. The real entries (user + gate error, or user + streamed
+    // echo at settle) reach the page through the convergence pushes
+    // within one batch window, so the sentinel's instant-visibility
+    // job is already covered; skipping it keeps the page exactly
+    // single-rowed in both outcomes.
+    if form.images.is_empty() {
+        let html = crate::templates::render(&crate::templates::EntryTemplate {
+            entry: crate::transcript::render_entry(&entry, &published_session_id),
+            index: usize::MAX,
+        })
+        .map_err(|e| fail(500, e.to_string()))?;
+        Ok(SseAction::new(vec![
+            signal_patch(&[
+                (
+                    crate::contract::SIGNAL_TEXT,
+                    serde_json::Value::String(String::new()),
+                ),
+                (
+                    crate::contract::SIGNAL_PENDING_IMAGES,
+                    serde_json::Value::Array(Vec::new()),
+                ),
+            ]),
+            append_patch(html),
+        ]))
+    } else {
+        Ok(SseAction::new(vec![signal_patch(&[
             (
                 crate::contract::SIGNAL_TEXT,
                 serde_json::Value::String(String::new()),
@@ -1202,9 +1273,8 @@ async fn send(
                 crate::contract::SIGNAL_PENDING_IMAGES,
                 serde_json::Value::Array(Vec::new()),
             ),
-        ]),
-        append_patch(html),
-    ]))
+        ])]))
+    }
 }
 
 /// `POST /web/cancel` — cancel a live turn. The cancel event's phase

@@ -232,8 +232,8 @@ mod menu_region_tests {
         );
         let items = html.matches("menu-item").count();
         assert_eq!(
-            items, 10,
-            "the panel lists all six items + the theme control: {html}"
+            items, 11,
+            "the panel lists all seven items + the theme control: {html}"
         );
         assert!(
             html.contains("Sessions"),
