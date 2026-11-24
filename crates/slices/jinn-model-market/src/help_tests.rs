@@ -223,10 +223,44 @@ fn drawn_card_documents_the_columns_and_flags() {
         .map(ratatui::buffer::Cell::symbol)
         .collect();
     for fact in [
-        "MODEL", "IN/M", "OUT/M", "CACHE/M", "PROJ", "ECI", "VALS", "FLAGS", "\u{2020}", "#",
+        "MODEL", "IN/M", "OUT/M", "CACHE/M", "PROJ", "ECI", "VALS", "FLAGS", "\u{2020}",
     ] {
         assert!(text.contains(fact), "card must document {fact:?}");
     }
+}
+
+#[rstest::rstest]
+fn the_card_does_not_document_a_missing_score_flag() {
+    // Given a visible help card over a tall frame so the whole card is
+    // on screen.
+    let ui = MarketUiState {
+        help_visible: true,
+        ..MarketUiState::default()
+    };
+    let card = card_for(&ui).expect("a visible help produces a card");
+    let frame = popup_frame();
+
+    // When it draws against a test backend.
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(
+        frame.terminal.width,
+        120,
+    ))
+    .expect("test terminal");
+    terminal.draw(|f| card.draw(f)).expect("draw");
+
+    // Then the rendered text carries no `#` and no missing-score
+    // wording — the score columns document their own placeholder.
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect();
+    assert!(
+        !text.contains('#') && !text.contains("missing score"),
+        "the card must not document a missing-score flag, got: {text:?}"
+    );
 }
 
 #[rstest::rstest]
