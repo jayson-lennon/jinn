@@ -264,11 +264,20 @@ async function expectCatchupSettled(page, { swappedIn }) {
  *   omitted.
  * @returns {Promise<string>} the session id now in the page root.
  */
-export async function openSession(jinn, page, id) {
+export async function openSession(jinn, page, id, options) {
   await observeStreams(page);
+  if (options?.viewport) {
+    await page.setViewportSize(options.viewport);
+  }
   await page.goto(`${jinn.baseUrl}/web`);
   const row =
     id === undefined ? page.locator(sel.SESSION_ROW).first() : page.locator(sel.SESSION_ROW_BY_ID(id));
+  // At phone width the sidebar is the off-canvas drawer: the row is
+  // reached through the sessions button — the one-tap path a finger
+  // takes — and the drawer's row click activates the session.
+  if (options?.viewport && options.viewport.width <= PHONE.width) {
+    await page.locator(sel.SESSIONS_BUTTON).click();
+  }
   await expect(row).toBeVisible();
   await row.click();
   await expect(page).toHaveURL(new RegExp(`${sel.SESSION_PAGE_PATH.replace("/", "/")}`));
