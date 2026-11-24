@@ -1,27 +1,19 @@
 //! New-session flow — the menu item, the creation modal, and the
-//! create POST's whole-page navigation.
-//!
-//! The `z` prefix is load-bearing: the tier's specs run in
-//! alphabetical file order against ONE scratch jinn (serial workers,
-//! shared db), and this spec CREATES a second session — every other
-//! spec's single-boot-session pin (`sessions`, `smoke`) must have
-//! run before it. Specs asserting a single boot session sort before
-//! session-creating specs: `zspinner.spec.mjs` sorts after this file
-//! and builds on the sessions it creates.
+//! create POST's whole-page navigation. Every test boots its own
+//! jinn, so each starts from the one session a fresh db mints.
 
-import { expect, test } from "@playwright/test";
+import { expect, openMenu, openSession, test } from "./fixture.mjs";
 import * as sel from "./selectors.mjs";
-import { openSession } from "./nav.mjs";
 
 test("menu opens the new-session modal with project and lifecycle selects", async ({
   page,
+  jinn,
 }) => {
   // Given a session page with the menu closed.
-  await openSession(page);
+  await openSession(jinn, page);
 
   // When opening the menu and tapping the new-session item.
-  await page.locator(sel.MENU_BUTTON).click();
-  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+  await openMenu(page);
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
 
   // Then the menu closed and the modal rendered with both selects —
@@ -41,10 +33,10 @@ test("menu opens the new-session modal with project and lifecycle selects", asyn
   await expect(page.locator(sel.SESSION_NEW_ARGS)).toHaveCount(0);
 });
 
-test("clicking the backdrop closes the new-session modal", async ({ page }) => {
+test("clicking the backdrop closes the new-session modal", async ({ page, jinn }) => {
   // Given the new-session modal open.
-  await openSession(page);
-  await page.locator(sel.MENU_BUTTON).click();
+  await openSession(jinn, page);
+  await openMenu(page);
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   const modal = page.locator(sel.SESSION_NEW_MODAL);
   await expect(modal).toBeVisible();
@@ -60,10 +52,11 @@ test("clicking the backdrop closes the new-session modal", async ({ page }) => {
 
 test("selecting the parameterized lifecycle re-pulls with the args input", async ({
   page,
+  jinn,
 }) => {
   // Given the modal open on the blank lifecycle.
-  await openSession(page);
-  await page.locator(sel.MENU_BUTTON).click();
+  await openSession(jinn, page);
+  await openMenu(page);
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   const modal = page.locator(sel.SESSION_NEW_MODAL);
   await expect(modal).toBeVisible();
@@ -86,11 +79,12 @@ test("selecting the parameterized lifecycle re-pulls with the args input", async
 
 test("typing into the args input keeps the modal open, Escape closes it", async ({
   page,
+  jinn,
 }) => {
   // Given the modal open on the parameterized lifecycle, so the args
   // input rendered.
-  await openSession(page);
-  await page.locator(sel.MENU_BUTTON).click();
+  await openSession(jinn, page);
+  await openMenu(page);
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   const modal = page.locator(sel.SESSION_NEW_MODAL);
   await expect(modal).toBeVisible();
@@ -116,15 +110,14 @@ test("typing into the args input keeps the modal open, Escape closes it", async 
   await expect(modal).toBeHidden();
 });
 
-test("creating a session lands on the new session's page", async ({ page }) => {
+test("creating a session lands on the new session's page", async ({ page, jinn }) => {
   // Given the modal open on the blank lifecycle with the scratch
   // project selected.
-  await openSession(page);
+  await openSession(jinn, page);
   const beforeId = await page.locator(sel.PAGE_ROOT).getAttribute(
     sel.PAGE_SESSION_ATTR,
   );
-  const rowsBefore = await page.locator(sel.SESSION_ROW).count();
-  await page.locator(sel.MENU_BUTTON).click();
+  await openMenu(page);
   await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
   const modal = page.locator(sel.SESSION_NEW_MODAL);
   await expect(modal).toBeVisible();
@@ -134,10 +127,8 @@ test("creating a session lands on the new session's page", async ({ page }) => {
 
   // Then the page navigated to the created session: the root's
   // session id changed, the URL tracks it, the modal is gone, and the
-  // sidebar grew by exactly one row (a delta, not an absolute count —
-  // the serial tier's shared db may hold sessions created by specs
-  // sorting before this one; the surviving list picked the new row up
-  // from the create's tick bump).
+  // sidebar grew from one row to two (the surviving list picked the
+  // new row up from the create's tick bump).
   await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
   // The modal's markup survives (the session-invariant shell ships
   // the host span; the fragment persists in it) — the navigation's
@@ -151,5 +142,5 @@ test("creating a session lands on the new session's page", async ({ page }) => {
   await expect(page).toHaveURL(
     new RegExp(`${sel.SESSION_PAGE_PATH.replace("/", "/")}${createdId}`),
   );
-  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(rowsBefore + 1);
+  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(2);
 });
