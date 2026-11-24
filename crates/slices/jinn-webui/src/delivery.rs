@@ -34,6 +34,7 @@ use jinn_provider_selection_msg::RefreshModels;
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::PersistSession;
 use jinn_session_store_msg::SessionLoadRequested;
+use jinn_session_store_msg::SetSessionLibrary;
 use jinn_slices::bus::BusService;
 use wherror::Error;
 
@@ -52,6 +53,10 @@ pub enum ActionError {
     EmptyText,
     /// The request carried a title that is empty after trimming.
     EmptyTitle,
+    /// The library toggle POST named a session neither live state nor
+    /// the store holds — a well-formed request addressing nothing (the
+    /// switch path's pre-check, mirrored).
+    UnknownLibraryTarget(SessionId),
     /// The requested model id names no available picker row (unknown,
     /// unknown provider, or an unavailable provider).
     UnknownModel(String),
@@ -111,6 +116,7 @@ impl ActionError {
             Self::BadSessionId
             | Self::EmptyText
             | Self::EmptyTitle
+            | Self::UnknownLibraryTarget(_)
             | Self::BotTarget(_)
             | Self::UnknownModel(_)
             | Self::UnknownPersona(_)
@@ -138,6 +144,9 @@ impl ActionError {
             Self::BadSessionId => "session_id is not a valid session id".to_owned(),
             Self::EmptyText => "text must not be empty".to_owned(),
             Self::EmptyTitle => "title must not be empty".to_owned(),
+            Self::UnknownLibraryTarget(id) => {
+                format!("no session with id {id} is live or stored")
+            }
             Self::BotTarget(id) => {
                 format!("session {id} is a bot run; external delivery does not target bot sessions")
             }
@@ -1161,6 +1170,53 @@ pub async fn handle_rename(
         PersistSession { session_id }
     };
     bus.publish(command).await;
+    Ok(())
+}
+
+/// Handles one `POST /web/session/{id}/library` — the row kebab
+/// popup's library toggle.
+///
+/// Publishes the existing [`SetSessionLibrary`] command and nothing
+/// else: the store actor persists the column, mirrors the flag into
+/// the in-memory session when one is loaded, announces
+/// `SessionLibraryMembershipChanged` (whose fan-out subscriber pushes
+/// the sessions refresh every open page re-pulls through — the
+/// no-second-subscriber rule), and refreshes the Library cell. The web
+/// adds no state write of its own — a second writer of the flag would
+/// race the store actor's single-writer path. Bot sessions toggle like
+/// any other: the TUI library keybind does not gate on origin.
+///
+/// A well-formed id neither live state nor the store holds is refused
+/// before the publish — the rendered rows are the accepted set, the
+/// switch path's store pre-check mirrored.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] for a malformed id or an unknown target;
+/// nothing is published on any refusal.
+pub async fn handle_library_toggle(
+    state: &State,
+    bus: &BusService,
+    session_store: &jinn_session_state::SessionStoreService,
+    session_id: &str,
+    in_library: bool,
+) -> Result<(), ActionError> {
+    let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+    let known_live = state.read().session.contains(&session_id);
+    if !known_live {
+        let stored = session_store
+            .load_session(&session_id)
+            .await
+            .map_err(|_report| ActionError::UnknownLibraryTarget(session_id.clone()))?;
+        if stored.is_none() {
+            return Err(ActionError::UnknownLibraryTarget(session_id));
+        }
+    }
+    bus.publish(SetSessionLibrary {
+        session_id,
+        in_library,
+    })
+    .await;
     Ok(())
 }
 

@@ -1,0 +1,12 @@
+<a class="{{ row_class }} {% if item.is_bot %}bot{% endif %} {% if item.unread %}unread{% endif %} {% if item.working %}{{ working_class }}{% endif %}"
+   data-class:active="$viewedSession === '{{ item.session_id }}'"
+   {{ session_id_attr }}="{{ item.session_id }}"
+   data-on:click="$viewedSession === '{{ item.session_id }}' || (($rowMenuSession = '', $switching = true) !== undefined && @post('{{ session_page_path }}{{ item.session_id }}/activate'))"
+   style="{% if item.depth > 0 %}padding-left: {{ 14 + item.depth * 16 }}px;{% endif %}">
+  {%- include "session_row_menu.html" -%}
+  {%- if item.working -%}
+  <span class="{{ working_class }}"></span>
+  {%- endif -%}
+  <span class="stitle">{{ item.title }}</span>
+  <span class="smeta">{% if item.loaded %}loaded{% else %}archived{% endif %}</span>
+</a>

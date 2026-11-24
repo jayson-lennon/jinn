@@ -403,16 +403,12 @@ install-defaults:
     @echo "Workflows installed to ~/.config/jinn/workflows/"
     @echo "Skills installed to ~/.agents/skills/"
 
-# Refresh the canvas vendor set: re-downloads every pinned library dist,
-# re-gzips deterministically, and rewrites the sha256 manifest the build
-# verifies. Run after bumping a version in the fetcher's VENDOR_SOURCES —
-# never edit vendored files by hand.
+# Refresh the canvas vendor set by re-downloading packages.
 canvas-vendor-update:
     cargo build -p jinn-canvas --features vendor-fetch --bin canvas-vendor-fetch
     ./target/debug/canvas-vendor-fetch crates/slices/jinn-canvas/resources/vendor
 
-# Push main (and its annotated tags) to GitHub. git-primary: origin IS the
-# GitHub repo the old fossil→git mirror used to populate, so syncing is a push.
+# Push main (and its annotated tags) to GitHub
 sync-github:
    #!/bin/bash
    set -euo pipefail
@@ -630,16 +626,6 @@ webui-smoke:
     echo '==> webui-smoke green'
 
 # Kill stray webui-e2e jinn runs and remove their scratch dirs.
-#
-# The e2e harness spawns jinn detached (setsid script -qfec) so a
-# crashed or aborted run never reached teardown leaves the whole
-# session alive. Every process in the chain carries the scratch root
-# in its cmdline (`--db-path /tmp/jinn-webui-e2e/...`), so one pkill
-# pattern reaches jinn and its script/fish wrappers alike. The pattern
-# is scoped to this worktree's slug (harness.mjs derives the same one
-# from the repo root's basename), so a concurrent e2e suite in another
-# worktree is untouched — two suites in the SAME worktree still kill
-# each other.
 webui-e2e-clean:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -651,12 +637,7 @@ webui-e2e-clean:
     rm -rf "/tmp/jinn-webui-e2e/${SLUG}/run-"*
     echo '==> webui-e2e-clean green'
 
-# Full-stack webui e2e: build the real binary, boot it against a
-# scratch paths root with the sample (keyless, network-free) backend,
-# and drive the page with headless Playwright. Standalone by design —
-# NOT part of `just test` or `webui-verify`; it is minutes-slow by
-# nature (binary build + boot + browser) and must not tax the fast
-# inner loop.
+# Run webui-e2e test suite.
 webui-e2e:
     #!/usr/bin/env bash
     set -euo pipefail

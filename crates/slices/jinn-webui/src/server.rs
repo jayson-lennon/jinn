@@ -312,6 +312,7 @@ pub(crate) fn overlay_seed_pairs_for_test() -> Vec<(&'static str, serde_json::Va
         crate::contract::SIGNAL_MCP_TICK,
         crate::contract::SIGNAL_MODELS_TICK,
         crate::contract::SIGNAL_ERROR_NOTICE,
+        crate::contract::SIGNAL_ROW_MENU_OPEN,
     ];
     let false_off = flags
         .iter()
@@ -529,6 +530,16 @@ impl ServerShared {
         self.session_store.load_summaries().await
     }
 
+    /// Loads the library-member summaries through the session store.
+    pub(crate) async fn library_members(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        self.session_store.library_members().await
+    }
+
     /// The app state, for the delivery paths that take `&State` (the
     /// fan-out shares the same handle; nothing outside the crate
     /// reaches it).
@@ -727,6 +738,7 @@ pub fn router(shared: ServerShared) -> Router {
         .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
         .route("/web/session/{id}/activate", post(activate))
         .route(crate::contract::RENAME_ROUTE, post(rename))
+        .route(crate::contract::LIBRARY_TOGGLE_ROUTE, post(library_toggle))
         .route(crate::contract::SESSION_CREATE_PATH, post(create_session))
         .route("/vendor/{*path}", get(serve_vendor))
         .route("/healthz", get(health));
@@ -1147,34 +1159,48 @@ pub(crate) fn filter_from_query_or_signal(
     raw_query: Option<&str>,
     signal: &str,
 ) -> String {
-    let raw_query = raw_query.unwrap_or_default();
-    if raw_query.contains("datastar=") {
-        let pairs: Vec<(&str, &str)> = raw_query
-            .split('&')
-            .filter_map(|pair| pair.split_once('='))
-            .collect();
-        let dump = pairs
-            .iter()
-            .find(|(key, _)| *key == "datastar")
-            .map(|(_, v)| *v);
-        if let Some(dump) = dump {
-            // The dump's value is one percent-encoded JSON document.
-            // Pair-parsing the value alone lands the document in the
-            // KEY position, so parse a synthesized `value=` pair and
-            // read the decoded key back — a plain percent-decode
-            // without pulling in a new dependency.
-            let synthesized = format!("{dump}=");
-            let decoded = form_urlencoded::parse(synthesized.as_bytes())
-                .next()
-                .map_or_else(String::new, |(key, _)| key.to_string());
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&decoded)
-                && let Some(filter) = value.get(signal).and_then(|v| v.as_str())
-            {
-                return filter.to_owned();
-            }
-        }
+    signal_from_query(raw_query, signal).unwrap_or_else(|| explicit.unwrap_or_default())
+}
+
+/// Reads one string signal out of the Datastar signal dump — the
+/// `?datastar={…}` query parameter's decoded JSON document — the
+/// dump-reading half of [`filter_from_query_or_signal`], shared by
+/// the pull handlers whose signal-filtered render needs a second
+/// signal (the sessions pull's `sidebarview`). `None` when no dump
+/// rides, the JSON does not parse, or the signal is absent or not a
+/// string — the caller's explicit/fallback path then applies.
+#[must_use]
+pub(crate) fn signal_from_query(raw_query: Option<&str>, signal: &str) -> Option<String> {
+    let raw_query = raw_query?;
+    if !raw_query.contains("datastar=") {
+        return None;
     }
-    explicit.unwrap_or_default()
+    let pairs: Vec<(&str, &str)> = raw_query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .collect();
+    let dump = pairs
+        .iter()
+        .find(|(key, _)| *key == "datastar")
+        .map(|(_, v)| *v)?;
+    // The dump's value is one percent-encoded JSON document.
+    // Pair-parsing the value alone lands the document in the
+    // KEY position, so parse a synthesized `value=` pair and
+    // read the decoded key back — a plain percent-decode
+    // without pulling in a new dependency.
+    let synthesized = format!("{dump}=");
+    let decoded = form_urlencoded::parse(synthesized.as_bytes())
+        .next()
+        .map_or_else(String::new, |(key, _)| key.to_string());
+    serde_json::from_str::<serde_json::Value>(&decoded)
+        .ok()
+        .and_then(|value| {
+            value
+                .get(signal)
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+        })
+        .map_or_else(|| None, Some)
 }
 
 /// `POST /web/send` — deliver text into a live session.
@@ -1801,6 +1827,36 @@ async fn rename(
             serde_json::Value::Bool(false),
         )]),
     ]))
+}
+
+/// `POST /web/session/{id}/library` — set a session's library
+/// membership (the row kebab popup's toggle).
+///
+/// Publishes the existing `SetSessionLibrary` command (see
+/// [`crate::delivery::handle_library_toggle`]); every open page — this
+/// one included — refreshes its list from the command's
+/// `SessionLibraryMembershipChanged` announcement through the fan-out
+/// (the store actor publishes it strictly after the persist lands), so
+/// the response itself needs no fragment: a barer ack would fight the
+/// broadcast the same way the cancel POST's empty response does. The
+/// initiating page's kebab popup is already closed (its click cleared
+/// the signal ahead of the POST).
+async fn library_toggle(
+    AxumState(shared): AxumState<ServerShared>,
+    AxPath(session_id): AxPath<String>,
+    form: Result<WebForm<jinn_webui_msg::LibraryToggleForm>, HandlerError>,
+) -> Result<SseAction, HandlerError> {
+    let WebForm(form) = form?;
+    crate::delivery::handle_library_toggle(
+        shared.state(),
+        shared.bus(),
+        shared.session_store(),
+        &session_id,
+        form.in_library,
+    )
+    .await
+    .map_err(|error| fail(error.status(), error.sentence()))?;
+    Ok(SseAction::empty())
 }
 
 // ── SSE ─────────────────────────────────────────────────────────────

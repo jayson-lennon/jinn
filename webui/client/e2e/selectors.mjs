@@ -239,6 +239,36 @@ export const MODEL_ID = "sample/sample";
 export const ERROR_NOTICE = "#error-notice";
 /** The composer's attach "+" control id (`wire.IMAGE_ATTACH_BUTTON_ID`). */
 export const ATTACH_BUTTON = "#image-attach-button";
+
+/** The sidebar view toggle's container id (`wire.SESSIONS_VIEW_TOGGLE_ID`). */
+export const VIEW_TOGGLE = "#sessions-view-toggle";
+/** The toggle's Sessions segment id (`wire.SESSIONS_VIEW_SESSIONS_ID`). */
+export const VIEW_SESSIONS = "#sessions-view-sessions";
+/** The toggle's Library segment id (`wire.SESSIONS_VIEW_LIBRARY_ID`). */
+export const VIEW_LIBRARY = "#sessions-view-library";
+/** The library row class hook (`wire.LIBRARY_ROW_CLASS`). */
+export const LIBRARY_ROW = ".lrow";
+/** One row — sessions or library — by its session-id attribute. */
+export const ROW_BY_ID = (id) => `[${SESSION_ID_ATTR}="${id}"]`;
+/** The per-row kebab button class hook (`wire.SESSION_ROW_MENU_CLASS`). */
+export const ROW_MENU = ".srow-menu";
+/** The row-menu attr (`wire.SESSION_ROW_MENU_ID_ATTR`). */
+export const ROW_MENU_ATTR = "data-menu-session";
+/** The per-row kebab button: a sibling of its row anchor, addressed
+ * by its own `data-menu-session` attribute. */
+export const ROW_MENU_IN = (id) =>
+  `${ROW_MENU}[${ROW_MENU_ATTR}="${id}"]`;
+/** The per-row action popup class hook (`wire.SESSION_ROW_MENU_CLASS_POPUP`). */
+export const ROW_MENU_POPUP = ".srow-menu-popup";
+/** The popup entry naming an action (`wire.MENU_ENTRY_ACTION_ATTR`). */
+export const MENU_ENTRY = (action) => `[data-menu-action="${action}"]`;
+/** The library toggle entry's action name (`wire.ACTION_LIBRARY_TOGGLE`). */
+export const ACTION_LIBRARY_TOGGLE = "library-toggle";
+/** The library toggle POST's route (`wire.LIBRARY_TOGGLE_ROUTE` shape). */
+export const LIBRARY_TOGGLE_PATH = (id) => `${SESSION_PAGE_PATH}${id}/library`;
+/** The pull route's view param (`wire.SESSIONS_VIEW_QUERY_PARAM`). */
+export const VIEW_QUERY_PARAM = "view";
+
 /** The applets modal overlay id (`wire.APPLET_MODAL_ID`). */
 export const APPLET_MODAL = "#applet-modal";
 /** The applets modal's host span id (`wire.APPLET_MODAL_HOST_ID`). */

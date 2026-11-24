@@ -331,11 +331,20 @@ fn contains_color_literal(css: &str) -> bool {
 /// after the match must not continue an identifier (`-`, a digit, a
 /// letter), which rules out `white-space` and property words.
 fn named_color_as_value(css: &str, name: &str) -> bool {
-    let skip = name.chars().count();
+    let skip = name.len();
     css.match_indices(name).any(|(at, _)| {
-        css.chars()
-            .nth(at + skip)
-            .is_none_or(|c| !(c.is_alphanumeric() || c == '-' || c == '_'))
+        let tail_boundary = css
+            .as_bytes()
+            .get(at + skip)
+            .and_then(|b| char::from_u32(u32::from(*b)))
+            .is_none_or(|c| !(c.is_alphanumeric() || c == '-' || c == '_'));
+        let head_boundary = at == 0
+            || css
+                .char_indices()
+                .rev()
+                .find(|(i, _)| *i < at)
+                .is_none_or(|(_, c)| !(c.is_alphanumeric() || c == '-' || c == '_'));
+        tail_boundary && head_boundary
     })
 }
 

@@ -78,18 +78,7 @@ async fn harness_seeded_with_fanout(
             jinn_mcp_msg::McpRuntimeState::default(),
         )
         .expect("the MCP runtime cell registers once");
-    let applets_catalog_cell = slices
-        .register(
-            jinn_applets_msg::applets_catalog_slot(),
-            jinn_applets_msg::AppletsCatalog::default(),
-        )
-        .expect("the applets catalog cell registers once per harness");
-    let applets_picker_cell = slices
-        .register(
-            jinn_applets_msg::applets_picker_slot(),
-            jinn_applets_msg::AppletsPickerState::default(),
-        )
-        .expect("the applets picker cell registers once per harness");
+    let (applets_catalog_cell, applets_picker_cell) = applets_cells_for(&slices);
     let unread_marks = slices
         .register(
             jinn_webui_msg::webui_unread_slot(),
@@ -1168,5 +1157,258 @@ async fn an_mcp_status_push_reaches_a_live_stream_as_a_dispatchable_signal_frame
     assert!(
         saw_mcp_with_data,
         "an mcp-status frame with a non-empty data line arrived within the deadline"
+    );
+}
+
+// ── Archived sessions: listed, clickable, loadable ──────────────────
+//
+// The webui lists archived sessions (the sessions view ranks loaded
+// first; the library view lists members loaded or archived alike),
+// and activating one loads it through the ordinary activate POST.
+// These tests pin that end-to-end over a REAL SQLite store — the
+// fake stores earlier harnesses use return `None` for every read,
+// which would make every archived flow a 404 by construction.
+
+/// Registers the applets catalog + picker cells on a harness-local
+/// registry — `ServerShared` needs both, and the archived-flow
+/// harness must mirror what production `activate` resolves.
+fn applets_cells_for(
+    slices: &Slices,
+) -> (
+    jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
+    jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
+) {
+    let catalog = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once per harness");
+    let picker = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once per harness");
+    (catalog, picker)
+}
+
+/// Opens a real `SqliteSessionStore` in a scratch dir with one
+/// session (titled `title`) persisted ARCHIVED, flagged a member
+/// when `in_library`. Returns the dir guard (hold it — sqlite keeps
+/// the file open), the store, and the session id.
+async fn archived_store_with(
+    title: &str,
+    in_library: bool,
+) -> (
+    jinn_testutil::temp::JinnTempDir,
+    std::sync::Arc<jinn_session_store::sqlite::SqliteSessionStore>,
+    SessionId,
+) {
+    use jinn_session_state::SessionStore as _;
+    let dir = jinn_testutil::tempdir();
+    let store = std::sync::Arc::new(
+        jinn_session_store::sqlite::SqliteSessionStore::new_in(&dir.path)
+            .await
+            .expect("a real sqlite store opens in the scratch dir"),
+    );
+    let session = jinn_session_state::ChatSessionState::new();
+    let id = session.session_id().clone();
+    let mut session = session;
+    session.set_title(title.to_owned());
+    session.push_entry(jinn_core_types::ChatEntry::user("archived body"));
+    store
+        .save(&session.capture_snapshot())
+        .await
+        .expect("the archived session persists");
+    store
+        .set_in_library(&id, in_library)
+        .await
+        .expect("membership persists");
+    store
+        .set_archived(&id, true)
+        .await
+        .expect("the session archives");
+
+    (dir, store, id)
+}
+
+/// Boots the serve harness against a real `SqliteSessionStore` in a
+/// scratch dir, with the named session persisted ARCHIVED (and, when
+/// `in_library`, flagged a member). Returns the base URL and the id.
+async fn harness_with_real_store_archived(title: &str, in_library: bool) -> (String, SessionId) {
+    let slices = Slices::new();
+    let provider_cell = slices
+        .register(
+            jinn_provider_selection_msg::provider_state_slot(),
+            jinn_provider_selection_msg::ProviderCell::default(),
+        )
+        .expect("the provider cell registers once per harness");
+    let personas_cell = slices
+        .register(
+            jinn_persona_msg::personas_slot(),
+            jinn_persona_msg::Personas::default(),
+        )
+        .expect("the personas cell registers once per harness");
+    let mcp_runtime_cell = slices
+        .register(
+            jinn_mcp_msg::mcp_runtime_slot(),
+            jinn_mcp_msg::McpRuntimeState::default(),
+        )
+        .expect("the MCP runtime cell registers once");
+    let applets_catalog_cell = slices
+        .register(
+            jinn_applets_msg::applets_catalog_slot(),
+            jinn_applets_msg::AppletsCatalog::default(),
+        )
+        .expect("the applets catalog cell registers once per harness");
+    let applets_picker_cell = slices
+        .register(
+            jinn_applets_msg::applets_picker_slot(),
+            jinn_applets_msg::AppletsPickerState::default(),
+        )
+        .expect("the applets picker cell registers once per harness");
+    let unread_marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once per harness");
+    let state = {
+        let app = AppState::default();
+        app.session.attach_slices(slices.clone());
+        State::new(app)
+    };
+    // The dir guard must outlive the store — sqlite keeps the file open.
+    let (_dir, store, id) = archived_store_with(title, in_library).await;
+    let (bus, _audit) = BusService::new_recording();
+    let fanout = {
+        use trouper::system::ActorSystem;
+        let system = ActorSystem::new(trouper::system::SystemConfig::production());
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
+    };
+    let shared = ServerShared::new(
+        state,
+        bus,
+        jinn_session_state::SessionStoreService::new(store),
+        jinn_kernel::common::turn_ledger::TurnLedger::default(),
+        provider_cell,
+        personas_cell,
+        mcp_runtime_cell,
+        applets_catalog_cell,
+        applets_picker_cell,
+        jinn_provider_config::ProviderRegistryService::new(
+            jinn_provider_config::ProviderRegistry::from_config(
+                jinn_provider_config::ProvidersConfig {
+                    providers: std::collections::BTreeMap::default(),
+                    aliases: vec![],
+                    default_provider: None,
+                    endpoint_defaults: vec![],
+                },
+            )
+            .expect("an empty providers config expands"),
+        ),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        jinn_config::empty_config_layer().clone(),
+        fanout,
+        0,
+        "serve-test-real-store".to_owned(),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("an OS-assigned loopback port binds");
+    let addr = listener.local_addr().expect("listener has an address");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, router(shared)).await;
+    });
+    (format!("http://{addr}"), id)
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_archived_non_member_lists_in_the_sessions_view_and_activates() {
+    // Given a real store holding one ARCHIVED, non-member session.
+    let (base, id) = harness_with_real_store_archived("Archived plain", false).await;
+    let client = client();
+
+    // When pulling the sessions view and clicking the row.
+    let list = client
+        .get(format!("{base}{}", contract::SESSIONS_ROUTE))
+        .send()
+        .await
+        .expect("the sessions pull answers");
+    assert_eq!(list.status(), StatusCode::OK);
+    let body = list.text().await.expect("the list body reads");
+    assert!(
+        body.contains(id.to_string().as_str()),
+        "the archived non-member renders in the sessions view: {body}"
+    );
+    let activate = client
+        .post(format!(
+            "{base}{}{id}/activate",
+            contract::SESSION_PAGE_PREFIX
+        ))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .expect("the activate POST answers");
+
+    // Then the click loads it — a 200, never a 404: the archived
+    // state is the ordinary load path, not a refusal.
+    assert_eq!(
+        activate.status(),
+        StatusCode::OK,
+        "an archived non-member activates: {}",
+        activate.status()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_archived_member_lists_in_the_library_view_and_activates() {
+    // Given a real store holding one ARCHIVED library member.
+    let (base, id) = harness_with_real_store_archived("Archived member", true).await;
+    let client = client();
+
+    // When pulling the library view and clicking the row.
+    let list = client
+        .get(format!("{base}{}?view=library", contract::SESSIONS_ROUTE))
+        .send()
+        .await
+        .expect("the library pull answers");
+    assert_eq!(list.status(), StatusCode::OK);
+    let body = list.text().await.expect("the list body reads");
+    assert!(
+        body.contains(id.to_string().as_str()),
+        "the archived member renders in the library view: {body}"
+    );
+    let activate = client
+        .post(format!(
+            "{base}{}{id}/activate",
+            contract::SESSION_PAGE_PREFIX
+        ))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .expect("the activate POST answers");
+
+    // Then the click loads it — the ordinary route, a 200, and the
+    // session page itself serves after the activation.
+    assert_eq!(
+        activate.status(),
+        StatusCode::OK,
+        "an archived member activates: {}",
+        activate.status()
+    );
+    let page = client
+        .get(format!("{base}{}{id}", contract::SESSION_PAGE_PREFIX))
+        .send()
+        .await
+        .expect("the session page answers");
+    assert_eq!(
+        page.status(),
+        StatusCode::OK,
+        "the activated member's page serves: {}",
+        page.status()
     );
 }

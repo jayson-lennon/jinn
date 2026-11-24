@@ -1,0 +1,23 @@
+{#- The row's action surface: the kebab button and its popup. One
+    entry ships today — the library toggle — declared as data (action
+    name + label), so future entries (archive, teardown) extend the
+    declaration without restructuring. The popup's visibility rides
+    the shared rowMenuSession signal naming the owning row; the
+    kebab's click sets it, any click outside both clears it
+    (data-on:click__window with the stop modifier keeps the kebab's
+    own click from immediately re-clearing), and activating the row
+    clears it first so the interstitial's page swap never carries an
+    open popup. -#}
+<button type="button" class="{{ menu_class }}" aria-label="row actions" aria-haspopup="true"
+        {{ menu_id_attr }}="{{ item.session_id }}"
+        data-on:click__stop="$rowMenuSession === '{{ item.session_id }}' ? ($rowMenuSession = '') !== undefined : ($rowMenuSession = '{{ item.session_id }}') !== undefined">⋮</button>
+<div class="{{ popup_class }}" {{ menu_id_attr }}="{{ item.session_id }}" hidden
+     data-attr:hidden="$rowMenuSession === '{{ item.session_id }}' ? null : true">
+  {%- if item.in_library -%}
+  <button type="button" {{ action_attr }}="{{ action_library_toggle }}" {{ menu_id_attr }}="{{ item.session_id }}"
+          data-on:click="$rowMenuSession = ''; @post('{{ session_page_path }}{{ item.session_id }}/library', {contentType: 'json', payload: {in_library: false}})">remove from library</button>
+  {%- else -%}
+  <button type="button" {{ action_attr }}="{{ action_library_toggle }}" {{ menu_id_attr }}="{{ item.session_id }}"
+          data-on:click="$rowMenuSession = ''; @post('{{ session_page_path }}{{ item.session_id }}/library', {contentType: 'json', payload: {in_library: true}})">add to library</button>
+  {%- endif -%}
+</div>

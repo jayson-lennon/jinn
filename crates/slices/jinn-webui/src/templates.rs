@@ -413,6 +413,9 @@ pub struct PageTemplate {
     pub cursor: usize,
     /// The sessions-list fragment, rendered inline.
     pub sessions_html: String,
+    /// The sidebar view-toggle fragment (the segmented Sessions |
+    /// Library control), rendered inline.
+    pub toggle_html: String,
     /// The transcript fragment, rendered inline.
     pub transcript_html: String,
     /// The composer-controls fragment, rendered inline.
@@ -540,12 +543,14 @@ impl PageTemplate {
                 crate::templates::render(&crate::templates::ModelButtonTemplate::with_contract());
             rendered.unwrap_or_default()
         };
+        let toggle_html = sidebar_toggle_html();
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
             title: "jinn".to_owned(),
             cursor: 0,
             sessions_html,
+            toggle_html,
             transcript_html: String::new(),
             controls_html,
             button_html,
@@ -612,12 +617,14 @@ impl PageTemplate {
         attention_count: usize,
         web_theme: String,
     ) -> Self {
+        let toggle_html = sidebar_toggle_html();
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: session_id.to_owned(),
             title,
             cursor,
             sessions_html,
+            toggle_html,
             transcript_html,
             controls_html,
             button_html,
@@ -682,6 +689,9 @@ pub struct PageRootTemplate {
     pub title: String,
     /// The sessions-list fragment (empty on the navigation shapes).
     pub sessions_html: String,
+    /// The sidebar view-toggle fragment (the segmented Sessions |
+    /// Library control) — static chrome, rendered on every shape.
+    pub toggle_html: String,
     /// The transcript fragment (the empty template — `#streaming`
     /// present, zero entries — on the navigation shapes).
     pub transcript_html: String,
@@ -803,6 +813,7 @@ impl PageRootTemplate {
             title,
             cursor: 0,
             sessions_html: String::new(),
+            toggle_html: sidebar_toggle_html(),
             transcript_html,
             controls_html,
             button_html,
@@ -916,6 +927,16 @@ pub struct SessionRowTemplate {
     /// The working row's class and its spinner span's class — one
     /// hook for both, the span living inside the row.
     pub working_class: &'static str,
+    /// The kebab button's class hook, visible to the menu include.
+    pub menu_class: &'static str,
+    /// The action popup's class hook, visible to the menu include.
+    pub popup_class: &'static str,
+    /// The attribute the kebab and popup carry the row's id in.
+    pub menu_id_attr: &'static str,
+    /// The attribute a popup entry names its action with.
+    pub action_attr: &'static str,
+    /// The library toggle entry's action name.
+    pub action_library_toggle: &'static str,
 }
 
 impl SessionRowTemplate {
@@ -929,6 +950,11 @@ impl SessionRowTemplate {
             session_page_path: contract::SESSION_PAGE_PREFIX,
             page_root_id: contract::PAGE_ROOT_ID,
             working_class: contract::WORKING_CLASS,
+            menu_class: contract::SESSION_ROW_MENU_CLASS,
+            popup_class: contract::SESSION_ROW_MENU_CLASS_POPUP,
+            menu_id_attr: contract::SESSION_ROW_MENU_ID_ATTR,
+            action_attr: contract::MENU_ENTRY_ACTION_ATTR,
+            action_library_toggle: contract::ACTION_LIBRARY_TOGGLE,
         }
     }
 }
@@ -951,6 +977,16 @@ pub struct SessionsTemplate {
     pub page_root_id: &'static str,
     /// The working row's class, visible to the row include.
     pub working_class: &'static str,
+    /// The kebab button's class hook, visible to the menu include.
+    pub menu_class: &'static str,
+    /// The action popup's class hook, visible to the menu include.
+    pub popup_class: &'static str,
+    /// The attribute the kebab and popup carry the row's id in.
+    pub menu_id_attr: &'static str,
+    /// The attribute a popup entry names its action with.
+    pub action_attr: &'static str,
+    /// The library toggle entry's action name.
+    pub action_library_toggle: &'static str,
 }
 
 impl SessionsTemplate {
@@ -964,6 +1000,111 @@ impl SessionsTemplate {
             session_page_path: contract::SESSION_PAGE_PREFIX,
             page_root_id: contract::PAGE_ROOT_ID,
             working_class: contract::WORKING_CLASS,
+            menu_class: contract::SESSION_ROW_MENU_CLASS,
+            popup_class: contract::SESSION_ROW_MENU_CLASS_POPUP,
+            menu_id_attr: contract::SESSION_ROW_MENU_ID_ATTR,
+            action_attr: contract::MENU_ENTRY_ACTION_ATTR,
+            action_library_toggle: contract::ACTION_LIBRARY_TOGGLE,
+        }
+    }
+}
+
+/// The sidebar's view-toggle fragment: the segmented Sessions |
+/// Library control. One segment binds its active class to the
+/// `sidebarview` signal; the other binds its inverse — exactly one
+/// reads active at a time. A segment's click seeds the signal and
+/// bumps the sessions tick, whose effect re-pulls the list with the
+/// `view=` value the signal now names.
+#[derive(Template)]
+#[template(path = "sessions_toggle.html")]
+pub struct SessionsToggleTemplate {
+    /// The toggle's host id.
+    pub toggle_id: &'static str,
+    /// The Sessions segment's id.
+    pub sessions_segment_id: &'static str,
+    /// The Library segment's id.
+    pub library_segment_id: &'static str,
+    /// The active-segment class hook.
+    pub active_class: &'static str,
+    /// The active-view signal's name (lowercase single token).
+    pub view_signal: &'static str,
+    /// The sessions tick signal's name — the re-pull's trigger.
+    pub tick_signal: &'static str,
+}
+
+impl SessionsToggleTemplate {
+    /// Builds the toggle with the contract's vocabulary filled.
+    #[must_use]
+    pub fn with_contract() -> Self {
+        Self {
+            toggle_id: contract::SESSIONS_VIEW_TOGGLE_ID,
+            sessions_segment_id: contract::SESSIONS_VIEW_SESSIONS_ID,
+            library_segment_id: contract::SESSIONS_VIEW_LIBRARY_ID,
+            active_class: contract::THEME_ACTIVE_CLASS,
+            view_signal: contract::SIGNAL_SIDEBAR_VIEW,
+            tick_signal: contract::SIGNAL_SESSIONS_TICK,
+        }
+    }
+}
+
+/// The sidebar-toggle fragment, rendered — the page shell's inline
+/// chrome. A render failure degrades to empty (logged), the same
+/// rule every inline fragment follows.
+#[must_use]
+pub fn sidebar_toggle_html() -> String {
+    render(&SessionsToggleTemplate::with_contract()).unwrap_or_else(|error| {
+        tracing::warn!(%error, what = "sessions-toggle", "webui template render failed; \
+             serving a blank fragment");
+        String::new()
+    })
+}
+
+/// The library fragment: the flat member list. The include of
+/// `library_row.html` shares this struct's context, so the row hooks
+/// (and the kebab popup include) ride as fields here.
+#[derive(Template)]
+#[template(path = "library.html")]
+pub struct LibraryTemplate {
+    /// One row per library member, most recently updated first.
+    pub rows: Vec<SessionListItem>,
+    /// The row's class hook, visible to the row include.
+    pub row_class: &'static str,
+    /// The attribute carrying each row's session id.
+    pub session_id_attr: &'static str,
+    /// The activate POST's route prefix, visible to the row include.
+    pub session_page_path: &'static str,
+    /// The page-root id, visible to the row include.
+    pub page_root_id: &'static str,
+    /// The working row's class, visible to the row include.
+    pub working_class: &'static str,
+    /// The kebab button's class hook, visible to the menu include.
+    pub menu_class: &'static str,
+    /// The action popup's class hook, visible to the menu include.
+    pub popup_class: &'static str,
+    /// The attribute the kebab and popup carry the row's id in.
+    pub menu_id_attr: &'static str,
+    /// The attribute a popup entry names its action with.
+    pub action_attr: &'static str,
+    /// The library toggle entry's action name.
+    pub action_library_toggle: &'static str,
+}
+
+impl LibraryTemplate {
+    /// Builds the fragment with the contract's row hooks filled.
+    #[must_use]
+    pub fn with_contract(rows: Vec<SessionListItem>) -> Self {
+        Self {
+            rows,
+            row_class: contract::LIBRARY_ROW_CLASS,
+            session_id_attr: contract::SESSION_ID_DATA_ATTR,
+            session_page_path: contract::SESSION_PAGE_PREFIX,
+            page_root_id: contract::PAGE_ROOT_ID,
+            working_class: contract::WORKING_CLASS,
+            menu_class: contract::SESSION_ROW_MENU_CLASS,
+            popup_class: contract::SESSION_ROW_MENU_CLASS_POPUP,
+            menu_id_attr: contract::SESSION_ROW_MENU_ID_ATTR,
+            action_attr: contract::MENU_ENTRY_ACTION_ATTR,
+            action_library_toggle: contract::ACTION_LIBRARY_TOGGLE,
         }
     }
 }

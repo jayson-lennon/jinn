@@ -18,9 +18,10 @@ pub mod wire;
 pub use unread::UnreadSessionMarks;
 pub use unread::webui_unread_slot;
 pub use wire::{
-    CancelForm, CreateSessionForm, McpToggleForm, ModelForm, ModelsRefreshForm, PersonaForm,
-    RenameForm, SendForm, SessionListItem, SessionNewQuery, SessionPageOpened, SessionsQuery,
-    SkillLoadForm, SkillToggleForm, SseEnvelope, SseKind, SwitchForm, ThemeForm, TranscriptQuery,
+    CancelForm, CreateSessionForm, LibraryToggleForm, McpToggleForm, ModelForm, ModelsRefreshForm,
+    PersonaForm, RenameForm, SendForm, SessionListItem, SessionNewQuery, SessionPageOpened,
+    SessionsQuery, SessionsView, SkillLoadForm, SkillToggleForm, SseEnvelope, SseKind, SwitchForm,
+    ThemeForm, TranscriptQuery,
 };
 
 #[cfg(test)]
