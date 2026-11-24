@@ -190,3 +190,84 @@ test("an https image URL in the text is scanned, fetched, and rendered", async (
     await image.close();
   }
 });
+
+test("an image to a text-only model is blocked with a visible error row", async ({
+  page,
+}) => {
+  // Given the boot session open on the sample model, then switched to
+  // a filler model — keyless, sample-backed, and absent from the
+  // models.dev reference data with no `model_info` marker, so the
+  // attachment gate blocks its image sends while the session stays
+  // Idle (no phase change, no echo).
+  await openSession(page);
+  await page.locator(sel.PICKER_BUTTON).click();
+  const modal = page.locator(sel.PICKER_MODAL);
+  await expect(modal).toBeVisible();
+  await page.locator(sel.PICKER_ROW_MODEL_SPAN("filler1/filler-1")).click();
+  await expect(modal).not.toBeVisible();
+  await expect(page.locator(sel.PICKER_BUTTON)).toHaveText("filler1/filler-1");
+
+  // When attaching an image and sending.
+  await page.locator(FILE_INPUT).setInputFiles({
+    name: "blocked.png",
+    mimeType: "image/png",
+    buffer: PNG_BYTES,
+  });
+  await expect(page.locator(CHIPS).locator(".chip")).toHaveCount(1);
+  await page.locator(sel.INPUT).fill("describe this");
+  await page.locator(sel.SEND_BUTTON).click();
+
+  // Then the blocked send is VISIBLE without a reload: the error row
+  // names the gate's refusal, and the user entry landed beside it.
+  const errorEntry = page
+    .locator(`${sel.TRANSCRIPT} ${sel.ENTRY("error")}`)
+    .filter({ hasText: "is not confirmed to support image input" });
+  await expect(errorEntry).toBeVisible({ timeout: 15_000 });
+  await expect(errorEntry).toContainText("filler-1");
+  const userEntry = page
+    .locator(`${sel.TRANSCRIPT} ${sel.ENTRY("user")}`)
+    .filter({ hasText: "describe this" });
+  await expect(userEntry).toBeVisible();
+});
+
+test("a blocked image send does not double-render the entries", async ({
+  page,
+}) => {
+  // Given the boot session open and switched to the text-only filler
+  // model (the blocked-send setup).
+  await openSession(page);
+  await page.locator(sel.PICKER_BUTTON).click();
+  const modal = page.locator(sel.PICKER_MODAL);
+  await expect(modal).toBeVisible();
+  await page.locator(sel.PICKER_ROW_MODEL_SPAN("filler1/filler-1")).click();
+  await expect(modal).not.toBeVisible();
+
+  // When attaching an image and sending.
+  await page.locator(FILE_INPUT).setInputFiles({
+    name: "blocked-once.png",
+    mimeType: "image/png",
+    buffer: PNG_BYTES,
+  });
+  await page.locator(sel.INPUT).fill("describe this once");
+  await page.locator(sel.SEND_BUTTON).click();
+
+  // Then after a settle window the counts are exact: one user entry,
+  // and the error row directly following it is exactly one — the
+  // convergence pushes are inner replaces, so an overlap never
+  // duplicates a row. (The tier's serial boot session carries earlier
+  // specs' error rows with the same gate sentence, so the error is
+  // addressed relative to this test's own user entry, not by text.)
+  const userEntry = page
+    .locator(`${sel.TRANSCRIPT} ${sel.ENTRY("user")}`)
+    .filter({ hasText: "describe this once" });
+  await expect(userEntry).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(1_000);
+  await expect(userEntry).toHaveCount(1);
+  const followingError = userEntry.locator(
+    "xpath=following-sibling::article[contains(@class,'error')]",
+  );
+  await expect(followingError).toHaveCount(1);
+  await expect(followingError).toContainText(
+    "is not confirmed to support image input",
+  );
+});

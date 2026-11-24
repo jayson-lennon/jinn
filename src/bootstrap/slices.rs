@@ -217,8 +217,7 @@ async fn activate_independent_slices(ctx: &mut Ctx<'_>) -> Result<(), ActivateEr
     .map_err(ActivateError::StreamRules)?;
     let services_snapshot = ctx.services().clone();
     let state_snapshot = ctx.state().clone();
-    jinn_session_init::activate(&services_snapshot, state_snapshot)
-        .map_err(|_report| ActivateError::SessionInit(jinn_session_init::SliceActivateError))?;
+    jinn_session_init::activate(&services_snapshot, state_snapshot)?;
 
     // The term slice installs its overlay and key rows; its tab-mirrors
     // cell came from the catalog. The interactive-term coordinator that
@@ -528,8 +527,7 @@ async fn activate_auxiliary_slices(
         &move |handle| {
             let _ = canvas_slot.set(handle);
         },
-    )
-    .map_err(|report| ActivateError::Canvas(format!("{report:?}")))?;
+    )?;
 
     // The remote slice binds the loopback control surface at launch: the
     // registry entry (pid, port, cwd) must exist before any `jinn remote`
@@ -549,8 +547,7 @@ async fn activate_auxiliary_slices(
             state_snapshot,
             registry_path,
         )
-        .await
-        .map_err(|report| ActivateError::Remote(format!("{report:?}")))?;
+        .await?;
     }
 
     // The webui slice binds the browser surface at launch, after the
@@ -589,8 +586,7 @@ async fn activate_auxiliary_slices(
             applets_catalog_cell,
             applets_picker_cell,
         )
-        .await
-        .map_err(|report| ActivateError::WebUi(format!("{report:?}")))?;
+        .await?;
     }
 
     // The discord slice resolves `[discord]` (fail-fast on a malformed
@@ -637,8 +633,7 @@ async fn activate_auxiliary_slices(
             &applets_dir,
             &kiosk_profile_dir,
             &bus_snapshot,
-        )
-        .map_err(|report| ActivateError::Applets(format!("{report:?}")))?;
+        )?;
     }
 
     // The config-watch slice: the file watcher that feeds the live
@@ -652,8 +647,7 @@ async fn activate_auxiliary_slices(
     // activation error.
     let services_snapshot = ctx.services().clone();
     let state_snapshot = ctx.state().clone();
-    jinn_config_watch::activate(&mut ctx.host(), &services_snapshot, &state_snapshot)
-        .map_err(|report| ActivateError::ConfigWatch(format!("{report:?}")))?;
+    jinn_config_watch::activate(&mut ctx.host(), &services_snapshot, &state_snapshot)?;
 
     Ok((boot, discord))
 }
@@ -702,44 +696,36 @@ pub enum ActivateError {
     #[error(debug)]
     Dashboard(#[from] jinn_dashboard::ActivationError),
     /// The session-init partition set failed to install.
-    #[error(debug)]
-    SessionInit(jinn_session_init::SliceActivateError),
+    SessionInit(error_stack::Report<jinn_session_init::SliceActivateError>),
     /// The discord section was present but malformed.
     #[error(debug)]
     Discord(#[from] jinn_config::ConfigSectionError),
     /// The `[canvas]` section failed to read or its bind did not parse.
     /// Fatal: every later `canvas` tool call would refuse with the same
-    /// sentence, so launch stops where the cause is visible. The report
-    /// rides as rendered text — the unit struct carries no payload to
-    /// clone.
-    #[error(debug)]
-    Canvas(String),
+    /// sentence, so launch stops where the cause is visible. The slice's
+    /// report rides typed — context chain and source tree intact.
+    Canvas(error_stack::Report<jinn_preferences_config::schemas::CanvasBindError>),
     /// The `[remote]` section failed to read, its bind did not parse or
     /// was not loopback, the port was taken, or the registry write
     /// failed. Fatal: an instance nothing can reach defeats the surface
     /// discovery model, so launch stops where the cause is visible. The
-    /// report rides as rendered text.
-    #[error(debug)]
-    Remote(String),
+    /// slice's report rides typed.
+    Remote(error_stack::Report<jinn_remote::RemoteActivationError>),
     /// The `[webui]` section failed to read, its bind did not parse, or
     /// the port was taken. Fatal with the same severity as remote: an
     /// instance whose browser surface cannot bind defeats the slice's
     /// whole purpose, so launch stops where the cause is visible. The
-    /// report rides as rendered text.
-    #[error(debug)]
-    WebUi(String),
+    /// slice's report rides typed.
+    WebUi(error_stack::Report<jinn_webui::WebUiActivationError>),
     /// The `[applets]` section failed to read or its bind was malformed.
     /// Fatal with the same severity as canvas: every
     /// later picker open would refuse with the same sentence, so launch
-    /// stops where the cause is visible. The report rides as rendered
-    /// text.
-    #[error(debug)]
-    Applets(String),
+    /// stops where the cause is visible. The slice's report rides typed.
+    Applets(error_stack::Report<jinn_applets::AppletsActivateError>),
     /// The config-watch actor could not spawn (trouper registration
     /// failed). A watch failure is *not* this error — that degrades to a
     /// row note — but an actor that cannot register is a broken wiring.
-    #[error(debug)]
-    ConfigWatch(String),
+    ConfigWatch(error_stack::Report<trouper::registry::RegistryError>),
     /// A producer slice's cell was absent when a consumer resolved it.
     ///
     /// The three producers in Block 1 register these cells, so a missing
@@ -755,4 +741,52 @@ pub enum ActivateError {
     /// stops rather than arming a matcher that can never match.
     #[error(debug)]
     StreamRules(error_stack::Report<jinn_stream_rules::matcher::ProjectGlobError>),
+}
+
+// The typed-report variants convert via plain `From`, so every call
+// site propagates with `?` and the slice's report rides verbatim —
+// context chain, attachments, and source tree intact (never flattened
+// into a rendered string, which a `{report:?}` smash would escape into
+// literal `\u{1b}` soup at the final print). wherror's `#[from]`
+// cannot generate these: its generated `source()` needs the field to
+// implement `std::error::Error`, and error-stack's `Report<C>`
+// deliberately does not (`StreamRules` above is the same shape).
+impl From<error_stack::Report<jinn_session_init::SliceActivateError>> for ActivateError {
+    fn from(report: error_stack::Report<jinn_session_init::SliceActivateError>) -> Self {
+        Self::SessionInit(report)
+    }
+}
+
+impl From<error_stack::Report<jinn_preferences_config::schemas::CanvasBindError>>
+    for ActivateError
+{
+    fn from(
+        report: error_stack::Report<jinn_preferences_config::schemas::CanvasBindError>,
+    ) -> Self {
+        Self::Canvas(report)
+    }
+}
+
+impl From<error_stack::Report<jinn_remote::RemoteActivationError>> for ActivateError {
+    fn from(report: error_stack::Report<jinn_remote::RemoteActivationError>) -> Self {
+        Self::Remote(report)
+    }
+}
+
+impl From<error_stack::Report<jinn_webui::WebUiActivationError>> for ActivateError {
+    fn from(report: error_stack::Report<jinn_webui::WebUiActivationError>) -> Self {
+        Self::WebUi(report)
+    }
+}
+
+impl From<error_stack::Report<jinn_applets::AppletsActivateError>> for ActivateError {
+    fn from(report: error_stack::Report<jinn_applets::AppletsActivateError>) -> Self {
+        Self::Applets(report)
+    }
+}
+
+impl From<error_stack::Report<trouper::registry::RegistryError>> for ActivateError {
+    fn from(report: error_stack::Report<trouper::registry::RegistryError>) -> Self {
+        Self::ConfigWatch(report)
+    }
 }
