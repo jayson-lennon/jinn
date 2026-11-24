@@ -20,6 +20,7 @@
 - Agents should avoid using `dump_to_path` more often.
   - Blocked using `/dev/null` and similar "null" paths for `dump_to_path`
 - (webui) Report errors when state is idle.
+- Errors related to webui now use `error_stack` correctly instead of formatting into a string.
 
 ## 2026-11-21 v1.26.1
 
