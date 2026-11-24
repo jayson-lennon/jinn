@@ -812,6 +812,136 @@ async fn an_entry_submission_mid_stream_renders_only_the_settled_region() {
     assert!(rx.try_recv().is_err(), "exactly one push per event");
 }
 
+#[rstest::rstest]
+#[tokio::test]
+async fn a_history_appended_on_an_idle_session_pushes_a_transcript_convergence() {
+    // Given a fan-out actor, a subscriber, and an IDLE seeded session
+    // holding the user entry plus the Error entry a blocking path
+    // (the attachment gate's block) appended before publishing.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    {
+        let mut guard = state.write();
+        let session = guard.session.get_mut(&id).expect("seeded session");
+        session.push_entry(jinn_core_types::ChatEntry::user("describe this"));
+        session.push_entry(jinn_core_types::ChatEntry::error(
+            "filler-1 is not confirmed to support image input",
+        ));
+    }
+
+    // When the history-appended event lands.
+    actor.on_history_appended(&id);
+
+    // Then the pushed envelope is a transcript-full convergence for
+    // that session — cursor 0, full replace, carrying the Error row —
+    // and nothing else rides the event (no controls push).
+    let envelope = rx.try_recv().expect("the transcript push");
+    assert_eq!(envelope.kind, SseKind::TranscriptFull);
+    assert_eq!(envelope.session_id, id);
+    assert_eq!(envelope.cursor, 0);
+    assert!(
+        envelope
+            .html
+            .contains("is not confirmed to support image input"),
+        "{}",
+        envelope.html
+    );
+    assert!(
+        rx.try_recv().is_err(),
+        "no other push rides the idle append"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_history_appended_on_a_busy_session_pushes_nothing() {
+    // Given a fan-out actor tracking a mid-stream session (the
+    // boundary captured at turn start).
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    start_turn(&mut actor, &state, &id);
+    drain(&mut rx);
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .push_entry(jinn_core_types::ChatEntry::assistant("streamed"));
+
+    // When a history-appended event lands for the busy session.
+    actor.on_history_appended(&id);
+
+    // Then nothing is pushed — the streaming tail and the settle
+    // convergence already carry a busy session's appends.
+    assert!(rx.try_recv().is_err());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_history_appended_for_an_unknown_session_pushes_nothing() {
+    // Given a fan-out actor and a session id that was never inserted
+    // into the live map.
+    let (mut actor, mut rx, _state, _marks) = fixture();
+    let unknown = jinn_session_state::ChatSessionState::new()
+        .session_id()
+        .clone();
+
+    // When a history-appended event lands for the unknown session.
+    actor.on_history_appended(&unknown);
+
+    // Then nothing is pushed and nothing panics — the load/setup
+    // pushes are that session's correctness backstop.
+    assert!(rx.try_recv().is_err());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_idle_history_appended_renders_the_whole_history() {
+    // Given a session the fan-out tracked mid-turn (boundary captured
+    // over one settled entry) whose state has flipped back to Idle
+    // WITHOUT the settle having run through the actor — the
+    // stale-boundary race the projection write's ordering allows.
+    let (mut actor, mut rx, state, _marks) = fixture();
+    let id = seed_session(&state);
+    {
+        let mut guard = state.write();
+        let session = guard.session.get_mut(&id).expect("seeded session");
+        session.push_entry(jinn_core_types::ChatEntry::user("settled words"));
+    }
+    start_turn(&mut actor, &state, &id);
+    drain(&mut rx);
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .settle_to_idle();
+    // The appended error postdates the boundary.
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .push_entry(jinn_core_types::ChatEntry::error("blocked"));
+    assert_eq!(
+        actor.handle().settled_boundary(&id),
+        Some(1),
+        "precondition: the stale boundary is still tracked"
+    );
+
+    // When a history-appended event lands for the now-idle session.
+    actor.on_history_appended(&id);
+
+    // Then the render carries the WHOLE history — the entry past the
+    // stale boundary included — and the boundary died with the push
+    // (the same first step the settle performs).
+    let envelope = rx.try_recv().expect("the transcript push");
+    assert_eq!(envelope.kind, SseKind::TranscriptFull);
+    assert!(envelope.html.contains("settled words"), "{}", envelope.html);
+    assert!(envelope.html.contains("blocked"), "{}", envelope.html);
+    assert_eq!(actor.handle().settled_boundary(&id), None);
+}
+
 // ── The unread mark: set on an unseen settle ────────────────────────
 
 /// A phase-change event naming the transition.

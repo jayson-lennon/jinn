@@ -1395,6 +1395,72 @@ mod actions {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn an_image_send_response_appends_no_optimistic_entry() {
+        // Given a live session and a data URL carrying real PNG bytes.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let png = tiny_png_for_tests();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&png)
+        );
+
+        // When posting a send whose images array carries it.
+        let (status, body) = post_json(
+            &router,
+            "/web/send",
+            &format!(r#"{{"sessionId": "{id}", "text": "look", "images": ["{data_url}"]}}"#),
+        )
+        .await;
+
+        // Then the response patches the composer signals only — NO
+        // append patch rides it. The attachment gate may block this
+        // send while the session stays Idle, and that block's
+        // HistoryAppended convergence push races (and can beat) this
+        // response; a sentinel appended after it is never wiped — the
+        // duplicate-user-row bug. The real entries reach the page
+        // through the convergence pushes instead.
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !body.contains("datastar-patch-elements"),
+            "no element patch: {body}"
+        );
+        assert!(body.contains("text"), "the text-clear signal rode: {body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_text_send_response_still_appends_the_optimistic_entry() {
+        // Given a live session.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting a text-only send.
+        let (status, body) = post_form(
+            &router,
+            "/web/send",
+            &format!("session_id={id}&text=note+to+self"),
+        )
+        .await;
+
+        // Then the response still carries the optimistic append patch —
+        // the sentinel's instant-visibility job on the text path is
+        // untouched (a text send can never be gate-blocked).
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("datastar-patch-elements"),
+            "the append rode: {body}"
+        );
+        assert!(
+            body.contains("entry-18446744073709551615"),
+            "the sentinel-id entry rode: {body}"
+        );
+        let published = audit.of_type::<jinn_chat_input_msg::EnqueueUserMessage>();
+        assert_eq!(published.len(), 1);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn send_with_a_text_only_body_never_fetches_urls_in_prose() {
         // Given a live session and a text carrying a *non-image* URL (the
         // gate never admits it, so no fetch attempt exists to fail on).
@@ -3894,7 +3960,7 @@ mod switch_markup {
     async fn creating_a_session_bumps_the_sessions_tick_in_the_response() {
         // Given the router with one configured project (the create
         // form's minimum config).
-        let (state, _audit, router) =
+        let (_state, _audit, router) =
             mcp_actions::harness_with_config("[[project.entry]]\npath = \"/tmp/e2e-scratch\"\n");
 
         // When posting a create.

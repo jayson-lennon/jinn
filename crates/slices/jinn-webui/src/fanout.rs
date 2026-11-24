@@ -35,6 +35,14 @@
 //! region: settle pushes resolve through [`crate::region`]'s registry,
 //! so a new region contributes pushes by declaring settle kinds, never
 //! by editing this module.
+//!
+//! Idle errors: a blocking path can append a user entry plus an Error
+//! entry to an **Idle** session — the attachment gate's block, a load
+//! failure, a teardown failure — publishing only `HistoryAppended`:
+//! no phase change, no `ChatEntrySubmitted`. The fan-out answers that
+//! event with a transcript-full convergence push, but only while the
+//! session stays Idle; a busy session's appends are already carried by
+//! the streaming tail and the settle convergence.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -360,6 +368,18 @@ impl WebUiFanoutActor {
             // render wiped. A broadcast-legal Event; the handler pushes
             // the region's convergence fragment only.
             .handles::<jinn_chat_input_msg::ChatEntrySubmitted>()
+            // An entry landed in history while the session may have no
+            // live turn at all (the attachment gate's block, a load
+            // failure, a teardown failure — blocking paths that push a
+            // user entry plus an Error entry and stay Idle). The
+            // handler pushes a transcript-full convergence ONLY when
+            // the session is Idle: a busy session's appends are
+            // already carried by the streaming tail and the settle
+            // convergence, and an unconditional push would re-render
+            // the settled prefix on every mid-turn append. A
+            // broadcast-legal Event; the handler pushes the region's
+            // convergence fragment only.
+            .handles::<jinn_session_history_msg::HistoryAppended>()
             .handles::<FlushTick>()
             // Arms the first flush ~1 tick after spawn; the chain
             // self-perpetuates from the handler.
@@ -901,6 +921,55 @@ impl WebUiFanoutActor {
             html: transcript_html,
         });
     }
+
+    /// An entry landed in history via a blocking path that stays Idle
+    /// (the attachment gate's block, a load failure, a teardown
+    /// failure): push the transcript-full convergence for the session,
+    /// but ONLY when the session is Idle. Synchronous work only;
+    /// `async` is the `MsgHandler::handle` signature's shape, dropped
+    /// here.
+    ///
+    /// This is the visibility path for an Error entry no phase change
+    /// announces: the session stays Idle, so nothing else fans, and
+    /// the page would never learn until a reload.
+    ///
+    /// The Idle gate keeps the hot path quiet: mid-turn appends (each
+    /// stream token, each tool call/result) already reach the page via
+    /// the streaming tail tick and the settle convergence, and an
+    /// unconditional push would re-render the settled prefix per
+    /// append. An unknown session pushes nothing — there is no history
+    /// to render; the load/setup pushes are its correctness backstop.
+    ///
+    /// The stale-boundary hazard: the projection write can flip a
+    /// session to Idle before the phase-change event reaches this
+    /// actor, so this handler can run while a settled boundary is
+    /// still tracked. Slicing at it would hide the just-appended
+    /// error, so the boundary and tail-skip state die before the
+    /// render — the same first step [`Self::settle_to_idle`] performs.
+    /// (`TranscriptFull` is an inner replace, so an overlap with the
+    /// settle's own convergence push renders the same content twice
+    /// and never duplicates an entry.)
+    pub(crate) fn on_history_appended(&mut self, session_id: &SessionId) {
+        let is_idle = {
+            let guard = self.state.read();
+            match guard.session.get(session_id) {
+                Some(session) => !session.phase().is_working(),
+                None => return,
+            }
+        };
+        if !is_idle {
+            return;
+        }
+        self.boundaries.clear(session_id);
+        self.last_tail.remove(session_id);
+        let transcript_html = self.settled_transcript_fragment(session_id);
+        self.broadcast(SseEnvelope {
+            kind: SseKind::TranscriptFull,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html: transcript_html,
+        });
+    }
 }
 
 /// The settle push order: every region's `settle_kinds` flattened in
@@ -1198,5 +1267,15 @@ impl MsgHandler<jinn_chat_input_msg::ChatEntrySubmitted> for WebUiFanoutActor {
         _ctx: &mut MsgCtx<'_>,
     ) {
         self.on_chat_entry_submitted(msg);
+    }
+}
+
+impl MsgHandler<jinn_session_history_msg::HistoryAppended> for WebUiFanoutActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_history_msg::HistoryAppended,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        self.on_history_appended(&msg.session_id);
     }
 }

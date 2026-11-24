@@ -1161,13 +1161,39 @@ async fn send(
     // chat spec pins the no-double). It is the *published* entry
     // object, not a second build: the id the echo carries is the id
     // the attachment route resolves.
-    let html = crate::templates::render(&crate::templates::EntryTemplate {
-        entry: crate::transcript::render_entry(&entry, &published_session_id),
-        index: usize::MAX,
-    })
-    .map_err(|e| fail(500, e.to_string()))?;
-    Ok(SseAction::new(vec![
-        signal_patch(&[
+    //
+    // EXCEPT for a send carrying image attachments: the attachment
+    // gate may block it in the enqueue pipeline while the session
+    // stays Idle (a blocking path's append — no phase change, no
+    // settle), whose HistoryAppended convergence push races this POST
+    // response and can land BEFORE the append patch below. A sentinel
+    // appended after that push is never wiped — the duplicate-user-row
+    // bug. The real entries (user + gate error, or user + streamed
+    // echo at settle) reach the page through the convergence pushes
+    // within one batch window, so the sentinel's instant-visibility
+    // job is already covered; skipping it keeps the page exactly
+    // single-rowed in both outcomes.
+    if form.images.is_empty() {
+        let html = crate::templates::render(&crate::templates::EntryTemplate {
+            entry: crate::transcript::render_entry(&entry, &published_session_id),
+            index: usize::MAX,
+        })
+        .map_err(|e| fail(500, e.to_string()))?;
+        Ok(SseAction::new(vec![
+            signal_patch(&[
+                (
+                    crate::contract::SIGNAL_TEXT,
+                    serde_json::Value::String(String::new()),
+                ),
+                (
+                    crate::contract::SIGNAL_PENDING_IMAGES,
+                    serde_json::Value::Array(Vec::new()),
+                ),
+            ]),
+            append_patch(html),
+        ]))
+    } else {
+        Ok(SseAction::new(vec![signal_patch(&[
             (
                 crate::contract::SIGNAL_TEXT,
                 serde_json::Value::String(String::new()),
@@ -1176,9 +1202,8 @@ async fn send(
                 crate::contract::SIGNAL_PENDING_IMAGES,
                 serde_json::Value::Array(Vec::new()),
             ),
-        ]),
-        append_patch(html),
-    ]))
+        ])]))
+    }
 }
 
 /// `POST /web/cancel` — cancel a live turn. The cancel event's phase

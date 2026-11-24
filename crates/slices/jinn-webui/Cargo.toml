@@ -30,6 +30,10 @@ jinn-selection-widget = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-theme = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
+# The fan-out subscribes `HistoryAppended` (the event every blocking
+# path that appends to history while idle publishes) — contract crate
+# only: never the session-turn implementation slice.
+jinn-session-history-msg = { workspace = true }
 # The new-session form reuses the lifecycle contract's arg vocabulary —
 # `parse_quoted_args` (the TUI arg popup's parser) and `CommandTemplate`
 # parameter counts. Contract crate only: never the lifecycle
