@@ -515,6 +515,7 @@ fn the_evaluate_tool_states_the_last_expression_return_contract() {
 #[rstest::rstest]
 #[test]
 fn the_evaluate_tool_describes_the_cross_origin_frame_parameter() {
+    install_crypto_provider();
     // Given the evaluate tool's description and schema.
     let server = BrowserMcpServer::new();
     let description = tool_description(&server, "evaluate");

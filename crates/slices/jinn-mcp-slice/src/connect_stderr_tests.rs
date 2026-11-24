@@ -62,3 +62,57 @@ async fn a_child_that_dies_at_startup_leaves_its_stderr_in_the_connect_failure()
         "stderr tail must carry the child's output, got: {tail:?}"
     );
 }
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_command_that_cannot_spawn_surfaces_the_spawn_failure() {
+    // Given a stdio server whose command names a file that does not exist,
+    // so the child is never started and there is no stderr to capture.
+    let services = Services::new_fake().await;
+    let server = McpServerConfig {
+        singleton: true,
+        command: Some("/no/such/jinn-test-mcp-server".to_owned()),
+        args: vec![],
+        ..Default::default()
+    };
+
+    // When acquiring a client (connect + tools/list).
+    let result = acquire_client(&services, "probe", &server, None, None).await;
+
+    // Then the connect failure names the spawn, instead of reading as an
+    // empty log (which would claim the server wrote nothing).
+    let Err((client, diagnosis)) = result else {
+        panic!("the command does not exist; connect must fail");
+    };
+    assert!(client.is_none(), "nothing to shut down at connect time");
+    assert!(
+        diagnosis.contains("failed to spawn MCP server process"),
+        "the diagnosis must name the spawn failure, got: {diagnosis:?}"
+    );
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_spawn_failure_diagnosis_is_plain_text() {
+    // Given a stdio server whose command names a file that does not exist.
+    let services = Services::new_fake().await;
+    let server = McpServerConfig {
+        singleton: true,
+        command: Some("/no/such/jinn-test-mcp-server".to_owned()),
+        args: vec![],
+        ..Default::default()
+    };
+
+    // When acquiring a client (connect + tools/list).
+    let result = acquire_client(&services, "probe", &server, None, None).await;
+
+    // Then the diagnosis carries no terminal escape codes — it is
+    // published to the picker's log, which is not a terminal.
+    let Err((_client, diagnosis)) = result else {
+        panic!("the command does not exist; connect must fail");
+    };
+    assert!(
+        !diagnosis.contains('\x1b'),
+        "the diagnosis must be plain text, got: {diagnosis:?}"
+    );
+}

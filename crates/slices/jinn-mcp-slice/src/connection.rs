@@ -463,9 +463,11 @@ fn expand_server_headers(
 ///
 /// On failure returns `Err((Some(client), String::new()))` where `client` is
 /// half-open (connected but list failed) and must be shut down by the caller;
-/// returns `Err((None, tail))` when the failure was at connect time, with the
-/// child's captured stderr tail (empty when nothing was captured) so the
-/// caller can surface the startup diagnosis.
+/// returns `Err((None, diagnosis))` when the failure was at connect time, so
+/// the caller can surface the startup diagnosis. The diagnosis is the
+/// child's captured stderr tail when the handshake failed, and otherwise the
+/// report's own description — a spawn failure or a config refusal carries no
+/// stderr, and must not read as "the server wrote nothing".
 /// On success returns the client and its mapped tool definitions together.
 #[expect(
     clippy::result_large_err,
@@ -490,15 +492,18 @@ pub(crate) async fn acquire_client(
                 );
                 // Connect failed before any client existed. The stderr
                 // attachment (child startup output) rides the report as a
-                // plain `String` attachment.
-                let tail = report
+                // plain `String` attachment; a failure that never reached
+                // the handshake (spawn, config) has none, so the report
+                // itself is the only diagnosis there is.
+                let diagnosis = report
                     .frames()
                     .find_map(error_stack::Frame::downcast_ref::<String>)
                     .filter(|s| s.starts_with("server stderr:"))
-                    .map_or_else(String::new, |s| {
-                        s.strip_prefix("server stderr:\n").unwrap_or(s).to_owned()
-                    });
-                return Err((None, tail));
+                    .map_or_else(
+                        || describe_report(&report),
+                        |s| s.strip_prefix("server stderr:\n").unwrap_or(s).to_owned(),
+                    );
+                return Err((None, diagnosis));
             }
         },
     };
@@ -522,6 +527,31 @@ pub(crate) async fn acquire_client(
             Err((Some(client), String::new()))
         }
     }
+}
+
+/// Renders a [`Report`] as plain text for the server log.
+///
+/// Walks the frames in order: each context is rendered with `Display`, each
+/// printable attachment as the message it was given. Opaque attachments
+/// carry no text and are skipped. The report's own `Debug` output is not
+/// used because it carries ANSI emphasis unconditionally — `error_stack`
+/// does not detect a terminal — and this text is published to the picker,
+/// not written to a terminal.
+fn describe_report<C>(report: &Report<C>) -> String
+where
+    C: ?Sized,
+{
+    let mut lines = Vec::new();
+    for frame in report.frames() {
+        match frame.kind() {
+            error_stack::FrameKind::Context(context) => lines.push(context.to_string()),
+            error_stack::FrameKind::Attachment(error_stack::AttachmentKind::Printable(message)) => {
+                lines.push(message.to_string());
+            }
+            _ => {}
+        }
+    }
+    lines.join("\n")
 }
 
 /// Converts an rmcp `CallToolResult` into a single text string for jinn's
