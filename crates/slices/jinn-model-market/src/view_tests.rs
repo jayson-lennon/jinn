@@ -691,9 +691,8 @@ fn the_vals_column_renders_the_placeholder_when_unjoined() {
     // When the popup renders.
     let buffer = harness.render(popup, 130, 100);
 
-    // Then the row's flags carry the missing-score markers and no
-    // number sits in the VALS column position (the row shows the `-`
-    // placeholders, not a fabricated value).
+    // Then no number sits in the VALS column position (the row shows
+    // the `-` placeholder, not a fabricated value).
     let data_row = (popup.y + 4..popup.y + popup.height)
         .map(|y| row_text(&buffer, y, popup.width))
         .find(|text| text.contains("z-ai/glm-5.3"))
@@ -705,8 +704,9 @@ fn the_vals_column_renders_the_placeholder_when_unjoined() {
 }
 
 #[rstest::rstest]
-fn the_flags_column_marks_each_missing_score_source() {
-    // Given a row with neither score joined.
+fn the_flags_cell_is_blank_when_a_row_has_no_flags_or_scores() {
+    // Given a row with no overrides, no :free listing, and neither
+    // score joined.
     let harness = Harness::new();
     harness.data.update(|d| {
         d.rows = vec![scored_row(None, None)];
@@ -716,15 +716,117 @@ fn the_flags_column_marks_each_missing_score_source() {
     // When the popup renders.
     let buffer = harness.render(popup, 130, 100);
 
-    // Then the flags cell carries two `#` markers — one per missing
-    // source, the ECI column's own no-value convention.
+    // Then the row's flags cell carries no marker — a missing score
+    // shows only as the score column's own placeholder.
     let data_row = (popup.y + 4..popup.y + popup.height)
         .map(|y| row_text(&buffer, y, popup.width))
         .find(|text| text.contains("z-ai/glm-5.3"))
         .expect("the unscored row renders");
-    let markers = data_row.matches('#').count();
-    assert_eq!(
-        markers, 2,
-        "each missing score source is flagged once, got: {data_row:?}"
+    assert!(
+        !data_row.contains('#'),
+        "no missing-score flag renders, got: {data_row:?}"
+    );
+}
+
+#[rstest::rstest]
+fn the_flags_header_is_clipped_to_the_column_width() {
+    // Given a popup whose FLAGS column is two cells wide.
+    let harness = Harness::new();
+    harness.data.update(|d| {
+        d.rows = vec![scored_row(None, None)];
+    });
+    let popup = ratatui::layout::Rect::new(5, 2, 120, 16);
+
+    // When the popup renders.
+    let buffer = harness.render(popup, 130, 100);
+
+    // Then the header row carries the two-cell clip of FLAGS.
+    let header = row_text(&buffer, popup.y + 3, popup.width);
+    assert!(
+        header.contains("FL"),
+        "the clipped header renders, got: {header:?}"
+    );
+}
+
+#[rstest::rstest]
+fn a_model_name_up_to_41_cells_renders_unclipped() {
+    // Given a row whose author/slug is exactly 41 cells — the MODEL
+    // column's full width.
+    let mut row = scored_row(Some(50.0), Some(50.0));
+    row.author = "a".to_owned();
+    row.slug = "m".repeat(39);
+    row.id = format!("openrouter/{}/{}", row.author, row.slug);
+    let harness = Harness::new();
+    harness.data.update(|d| {
+        d.rows = vec![row];
+    });
+    let popup = ratatui::layout::Rect::new(5, 2, 120, 16);
+
+    // When the popup renders.
+    let buffer = harness.render(popup, 130, 100);
+
+    // Then the full 41-cell name renders, with no trailing clip.
+    let name = format!("a/{}", "m".repeat(39));
+    let data_row = (popup.y + 4..popup.y + popup.height)
+        .map(|y| row_text(&buffer, y, popup.width))
+        .find(|text| text.contains("a/mm"))
+        .expect("the long-name row renders");
+    assert!(
+        data_row.contains(&name),
+        "the 41-cell name renders unclipped, got: {data_row:?}"
+    );
+}
+
+#[rstest::rstest]
+fn the_flags_cell_renders_the_override_glyph() {
+    // Given a row with pricing overrides and no other flag.
+    let row = MarketRow {
+        has_overrides: true,
+        ..scored_row(None, None)
+    };
+    let harness = Harness::new();
+    harness.data.update(|d| {
+        d.rows = vec![row];
+    });
+    let popup = ratatui::layout::Rect::new(5, 2, 120, 16);
+
+    // When the popup renders.
+    let buffer = harness.render(popup, 130, 100);
+
+    // Then the row's flags cell carries the override dagger.
+    let data_row = (popup.y + 4..popup.y + popup.height)
+        .map(|y| row_text(&buffer, y, popup.width))
+        .find(|text| text.contains("z-ai/glm-5.3"))
+        .expect("the overridden row renders");
+    assert!(
+        data_row.contains('\u{2020}'),
+        "the override glyph renders, got: {data_row:?}"
+    );
+}
+
+#[rstest::rstest]
+fn the_flags_cell_renders_the_free_listing_glyph() {
+    // Given a row with a :free listing and no other flag.
+    let row = MarketRow {
+        is_free: true,
+        ..scored_row(None, None)
+    };
+    let harness = Harness::new();
+    harness.data.update(|d| {
+        d.rows = vec![row];
+    });
+    let popup = ratatui::layout::Rect::new(5, 2, 120, 16);
+
+    // When the popup renders.
+    let buffer = harness.render(popup, 130, 100);
+
+    // Then the row's flags cell carries the free glyph.
+    let data_row = (popup.y + 4..popup.y + popup.height)
+        .map(|y| row_text(&buffer, y, popup.width))
+        .find(|text| text.contains("z-ai/glm-5.3"))
+        .expect("the free row renders");
+    assert!(
+        data_row.contains('f'),
+        "the free-listing glyph renders, got: {data_row:?}"
     );
 }

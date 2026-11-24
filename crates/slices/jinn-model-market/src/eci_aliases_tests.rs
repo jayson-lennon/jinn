@@ -96,7 +96,8 @@ fn resolve_eci_returns_none_for_an_unknown_slug() {
     // When resolving a slug neither strict matching nor the table names.
     let resolved = resolve_eci("openai/no-such-model-slug", &index);
 
-    // Then nothing resolves (the row shows `—` with the `#` flag).
+    // Then nothing resolves (the row shows the empty-cell placeholder
+    // in its score columns, and no flag).
     assert_eq!(resolved, None);
 }
 

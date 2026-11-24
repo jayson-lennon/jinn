@@ -86,8 +86,9 @@ struct MarketColumn {
 
 /// The columns in table order — the same order as the `h`/`l` sort
 /// cycle, [`SORT_CYCLE`], plus the FLAGS display column. FLAGS exists
-/// because `#` (no ECI) is a display fact, not a sortable key: it
-/// renders beside the ECI column it annotates.
+/// because its glyphs (`†` pricing overrides, `f` `:free`) are display
+/// facts, not sortable keys: they render beside the column of the row
+/// they annotate.
 const MARKET_COLUMNS: &[MarketColumn] = &[
     MarketColumn {
         header: "PROJ",
@@ -140,14 +141,14 @@ const MARKET_COLUMNS: &[MarketColumn] = &[
         header: "MODEL",
         sort: SortColumn::Model,
         keyed: true,
-        width: 38,
+        width: 41,
         cell: model_column,
     },
     MarketColumn {
         header: "FLAGS",
         sort: SortColumn::Model,
         keyed: false,
-        width: 5,
+        width: 2,
         cell: |row, _ui, _theme| Line::from(flags_column(row)),
     },
 ];
@@ -715,9 +716,9 @@ fn highlighted_segment(
         .collect()
 }
 
-/// The FLAGS column: `†` pricing overrides, `f` `:free`, `#` missing
-/// score data (no ECI match, no vals match — one flag per missing
-/// source, so a row lacking both carries two).
+/// The FLAGS column: `†` pricing overrides, `f` `:free`. A row with
+/// neither renders an empty cell — a missing score shows in its own
+/// column as the empty-cell placeholder, so no flag restates it.
 fn flags_column(row: &MarketRow) -> String {
     let mut flags = String::new();
     if row.has_overrides {
@@ -725,12 +726,6 @@ fn flags_column(row: &MarketRow) -> String {
     }
     if row.is_free {
         flags.push('f');
-    }
-    if row.eci.is_none() {
-        flags.push('#');
-    }
-    if row.vals.is_none() {
-        flags.push('#');
     }
     flags
 }

@@ -109,7 +109,7 @@ fn column_section(theme: &Theme) -> Vec<Line<'static>> {
         ),
         entry(
             "FLAGS",
-            "\u{2020} conditional pricing overrides \u{b7} f a :free listing \u{b7} # missing score data (ECI and/or Vals).",
+            "\u{2020} conditional pricing overrides \u{b7} f a :free listing.",
             theme,
         ),
     ]);
