@@ -44,6 +44,7 @@ pub mod provider_error_watchdog_actor;
 pub mod stall_watchdog_actor;
 pub mod stream_rule_watchdog_actor;
 pub mod stuck_loop_watchdog_actor;
+pub mod tool_call_similarity;
 pub mod tool_call_watchdog_actor;
 
 use jinn_kernel::Services;
