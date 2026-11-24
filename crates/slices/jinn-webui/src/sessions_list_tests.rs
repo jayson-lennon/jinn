@@ -678,10 +678,10 @@ fn the_active_fill_rules_survive_as_signal_driven_css() {
     // binding applies — with the same precedence order the transient
     // both-fills window relies on: `.active` after `.unread`.
     let active_pos = css
-        .find(".srow.active { background: var(--accent); }")
+        .find(".srow.active, .lrow.active { background: var(--accent); }")
         .expect("the active fill rule renders");
     let unread_pos = css
-        .find(".srow.unread { background: var(--mark); }")
+        .find(".srow.unread, .lrow.unread { background: var(--mark); }")
         .expect("the unread fill rule renders");
     assert!(
         active_pos > unread_pos,
@@ -1036,10 +1036,10 @@ fn the_active_fill_rule_follows_the_unread_rule_in_the_stylesheet() {
 
     // When locating the two fill rules.
     let active_pos = css
-        .find(".srow.active { background: var(--accent); }")
+        .find(".srow.active, .lrow.active { background: var(--accent); }")
         .expect("the active fill rule renders");
     let unread_pos = css
-        .find(".srow.unread { background: var(--mark); }")
+        .find(".srow.unread, .lrow.unread { background: var(--mark); }")
         .expect("the unread fill rule renders");
 
     // Then `.active` comes after `.unread` — the viewed fill wins the
@@ -1075,10 +1075,10 @@ async fn a_row_wearing_both_fills_resolves_to_the_viewed_fill() {
     let _row = row_for(&rows, &foo);
     let css = crate::regions::sessions::SIDEBAR_CSS;
     let active_pos = css
-        .find(".srow.active { background: var(--accent); }")
+        .find(".srow.active, .lrow.active { background: var(--accent); }")
         .expect("the active fill rule renders");
     let unread_pos = css
-        .find(".srow.unread { background: var(--mark); }")
+        .find(".srow.unread, .lrow.unread { background: var(--mark); }")
         .expect("the unread fill rule renders");
     assert!(
         active_pos > unread_pos,

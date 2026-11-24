@@ -1114,34 +1114,48 @@ pub(crate) fn filter_from_query_or_signal(
     raw_query: Option<&str>,
     signal: &str,
 ) -> String {
-    let raw_query = raw_query.unwrap_or_default();
-    if raw_query.contains("datastar=") {
-        let pairs: Vec<(&str, &str)> = raw_query
-            .split('&')
-            .filter_map(|pair| pair.split_once('='))
-            .collect();
-        let dump = pairs
-            .iter()
-            .find(|(key, _)| *key == "datastar")
-            .map(|(_, v)| *v);
-        if let Some(dump) = dump {
-            // The dump's value is one percent-encoded JSON document.
-            // Pair-parsing the value alone lands the document in the
-            // KEY position, so parse a synthesized `value=` pair and
-            // read the decoded key back — a plain percent-decode
-            // without pulling in a new dependency.
-            let synthesized = format!("{dump}=");
-            let decoded = form_urlencoded::parse(synthesized.as_bytes())
-                .next()
-                .map_or_else(String::new, |(key, _)| key.to_string());
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&decoded)
-                && let Some(filter) = value.get(signal).and_then(|v| v.as_str())
-            {
-                return filter.to_owned();
-            }
-        }
+    signal_from_query(raw_query, signal).unwrap_or_else(|| explicit.unwrap_or_default())
+}
+
+/// Reads one string signal out of the Datastar signal dump — the
+/// `?datastar={…}` query parameter's decoded JSON document — the
+/// dump-reading half of [`filter_from_query_or_signal`], shared by
+/// the pull handlers whose signal-filtered render needs a second
+/// signal (the sessions pull's `sidebarview`). `None` when no dump
+/// rides, the JSON does not parse, or the signal is absent or not a
+/// string — the caller's explicit/fallback path then applies.
+#[must_use]
+pub(crate) fn signal_from_query(raw_query: Option<&str>, signal: &str) -> Option<String> {
+    let raw_query = raw_query?;
+    if !raw_query.contains("datastar=") {
+        return None;
     }
-    explicit.unwrap_or_default()
+    let pairs: Vec<(&str, &str)> = raw_query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .collect();
+    let dump = pairs
+        .iter()
+        .find(|(key, _)| *key == "datastar")
+        .map(|(_, v)| *v)?;
+    // The dump's value is one percent-encoded JSON document.
+    // Pair-parsing the value alone lands the document in the
+    // KEY position, so parse a synthesized `value=` pair and
+    // read the decoded key back — a plain percent-decode
+    // without pulling in a new dependency.
+    let synthesized = format!("{dump}=");
+    let decoded = form_urlencoded::parse(synthesized.as_bytes())
+        .next()
+        .map_or_else(String::new, |(key, _)| key.to_string());
+    serde_json::from_str::<serde_json::Value>(&decoded)
+        .ok()
+        .and_then(|value| {
+            value
+                .get(signal)
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+        })
+        .map_or_else(|| None, Some)
 }
 
 /// `POST /web/send` — deliver text into a live session.

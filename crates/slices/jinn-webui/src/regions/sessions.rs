@@ -178,12 +178,15 @@ pub const SIDEBAR_CSS: &str = r#"
                    color: var(--fg); background: var(--bg); border: 1px solid var(--border);
                    border-radius: 5px; width: calc(100% - 20px); }
 #sessions-filter:focus { outline: none; border-color: var(--accent); }
-.srow { display: block; padding: 8px 14px; color: var(--fg); text-decoration: none;
-        border-bottom: 1px solid var(--border); cursor: pointer; }
-.srow:hover { background: var(--bg-hover); }
-.srow.unread { background: var(--mark); }
-.srow.unread .stitle { color: var(--on-fill); }
-.srow.unread .smeta { color: var(--on-mark-muted); }
+/* The row base: both list shapes share it — the library row is the
+   same anchor with its own class hook (the kebab needs a positioned
+   ancestor on either list). */
+.srow, .lrow { display: block; padding: 8px 14px; color: var(--fg); text-decoration: none;
+               border-bottom: 1px solid var(--border); cursor: pointer; }
+.srow:hover, .lrow:hover { background: var(--bg-hover); }
+.srow.unread, .lrow.unread { background: var(--mark); }
+.srow.unread .stitle, .lrow.unread .stitle { color: var(--on-fill); }
+.srow.unread .smeta, .lrow.unread .smeta { color: var(--on-mark-muted); }
 /* The viewed fill: the session THIS page has open — two pages viewing
    different sessions each paint their own row, and the landing page
    paints none. Placed AFTER `.unread` so equal specificity resolves
@@ -192,14 +195,14 @@ pub const SIDEBAR_CSS: &str = r#"
    rendering, and the page's clear event races the next list pull —
    in that window the row the user is looking at must read as the
    viewed one, not as unread). */
-.srow.active { background: var(--accent); }
-.srow.active .stitle { color: var(--on-accent); font-weight: 600; }
-.srow.active .smeta { color: var(--on-accent); }
-.srow .stitle { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.srow .smeta { font-size: 11px; color: var(--muted); }
-.srow.bot .smeta::after { content: " · bot"; color: var(--bot); }
-.srow.active .smeta::after { color: var(--on-accent); }
-.srow.unread .smeta::after { color: var(--on-mark-muted); }
+.srow.active, .lrow.active { background: var(--accent); }
+.srow.active .stitle, .lrow.active .stitle { color: var(--on-accent); font-weight: 600; }
+.srow.active .smeta, .lrow.active .smeta { color: var(--on-accent); }
+.srow .stitle, .lrow .stitle { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.srow .smeta, .lrow .smeta { font-size: 11px; color: var(--muted); }
+.srow.bot .smeta::after, .lrow.bot .smeta::after { content: " · bot"; color: var(--bot); }
+.srow.active .smeta::after, .lrow.active .smeta::after { color: var(--on-accent); }
+.srow.unread .smeta::after, .lrow.unread .smeta::after { color: var(--on-mark-muted); }
 /* The working spinner: the row-level mark that a turn is in flight —
    streaming, tools, or cancelling, one class for all three (the busy
    definition is PhaseView::is_working; the web list never re-derives
@@ -208,13 +211,13 @@ pub const SIDEBAR_CSS: &str = r#"
    composer's busy spinner uses, then the fill-scoped ink rules give
    it the fill's dark ink on accent and unread rows — every element
    placed on a fill sets its own color. */
-.srow.working .working { display: inline-block; width: 10px; height: 10px;
+.srow.working .working, .lrow.working .working { display: inline-block; width: 10px; height: 10px;
                           margin-right: 6px; vertical-align: -1px;
                           border: 2px solid var(--accent); border-top-color: transparent;
                           border-radius: 50%;
                           animation: webui-spin .8s linear infinite; }
-.srow.active .working { border-color: var(--on-accent); border-top-color: transparent; }
-.srow.unread .working { border-color: var(--on-fill); border-top-color: transparent; }
+.srow.active .working, .lrow.active .working { border-color: var(--on-accent); border-top-color: transparent; }
+.srow.unread .working, .lrow.unread .working { border-color: var(--on-fill); border-top-color: transparent; }
 /* The switch interstitial: the full-viewport loading overlay a
    session-row click raises (the switching signal drives it) until the
    activation response's page swap re-seeds the signal. Stacked above
@@ -238,7 +241,7 @@ pub const SIDEBAR_CSS: &str = r#"
 /* The error-notice banner: the failed activate/create POST's visible
    half — the fetch-error listener on the page root fills it (the
    switch signal clears and the failure names itself here), styled
-   only by tokens like every surface. Rendered hidden server-side
+   only by tokens like every surface. Served hidden from the server
    like the scrims; `data-show` owns the visibility once bound. */
 #error-notice { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
                 z-index: 80; background: var(--bg-badge-err); color: var(--err);
@@ -289,8 +292,8 @@ pub const SIDEBAR_CSS: &str = r#"
   #drawer-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 30;
                   display: block; }
   #drawer-scrim[hidden] { display: none; }
-  .srow { padding: 12px 14px; }
-  .srow .stitle { min-height: 22px; }
+  .srow, .lrow { padding: 12px 14px; }
+  .srow .stitle, .lrow .stitle { min-height: 22px; }
   #sessions-filter { margin: 8px 10px; padding: 9px 10px; font-size: 16px;
                      width: calc(100% - 20px); }
   /* Phone-only bumps for the new elements: the kebab and each popup
@@ -321,7 +324,19 @@ async fn pull_handler(
         crate::contract::SIGNAL_SESSIONS_FILTER,
     );
     let q = (!q.is_empty()).then_some(q.as_str());
-    let fragment = SessionsRegion::sidebar_fragment(&shared, query.view(), q).await?;
+    // The view rides the same signal dump the filter does (the live
+    // client's @get URL is the constant route, so a top-level `view=`
+    // exists only on curls and the Rust tests — the dump wins when
+    // present, the exact precedence `filter_from_query_or_signal`
+    // runs).
+    let dump_view =
+        crate::server::signal_from_query(raw.as_deref(), crate::contract::SIGNAL_SIDEBAR_VIEW);
+    let view = jinn_webui_msg::SessionsQuery {
+        q: query.q.clone(),
+        view: Some(dump_view.unwrap_or_else(|| query.view().as_query_value().to_owned())),
+    }
+    .view();
+    let fragment = SessionsRegion::sidebar_fragment(&shared, view, q).await?;
     Ok(Fragment::new(fragment).with_swap("#sessions", "inner"))
 }
 

@@ -6,8 +6,8 @@
 <div id="{{ toggle_id }}" role="tablist" aria-label="sidebar list">
   <button id="{{ sessions_segment_id }}" type="button" role="tab"
           data-class:{{ active_class }}="${{ view_signal }} !== 'library'"
-          data-on:click="${{ view_signal }} = 'sessions' && (${{ tick_signal }} = ${{ tick_signal }} + 1) !== undefined">Sessions</button>
+          data-on:click="${{ view_signal }} = 'sessions'; ${{ tick_signal }} = ${{ tick_signal }} + 1">Sessions</button>
   <button id="{{ library_segment_id }}" type="button" role="tab"
           data-class:{{ active_class }}="${{ view_signal }} === 'library'"
-          data-on:click="${{ view_signal }} = 'library' && (${{ tick_signal }} = ${{ tick_signal }} + 1) !== undefined">Library</button>
+          data-on:click="${{ view_signal }} = 'library'; ${{ tick_signal }} = ${{ tick_signal }} + 1">Library</button>
 </div>
