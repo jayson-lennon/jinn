@@ -37,7 +37,7 @@ fetches once per page load; navigation costs no list retransmission
 list's tick once so the surviving sidebar picks up the new row).
 
 On a phone-width browser (under 768px) the session list is an off-canvas
-drawer, and the titlebar's sessions button (`📋`, beside the hamburger)
+drawer, and the titlebar's sessions button (`#`, beside the hamburger)
 opens it in one tap — no menu hop. The button turns yellow with a count
 badge when background sessions settled work you haven't viewed (the same
 unread mark that yellows the sidebar rows); activating a session clears its
