@@ -20,6 +20,16 @@ use jinn_slices::{SliceHost, bus::BusService};
 
 pub use jinn_webui2_msg::WEBUI2_PROTOCOL_VERSION;
 
+mod actions;
+mod connections;
+mod frames;
+mod listener;
+mod outbound;
+mod protocol;
+mod revision;
+mod server;
+mod snapshot;
+
 /// Why the second web UI's activation failed.
 #[derive(Debug, wherror::Error)]
 #[error(debug)]
@@ -27,18 +37,22 @@ pub enum WebUi2ActivationError {
     /// The `[webui2]` section failed to read or the bind failed to parse.
     #[error(debug)]
     Startup,
+    /// The configured address could not be bound.
+    #[error(debug)]
+    Bind,
 }
 
-/// Installs the second web UI: read the frozen bind.
+/// Installs the second web UI: spawns its outbound actor and binds `/web2`.
 ///
-/// Activation is fail-fast, like the original web UI: a broken bind
-/// cannot serve anything. The bind is read **once**; a live `[webui2]`
-/// edit applies at the next restart.
+/// Activation is fail-fast, like the original web UI: a broken bind cannot
+/// serve anything. The bind is read **once**; a live `[webui2]` edit
+/// applies at the next restart.
 ///
 /// # Errors
 ///
-/// Returns [`WebUi2ActivationError`] when the `[webui2]` section is
-/// unreadable or the bind is unparseable.
+/// Returns [`WebUi2ActivationError::Startup`] when the `[webui2]` section
+/// is unreadable or the bind unparseable, and
+/// [`WebUi2ActivationError::Bind`] when the address is taken.
 pub async fn activate(
     host: &mut SliceHost<'_, jinn_slices::RenderFacts>,
     config: &ConfigLayer,
@@ -46,13 +60,44 @@ pub async fn activate(
     state: State,
     services: &Services,
 ) -> Result<(), error_stack::Report<WebUi2ActivationError>> {
-    let _ = (host, bus, state, services);
+    let _ = services;
     let webui2_config = config
         .get::<jinn_preferences_config::schemas::WebUi2Config>()
         .change_context(WebUi2ActivationError::Startup)
         .attach("failed to read the [webui2] config section")?;
-    webui2_config
+    let bind = webui2_config
         .parse_bind()
-        .map_err(|report| report.change_context(WebUi2ActivationError::Startup))?;
+        .map_err(|report| report.change_context(WebUi2ActivationError::Startup))?
+        .to_string();
+
+    let outbound = outbound::spawn(
+        host.system(),
+        outbound::OutboundActorDeps {
+            state,
+            bus: bus.clone(),
+            connections: connections::ConnectionRegistry::default(),
+            revisions: revision::RevisionTracker::default(),
+        },
+    );
+
+    let shared = std::sync::Arc::new(server::ServerShared {
+        state: outbound.state().clone(),
+        outbound: outbound.clone(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+    });
+
+    let (bound, _outbound) = listener::spawn(
+        host.system(),
+        &listener::ListenerDeps {
+            bind,
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            shared,
+            bus: bus.clone(),
+        },
+    )
+    .await
+    .map_err(|report| report.change_context(WebUi2ActivationError::Bind))?;
+
+    tracing::info!(url = %bound.to_url_base(), "second web UI listening");
     Ok(())
 }

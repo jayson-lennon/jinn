@@ -17,6 +17,10 @@ pub enum ClientMsg {
         /// The newest transcript entry the page holds, or `None` on a
         /// fresh load.
         last_entry_id: Option<ChatEntryId>,
+        /// The history revision the page last saw, or `None` on a fresh
+        /// load. Incremental resume needs both this and the cursor to
+        /// match; anything else is a full snapshot.
+        revision: Option<u64>,
     },
     /// Send a message as a fresh turn (rejected while a turn runs).
     Send {

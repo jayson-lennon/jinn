@@ -6119,7 +6119,6 @@ version = "1.27.2"
 dependencies = [
  "axum",
  "error-stack",
- "futures",
  "jinn-app-state",
  "jinn-chat-input-msg",
  "jinn-config",
@@ -6143,7 +6142,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
- "tokio-stream",
  "toml 0.8.23",
  "tracing",
  "trouper",

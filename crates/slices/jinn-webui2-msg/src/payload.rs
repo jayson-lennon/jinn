@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// text, reasoning text, a tool call's argument JSON, and a tool result's
 /// output. Every other entry change is a whole-entry
 /// [`EntryUpsertBody`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DeltaField {
     /// The assistant entry's text.
@@ -54,6 +54,10 @@ pub struct SnapshotBody {
     pub model_label: String,
     /// The active session's title (empty when no session is active).
     pub title: String,
+    /// The active session's history revision. The page echoes it back
+    /// in `Hello` so the server can tell a safe incremental resume from
+    /// one that needs the whole transcript again.
+    pub revision: u64,
     /// The active session's transcript, in order.
     pub entries: Vec<EntryEnvelope>,
     /// The loaded sessions the sidebar shows.
@@ -95,6 +99,9 @@ impl EntryEnvelope {
 /// holds at that id.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntryUpsertBody {
+    /// The session the entry belongs to, so a page that has switched
+    /// sessions can discard a late frame.
+    pub session_id: SessionId,
     /// The entry's index in the session's history.
     pub index: usize,
     /// The entry.
@@ -104,6 +111,8 @@ pub struct EntryUpsertBody {
 /// A text chunk extending one of the four streamed entry fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntryDeltaBody {
+    /// The session the entry belongs to (see [`EntryUpsertBody::session_id`]).
+    pub session_id: SessionId,
     /// The entry the chunk extends.
     pub entry_id: ChatEntryId,
     /// Which field the chunk extends.

@@ -98,6 +98,7 @@ fn client_hello_with_cursor_round_trips() {
     let id = ChatEntryId::new();
     let msg = ClientMsg::Hello {
         last_entry_id: Some(id),
+        revision: None,
     };
 
     // When it round-trips.
@@ -113,6 +114,7 @@ fn client_hello_without_cursor_round_trips() {
     // Given a hello from a fresh page.
     let msg = ClientMsg::Hello {
         last_entry_id: None,
+        revision: None,
     };
 
     // When it round-trips.
@@ -128,6 +130,7 @@ fn client_hello_without_cursor_carries_an_explicit_null_tag() {
     // Given a hello from a fresh page.
     let msg = ClientMsg::Hello {
         last_entry_id: None,
+        revision: None,
     };
 
     // When serialized.
@@ -270,6 +273,7 @@ fn server_snapshot_round_trips() {
         },
         model_label: "ollama/llama3".to_owned(),
         title: "title".to_owned(),
+        revision: 0,
         entries: [ChatEntry::user("hi"), ChatEntry::assistant("yo")]
             .map(EntryEnvelope::new)
             .to_vec(),
@@ -297,6 +301,7 @@ fn server_snapshot_without_active_session_round_trips() {
         },
         model_label: String::new(),
         title: String::new(),
+        revision: 0,
         entries: Vec::new(),
         sessions: Vec::new(),
     });
@@ -313,6 +318,7 @@ fn server_snapshot_without_active_session_round_trips() {
 fn server_entry_upsert_round_trips() {
     // Given an upsert of a tool result.
     let msg = ServerMsg::EntryUpsert(EntryUpsertBody {
+        session_id: SessionId::new(),
         index: 7,
         entry: EntryEnvelope::new(ChatEntry::tool_result(
             "c1",
@@ -334,6 +340,7 @@ fn server_entry_upsert_round_trips() {
 fn server_entry_delta_round_trips() {
     // Given a delta for a tool call's arguments.
     let msg = ServerMsg::EntryDelta(EntryDeltaBody {
+        session_id: SessionId::new(),
         entry_id: ChatEntryId::new(),
         field: DeltaField::Args,
         chunk: "{\"cmd\":".to_owned(),
@@ -480,6 +487,7 @@ fn server_variant_carries_its_snake_case_tag() {
                 phase: phase.clone(),
                 model_label: String::new(),
                 title: String::new(),
+                revision: 0,
                 entries: Vec::new(),
                 sessions: Vec::new(),
             }),
@@ -487,6 +495,7 @@ fn server_variant_carries_its_snake_case_tag() {
         ),
         (
             ServerMsg::EntryUpsert(EntryUpsertBody {
+                session_id: SessionId::new(),
                 index: 0,
                 entry: EntryEnvelope::new(ChatEntry::user("hi")),
             }),
@@ -494,6 +503,7 @@ fn server_variant_carries_its_snake_case_tag() {
         ),
         (
             ServerMsg::EntryDelta(EntryDeltaBody {
+                session_id: SessionId::new(),
                 entry_id: ChatEntryId::new(),
                 field: DeltaField::Text,
                 chunk: "x".to_owned(),
@@ -557,6 +567,7 @@ fn client_variant_carries_its_snake_case_tag() {
         (
             ClientMsg::Hello {
                 last_entry_id: None,
+                revision: None,
             },
             "hello",
         ),
@@ -628,6 +639,7 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
         },
         model_label: String::new(),
         title: String::new(),
+        revision: 0,
         entries: sent.clone(),
         sessions: Vec::new(),
     });
@@ -748,6 +760,7 @@ fn a_transient_entry_keeps_its_kind_name_through_the_wire() {
     // Given a transient entry — the one kind the core's persisted
     // deserializer deliberately has no arm for.
     let msg = ServerMsg::EntryUpsert(EntryUpsertBody {
+        session_id: SessionId::new(),
         index: 0,
         entry: EntryEnvelope::new(ChatEntry::transient("welcome")),
     });
