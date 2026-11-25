@@ -312,6 +312,16 @@ impl SessionStore for SqliteSessionStore {
         rows.into_iter().map(library_summary_from_row).collect()
     }
 
+    async fn load_archive_rows(&self) -> Result<Vec<SessionSummary>, Report<SessionStoreError>> {
+        let dao = SessionDao::new(self.pool.clone());
+        let rows: Vec<ArchiveRow> = dao
+            .archive_rows()
+            .await
+            .change_context(SessionStoreError)
+            .attach("failed to query archive rows")?;
+        rows.into_iter().map(archive_summary_from_row).collect()
+    }
+
     async fn load_session(
         &self,
         session_id: &SessionId,
@@ -530,6 +540,29 @@ struct LibraryMemberRow {
     is_bot: bool,
 }
 
+/// Reading model for the archive picker's whole-store query: the scalar
+/// columns plus the one blob field its rows render.
+///
+/// [`SessionRow`] carries the full metadata blob, which is by far the
+/// heaviest column (task list, bot reports, working intervals); over a
+/// store of thousands that dominates every picker open. The picker shows
+/// only `project` from the blob, so SQLite extracts that one field and the
+/// blob itself never leaves the database.
+#[derive(Debug, Clone, Entity)]
+#[dao(table = "sessions")]
+struct ArchiveRow {
+    #[dao(pk)]
+    id: String,
+    title: Option<String>,
+    updated_at: String,
+    created_at: String,
+    parent_session: Option<String>,
+    archived: bool,
+    in_library: bool,
+    is_bot: bool,
+    project: Option<String>,
+}
+
 /// Insert model for the `sessions` table. Built from a [`SessionSnapshot`] then
 /// upserted via hand-written SQL.
 struct NewSessionRow {
@@ -624,6 +657,19 @@ trait SessionDao {
          FROM sessions WHERE in_library = TRUE"
     )]
     async fn library_member_rows(&self) -> daow::Result<Vec<LibraryMemberRow>>;
+
+    /// Every session's scalar columns plus the one blob field the archive
+    /// picker renders — `project`, pulled out by SQLite so the blob itself
+    /// never leaves the database.
+    ///
+    /// The blob stores a project as `{"path": …, "marker": "absolute"}`, so
+    /// the path is the nested `$.project.path`; extracting `$.project` would
+    /// return the whole object as text and parse as no path.
+    #[query(
+        "SELECT id, title, updated_at, created_at, parent_session, archived, in_library, is_bot, \
+         json_extract(metadata, '$.project.path') AS project FROM sessions"
+    )]
+    async fn archive_rows(&self) -> daow::Result<Vec<ArchiveRow>>;
 
     #[execute("UPDATE sessions SET archived = ? WHERE id = ?")]
     async fn set_archived(&self, archived: bool, id: String) -> daow::Result<daow::ExecuteResult>;
@@ -1664,6 +1710,27 @@ fn library_summary_from_row(
         row.in_library,
         row.is_bot,
         None,
+    )
+}
+
+/// Maps an [`ArchiveRow`] to its summary.
+///
+/// The project arrives as the path the blob stores, already extracted; a
+/// value that does not parse as an absolute path yields `None`, i.e. a
+/// blank project column — the same degradation [`summary_from_row`] gives
+/// a corrupt blob.
+fn archive_summary_from_row(row: ArchiveRow) -> Result<SessionSummary, Report<SessionStoreError>> {
+    let project = row.project.and_then(|path| path.parse().ok());
+    summary_parts(
+        &row.id,
+        row.title,
+        &row.updated_at,
+        &row.created_at,
+        row.parent_session.as_deref(),
+        row.archived,
+        row.in_library,
+        row.is_bot,
+        project,
     )
 }
 

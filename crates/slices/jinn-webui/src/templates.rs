@@ -381,6 +381,24 @@ pub fn paste_js_versioned_path() -> String {
         .expect("the image-attach helper is a manifest row")
 }
 
+/// The session-switch stall timeout's `/vendor/` URL —
+/// `switch.<hash>.js`.
+///
+/// # Panics
+///
+/// Panics when the script is not a manifest row — a contract break
+/// caught at the first page render, in tests, not in the wild.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "a missing row is a contract break that must panic loudly at the \
+              first page render, not a fallible path to thread through"
+)]
+pub fn switch_js_versioned_path() -> String {
+    crate::vendor::versioned_path(contract::VENDOR_SWITCH_JS)
+        .expect("the switch-timeout script is a manifest row")
+}
+
 /// The full page shell. Rendered by `GET /web` and by
 /// `GET /web/session/{id}` (a session page is the same shell with the
 /// regions filled for that session).
@@ -434,10 +452,18 @@ pub struct PageTemplate {
     /// The image-attach helper's cache-busting URL inside `/vendor/`
     /// (`paste.<hash>.js`), versioned the same way as the bundle.
     pub paste_js_versioned: String,
+    /// The session-switch stall timeout's cache-busting URL inside
+    /// `/vendor/` (`switch.<hash>.js`), versioned the same way.
+    pub switch_js_versioned: String,
     /// The page-root id — the element a session switch replaces.
     pub page_root_id: &'static str,
     /// The attribute carrying the viewed session's id.
     pub page_session_attr: &'static str,
+    /// The selector matching every element whose click posts the
+    /// activate route — the page root's fetch handler honors only
+    /// these, so an unrelated request's completion cannot end the
+    /// switch overlay.
+    pub switch_row_selector: &'static str,
     /// The sessions-list container id.
     pub sessions_id: &'static str,
     /// The sessions filter input's id — in the page shell, outside the
@@ -465,6 +491,16 @@ pub struct PageTemplate {
     /// The applets modal's host id — the seventh empty span sibling
     /// (the same host-not-container rule).
     pub applet_modal_host_id: &'static str,
+    /// The archive modal's host id — the eighth empty span sibling.
+    pub archive_modal_host_id: &'static str,
+    /// The archive modal host's CSS selector — the Archive button's
+    /// pull target.
+    pub archive_modal_host_selector: &'static str,
+    /// The archive modal fragment pull's route — the Archive button's
+    /// `@get` target.
+    pub archive_picker_route: &'static str,
+    /// The sidebar's Archive button id — opens the archive modal.
+    pub archive_button_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -560,8 +596,10 @@ impl PageTemplate {
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             paste_js_versioned: paste_js_versioned_path(),
+            switch_js_versioned: switch_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+            switch_row_selector: contract::SWITCH_ROW_SELECTOR,
             sessions_id: contract::SESSIONS_ID,
             sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
@@ -571,6 +609,10 @@ impl PageTemplate {
             tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
             skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
             applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
+            archive_modal_host_id: contract::ARCHIVE_MODAL_HOST_ID,
+            archive_modal_host_selector: contract::ARCHIVE_MODAL_HOST_SELECTOR,
+            archive_picker_route: contract::ARCHIVE_PICKER_ROUTE,
+            archive_button_id: contract::ARCHIVE_BUTTON_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -634,8 +676,10 @@ impl PageTemplate {
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             paste_js_versioned: paste_js_versioned_path(),
+            switch_js_versioned: switch_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+            switch_row_selector: contract::SWITCH_ROW_SELECTOR,
             sessions_id: contract::SESSIONS_ID,
             sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
@@ -645,6 +689,10 @@ impl PageTemplate {
             tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
             skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
             applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
+            archive_modal_host_id: contract::ARCHIVE_MODAL_HOST_ID,
+            archive_modal_host_selector: contract::ARCHIVE_MODAL_HOST_SELECTOR,
+            archive_picker_route: contract::ARCHIVE_PICKER_ROUTE,
+            archive_button_id: contract::ARCHIVE_BUTTON_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -712,6 +760,11 @@ pub struct PageRootTemplate {
     pub page_root_id: &'static str,
     /// The attribute carrying the viewed session's id.
     pub page_session_attr: &'static str,
+    /// The selector matching every element whose click posts the
+    /// activate route — the page root's fetch handler honors only
+    /// these, so an unrelated request's completion cannot end the
+    /// switch overlay.
+    pub switch_row_selector: &'static str,
     /// The sessions-list container id.
     pub sessions_id: &'static str,
     /// The sessions filter input's id.
@@ -730,6 +783,16 @@ pub struct PageRootTemplate {
     pub skills_modal_host_id: &'static str,
     /// The applets modal's host id.
     pub applet_modal_host_id: &'static str,
+    /// The archive modal's host id.
+    pub archive_modal_host_id: &'static str,
+    /// The sidebar's Archive button id �� opens the archive modal.
+    pub archive_button_id: &'static str,
+    /// The archive modal fragment pull's route — the Archive button's
+    /// `@get` target.
+    pub archive_picker_route: &'static str,
+    /// The archive modal host's CSS selector — the Archive button's
+    /// pull target.
+    pub archive_modal_host_selector: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -824,6 +887,7 @@ impl PageRootTemplate {
             model_label,
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+            switch_row_selector: contract::SWITCH_ROW_SELECTOR,
             sessions_id: contract::SESSIONS_ID,
             sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
@@ -833,6 +897,10 @@ impl PageRootTemplate {
             tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
             skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
             applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
+            archive_modal_host_id: contract::ARCHIVE_MODAL_HOST_ID,
+            archive_modal_host_selector: contract::ARCHIVE_MODAL_HOST_SELECTOR,
+            archive_picker_route: contract::ARCHIVE_PICKER_ROUTE,
+            archive_button_id: contract::ARCHIVE_BUTTON_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -2291,6 +2359,134 @@ impl AppletRowsTemplate {
         Self {
             rows,
             rows_id: contract::APPLET_ROWS_ID,
+        }
+    }
+}
+
+/// The archive modal's skeleton: the overlay, the filter input, and
+/// the pre-rendered rows (each [`ArchiveRowTemplate`] renders first).
+#[derive(Template)]
+#[template(path = "archive_modal.html")]
+pub struct ArchiveModalTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The filter text the rows were rendered with (the input's
+    /// initial value).
+    pub filter: String,
+    /// The modal overlay's id.
+    pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The filter text signal's name — the input binds it; the rows
+    /// effect reads it.
+    pub filter_signal: &'static str,
+    /// The open-toggle signal's name — the overlay binds it.
+    pub open_signal: &'static str,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+    /// The rows-fragment pull's URL — the modal effect's `@get`
+    /// target.
+    pub rows_url: &'static str,
+    /// The rows container's CSS selector — the modal effect's swap
+    /// target (never the modal host: the input must not re-render).
+    pub rows_selector: &'static str,
+}
+
+impl ArchiveModalTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(filter: String, rows: Vec<String>) -> Self {
+        Self {
+            rows,
+            filter,
+            modal_id: contract::ARCHIVE_MODAL_ID,
+            filter_id: contract::ARCHIVE_FILTER_ID,
+            filter_signal: contract::SIGNAL_ARCHIVE_FILTER,
+            open_signal: contract::SIGNAL_ARCHIVE_OPEN,
+            rows_id: contract::ARCHIVE_ROWS_ID,
+            rows_url: contract::ARCHIVE_ROWS_ROUTE,
+            rows_selector: contract::ARCHIVE_ROWS_SELECTOR,
+        }
+    }
+}
+
+/// One row of the archive modal: a session — loaded or archived —
+/// at its tree depth, with its project column and state tag. Rendered
+/// standalone; the modal embeds the pre-rendered rows.
+#[derive(Template)]
+#[template(path = "archive_row.html")]
+pub struct ArchiveRowTemplate {
+    /// The session's id.
+    pub session_id: jinn_core_types::SessionId,
+    /// The title split into matched/plain runs from the fuzzy filter
+    /// — matched runs render in `<mark>`.
+    pub title_segments: Vec<jinn_selection_widget::TextRun>,
+    /// Tree depth under the row's parent — 0 for a root; each level
+    /// indents the row further.
+    pub depth: usize,
+    /// The project column's display text (empty when none).
+    pub project: String,
+    /// The shared project-column width in characters — the column
+    /// sizes to the longest project so rows align.
+    pub project_width: usize,
+    /// Whether the session is loaded (vs archived-only).
+    pub loaded: bool,
+    /// The row's class.
+    pub row_class: &'static str,
+    /// The attribute a row names its session id with.
+    pub session_attr: &'static str,
+    /// The open-toggle signal's name — a row click closes the modal
+    /// before activating its session.
+    pub open_signal: &'static str,
+    /// The session-page route prefix — a row click's `@post` target
+    /// is this prefix plus the session id and `/activate`, the same
+    /// route the sidebar's rows and the Library rows activate through.
+    pub session_page_path: &'static str,
+}
+
+impl ArchiveRowTemplate {
+    /// Builds the template from one archive row and its title's
+    /// matched runs.
+    #[must_use]
+    pub(crate) fn from_row(
+        row: &crate::regions::session_archive::ArchiveRow,
+        title_segments: Vec<jinn_selection_widget::TextRun>,
+    ) -> Self {
+        Self {
+            session_id: row.session_id.clone(),
+            title_segments,
+            depth: row.depth,
+            project: row.project.clone(),
+            project_width: row.project_width,
+            loaded: row.loaded,
+            row_class: contract::ARCHIVE_ROW_CLASS,
+            session_attr: contract::ARCHIVE_SESSION_DATA_ATTR,
+            open_signal: contract::SIGNAL_ARCHIVE_OPEN,
+            session_page_path: contract::SESSION_PAGE_PREFIX,
+        }
+    }
+}
+
+/// The archive modal's rows fragment: the filtered rows alone,
+/// rendered into the rows container by the modal effect's re-pull —
+/// never the skeleton, so the filter input is never re-rendered.
+#[derive(Template)]
+#[template(path = "archive_rows.html")]
+pub struct ArchiveRowsTemplate {
+    /// The pre-rendered rows.
+    pub rows: Vec<String>,
+    /// The rows container's id.
+    pub rows_id: &'static str,
+}
+
+impl ArchiveRowsTemplate {
+    /// Builds the template: the contract's rows id filled, the rows
+    /// pre-rendered by the region.
+    #[must_use]
+    pub fn with_contract(rows: Vec<String>) -> Self {
+        Self {
+            rows,
+            rows_id: contract::ARCHIVE_ROWS_ID,
         }
     }
 }

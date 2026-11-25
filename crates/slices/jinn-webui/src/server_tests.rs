@@ -3331,9 +3331,10 @@ mod rename_actions {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn rename_response_carries_the_merged_list_and_push_names_the_count() {
+    async fn rename_response_carries_the_loaded_list_and_push_names_the_count() {
         // Given a live session, one store-only archived row the live
-        // map never carries, and a subscriber to the fan-out's push.
+        // map never carries (and the sessions list no longer merges),
+        // and a subscriber to the fan-out's push.
         let (state, _audit, mut rx, router) = harness_with_archived_row_and_receiver();
         let id = seed_session(&state);
         state
@@ -3351,13 +3352,15 @@ mod rename_actions {
         )
         .await;
 
-        // Then the response the handler emitted carries the archived
-        // row — the merged shape the GET pull serves (the element
-        // patch the initiating page's sidebar swaps). The addressed
-        // push is signal-only now: its payload is the unread count,
-        // and the receiving pages re-pull the list themselves.
+        // Then the response the handler emitted is the loaded-only
+        // shape the GET pull serves (the element patch the initiating
+        // page's sidebar swaps): the renamed live row is in it, the
+        // store-only archived row is not. The addressed push is
+        // signal-only now: its payload is the unread count, and the
+        // receiving pages re-pull the list themselves.
         assert_eq!(status, StatusCode::OK);
-        assert!(body.contains("Archived from last run"), "{body}");
+        assert!(body.contains(id.to_string().as_str()), "{body}");
+        assert!(!body.contains("Archived from last run"), "{body}");
         let envelope = rx.try_recv().expect("the rename push");
         assert_eq!(envelope.kind, jinn_webui_msg::SseKind::Sessions);
         assert_eq!(envelope.session_id, id);

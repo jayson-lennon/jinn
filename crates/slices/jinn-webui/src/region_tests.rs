@@ -153,6 +153,7 @@ fn the_registry_ids_are_unique_and_mirror_the_client_modules() {
         "menu",
         "model-picker",
         "persona-picker",
+        "session-archive",
         "session-new",
         "sessions",
         "skills",
@@ -169,9 +170,8 @@ async fn every_declared_container_id_appears_in_the_rendered_page_shell() {
     // routes serve).
     let (state, shared) = harness();
     let id = seed_session(&state);
-    let sessions = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions render");
+    let sessions =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions render");
     let transcript_html =
         crate::templates::render(&crate::templates::TranscriptTemplate::new(Vec::new(), 0))
             .expect("transcript renders");

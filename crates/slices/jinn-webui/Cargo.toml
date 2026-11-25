@@ -102,6 +102,9 @@ unicode-segmentation = { workspace = true }
 jiff = { workspace = true }
 
 [dev-dependencies]
+# The activation-wave tests pause the clock so the budget is asserted
+# without sleeping.
+tokio = { workspace = true, features = ["test-util"] }
 rstest = { workspace = true }
 # The attachment-ingestion tests build real PNG bytes in-process.
 image = { workspace = true }
