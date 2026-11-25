@@ -1326,23 +1326,37 @@ async fn harness_with_real_store_archived(title: &str, in_library: bool) -> (Str
 
 #[rstest::rstest]
 #[tokio::test]
-async fn an_archived_non_member_lists_in_the_sessions_view_and_activates() {
+async fn an_archived_non_member_is_absent_from_the_sessions_view() {
     // Given a real store holding one ARCHIVED, non-member session.
     let (base, id) = harness_with_real_store_archived("Archived plain", false).await;
     let client = client();
 
-    // When pulling the sessions view and clicking the row.
+    // When pulling the sessions view.
     let list = client
         .get(format!("{base}{}", contract::SESSIONS_ROUTE))
         .send()
         .await
         .expect("the sessions pull answers");
+
+    // Then the archived row is not in it — the sidebar lists loaded
+    // sessions only; the Archive picker reaches archived ones.
     assert_eq!(list.status(), StatusCode::OK);
     let body = list.text().await.expect("the list body reads");
     assert!(
-        body.contains(id.to_string().as_str()),
-        "the archived non-member renders in the sessions view: {body}"
+        !body.contains(id.to_string().as_str()),
+        "no archived row in the sessions view: {body}"
     );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_archived_non_member_activates_through_the_existing_route() {
+    // Given a real store holding one ARCHIVED, non-member session — the
+    // row a click in the Archive picker names.
+    let (base, id) = harness_with_real_store_archived("Archived plain", false).await;
+    let client = client();
+
+    // When posting its activate route.
     let activate = client
         .post(format!(
             "{base}{}{id}/activate",
@@ -1353,8 +1367,8 @@ async fn an_archived_non_member_lists_in_the_sessions_view_and_activates() {
         .await
         .expect("the activate POST answers");
 
-    // Then the click loads it — a 200, never a 404: the archived
-    // state is the ordinary load path, not a refusal.
+    // Then it loads — a 200, never a 404: the archived state is the
+    // ordinary load path, not a refusal.
     assert_eq!(
         activate.status(),
         StatusCode::OK,

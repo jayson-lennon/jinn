@@ -177,7 +177,7 @@ impl SessionStore for SeededSummaryStore {
 }
 
 /// One archived session's summary.
-fn archived_summary(id: SessionId, title: &str) -> SessionSummary {
+pub(crate) fn archived_summary(id: SessionId, title: &str) -> SessionSummary {
     SessionSummary {
         session_id: id,
         title: title.to_owned(),
@@ -191,17 +191,9 @@ fn archived_summary(id: SessionId, title: &str) -> SessionSummary {
     }
 }
 
-/// An archived summary with a parent link — a subagent child session.
-fn archived_child(id: SessionId, parent: SessionId, title: &str) -> SessionSummary {
-    SessionSummary {
-        parent_session: Some(parent),
-        ..archived_summary(id, title)
-    }
-}
-
 /// Seeds a live session with the given title and parent, returning
 /// its id.
-fn seed_child(state: &State, parent: &SessionId, title: &str) -> SessionId {
+pub(crate) fn seed_child(state: &State, parent: &SessionId, title: &str) -> SessionId {
     let session = jinn_session_state::ChatSessionState::new();
     let id = session.session_id().clone();
     state.write().session.insert(session);
@@ -218,7 +210,7 @@ fn seed_child(state: &State, parent: &SessionId, title: &str) -> SessionId {
 /// state over both. `seed` runs before the store is built, so its
 /// summaries can reference live session ids (parent links). Live
 /// sessions seed through the returned [`State`].
-fn harness_with<T>(
+pub(crate) fn harness_with<T>(
     seed: impl FnOnce(&State) -> T,
     summaries: impl FnOnce(&T) -> Vec<SessionSummary>,
 ) -> (State, ServerShared) {
@@ -303,12 +295,12 @@ fn harness_with<T>(
 }
 
 /// The plain harness: summaries known up front.
-fn harness(summaries: Vec<SessionSummary>) -> (State, ServerShared) {
+pub(crate) fn harness(summaries: Vec<SessionSummary>) -> (State, ServerShared) {
     harness_with(|_state| (), |_seeded| summaries)
 }
 
 /// Seeds a live session with the given title, returning its id.
-fn seed_titled(state: &State, title: &str) -> SessionId {
+pub(crate) fn seed_titled(state: &State, title: &str) -> SessionId {
     let session = jinn_session_state::ChatSessionState::new();
     let id = session.session_id().clone();
     state.write().session.insert(session);
@@ -325,33 +317,28 @@ fn seed_titled(state: &State, title: &str) -> SessionId {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn the_pull_lists_loaded_rows_above_archived_rows() {
-    // Given one loaded session titled "Zebra" (newest) and one
-    // archived titled "Aardvark" (also fresh) — the title/timestamp
-    // combination that floated the archived row above loaded ones
-    // under the old page-level sort.
+async fn the_pull_lists_no_archived_row() {
+    // Given one loaded session and one archived summary — the archived
+    // row the sidebar used to merge in from the store.
     let (state, shared) = harness(vec![archived_summary(SessionId::new(), "Aardvark")]);
     let loaded = seed_titled(&state, "Zebra");
-    assert!(
-        state.write().session.set_active(loaded.clone()),
-        "the seeded session activates"
-    );
 
     // When pulling the sessions fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
-    // Then the loaded row precedes the archived row regardless of
-    // title order — loaded trees form the top group (the picker's
-    // tree-aware sort), archived trees the bottom one.
+    // Then the archived row does not render — the sidebar lists
+    // loaded sessions only; the Archive picker reaches archived ones.
+    // (The map's default session lists too; it is a loaded one.)
     let ids = ids_in_order(&html);
-    assert_eq!(
-        ids.first().map(String::as_str),
-        Some(loaded.to_string().as_str()),
-        "the loaded tree leads: {html}"
+    assert!(
+        ids.contains(&loaded.to_string()),
+        "the loaded session lists: {html}"
     );
-    assert_eq!(ids.len(), 3, "every row renders: {html}");
+    assert!(
+        !html.contains("Aardvark"),
+        "no archived row renders: {html}"
+    );
 }
 
 #[rstest::rstest]
@@ -400,9 +387,8 @@ async fn children_nest_under_their_parent() {
     let child = seed_child(&state, &root, "subagent child");
 
     // When pulling the sessions fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
     // Then the child renders directly under its parent — the picker's
     // DFS order.
@@ -427,25 +413,17 @@ async fn children_nest_under_their_parent() {
 #[rstest::rstest]
 #[tokio::test]
 async fn a_matching_child_surfaces_its_parent() {
-    // Given a live root "tts" whose archived subagent children carry
-    // titles the root's own title does not contain — the exact shape
-    // behind the user's report ("tts" + "please set up kokoro…"):
-    // matching a child must surface the parent, the way the TUI
-    // picker does.
+    // Given a live root "tts" whose live subagent children carry titles
+    // the root's own title does not contain — matching a child must
+    // surface the parent, the way the TUI picker does.
     let kokoro = "please set up kokoro for me so i can render tts locally";
-    let (_state, shared) = harness_with(
-        |state| seed_titled(state, "tts"),
-        |root| {
-            vec![
-                archived_child(SessionId::new(), root.clone(), kokoro),
-                archived_child(SessionId::new(), root.clone(), kokoro),
-            ]
-        },
-    );
+    let (state, shared) = harness(Vec::new());
+    let root = seed_titled(&state, "tts");
+    seed_child(&state, &root, kokoro);
+    seed_child(&state, &root, kokoro);
 
     // When pulling with a `q` only the children's titles match.
     let html = crate::regions::sessions::sessions_fragment(&shared, Some("please set"))
-        .await
         .expect("sessions pull renders");
 
     // Then the root renders alongside its matched children — the
@@ -467,26 +445,22 @@ async fn a_matching_child_surfaces_its_parent() {
 #[rstest::rstest]
 #[tokio::test]
 async fn a_matching_q_returns_only_the_matching_session() {
-    // Given a loaded "Fix the leak" and an archived "Aardvark notes".
-    let (state, shared) = harness(vec![archived_summary(SessionId::new(), "Aardvark notes")]);
-    let loaded = seed_titled(&state, "Fix the leak");
+    // Given a loaded "Fix the leak" and a loaded "Aardvark notes".
+    let (state, shared) = harness(Vec::new());
+    let leak = seed_titled(&state, "Fix the leak");
+    let aardvark = seed_titled(&state, "Aardvark notes");
 
-    // When pulling with a `q` only the archived title fuzzy-matches.
+    // When pulling with a `q` only the second title fuzzy-matches.
     let html = crate::regions::sessions::sessions_fragment(&shared, Some("ardvark"))
-        .await
         .expect("sessions pull renders");
 
-    // Then only the archived session's row renders — matched
-    // server-side, on the merged tree.
+    // Then only the matching session's row renders — matched
+    // server-side over the loaded tree.
     let ids = ids_in_order(&html);
-    assert_eq!(ids.len(), 1, "only the match renders: {html}");
+    assert_eq!(ids, vec![aardvark.to_string()], "only the match: {html}");
     assert!(
-        html.contains("Aardvark notes"),
-        "the archived match renders: {html}"
-    );
-    assert!(
-        !html.contains(&loaded.to_string()),
-        "the loaded non-match is filtered out: {html}"
+        !html.contains(&leak.to_string()),
+        "the non-match is filtered out: {html}"
     );
 }
 
@@ -502,7 +476,6 @@ async fn every_whitespace_term_must_match() {
 
     // When pulling with a two-term `q`.
     let html = crate::regions::sessions::sessions_fragment(&shared, Some("please set"))
-        .await
         .expect("sessions pull renders");
 
     // Then only the title admitting both terms renders — the picker's
@@ -524,7 +497,6 @@ async fn a_non_matching_q_returns_an_empty_list() {
 
     // When pulling with a `q` nothing matches.
     let html = crate::regions::sessions::sessions_fragment(&shared, Some("qqqqzzzz"))
-        .await
         .expect("sessions pull renders");
 
     // Then no row renders — an empty fragment, not an error.
@@ -534,39 +506,39 @@ async fn a_non_matching_q_returns_an_empty_list() {
 #[rstest::rstest]
 #[tokio::test]
 async fn an_absent_q_returns_every_session() {
-    // Given a loaded session and an archived one.
+    // Given a loaded session and an archived summary the sidebar no
+    // longer lists.
     let (state, shared) = harness(vec![archived_summary(SessionId::new(), "Aardvark")]);
     let loaded = seed_titled(&state, "Fix the leak");
 
     // When pulling with no `q`.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
-    // Then every row renders — the unfiltered case (the map's default
-    // session rides along).
+    // Then every LOADED row renders — the unfiltered case (the map's
+    // default session rides along); the archived summary does not.
     let ids = ids_in_order(&html);
-    assert_eq!(ids.len(), 3, "every session renders: {html}");
+    assert_eq!(ids.len(), 2, "the loaded sessions render: {html}");
     assert!(ids.contains(&loaded.to_string()), "{html}");
 }
 
 #[rstest::rstest]
 #[tokio::test]
 async fn an_empty_q_returns_every_session() {
-    // Given a loaded session and an archived one.
+    // Given a loaded session and an archived summary the sidebar no
+    // longer lists.
     let (state, shared) = harness(vec![archived_summary(SessionId::new(), "Aardvark")]);
     let loaded = seed_titled(&state, "Fix the leak");
 
     // When pulling with an empty `q` (the input cleared but sent).
     let html = crate::regions::sessions::sessions_fragment(&shared, Some(""))
-        .await
         .expect("sessions pull renders");
 
-    // Then every row renders — absent and empty are the same
+    // Then every LOADED row renders — absent and empty are the same
     // unfiltered case; the matcher's empty-pattern behavior never
-    // defines it.
+    // defines it, and the archived summary is not this list's.
     let ids = ids_in_order(&html);
-    assert_eq!(ids.len(), 3, "every session renders: {html}");
+    assert_eq!(ids.len(), 2, "the loaded sessions render: {html}");
     assert!(ids.contains(&loaded.to_string()), "{html}");
 }
 
@@ -656,9 +628,8 @@ async fn every_row_binds_the_active_class_to_the_viewed_session_signal() {
     );
 
     // When pulling the sessions fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
     // Then every row — live AND archived — carries the signal
     // binding, and the instance's active pointer decides nothing: the
@@ -738,9 +709,8 @@ async fn the_pull_fragment_marks_the_unread_row() {
     mark_unread(&shared, std::slice::from_ref(&foo));
 
     // When pulling the merged sessions fragment as Bar's page.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
     // Then Foo's row wears the unread class and Bar's does not —
     // the merged path reads the same cell the fan-out writes.
@@ -772,40 +742,36 @@ async fn the_pushed_fragment_marks_the_unread_row() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn an_archived_row_keeps_its_mark() {
-    // Given an archived summary — the store alone serves its row; and
-    // its id marked unread in the cell.
+async fn an_archived_library_member_keeps_its_mark() {
+    // Given an archived LIBRARY member — the store alone serves its
+    // row — with its id marked unread in the cell. The sidebar's
+    // sessions list no longer carries archived rows; the Library view
+    // is where an archived row still renders.
     let archived_id = SessionId::new();
     let (_state, shared) = harness_with(
         |_state| archived_id.clone(),
         |seeded| {
-            vec![SessionSummary {
-                session_id: seeded.clone(),
-                title: "Settled then archived".to_owned(),
-                updated_at: jiff::Timestamp::now(),
-                created_at: jiff::Timestamp::now(),
-                session_state: SessionState::Archived,
-                in_library: false,
-                is_bot: false,
-                parent_session: None,
-                project: None,
-            }]
+            vec![archived_summary_flagged(
+                seeded.clone(),
+                "Settled then archived",
+                true,
+            )]
         },
     );
     mark_unread(&shared, std::slice::from_ref(&archived_id));
 
-    // When pulling the merged fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
+    // When pulling the Library fragment.
+    let html = crate::regions::sessions::library_fragment(&shared, None)
         .await
-        .expect("sessions pull renders");
+        .expect("library pull renders");
 
-    // Then the archived row still wears the mark — archived-but-
-    // unviewed is still unviewed; viewing (activation or page
-    // arrival) clears it, and neither has happened.
+    // Then the archived member still wears the mark — archived-but-
+    // unviewed is still unviewed; viewing (activation or page arrival)
+    // clears it, and neither has happened.
     let rows = rows_in_order(&html);
     assert!(
         row_for(&rows, &archived_id).unread,
-        "the archived row stays marked: {html}"
+        "the archived member stays marked: {html}"
     );
 }
 
@@ -818,9 +784,8 @@ async fn a_fresh_harness_renders_no_marks() {
     seed_titled(&state, "Zebra");
 
     // When pulling the fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
     // Then no row carries the unread class — a fresh boot shows no
     // markers.
@@ -913,9 +878,8 @@ async fn a_harness_without_a_registry_renders_no_marks() {
     seed_titled(&state, "Foo");
 
     // When pulling the fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
     // Then the render degrades to no marks rather than failing — the
     // mark is signal, not correctness.
@@ -993,9 +957,8 @@ async fn a_busy_session_renders_the_working_spinner(
     );
 
     // When pulling the merged sessions fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
     // Then the busy row wears the working class, and the spinner span
     // sits ahead of the title inside that row.
@@ -1091,9 +1054,8 @@ async fn a_row_wearing_both_fills_resolves_to_the_viewed_fill() {
     // When pulling the fragment while Foo is both viewed and marked
     // (the markup's signal binding decides the fill; the classes can
     // co-occur).
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
     // Then the stylesheet's order hands the co-occurring fill to
     // `.active`: its accent background declaration is the last fill
@@ -1129,9 +1091,8 @@ async fn an_idle_session_renders_no_spinner() {
     }
 
     // When pulling the fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
     // Then the row carries no working class and no spinner span — its
     // absence is the idle signal.
@@ -1149,9 +1110,8 @@ async fn an_archived_row_never_carries_the_working_class() {
     let live = seed_titled(&state, "Live");
 
     // When pulling the merged fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
     // Then no archived row wears the working class — an archived
     // session has no turn in flight by definition.
@@ -1178,9 +1138,8 @@ async fn both_render_paths_produce_the_same_working_markup() {
         .begin_streaming();
 
     // When rendering through the pull path and the pushed path.
-    let pulled = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let pulled =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
     let pushed = {
         let guard = state.read();
         crate::regions::sessions::sessions_live_fragment(&guard)
@@ -1230,9 +1189,8 @@ async fn a_live_member_is_absent_from_the_pull_and_push_fragments() {
     let member = seed_member(&state, "Member", true);
 
     // When rendering through the pull path and the pushed path.
-    let pulled = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let pulled =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
     let pushed = {
         let guard = state.read();
         crate::regions::sessions::sessions_live_fragment(&guard)
@@ -1262,8 +1220,7 @@ async fn a_live_member_is_absent_from_the_pull_and_push_fragments() {
 #[tokio::test]
 async fn an_archived_member_is_absent_from_the_pull_fragment() {
     // Given one archived plain session and one archived library
-    // member — the exclusion must cover `append_summaries`, or the
-    // archived member leaks back into the tree.
+    // member — neither belongs in the loaded-only sessions list.
     let archived_plain = SessionId::new();
     let archived_member = SessionId::new();
     let (_state, shared) = harness(vec![
@@ -1271,20 +1228,20 @@ async fn an_archived_member_is_absent_from_the_pull_fragment() {
         archived_summary_flagged(archived_member.clone(), "Member archived", true),
     ]);
 
-    // When pulling the merged fragment.
-    let html = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    // When pulling the sessions fragment.
+    let html =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
 
-    // Then the archived member is absent and the plain archived row
-    // renders.
+    // Then BOTH archived rows are absent — the sidebar lists loaded
+    // sessions only, member or not.
+    let ids = ids_in_order(&html);
     assert!(
-        !ids_in_order(&html).contains(&archived_member.to_string()),
+        !ids.contains(&archived_member.to_string()),
         "the archived member is absent: {html}"
     );
     assert!(
-        ids_in_order(&html).contains(&archived_plain.to_string()),
-        "the plain archived row renders: {html}"
+        !ids.contains(&archived_plain.to_string()),
+        "the archived plain row is absent too: {html}"
     );
 }
 
@@ -1403,9 +1360,8 @@ async fn the_row_menu_renders_the_kebab_and_one_membership_entry() {
     let (state, shared) = harness(Vec::new());
     let plain = seed_titled(&state, "Plain");
     let member = seed_member(&state, "Member", true);
-    let sessions = crate::regions::sessions::sessions_fragment(&shared, None)
-        .await
-        .expect("sessions pull renders");
+    let sessions =
+        crate::regions::sessions::sessions_fragment(&shared, None).expect("sessions pull renders");
     let library = crate::regions::sessions::library_fragment(&shared, None)
         .await
         .expect("library pull renders");

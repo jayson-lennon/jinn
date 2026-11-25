@@ -13,6 +13,10 @@
       before the module (modules are deferred), so its `window.jinn*`
       hooks exist before any Datastar expression first runs. -#}
   <script src="{{ vendor_prefix }}{{ paste_js_versioned }}"></script>
+  {#- The session-switch stall timeout — same classic-script placement
+      as the paste helper, for the same reason: its `window.jinn*` hook
+      must exist before any Datastar expression first runs. -#}
+  <script src="{{ vendor_prefix }}{{ switch_js_versioned }}"></script>
   <style>{{ style|safe }}</style>
 </head>
 <body data-attr:data-theme="$webTheme || 'system'">

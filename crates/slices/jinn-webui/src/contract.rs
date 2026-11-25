@@ -349,10 +349,18 @@ pub const SIGNAL_MODELS_REFRESHING: &str = "modelsRefreshing";
 /// modal's effect re-pulls its rows in response.
 pub const SIGNAL_MODELS_TICK: &str = "modelsTick";
 
-/// The sessions-list tick — every pushed list refresh bumps it; the
-/// list's effect re-pulls with the active filter (pushed lists are
-/// signal-only: the pull remains the renderer).
+/// The sessions-list tick — the **user-action** trigger: the view
+/// toggle and the filter input bump it (`$sessionsTick + 1`), and the
+/// list's effect re-pulls. It is the page's counter and only the page
+/// writes it: a server push lands on [`SIGNAL_SESSIONS_REFRESH`]
+/// instead, so the two can never cross and silence a refetch.
 pub const SIGNAL_SESSIONS_TICK: &str = "sessionsTick";
+/// The sessions-list refresh counter — the **server-push** trigger.
+/// Every `sessions` SSE push stamps it with the stream's own counter
+/// (a value that only ever grows within one stream), and the list's
+/// effect re-pulls with the active filter. Pushed lists are
+/// signal-only: the pull remains the renderer.
+pub const SIGNAL_SESSIONS_REFRESH: &str = "sessionsRefresh";
 /// The titlebar sessions button's unread count — seeded at page
 /// render and stamped by the stream's connect convergence patch (no
 /// tick rides it: the root's tick effect is the page's one list
@@ -912,6 +920,77 @@ pub const APPLET_FILTER_QUERY_PARAM: &str = "filter";
 /// re-render).
 pub const APPLET_ROWS_SELECTOR: &str = "#applet-rows";
 
+// ── The session archive picker ──────────────────────────────────────
+//
+// The sidebar's Archive button opens a modal that mirrors the TUI
+// session picker over EVERY stored session — loaded and archived,
+// tree-nested — with the picker's own fuzzy title filter. The sidebar
+// lists loaded sessions only; this picker is how an archived one is
+// reached. Host-not-container: opening it never destroys the button
+// that opened it.
+
+/// The Archive modal's host span id in the page shell — the modal
+/// fragment swaps into it on open.
+pub const ARCHIVE_MODAL_HOST_ID: &str = "archive-modal-host";
+
+/// The same host spelled as a CSS selector.
+pub const ARCHIVE_MODAL_HOST_SELECTOR: &str = "#archive-modal-host";
+
+/// The archive modal overlay — present in the page only after the
+/// pull renders it in.
+pub const ARCHIVE_MODAL_ID: &str = "archive-modal";
+
+/// The modal's filter input — each keystroke re-queries the **rows**
+/// pull with the filter applied server-side (the rows-only pattern:
+/// the input is never re-rendered mid-typing).
+pub const ARCHIVE_FILTER_ID: &str = "archive-filter";
+
+/// The modal's row container — the list the filter's rows-only
+/// re-pull re-renders.
+pub const ARCHIVE_ROWS_ID: &str = "archive-rows";
+
+/// The archive row's class.
+pub const ARCHIVE_ROW_CLASS: &str = "archive-row";
+
+/// Every element whose click posts the activate route — the sidebar's
+/// session rows, the Library rows, and the archive picker's rows.
+///
+/// The page root's fetch handler keys on this: only a fetch issued by
+/// one of these ends the switch overlay. A `finished` from any other
+/// request (the list's own re-pull, a stream reconnect) must not, or
+/// the overlay vanishes while the session is still loading.
+pub const SWITCH_ROW_SELECTOR: &str = ".srow, .lrow, .archive-row";
+
+/// The sidebar button that opens the modal — it replaces the sessions
+/// filter input.
+pub const ARCHIVE_BUTTON_ID: &str = "archive-button";
+
+/// The attribute an archive row carries its session id in.
+pub const ARCHIVE_SESSION_DATA_ATTR: &str = "data-webui-archive-session";
+
+/// The archive modal's open toggle (view-local signal).
+pub const SIGNAL_ARCHIVE_OPEN: &str = "archiveOpen";
+/// The archive modal's filter text.
+pub const SIGNAL_ARCHIVE_FILTER: &str = "archivefilter";
+
+/// Route pattern — the archive modal fragment pull (`GET
+/// /web/session-archive`): no session id in the path — the store is
+/// instance-wide.
+pub const ARCHIVE_PICKER_ROUTE: &str = "/web/session-archive";
+
+/// Route pattern — the archive modal's **rows fragment** pull (`GET
+/// /web/session-archive/rows?filter=…`), the filter keystrokes'
+/// target: rows container only.
+pub const ARCHIVE_ROWS_ROUTE: &str = "/web/session-archive/rows";
+
+/// The archive rows pull's filter query parameter — absent or empty
+/// renders the most recent rows in tree order.
+pub const ARCHIVE_FILTER_QUERY_PARAM: &str = "filter";
+
+/// The archive rows container spelled as a CSS selector — the
+/// re-pull's swap target.
+pub const ARCHIVE_ROWS_SELECTOR: &str = "#archive-rows";
+
 // ── Endpoints ───────────────────────────────────────────────────────
 
 /// The landing/session page path (the client's entry URL).
@@ -1026,6 +1105,15 @@ pub const VENDOR_APP_JS: &str = "datastar.js";
 /// the vendor tree is committed input).
 pub const VENDOR_PASTE_JS: &str = "paste.js";
 
+/// The session-switch stall timeout's served filename inside
+/// `/vendor/` — the page's second authored script besides the bundle.
+pub const VENDOR_SWITCH_JS: &str = "switch.js";
+
+/// The document event the stall-timeout script dispatches when a
+/// session switch outlives its budget — the page root's expression
+/// clears the overlay and sets the error notice on it.
+pub const SWITCH_STALLED_EVENT: &str = "jinnswitchstalled";
+
 /// The contract's DOM-targeting constants: id, attribute, class, and
 /// action names. The referential-integrity gate renders the page and
 /// asserts each of these appears in the HTML.
@@ -1059,6 +1147,8 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_REFRESH_MODELS,
     SESSION_ROW_CLASS,
     WORKING_CLASS,
+    ARCHIVE_ROW_CLASS,
+    SWITCH_ROW_SELECTOR,
     SESSIONS_VIEW_TOGGLE_ID,
     SESSIONS_VIEW_SESSIONS_ID,
     SESSIONS_VIEW_LIBRARY_ID,
@@ -1140,6 +1230,12 @@ pub const DOM_CONSTANTS: &[&str] = &[
     APPLET_STATUS_ID,
     APPLET_ROWS_ID,
     APPLET_NAME_DATA_ATTR,
+    ARCHIVE_MODAL_HOST_ID,
+    ARCHIVE_MODAL_ID,
+    ARCHIVE_FILTER_ID,
+    ARCHIVE_ROWS_ID,
+    ARCHIVE_BUTTON_ID,
+    ARCHIVE_SESSION_DATA_ATTR,
     DRAWER_SCRIM_ID,
     MENU_SCRIM_ID,
     SWITCH_OVERLAY_ID,
@@ -1194,6 +1290,10 @@ pub const CLIENT_PATHS: &[&str] = &[
     APPLET_ROWS_ROUTE,
     APPLET_FILTER_QUERY_PARAM,
     APPLET_ROWS_SELECTOR,
+    ARCHIVE_PICKER_ROUTE,
+    ARCHIVE_ROWS_ROUTE,
+    ARCHIVE_FILTER_QUERY_PARAM,
+    ARCHIVE_ROWS_SELECTOR,
     SESSIONS_FILTER_QUERY_PARAM,
     SESSIONS_VIEW_QUERY_PARAM,
     LIBRARY_TOGGLE_SUFFIX,
@@ -1237,6 +1337,9 @@ pub const CLIENT_URLS: &[&str] = &[
     APPLET_PICKER_ROUTE,
     APPLET_ROWS_ROUTE,
     APPLET_ROWS_SELECTOR,
+    ARCHIVE_PICKER_ROUTE,
+    ARCHIVE_ROWS_ROUTE,
+    ARCHIVE_ROWS_SELECTOR,
     VENDOR_PREFIX,
     THEME_PATH,
     LIBRARY_TOGGLE_SUFFIX,

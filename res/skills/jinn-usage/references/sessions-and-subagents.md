@@ -50,10 +50,22 @@ title is the only session action on the web — archiving, closing, and
 tearing down are TUI-only, as is forking.
 
 The sidebar's **Sessions | Library** toggle switches the list between
-ordinary sessions and Library members. Membership is changed from the
-row's `⋮` menu — **add to library** / **remove from library** — and the
-row moves between the two lists on every open page without a reload.
-Opening an archived Library member loads it like any other row.
+loaded sessions and Library members. The Sessions list carries only
+sessions that are loaded — never archived ones, however many the store
+holds — so it stays small. Membership is changed from the row's `⋮`
+menu — **add to library** / **remove from library** — and the row moves
+between the two lists on every open page without a reload. The Library
+view keeps a title filter box; the Sessions view carries an **Archive**
+button in its place.
+
+The **Archive** button opens a picker over every stored session, loaded
+and archived alike. It mirrors the TUI session picker: rows nest as a
+tree (subagent children under the session that spawned them), each
+with its project and a `loaded` / `archived` tag, and the filter box
+narrow them with the TUI picker's own fuzzy match. It shows at most the
+first 50 rows, so it stays fast on a large store. Clicking a row opens
+that session. It is the only way to reach an archived session from the
+web.
 
 A **lifecycle recipe** is a named pair of setup/teardown commands configured
 in `jinn.toml` (`[[session_lifecycle.script]]`, e.g. open a fossil branch

@@ -61,7 +61,8 @@ these, say so rather than describing a control that is not there.
 - The `#prompt`, `@attachment`, and `/command` input tokens. Text is
   sent verbatim.
 - Forking, resuming (`c`), lifecycle setup (`s`), archiving, closing,
-  and tearing down sessions.
+  and tearing down sessions. (The web can *open* an archived session
+  through its **Archive** picker, but cannot archive one.)
 - Model alloys and multi-select, reasoning-effort and endpoint pickers.
 - Staged toggling in the tool and MCP pickers (the web commits per
   click), the MCP inspector, and the pickers' context-cost footers.

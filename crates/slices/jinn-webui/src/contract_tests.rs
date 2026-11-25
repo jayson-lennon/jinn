@@ -91,8 +91,10 @@ fn rendered_page() -> String {
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         paste_js_versioned: crate::templates::paste_js_versioned_path(),
+        switch_js_versioned: crate::templates::switch_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+        switch_row_selector: contract::SWITCH_ROW_SELECTOR,
         sessions_id: contract::SESSIONS_ID,
         sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
@@ -102,6 +104,10 @@ fn rendered_page() -> String {
         tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
         skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
         applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
+        archive_modal_host_id: contract::ARCHIVE_MODAL_HOST_ID,
+        archive_modal_host_selector: contract::ARCHIVE_MODAL_HOST_SELECTOR,
+        archive_picker_route: contract::ARCHIVE_PICKER_ROUTE,
+        archive_button_id: contract::ARCHIVE_BUTTON_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -312,6 +318,57 @@ fn the_paste_helper_bytes_name_the_contract_ids_they_drive() {
 
 #[rstest::rstest]
 #[test]
+fn the_page_loads_the_switch_timeout_as_a_versioned_classic_script() {
+    // Given the fully rendered page shell.
+    let page = rendered_page();
+
+    // When finding the switch-timeout script's tag.
+    let versioned = crate::templates::switch_js_versioned_path();
+    let marker = format!("src=\"{}{versioned}\"", contract::VENDOR_PREFIX);
+
+    // Then the page loads it under its cache-busting URL, and that URL
+    // resolves through the request table to the manifest row.
+    assert!(
+        page.contains(&marker),
+        "the page must load {marker} as the switch timeout; got: {page}"
+    );
+    assert!(
+        crate::vendor::resolve_request(&versioned)
+            .is_some_and(|(asset, hash)| asset.path == contract::VENDOR_SWITCH_JS && hash.is_some()),
+        "the versioned switch-timeout URL must resolve through the request table"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_switch_timeout_dispatches_the_event_the_page_listens_for() {
+    // Given the script's embedded bytes (the pinned vendor row) and the
+    // rendered page shell.
+    let asset = crate::vendor::VENDOR_ASSETS
+        .iter()
+        .find(|a| a.path == contract::VENDOR_SWITCH_JS)
+        .expect("switch.js is a manifest row");
+    let source = String::from_utf8(asset.bytes.to_vec()).expect("switch.js is utf-8");
+    let page = rendered_page();
+
+    // Then the script names the contract's stall event verbatim —
+    // a rename without a re-pin fails here rather than silently leaving
+    // the overlay stuck.
+    assert!(
+        source.contains(contract::SWITCH_STALLED_EVENT),
+        "switch.js must dispatch `{}`; got: {source}",
+        contract::SWITCH_STALLED_EVENT
+    );
+    // And the page's root subscribes to that same event by name.
+    let listener = format!("data-on:{}__document", contract::SWITCH_STALLED_EVENT);
+    assert!(
+        page.contains(&listener),
+        "the page must listen for `{listener}`; got: {page}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
 fn the_page_names_the_viewed_session_in_the_data_attribute() {
     // Given the fully rendered page shell for a session id.
     let id = jinn_core_types::SessionId::new();
@@ -338,8 +395,10 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         paste_js_versioned: crate::templates::paste_js_versioned_path(),
+        switch_js_versioned: crate::templates::switch_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+        switch_row_selector: contract::SWITCH_ROW_SELECTOR,
         sessions_id: contract::SESSIONS_ID,
         sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
@@ -349,6 +408,10 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
         skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
         applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
+        archive_modal_host_id: contract::ARCHIVE_MODAL_HOST_ID,
+        archive_modal_host_selector: contract::ARCHIVE_MODAL_HOST_SELECTOR,
+        archive_picker_route: contract::ARCHIVE_PICKER_ROUTE,
+        archive_button_id: contract::ARCHIVE_BUTTON_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -409,8 +472,10 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         paste_js_versioned: crate::templates::paste_js_versioned_path(),
+        switch_js_versioned: crate::templates::switch_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+        switch_row_selector: contract::SWITCH_ROW_SELECTOR,
         sessions_id: contract::SESSIONS_ID,
         sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
@@ -420,6 +485,10 @@ fn the_page_shell_seeds_the_attention_signal_with_the_render_time_count() {
         tools_modal_host_id: contract::TOOLS_MODAL_HOST_ID,
         skills_modal_host_id: contract::SKILL_MODAL_HOST_ID,
         applet_modal_host_id: contract::APPLET_MODAL_HOST_ID,
+        archive_modal_host_id: contract::ARCHIVE_MODAL_HOST_ID,
+        archive_modal_host_selector: contract::ARCHIVE_MODAL_HOST_SELECTOR,
+        archive_picker_route: contract::ARCHIVE_PICKER_ROUTE,
+        archive_button_id: contract::ARCHIVE_BUTTON_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,

@@ -1,8 +1,11 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-11-24 v.27.1
 
 - (webui) Web addresses are now linkified.
+- (webui) Reduced network load.
+- (webui) Session list now only shows loaded sessions.
+- (webui) Session filter input changed to "Archive" button. Clicking activates a new session picker.
 
 ## 2026-11-24 v1.27.0
 

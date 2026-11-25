@@ -189,8 +189,9 @@ titlebar sits at the top of the main column.
 | `#` + count (left of the title, phone widths only) | The sessions button: opens the session drawer. Turns **yellow** with a number when background sessions finished work you have not viewed. | `sessions-and-subagents.md` |
 | Title | The session's title. Click it to rename. | `sessions-and-subagents.md` |
 | `[model]` (titlebar, right) | The model picker button, naming the current model. | `models-and-providers.md` |
-| Sidebar `Sessions \| Library` | Switches the list between sessions and Library members. | `sessions-and-subagents.md`, `bots.md` |
-| Sidebar `filter…` box | Narrows the list with the session picker's fuzzy match. | `models-and-providers.md` |
+| Sidebar `Sessions \| Library` | Switches the list between loaded sessions and Library members. Archived sessions are never in the Sessions list. | `sessions-and-subagents.md`, `bots.md` |
+| Sidebar `[Archive]` (Sessions view) | Opens a picker over every stored session, loaded and archived, tree-nested, with the TUI picker's fuzzy filter. | `sessions-and-subagents.md` |
+| Sidebar `filter library…` box (Library view) | Narrows the Library list by title. | `sessions-and-subagents.md` |
 | **Blue** session row | The session this page is viewing. | `models-and-providers.md` |
 | **Yellow** session row | A session that finished work while you were not viewing it. | `models-and-providers.md` |
 | `· bot` after a row's title | A bot session. | `bots.md` |

@@ -57,3 +57,12 @@ encoding = "identity"
 served = "paste.js"
 sha256 = "3fc011c244d1163fdb6c0acc83691507a9d6a0bccdf65394a13db18e12012dee"
 encoding = "identity"
+
+# The session-switch stall timeout — one authored script, not build
+# output. A timer has no declarative path (Datastar expressions are
+# synchronous), so the overlay's hard bailout lives here. Re-pin its
+# sha256 by hand on any edit.
+[[assets]]
+served = "switch.js"
+sha256 = "a6ca4830781b458d9cf843858fd66c204e6be4796275e221acba6d82cee3f888"
+encoding = "identity"

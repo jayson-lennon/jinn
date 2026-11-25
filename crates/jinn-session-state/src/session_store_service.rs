@@ -83,6 +83,17 @@ impl SessionStoreService {
         self.svc.library_members().await
     }
 
+    /// Load summaries for every session, loaded and archived alike.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionStoreError`] if the database cannot be read.
+    pub async fn load_archive_rows(
+        &self,
+    ) -> Result<Vec<SessionSummary>, Report<SessionStoreError>> {
+        self.svc.load_archive_rows().await
+    }
+
     /// Load a full session by ID.
     ///
     /// # Errors

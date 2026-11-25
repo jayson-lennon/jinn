@@ -21,7 +21,9 @@ export const WORKING_SPINNER = ".srow.working .working";
  * accumulates sessions across the alphabetical run, so specs never
  * address rows by index or count. */
 export const SESSION_ROW_BY_ID = (id) => `.srow[${SESSION_ID_ATTR}="${id}"]`;
-/** The sidebar filter input id (`wire.SESSIONS_FILTER_INPUT_ID`). */
+/** The sidebar's Library-view title filter id
+ * (`wire.SESSIONS_FILTER_INPUT_ID`) — shown only while the Library
+ * view is active; the Sessions view carries the Archive button. */
 export const SESSIONS_FILTER = "#sessions-filter";
 /** The page-root id (`wire.PAGE_ROOT_ID`). */
 export const PAGE_ROOT = "#page-root";
@@ -248,6 +250,21 @@ export const ATTACH_BUTTON = "#image-attach-button";
 
 /** The sidebar view toggle's container id (`wire.SESSIONS_VIEW_TOGGLE_ID`). */
 export const VIEW_TOGGLE = "#sessions-view-toggle";
+
+/** The sidebar's Archive button id (`wire.ARCHIVE_BUTTON_ID`) — opens
+ * the archive modal over every stored session. */
+export const ARCHIVE_BUTTON = "#archive-button";
+/** The archive modal overlay id (`wire.ARCHIVE_MODAL_ID`). */
+export const ARCHIVE_MODAL = "#archive-modal";
+/** The archive modal's host span id (`wire.ARCHIVE_MODAL_HOST_ID`). */
+export const ARCHIVE_MODAL_HOST = "#archive-modal-host";
+/** The archive modal's filter input id (`wire.ARCHIVE_FILTER_ID`). */
+export const ARCHIVE_FILTER = "#archive-filter";
+/** The archive modal's row container id (`wire.ARCHIVE_ROWS_ID`). */
+export const ARCHIVE_ROWS = "#archive-rows";
+/** One archive row, by its session-id attr
+ * (`wire.ARCHIVE_SESSION_DATA_ATTR`). */
+export const ARCHIVE_ROW_BY_ID = (id) => `[data-webui-archive-session="${id}"]`;
 /** The toggle's Sessions segment id (`wire.SESSIONS_VIEW_SESSIONS_ID`). */
 export const VIEW_SESSIONS = "#sessions-view-sessions";
 /** The toggle's Library segment id (`wire.SESSIONS_VIEW_LIBRARY_ID`). */

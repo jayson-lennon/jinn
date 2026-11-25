@@ -268,9 +268,10 @@ fn element_patch_inner(selector: String, html: String) -> datastar::DatastarEven
 /// every overlay, draft, filter, and tick signal re-seeded to its
 /// page-shell seed value (the atomic clear the old wholesale root
 /// swap used to provide implicitly). Deliberately absent:
-/// `sessionsTick` and `sessionsfilter` — patching either re-fires
-/// the surviving list's tick effect (the multi-trigger trap), and
-/// the user's filter view persists across navigation by design.
+/// `sessionsTick`, `sessionsRefresh` and `sessionsfilter` — patching
+/// any of the three re-fires the surviving list's effect (the
+/// multi-trigger trap), and the user's filter view persists across
+/// navigation by design.
 fn overlay_seed_pairs() -> Vec<(&'static str, serde_json::Value)> {
     overlay_seed_pairs_for_test()
 }
@@ -293,6 +294,7 @@ pub(crate) fn overlay_seed_pairs_for_test() -> Vec<(&'static str, serde_json::Va
         crate::contract::SIGNAL_TOOLS_OPEN,
         crate::contract::SIGNAL_SKILLS_OPEN,
         crate::contract::SIGNAL_APPLETS_OPEN,
+        crate::contract::SIGNAL_ARCHIVE_OPEN,
         crate::contract::SIGNAL_TITLE_EDITING,
         crate::contract::SIGNAL_TITLE_COMMITTING,
         crate::contract::SIGNAL_MODELS_REFRESHING,
@@ -307,6 +309,7 @@ pub(crate) fn overlay_seed_pairs_for_test() -> Vec<(&'static str, serde_json::Va
         crate::contract::SIGNAL_TOOLS_FILTER,
         crate::contract::SIGNAL_SKILLS_FILTER,
         crate::contract::SIGNAL_APPLETS_FILTER,
+        crate::contract::SIGNAL_ARCHIVE_FILTER,
         crate::contract::SIGNAL_TOOLS_TICK,
         crate::contract::SIGNAL_SKILLS_TICK,
         crate::contract::SIGNAL_MCP_TICK,
@@ -520,14 +523,15 @@ impl ServerShared {
         self.provider_cell.read()
     }
 
-    /// Loads the archived-session summaries through the session store.
-    pub(crate) async fn load_summaries(
+    /// Loads every stored session's summary — loaded and archived alike —
+    /// for the archive picker, without each row's metadata blob.
+    pub(crate) async fn load_archive_rows(
         &self,
     ) -> Result<
         Vec<jinn_session_store_msg::SessionSummary>,
         error_stack::Report<jinn_session_state::SessionStoreError>,
     > {
-        self.session_store.load_summaries().await
+        self.session_store.load_archive_rows().await
     }
 
     /// Loads the library-member summaries through the session store.
@@ -733,6 +737,10 @@ pub fn router(shared: ServerShared) -> Router {
             crate::contract::APPLET_ROWS_ROUTE,
             get(crate::regions::applets::rows_pull_handler),
         )
+        .route(
+            crate::contract::ARCHIVE_ROWS_ROUTE,
+            get(crate::regions::session_archive::rows_pull_handler),
+        )
         .route(crate::contract::SKILL_TOGGLE_PATH, post(skill_toggle))
         .route(crate::contract::SKILL_LOAD_PATH, post(skill_load))
         .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
@@ -893,7 +901,7 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
 /// no stream (the initial page load legitimately carries its full
 /// render — the one list fetch per page render includes it).
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
-    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None)?;
     let attention_count = {
         let guard = shared.read_state();
         crate::regions::sessions::unread_count_of(&guard)
@@ -936,7 +944,7 @@ async fn page_session(
 ) -> Result<Page, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
-    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None)?;
     // The settled prefix + boundary cursor, under one guard.
     let (transcript_entries, cursor) = {
         let guard = shared.read_state();
@@ -1695,6 +1703,16 @@ async fn activate(
     form: Result<WebForm<jinn_webui_msg::SwitchForm>, HandlerError>,
 ) -> Result<SseAction, HandlerError> {
     let WebForm(_) = form?;
+    // Validate the path id (the page render re-parses it; this check
+    // makes a malformed id a 400 before the switch publishes).
+    parse_session_id(&session_id)?;
+    // Subscribe BEFORE publishing the load request: the fan-out's
+    // activation wave fires as soon as the store actor completes the
+    // load, and a subscriber taken after the publish can miss a wave
+    // that has already gone by — falling through to the full budget on
+    // every switch. A broadcast subscriber is only a cursor, so holding
+    // it across the publish is free.
+    let wave = shared.fanout.subscribe();
     crate::delivery::handle_switch(
         shared.state(),
         shared.bus(),
@@ -1703,9 +1721,6 @@ async fn activate(
     )
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
-    // Validate the path id (the page render re-parses it; this check
-    // makes a malformed id a 400 before the switch publishes).
-    parse_session_id(&session_id)?;
     // Wait out the fan-out's activation wave before rendering: the
     // store sets the active id, then the fan-out actor processes the
     // activation event — clearing the activated session's unread
@@ -1717,10 +1732,11 @@ async fn activate(
     // reaches it. Awaiting the wave itself (a bounded peek at the
     // fan-out's own broadcast, not a sleep) orders the response after
     // the clear, so the swap seed and the stream-connect convergence
-    // patch both read post-clear truth. The timeout bounds a
-    // no-mark activation (nothing to clear, no wave worth waiting
-    // for): the render falls through with whatever is current.
-    await_activation_wave(&shared, &session_id).await;
+    // patch both read post-clear truth. The budget bounds a no-mark
+    // activation (nothing to clear, no wave worth waiting for) and a
+    // wedged fan-out: the render falls through with whatever is
+    // current.
+    await_activation_wave(wave, &session_id).await;
     // A page render for the activated session. The load is async (the
     // store actor hydrates it), so a just-archived session may not be
     // in live state yet; the render falls through to the store and
@@ -1804,7 +1820,7 @@ async fn rename(
     // page render carries the store truth.) The rows carry no viewer
     // class — the viewed fill is client-side signal styling on
     // `$viewedSession` — so one markup shape serves every consumer.
-    let list_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
+    let list_html = crate::regions::sessions::sessions_fragment(&shared, None)?;
     let attention_count = {
         let guard = shared.read_state();
         crate::regions::sessions::unread_count_of(&guard)
@@ -1862,8 +1878,9 @@ async fn library_toggle(
 // ── SSE ─────────────────────────────────────────────────────────────
 
 /// How long [`await_activation_wave`] waits for the fan-out's
-/// activation wave before rendering the response anyway. The happy
-/// path is the fan-out actor's dispatch latency (microseconds); the
+/// activation wave before rendering the response anyway. On the happy
+/// path the subscriber exists before the load publishes, so the wave
+/// lands at the fan-out actor's dispatch latency (microseconds); the
 /// budget only ever binds on a wedged actor or an activation with no
 /// list fan to wait for.
 const ACTIVATION_WAVE_BUDGET: Duration = Duration::from_millis(250);
@@ -1873,10 +1890,15 @@ const ACTIVATION_WAVE_BUDGET: Duration = Duration::from_millis(250);
 /// [`crate::fanout::WebUiFanoutActor`] fans on every activation
 /// (`ActiveSessionChanged`, whichever branch moved the pointer) —
 /// so the activation response renders after the fan-out's mark-clear
-/// instead of racing it. Subscriber-side only: this reads the fan-out's
-/// output; the mark cell keeps its single writer.
-async fn await_activation_wave(shared: &ServerShared, session_id: &str) {
-    let mut rx = shared.fanout.subscribe();
+/// instead of racing it. `rx` must be subscribed **before** the load
+/// request publishes: the wave can fire at any point after, and a late
+/// subscriber misses one that has already gone by. Subscriber-side
+/// only: this reads the fan-out's output; the mark cell keeps its
+/// single writer.
+async fn await_activation_wave(
+    mut rx: tokio::sync::broadcast::Receiver<jinn_webui_msg::SseEnvelope>,
+    session_id: &str,
+) {
     let deadline = tokio::time::Instant::now() + ACTIVATION_WAVE_BUDGET;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -2196,4 +2218,127 @@ async fn health(AxumState(shared): AxumState<ServerShared>) -> Json<serde_json::
         "version": shared.version,
         "port": shared.port,
     }))
+}
+
+#[cfg(test)]
+mod activation_wave_tests {
+    use super::{ACTIVATION_WAVE_BUDGET, await_activation_wave};
+    use jinn_core_types::SessionId;
+    use jinn_webui_msg::{SseEnvelope, SseKind};
+    use std::future::Future;
+    use std::time::Duration;
+
+    fn envelope(kind: SseKind, session_id: &SessionId) -> SseEnvelope {
+        SseEnvelope {
+            kind,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html: String::new(),
+        }
+    }
+
+    /// Runs `wait` alongside the `events` that should or should not end
+    /// it, under the paused clock, and reports whether the wait completed
+    /// before `within` of virtual time elapsed.
+    ///
+    /// Both are driven in place — the function borrows the id it waits
+    /// for, and a spawned future must own everything it holds — and
+    /// concurrently, because the sender has to live while the wait runs.
+    async fn wait_completes_within<W, E>(wait: W, events: E, within: Duration) -> bool
+    where
+        W: Future<Output = ()>,
+        E: Future<Output = ()>,
+    {
+        let (completed, ()) = tokio::join!(
+            async {
+                tokio::select! {
+                    biased;
+                    () = wait => true,
+                    () = tokio::time::sleep(within) => false,
+                }
+            },
+            events
+        );
+        completed
+    }
+
+    /// Keeps the fan-out's channel open for the rest of the test, so only
+    /// a wave — never a dropped sender — can end the wait.
+    async fn hold_open(tx: tokio::sync::broadcast::Sender<SseEnvelope>) {
+        tokio::time::sleep(ACTIVATION_WAVE_BUDGET * 2).await;
+        drop(tx);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test(start_paused = true)]
+    async fn the_activation_wave_ends_the_wait_before_the_budget() {
+        // Given a subscriber to the fan-out, and the session it waits for.
+        let (tx, rx) = tokio::sync::broadcast::channel(16);
+        let session_id = SessionId::new();
+
+        // When the wait runs while the session's own wave lands a
+        // millisecond in.
+        let wave = async {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            // The send's result is not what the test asserts: the wait
+            // may already have completed and dropped its receiver.
+            let _ = tx.send(envelope(SseKind::Sessions, &session_id));
+            hold_open(tx).await;
+        };
+        let completed = wait_completes_within(
+            await_activation_wave(rx, &session_id.to_string()),
+            wave,
+            ACTIVATION_WAVE_BUDGET,
+        )
+        .await;
+
+        // Then the wait completes inside the budget — the response renders
+        // after the fan-out's mark-clear instead of waiting out the clock.
+        assert!(completed, "the wave should have ended the wait");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test(start_paused = true)]
+    async fn another_sessions_wave_does_not_end_the_wait() {
+        // Given a subscriber to the fan-out, and the session it waits for.
+        let (tx, rx) = tokio::sync::broadcast::channel(16);
+        let session_id = SessionId::new();
+
+        // When only a different session's sessions wave lands.
+        let other = async {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            let _ = tx.send(envelope(SseKind::Sessions, &SessionId::new()));
+            hold_open(tx).await;
+        };
+        let completed = wait_completes_within(
+            await_activation_wave(rx, &session_id.to_string()),
+            other,
+            ACTIVATION_WAVE_BUDGET / 2,
+        )
+        .await;
+
+        // Then the wait is still pending — it waits for its own session's
+        // wave, not any session's.
+        assert!(!completed, "another session's wave must not end the wait");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test(start_paused = true)]
+    async fn a_wave_that_never_comes_releases_at_the_budget() {
+        // Given a subscriber whose fan-out never waves.
+        let (tx, rx) = tokio::sync::broadcast::channel(16);
+        let session_id = SessionId::new();
+
+        // When the budget elapses with no wave.
+        let completed = wait_completes_within(
+            await_activation_wave(rx, &session_id.to_string()),
+            hold_open(tx),
+            ACTIVATION_WAVE_BUDGET + Duration::from_millis(1),
+        )
+        .await;
+
+        // Then the wait is released anyway — a wedged fan-out delays the
+        // response by the budget, it never hangs the switch.
+        assert!(completed, "the budget must release the wait");
+    }
 }
