@@ -2,7 +2,7 @@
 //!
 //! One `MsgHandler` per subscribed event, each a one-line delegation to a
 //! handler in `handlers.rs`. Streamed text is not pushed per token: a
-//! handler queues a chunk and the [`FlushTick`] — which the actor
+//! handler queues a chunk and the [`OutboundFlushTick`] — which the actor
 //! schedules for itself — merges the queue into one `EntryDelta` per
 //! entry and field. Everything else (an appended or rewritten entry, a
 //! phase, the model, the session set) is pushed as it happens, read from
@@ -12,19 +12,17 @@
 //! what lets a reconnecting page resume incrementally when — and only
 //! when — nothing but appends happened since it last saw the transcript.
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use jinn_core_types::{ChatEntryId, SessionId};
+use jinn_core_types::SessionId;
 use jinn_kernel::{State, common::actor_deps::BusPublish};
 use jinn_slices::bus::BusService;
-use jinn_webui2_msg::{DeltaField, ServerMsg};
-use parking_lot::Mutex;
+use jinn_webui2_msg::ServerMsg;
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
 use trouper::context::MsgCtx;
 use trouper::system::ActorSystem;
 
-use crate::{connections::ConnectionRegistry, frames::ToolCallIndex, revision::RevisionTracker};
+use crate::{connections::ConnectionRegistry, revision::RevisionTracker};
 
 /// The name the outbound actor is spawned under.
 pub const OUTBOUND_ACTOR_NAME: &str = "webui2-outbound";
@@ -46,10 +44,10 @@ pub const FLUSH_INTERVAL: Duration = Duration::from_millis(150);
     serde::Deserialize,
     trouper::schema::Command,
 )]
-#[schema(description = "Flush queued stream chunks to connected pages.")]
-pub struct FlushTick;
+#[schema(description = "Flush queued stream chunks from the /web2 outbound actor to its connected pages.")]
+pub struct OutboundFlushTick;
 
-impl jinn_slices::BusMessage for FlushTick {}
+impl jinn_slices::BusMessage for OutboundFlushTick {}
 
 /// Everything the outbound actor reads or pushes through.
 #[derive(Debug, Clone)]
@@ -70,19 +68,6 @@ pub struct OutboundActorDeps {
     pub session_store: jinn_session_state::SessionStoreService,
 }
 
-/// One stream chunk waiting for the flush tick.
-#[derive(Debug, Clone)]
-pub struct PendingDelta {
-    /// The session the entry belongs to.
-    pub session_id: SessionId,
-    /// The entry the chunk extends.
-    pub entry_id: ChatEntryId,
-    /// Which field the chunk extends.
-    pub field: DeltaField,
-    /// The text to append.
-    pub chunk: String,
-}
-
 /// What the actor, the protocol dispatch and the listener share.
 ///
 /// Every field is a cheap clone of an `Arc`. The dispatch and the socket
@@ -91,13 +76,12 @@ pub struct PendingDelta {
 #[derive(Debug, Clone)]
 pub struct OutboundHandle {
     pub(crate) deps: OutboundActorDeps,
-    /// The live turn's tool-call ids, by stream index.
-    pub(crate) tool_calls: Arc<Mutex<ToolCallIndex>>,
-    /// Chunks waiting for the next tick.
-    pending: Arc<Mutex<Vec<PendingDelta>>>,
 }
 
 mod handlers;
+
+#[cfg(test)]
+pub(crate) use handlers::{SentLengths, flush};
 
 /// The outbound actor.
 #[derive(Debug)]
@@ -130,10 +114,10 @@ impl BusPublish for OutboundActor {
     }
 }
 
-impl MsgHandler<FlushTick> for OutboundActor {
-    async fn handle(&mut self, _msg: &FlushTick, ctx: &mut MsgCtx<'_>) {
-        self.handle.flush();
-        ctx.schedule_self(FlushTick, FLUSH_INTERVAL);
+impl MsgHandler<OutboundFlushTick> for OutboundActor {
+    async fn handle(&mut self, _msg: &OutboundFlushTick, ctx: &mut MsgCtx<'_>) {
+        self.flush_streaming();
+        ctx.schedule_self(OutboundFlushTick, FLUSH_INTERVAL);
     }
 }
 
@@ -144,11 +128,7 @@ impl OutboundHandle {
     /// same shape, so neither can leave a field unset.
     #[must_use]
     pub fn new(deps: OutboundActorDeps) -> Self {
-        Self {
-            deps,
-            tool_calls: Arc::new(Mutex::new(ToolCallIndex::default())),
-            pending: Arc::new(Mutex::new(Vec::new())),
-        }
+        Self { deps }
     }
 }
 
@@ -167,6 +147,12 @@ impl OutboundHandle {
     /// Sends one frame to every open connection.
     pub fn broadcast(&self, msg: ServerMsg) {
         self.deps.connections.broadcast(msg);
+    }
+
+    /// Whether no page is connected — the flush tick then has no reader.
+    #[must_use]
+    pub fn no_connections(&self) -> bool {
+        self.deps.connections.is_empty()
     }
 
 
@@ -206,26 +192,6 @@ impl OutboundHandle {
     ) -> &jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell> {
         &self.deps.provider_cell
     }
-
-    /// Queues a chunk for the next flush tick.
-    pub(crate) fn queue_delta(&self, pending: PendingDelta) {
-        self.pending.lock().push(pending);
-    }
-
-    /// Merges the queued chunks and pushes one frame per entry and field.
-    ///
-    /// With no page connected the queue is dropped unmerged: the frames
-    /// would reach nobody, and a page that connects later resumes from a
-    /// full snapshot rather than from a replay of what it missed.
-    pub(crate) fn flush(&self) {
-        let queued = std::mem::take(&mut *self.pending.lock());
-        if self.deps.connections.is_empty() {
-            return;
-        }
-        for frame in crate::frames::coalesce(queued) {
-            self.broadcast(frame);
-        }
-    }
 }
 
 /// Spawns the outbound actor and arms its flush tick.
@@ -248,17 +214,19 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
                 })
             })
         })
+        .handles::<OutboundFlushTick>()
         .handles::<jinn_session_msg::SessionPhaseChanged>()
-        .handles::<jinn_inference_msg::StreamToken>()
         .handles::<jinn_tools_msg::ToolUseStarted>()
-        .handles::<jinn_tools_msg::ToolCallStreaming>()
-        .handles::<jinn_tools_msg::ToolExecutionOutput>()
         .handles::<jinn_tools_msg::ToolCallReceived>()
         .handles::<jinn_tools_msg::ToolExecutionCompleted>()
         .handles::<jinn_session_history_msg::HistoryAppended>()
         .handles::<jinn_chat_input_msg::ChatEntrySubmitted>()
         .handles::<jinn_provider_selection_msg::ProviderSwitched>()
         .handles::<jinn_session_store_msg::SessionLoadCompleted>()
+        // Arms the first flush; the chain self-perpetuates from there (the
+        // tick's handler schedules the next one). Without this the tick
+        // never starts and no delta ever leaves the actor.
+        .kickoff(OutboundFlushTick, Duration::ZERO)
         .start();
 
     returned

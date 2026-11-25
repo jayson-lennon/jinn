@@ -771,7 +771,55 @@ webui2-e2e-clean:
     pkill -TERM -f -- "$E2E_PAT" 2>/dev/null || true
     sleep 0.5
     pkill -KILL -f -- "$E2E_PAT" 2>/dev/null || true
+    # Each scratch root is removed by its exact path: only `run-*`
+    # directories directly under this worktree's slug directory.
+    find "/tmp/jinn-webui2-e2e/${SLUG}" -mindepth 1 -maxdepth 1 -type d -name 'run-*' \
+        -exec rm -rf -- {} + 2>/dev/null || true
     echo '==> webui2-e2e-clean green'
+
+# Build the binary and install the webui2 tier's Node dependencies.
+# Same shape as the original tier's prep: the dependency install is
+# skipped when node_modules is present and newer than the lock file, and
+# Playwright is invoked straight from node_modules/.bin — never a
+# package runner, which would fetch a different version when the
+# install were missing.
+[private]
+webui2-e2e-prep:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just webui2-e2e-clean
+    echo '==> cargo build --bin jinn'
+    cargo build --bin jinn
+    if [ ! -d webui/client2/e2e/node_modules ] \
+        || [ -n "$(find webui/client2/e2e/package-lock.json -newer webui/client2/e2e/node_modules -print -quit 2>/dev/null)" ]; then
+        echo '==> npm ci (webui/client2/e2e)'
+        npm ci --prefix webui/client2/e2e
+    else
+        echo '==> node_modules current (npm ci skipped)'
+    fi
+
+# Run the webui2 e2e suite (shuffled; the runner prints the seed).
+webui2-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just webui2-e2e-prep
+    echo '==> playwright e2e (webui2)'
+    webui/client2/e2e/node_modules/.bin/playwright test \
+        --config webui/client2/e2e/playwright.config.mjs --shuffle
+    echo '==> webui2-e2e green'
+
+# Run only the webui2 e2e tests matching FILTER (a regex over spec
+# paths); GREP, when given, narrows it to the tests whose title matches.
+# Same build, same isolation, same shuffle as the full tier.
+webui2-e2e-one FILTER Grep="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just webui2-e2e-prep
+    grep_args=()
+    if [[ -n '{{Grep}}' ]]; then grep_args=(--grep '{{Grep}}'); fi
+    webui/client2/e2e/node_modules/.bin/playwright test '{{FILTER}}' "${grep_args[@]}" \
+        --config webui/client2/e2e/playwright.config.mjs --shuffle
+    echo '==> webui2-e2e-one green'
 
 # Bump version (major/minor/patch), commit, and tag in git
 bump LEVEL:

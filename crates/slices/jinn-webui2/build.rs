@@ -253,20 +253,22 @@ fn collect_files(root: &Path, base: &Path, out: &mut Vec<String>) {
 }
 
 /// The files whose content defines the client, as client-dir-relative
-/// forward-slash paths, sorted: the sources, the e2e tier, the build config,
-/// and the lock file.
+/// forward-slash paths, sorted: exactly the bundle's inputs — the sources,
+/// the page the bundle is built into, the build config, and the lock file.
 ///
-/// `dist/` and `node_modules/` are deliberately excluded — they are outputs
-/// and installed dependencies, already covered by the lock file.
+/// `e2e/`, `dist/` and `node_modules/` are deliberately excluded: a spec
+/// never changes one byte of the bundle, the dist is the output itself, and
+/// the installed dependencies are already covered by the lock file.
 fn source_files(client_dir: &Path) -> Vec<String> {
     let mut names = Vec::new();
-    for dir_name in ["src", "e2e"] {
+    for dir_name in ["src"] {
         let dir = client_dir.join(dir_name);
         if dir.is_dir() {
             collect_files(&dir, client_dir, &mut names);
         }
     }
     for name in [
+        "index.html",
         "package.json",
         "package-lock.json",
         "vite.config.mjs",

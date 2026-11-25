@@ -42,7 +42,7 @@ export function App(): JSX.Element {
         <Composer store={store} send={send} />
       </main>
       <Show when={connection() !== 'open'}>
-        <div class="overlay" role="status" aria-live="polite">
+        <div class="overlay" role="status" aria-live="polite" data-testid="overlay">
           {connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}
         </div>
       </Show>
@@ -78,7 +78,7 @@ function Transcript(props: { store: ClientStore }): JSX.Element {
     },
   );
   return (
-    <section class="transcript" ref={node}>
+    <section class="transcript" data-testid="transcript" ref={node}>
       <For each={props.store.state.entries}>{(envelope) => <TranscriptEntry envelope={envelope} />}</For>
     </section>
   );
@@ -122,6 +122,7 @@ function TitleBar(props: { store: ClientStore; send: Send }): JSX.Element {
         <Match when={editing()}>
           <input
             class="title-edit"
+            data-testid="title-edit"
             value={draft()}
             autofocus
             onInput={(e) => setDraft(e.currentTarget.value)}
@@ -135,13 +136,14 @@ function TitleBar(props: { store: ClientStore; send: Send }): JSX.Element {
         <Match when={true}>
           <button
             class="title"
+            data-testid="title"
             onClick={() => { setDraft(props.store.state.title); setEditing(true); }}
           >
             {props.store.state.title || 'Untitled Session'}
           </button>
         </Match>
       </Switch>
-      <button class="model-chip" onClick={openModels}>
+      <button class="model-chip" data-testid="model-chip" onClick={openModels}>
         {props.store.state.modelLabel || 'no model'}
       </button>
       <Show when={picker()}>
@@ -174,6 +176,7 @@ function Composer(props: { store: ClientStore; send: Send }): JSX.Element {
     <footer class="composer">
       <textarea
         class="draft"
+        data-testid="draft"
         placeholder={busy() ? 'Queue a message for after this turn…' : 'Message jinn…'}
         value={draft()}
         onInput={(e) => setDraft(e.currentTarget.value)}
@@ -188,22 +191,22 @@ function Composer(props: { store: ClientStore; send: Send }): JSX.Element {
       <div class="composer-actions">
         <Switch>
           <Match when={busy()}>
-            <button onClick={submit} disabled={!hasText()}>
+            <button data-testid="queue" onClick={submit} disabled={!hasText()}>
               Queue
             </button>
-            <button class="danger" onClick={() => props.send({ type: 'cancel' })}>
+            <button class="danger" data-testid="cancel" onClick={() => props.send({ type: 'cancel' })}>
               Cancel
             </button>
           </Match>
           <Match when={true}>
-            <button class="primary" onClick={submit} disabled={!hasText()}>
+            <button class="primary" data-testid="send" onClick={submit} disabled={!hasText()}>
               Send
             </button>
           </Match>
         </Switch>
       </div>
       <Show when={props.store.state.error}>
-        <div class="composer-error" role="alert">
+        <div class="composer-error" role="alert" data-testid="composer-error">
           {props.store.state.error}
         </div>
       </Show>
@@ -224,7 +227,7 @@ function SessionRail(props: { store: ClientStore; send: Send }): JSX.Element {
   };
   return (
     <nav class="rail">
-      <button class="rail-action" onClick={showPicker}>
+      <button class="rail-action" data-testid="open-picker" onClick={showPicker}>
         Switch session…
       </button>
       <ul class="sessions">
@@ -233,6 +236,7 @@ function SessionRail(props: { store: ClientStore; send: Send }): JSX.Element {
             <li>
               <button
                 class={`session${row.is_active ? ' active' : ''}`}
+                data-testid="session-row"
                 onClick={() => props.send({ type: 'activate_session', session_id: row.session_id })}
               >
                 <span class="session-title">{row.title || 'Untitled Session'}</span>
@@ -273,6 +277,7 @@ function SessionPicker(props: { store: ClientStore; send: Send; onClose: () => v
       <div class="modal" role="dialog" aria-label="Switch session">
         <input
           class="modal-filter"
+          data-testid="picker-filter"
           autofocus
           placeholder="Filter sessions by title…"
           onInput={(e) => onFilter(e.currentTarget.value)}
@@ -282,7 +287,7 @@ function SessionPicker(props: { store: ClientStore; send: Send; onClose: () => v
           <For each={props.store.state.pickerRows}>
             {(row) => (
               <li>
-                <button onClick={() => pick(row)}>
+                <button data-testid="picker-row" onClick={() => pick(row)}>
                   <span class="session-title">{row.title || 'Untitled Session'}</span>
                   <span class="session-meta">
                     {row.state === 'Archived' ? 'archived' : ''}
@@ -309,6 +314,7 @@ function ModelPicker(props: { store: ClientStore; send: Send; onClose: () => voi
       <div class="modal" role="dialog" aria-label="Switch model">
         <input
           class="modal-filter"
+          data-testid="model-filter"
           autofocus
           placeholder="Filter models…"
           onInput={(e) => onFilter(e.currentTarget.value)}
@@ -318,7 +324,7 @@ function ModelPicker(props: { store: ClientStore; send: Send; onClose: () => voi
           <For each={props.store.state.modelRows}>
             {(row) => (
               <li>
-                <button disabled={!row.is_available} onClick={() => pick(row)}>
+                <button data-testid="model-row" disabled={!row.is_available} onClick={() => pick(row)}>
                   <span class="session-title">{row.model}</span>
                   <span class="session-meta">
                     {row.provider_name}

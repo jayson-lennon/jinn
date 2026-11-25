@@ -746,3 +746,188 @@ fn a_malformed_frame_is_answered_with_an_error() {
     // Then the page is told, and told in a frame it can read.
     assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
 }
+
+// ---------------------------------------------------------------------------
+// Streaming: the flush tick is the one reader of streamed text
+// ---------------------------------------------------------------------------
+
+/// A connected page over a fresh state: the flush broadcasts to the
+/// connection, and the test drains what the page would have received.
+struct Page {
+    handle: OutboundHandle,
+    inbox: tokio::sync::mpsc::UnboundedReceiver<ServerMsg>,
+    state: State,
+    sent: crate::outbound::SentLengths,
+}
+
+fn connected_page() -> Page {
+    let h = harness();
+    let inbox = h.handle.register();
+    Page {
+        handle: h.handle,
+        inbox,
+        state: h.state,
+        sent: Default::default(),
+    }
+}
+
+/// Puts the active session into its streaming phase, as a live turn does.
+fn begin_streaming(page: &Page) {
+    page.state.write().session.active_session_mut().begin_streaming();
+}
+
+/// Streams `tokens` into the session the way the session actor does when it
+/// receives each token: appended to the live assistant entry.
+fn stream_tokens(page: &Page, tokens: &[&str]) {
+    for token in tokens {
+        page.state
+            .write()
+            .session
+            .active_session_mut()
+            .append_stream_token(*token, jiff::Timestamp::now())
+            .expect("the session is streaming");
+    }
+}
+
+/// Runs one flush and returns every frame the page received.
+fn flush_frames(page: &mut Page) -> Vec<ServerMsg> {
+    crate::outbound::flush(&page.handle, &mut page.sent);
+    let mut frames = Vec::new();
+    while let Ok(frame) = page.inbox.try_recv() {
+        frames.push(frame);
+    }
+    frames
+}
+
+#[rstest::rstest]
+#[test]
+fn tokens_within_one_window_leave_as_one_delta() {
+    // Given a streaming session that has received four tokens.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    stream_tokens(&page, &["This", " is", " a", " sample"]);
+
+    // When the tick flushes.
+    let frames = flush_frames(&mut page);
+
+    // Then the text leaves as exactly one delta carrying all four tokens.
+    let deltas: Vec<_> = frames
+        .iter()
+        .filter(|frame| matches!(frame, ServerMsg::EntryDelta(_)))
+        .collect();
+    assert_eq!(deltas.len(), 1);
+    assert!(matches!(
+        deltas[0],
+        ServerMsg::EntryDelta(body) if body.chunk == "This is a sample"
+    ));
+}
+
+#[rstest::rstest]
+#[test]
+fn a_lazily_created_entry_reaches_the_page_before_its_first_delta() {
+    // Given a streaming session whose first token created the entry.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    stream_tokens(&page, &["Hello"]);
+
+    // When the tick flushes.
+    let frames = flush_frames(&mut page);
+
+    // Then the entry's upsert precedes its delta.
+    let upsert_at = frames
+        .iter()
+        .position(|frame| matches!(frame, ServerMsg::EntryUpsert(_)))
+        .expect("the entry is upserted");
+    let delta_at = frames
+        .iter()
+        .position(|frame| matches!(frame, ServerMsg::EntryDelta(_)))
+        .expect("the text is sent");
+    assert!(upsert_at < delta_at, "upsert at {upsert_at} must precede delta at {delta_at}");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_flush_with_no_new_text_sends_nothing() {
+    // Given a streaming session whose text was already flushed once.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    stream_tokens(&page, &["settled"]);
+    let _ = flush_frames(&mut page);
+
+    // When the tick flushes again with nothing new.
+    let frames = flush_frames(&mut page);
+
+    // Then the page receives no frame.
+    assert!(frames.is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_later_flush_sends_only_the_text_arrived_since() {
+    // Given a streaming session whose first two tokens were flushed.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    stream_tokens(&page, &["Hello", " world"]);
+    let _ = flush_frames(&mut page);
+
+    // When two more tokens arrive and the tick flushes.
+    stream_tokens(&page, &["!", " Done"]);
+    let frames = flush_frames(&mut page);
+
+    // Then the delta carries only the new text.
+    assert!(matches!(
+        frames.as_slice(),
+        [ServerMsg::EntryDelta(body)] if body.chunk == "! Done"
+    ));
+}
+
+#[rstest::rstest]
+#[test]
+fn thinking_streams_as_its_own_field() {
+    // Given a streaming session that has received a thinking token — which
+    // creates the thinking entry first, the way the session actor does.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    {
+        let mut guard = page.state.write();
+        let session = guard.session.active_session_mut();
+        session.begin_thinking(jiff::Timestamp::now());
+        session
+            .append_thinking_token("let me think")
+            .expect("the session is streaming");
+    }
+
+    // When the tick flushes.
+    let frames = flush_frames(&mut page);
+
+    // Then the delta names the thinking field.
+    assert!(matches!(
+        frames.as_slice(),
+        [_, ServerMsg::EntryDelta(body)] if body.field == jinn_webui2_msg::DeltaField::Thinking
+    ));
+}
+
+#[rstest::rstest]
+#[test]
+fn nothing_is_flushed_while_no_page_is_connected() {
+    // Given a streaming session with tokens, and no page connected.
+    let h = harness();
+    h.state.write().session.active_session_mut().begin_streaming();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .append_stream_token("unread", jiff::Timestamp::now())
+        .expect("the session is streaming");
+
+    // When the tick flushes.
+    let mut sent = Default::default();
+    crate::outbound::flush(&h.handle, &mut sent);
+
+    // Then the tick remembered nothing as sent — so a page connecting later
+    // starts from the entry's full text, never from a gap.
+    let mut page_inbox = h.handle.register();
+    crate::outbound::flush(&h.handle, &mut sent);
+    let first = page_inbox.try_recv().expect("the new page receives the entry");
+    assert!(matches!(first, ServerMsg::EntryUpsert(_)));
+}

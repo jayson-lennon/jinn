@@ -8,8 +8,6 @@
 //! call — never a copy accumulated from the event — so what the page
 //! receives is exactly what the session holds.
 
-use std::collections::HashMap;
-
 use jinn_core_types::{ChatEntry, ChatEntryId, ChatEntryKind, SessionId, ToolCallId};
 use jinn_kernel::State;
 use jinn_webui2_msg::{
@@ -76,28 +74,6 @@ pub fn delta(
     })
 }
 
-/// Reads the live assistant (or thinking) streaming entry of a session.
-///
-/// The session creates the streaming entry lazily on the first token and
-/// tracks its history position; the text already in it is everything the
-/// stream has produced so far.
-#[must_use]
-pub fn streaming_entry(
-    state: &State,
-    session_id: &SessionId,
-    thinking: bool,
-) -> Option<(usize, ChatEntry)> {
-    let guard = state.read();
-    let session = guard.session.get(session_id)?;
-    let index = if thinking {
-        session.streaming_thinking_entry_index()?
-    } else {
-        session.streaming_entry_index()?
-    };
-    let entry = session.history().get(index)?.clone();
-    Some((index, entry))
-}
-
 /// Finds the `ToolCall` entry for a tool-call id.
 #[must_use]
 pub fn tool_call_entry(
@@ -134,62 +110,4 @@ fn find_by_tool_call_id(
         };
         matches.then(|| (i, entry.clone()))
     })
-}
-
-/// Merges queued chunks into one frame per entry and field, in queue order.
-///
-/// Several tokens for one entry within a tick become a single delta, so a
-/// fast stream costs a page one frame per tick rather than one per token.
-#[must_use]
-pub fn coalesce(pending: Vec<crate::outbound::PendingDelta>) -> Vec<ServerMsg> {
-    let mut order: Vec<(SessionId, ChatEntryId, DeltaField)> = Vec::new();
-    let mut chunks: HashMap<(SessionId, ChatEntryId, DeltaField), String> = HashMap::new();
-
-    for chunk in pending {
-        let key = (chunk.session_id, chunk.entry_id, chunk.field);
-        match chunks.entry(key) {
-            std::collections::hash_map::Entry::Occupied(mut slot) => {
-                slot.get_mut().push_str(&chunk.chunk);
-            }
-            std::collections::hash_map::Entry::Vacant(slot) => {
-                order.push(slot.key().clone());
-                slot.insert(chunk.chunk);
-            }
-        }
-    }
-
-    order
-        .into_iter()
-        .filter_map(|(session_id, entry_id, field)| {
-            let chunk = chunks.remove(&(session_id.clone(), entry_id.clone(), field))?;
-            Some(delta(&session_id, &entry_id, field, chunk))
-        })
-        .collect()
-}
-
-/// Tracks the live turn's tool-call ids by stream index.
-#[derive(Debug, Default)]
-pub struct ToolCallIndex {
-    by_session: HashMap<SessionId, HashMap<usize, ToolCallId>>,
-}
-
-impl ToolCallIndex {
-    /// Records that stream `index` carries the tool call `id`.
-    pub fn begin(&mut self, session_id: &SessionId, index: usize, id: ToolCallId) {
-        self.by_session
-            .entry(session_id.clone())
-            .or_default()
-            .insert(index, id);
-    }
-
-    /// The tool-call id a stream index refers to, if one was begun.
-    #[must_use]
-    pub fn get(&self, session_id: &SessionId, index: usize) -> Option<ToolCallId> {
-        self.by_session.get(session_id)?.get(&index).cloned()
-    }
-
-    /// Forgets the live turn's tool calls for a session.
-    pub fn clear(&mut self, session_id: &SessionId) {
-        self.by_session.remove(session_id);
-    }
 }

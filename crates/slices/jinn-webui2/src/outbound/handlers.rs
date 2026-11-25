@@ -4,26 +4,28 @@
 //! beside it. The handlers turn one bus event into zero or more frames and
 //! push them to every connection through the actor's handle.
 //!
-//! A streamed chunk is read as the **suffix** of the live field rather than
-//! copied from the event: the session actor has already appended the
-//! event's text by the time a handler runs, so comparing what was last sent
-//! against what the entry now holds yields exactly the new text — and can
-//! never disagree with the history.
+//! Streamed text is **not** handled per event. The token event is published
+//! before the session actor writes the token into history, so a handler
+//! that reads the entry when the event arrives can miss it or read a stale
+//! length. The flush tick is the one reader instead: it reads the committed
+//! history and emits the suffix of each streaming field the page has not
+//! seen — so any number of tokens become one frame per entry per tick, and
+//! the frames can never disagree with the history.
 
 use std::collections::HashMap;
 
-use jinn_core_types::{ChatEntryId, ChatEntryKind};
+use jinn_core_types::{ChatEntry, ChatEntryId, ChatEntryKind, SessionId};
 use jinn_webui2_msg::DeltaField;
 use trouper::actor::MsgHandler;
 use trouper::context::MsgCtx;
 
-use super::{OutboundActor, PendingDelta};
+use super::OutboundActor;
 
 /// What each streaming field looked like when it was last sent to pages.
 ///
 /// Keyed by entry id: an entry streams one field at a time.
 #[derive(Debug, Default)]
-pub(super) struct SentLengths(HashMap<ChatEntryId, usize>);
+pub(crate) struct SentLengths(pub(crate) HashMap<ChatEntryId, usize>);
 
 impl SentLengths {
     /// The part of `text` not yet sent for this entry, and remembers it.
@@ -32,6 +34,11 @@ impl SentLengths {
         let fresh = text.get(*sent..).unwrap_or("").to_owned();
         *sent = text.len();
         fresh
+    }
+
+    /// Whether the page has been sent anything for this entry yet.
+    pub(crate) fn knows(&self, entry_id: &ChatEntryId) -> bool {
+        self.0.contains_key(entry_id)
     }
 
     /// Forgets an entry (it settled).
@@ -50,24 +57,9 @@ impl OutboundActor {
         self.handle.broadcast(frame);
     }
 
-    /// Queues the not-yet-sent suffix of one streaming field.
-    fn queue_suffix(
-        &mut self,
-        session_id: &jinn_core_types::SessionId,
-        entry_id: &ChatEntryId,
-        field: DeltaField,
-        current: &str,
-    ) {
-        let chunk = self.sent.suffix(entry_id, current);
-        if chunk.is_empty() {
-            return;
-        }
-        self.handle.queue_delta(PendingDelta {
-            session_id: session_id.clone(),
-            entry_id: entry_id.clone(),
-            field,
-            chunk,
-        });
+    /// The tick: one flush.
+    pub(super) fn flush_streaming(&mut self) {
+        flush(&self.handle, &mut self.sent);
     }
 }
 
@@ -79,41 +71,9 @@ impl MsgHandler<jinn_session_msg::SessionPhaseChanged> for OutboundActor {
 
 impl OutboundActor {
     fn on_phase_changed(&mut self, msg: &jinn_session_msg::SessionPhaseChanged) {
-        use jinn_slices::PhaseView;
         self.handle.bump(&msg.session_id);
-        if msg.new_phase == PhaseView::Idle {
-            self.handle.tool_calls.lock().clear(&msg.session_id);
-        }
         self.push(crate::frames::phase(&msg.session_id, msg.new_phase));
         self.push(crate::frames::sessions(&self.handle.deps.state));
-    }
-}
-
-impl MsgHandler<jinn_inference_msg::StreamToken> for OutboundActor {
-    async fn handle(&mut self, msg: &jinn_inference_msg::StreamToken, _ctx: &mut MsgCtx<'_>) {
-        self.on_stream_token(msg);
-    }
-}
-
-impl OutboundActor {
-    fn on_stream_token(&mut self, msg: &jinn_inference_msg::StreamToken) {
-        let Some((_index, entry)) = crate::frames::streaming_entry(
-            &self.handle.deps.state,
-            &msg.session_id,
-            msg.is_thinking,
-        ) else {
-            return;
-        };
-        let field = if msg.is_thinking {
-            DeltaField::Thinking
-        } else {
-            DeltaField::Text
-        };
-        let current = match &entry.kind {
-            ChatEntryKind::Assistant(text) | ChatEntryKind::Thinking(text) => text.clone(),
-            _ => return,
-        };
-        self.queue_suffix(&msg.session_id, &entry.id, field, &current);
     }
 }
 
@@ -125,67 +85,12 @@ impl MsgHandler<jinn_tools_msg::ToolUseStarted> for OutboundActor {
 
 impl OutboundActor {
     fn on_tool_use_started(&mut self, msg: &jinn_tools_msg::ToolUseStarted) {
-        self.handle
-            .tool_calls
-            .lock()
-            .begin(&msg.session_id, msg.index, msg.id.clone());
         self.handle.bump(&msg.session_id);
         let found =
             crate::frames::tool_call_entry(&self.handle.deps.state, &msg.session_id, &msg.id);
         if let Some((index, entry)) = found {
             self.push(crate::frames::upsert_at(&msg.session_id, index, &entry));
         }
-    }
-}
-
-impl MsgHandler<jinn_tools_msg::ToolCallStreaming> for OutboundActor {
-    async fn handle(&mut self, msg: &jinn_tools_msg::ToolCallStreaming, _ctx: &mut MsgCtx<'_>) {
-        self.on_tool_call_streaming(msg);
-    }
-}
-
-impl OutboundActor {
-    fn on_tool_call_streaming(&mut self, msg: &jinn_tools_msg::ToolCallStreaming) {
-        let Some(id) = self
-            .handle
-            .tool_calls
-            .lock()
-            .get(&msg.session_id, msg.index)
-        else {
-            return;
-        };
-        let Some((_index, entry)) =
-            crate::frames::tool_call_entry(&self.handle.deps.state, &msg.session_id, &id)
-        else {
-            return;
-        };
-        let ChatEntryKind::ToolCall { arguments, .. } = &entry.kind else {
-            return;
-        };
-        self.queue_suffix(&msg.session_id, &entry.id, DeltaField::Args, arguments);
-    }
-}
-
-impl MsgHandler<jinn_tools_msg::ToolExecutionOutput> for OutboundActor {
-    async fn handle(&mut self, msg: &jinn_tools_msg::ToolExecutionOutput, _ctx: &mut MsgCtx<'_>) {
-        self.on_tool_execution_output(msg);
-    }
-}
-
-impl OutboundActor {
-    fn on_tool_execution_output(&mut self, msg: &jinn_tools_msg::ToolExecutionOutput) {
-        let found = crate::frames::tool_result_entry(
-            &self.handle.deps.state,
-            &msg.session_id,
-            &msg.tool_call_id,
-        );
-        let Some((_index, entry)) = found else {
-            return;
-        };
-        let ChatEntryKind::ToolResult { content, .. } = &entry.kind else {
-            return;
-        };
-        self.queue_suffix(&msg.session_id, &entry.id, DeltaField::Output, content);
     }
 }
 
@@ -304,4 +209,92 @@ impl OutboundActor {
         self.handle.bump(&msg.session_id);
         self.push(crate::frames::sessions(&self.handle.deps.state));
     }
+}
+
+/// One flush: reads every streaming field and emits its unsent suffix.
+///
+/// A free function over the handle so the tick's behaviour is driven
+/// directly in a test, with nothing spawned: the actor's tick calls it, and
+/// so does a test that has put a session into its streaming phase by hand.
+pub(crate) fn flush(handle: &super::OutboundHandle, sent: &mut SentLengths) {
+    if handle.no_connections() {
+        return;
+    }
+    let growing = growing_fields(handle);
+    for (session_id, index, entry, field, current) in growing {
+        send_suffix(handle, sent, &session_id, index, &entry, field, &current);
+    }
+}
+
+/// Emits the unsent suffix of one streaming field — after making sure the
+/// page holds the entry it extends: an entry the stream creates lazily must
+/// reach the page as an upsert before its first delta.
+fn send_suffix(
+    handle: &super::OutboundHandle,
+    sent: &mut SentLengths,
+    session_id: &SessionId,
+    index: usize,
+    entry: &ChatEntry,
+    field: DeltaField,
+    current: &str,
+) {
+    if !sent.knows(&entry.id) {
+        handle.broadcast(crate::frames::upsert_at(session_id, index, entry));
+    }
+    let chunk = sent.suffix(&entry.id, current);
+    if chunk.is_empty() {
+        return;
+    }
+    handle.broadcast(crate::frames::delta(session_id, &entry.id, field, chunk));
+}
+
+/// One read of the state: every streaming field, with its entry.
+///
+/// The history is read once, under one lock, into a snapshot of the fields
+/// that are still growing; the frames are pushed after the lock is released,
+/// so a slow connection never holds the state.
+fn growing_fields(
+    handle: &super::OutboundHandle,
+) -> Vec<(SessionId, usize, ChatEntry, DeltaField, String)> {
+    let guard = handle.deps.state.read();
+    let mut rows = Vec::new();
+    for (session_id, session) in guard.session.iter() {
+        let history = session.history();
+        if let Some(index) = session.streaming_entry_index() {
+            push_row(&mut rows, session_id, history, index, DeltaField::Text);
+        }
+        if let Some(index) = session.streaming_thinking_entry_index() {
+            push_row(&mut rows, session_id, history, index, DeltaField::Thinking);
+        }
+        for entry_id in session.streaming_tool_call_ids() {
+            if let Some(index) = history.iter().position(|e| e.id == entry_id) {
+                push_row(&mut rows, session_id, history, index, DeltaField::Args);
+            }
+        }
+        for (_id, index, _content) in session.streaming_tool_result_fragments() {
+            push_row(&mut rows, session_id, history, index, DeltaField::Output);
+        }
+    }
+    rows
+}
+
+/// Adds one row when the entry at `index` is of the kind `field` streams.
+fn push_row(
+    rows: &mut Vec<(SessionId, usize, ChatEntry, DeltaField, String)>,
+    session_id: &SessionId,
+    history: &[ChatEntry],
+    index: usize,
+    field: DeltaField,
+) {
+    let Some(entry) = history.get(index) else {
+        return;
+    };
+    let text = match (&entry.kind, field) {
+        (ChatEntryKind::Assistant(text), DeltaField::Text)
+        | (ChatEntryKind::Thinking(text), DeltaField::Thinking) => text.clone(),
+        (ChatEntryKind::ToolCall { arguments, .. }, DeltaField::Args) => arguments.clone(),
+        (ChatEntryKind::ToolResult { content, .. }, DeltaField::Output) => content.clone(),
+        _ => return,
+    };
+    rows.push((session_id.clone(), index, entry.clone(), field, text));
 }

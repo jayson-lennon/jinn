@@ -37,6 +37,32 @@ impl ChatSessionState {
             .collect()
     }
 
+    /// Every `ToolResult` whose output is still arriving, as its tool-call id,
+    /// its history index, and the output so far.
+    ///
+    /// The result-side twin of [`Self::streaming_tool_call_fragments`]: read
+    /// from the streaming phase's index map, so this is only meaningful while
+    /// a tool is emitting output. A reader that renders the output as it
+    /// arrives — rather than once, at completion — diffs successive reads.
+    #[must_use]
+    pub fn streaming_tool_result_fragments(&self) -> Vec<(ToolCallId, usize, String)> {
+        let history = &self.core.history_work.history;
+        self.core
+            .ephemeral
+            .streaming_tool_result_indices
+            .iter()
+            .filter_map(|(id, &index)| {
+                let entry = history.get(index)?;
+                match &entry.kind {
+                    ChatEntryKind::ToolResult { content, .. } => {
+                        Some((id.clone(), index, content.clone()))
+                    }
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
     /// Complete the tool calls a stream rule interrupted, each paired with a
     /// synthetic result explaining that it never ran.
     ///
