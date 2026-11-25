@@ -12,9 +12,12 @@
 //!
 //! - **Markdown** (`Assistant`, `User.display`) renders server-side
 //!   through [`render_markdown`], whose event rewrite demotes raw HTML
-//!   in the source to text — a model-written `<script>` stays inert.
+//!   in the source to text — a model-written `<script>` stays inert —
+//!   links bare `http(s)` addresses found in prose, and makes every
+//!   kept link open in a new tab under `noopener`.
 //! - **Everything else** (tool arguments, tool results, thinking,
-//!   actor, system) is escaped verbatim — never interpreted.
+//!   actor, system) is escaped verbatim — never interpreted, so an
+//!   address there is text, not a link.
 //! - Tool call + its result render as one `<details>` disclosure per
 //!   entry; the export's disclosure classification is inherited via
 //!   the same kind set.
@@ -28,9 +31,11 @@ use jinn_core_types::SessionId;
 use jinn_core_types::chat_entry::ChatEntry;
 use jinn_core_types::chat_entry::ChatEntryKind;
 use jinn_core_types::tool_result_status::ToolResultStatus;
+use pulldown_cmark::CowStr;
 use pulldown_cmark::Event;
 use pulldown_cmark::Options;
 use pulldown_cmark::Parser;
+use pulldown_cmark::Tag;
 
 use crate::contract::ATTACHMENT_PREFIX;
 
@@ -58,11 +63,13 @@ pub fn escape_html(text: &str) -> String {
 ///
 /// Raw HTML in the source is escaped rather than passed through, so a
 /// `<script>` written by a model (or pasted into a message) stays
-/// inert text in the page. Everything else is delegated to
-/// pulldown-cmark's own renderer, which escapes text nodes. Footnotes
-/// are enabled: model-written `[^n]` references and definitions render
-/// as real elements (`sup.footnote-reference`, `div.footnote-definition`)
-/// instead of one literal text block.
+/// inert text in the page. Bare `http://`/`https://` addresses in prose
+/// become links (see [`split_bare_urls`]); every markdown link with an
+/// `http(s)` destination opens in a new tab under `noopener`, and a
+/// link to any other scheme renders as its label text alone, never an
+/// anchor. Footnotes are enabled: model-written `[^n]` references and
+/// definitions render as real elements (`sup.footnote-reference`,
+/// `div.footnote-definition`) instead of one literal text block.
 #[must_use]
 pub fn render_markdown(source: &str) -> String {
     let mut options = Options::empty();
@@ -71,16 +78,293 @@ pub fn render_markdown(source: &str) -> String {
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_FOOTNOTES);
 
-    // Raw HTML in the source is demoted to a text node rather than
-    // passed through; the whole event stream is rewritten first and
-    // rendered in one pass, so the library's writer keeps a single
-    // consistent state.
-    let events = Parser::new_ext(source, options).map(|event| match event {
-        Event::Html(text) => Event::Text(text),
-        other => other,
-    });
+    // The whole event stream is rewritten first and rendered in one
+    // pass, so the library's writer keeps a single consistent state.
+    let events = Parser::new_ext(source, options)
+        .scan(MarkdownRewrite::default(), |rewrite, event| {
+            Some(rewrite.next(event))
+        });
     let mut out = String::with_capacity(source.len() + source.len() / 4);
     pulldown_cmark::html::push_html(&mut out, events);
+    out
+}
+
+/// The event rewriter [`render_markdown`] runs between the parser and
+/// the HTML writer.
+///
+/// It carries the nesting of links, images, and code blocks the stream
+/// is currently inside — per open link, whether its opening tag was
+/// emitted as an anchor — and rewrites each event:
+///
+/// - `Html` is demoted to a text node, so a model-written `<script>`
+///   stays inert.
+/// - `Text` outside every link, image, and code block is split on bare
+///   addresses. A code block's contents arrive as `Text` events too,
+///   so the block itself is what exempts them.
+/// - `Start(Link)` to an `http(s)` destination is replaced by an anchor
+///   carrying `target="_blank" rel="noopener"`; one to any other scheme
+///   is dropped, so only the label text renders.
+#[derive(Debug, Default)]
+struct MarkdownRewrite {
+    /// One entry per link or image the stream is inside, in open order:
+    /// `true` when its opening tag was emitted as an anchor.
+    open_links: Vec<bool>,
+    /// The nesting depth of code blocks the stream is inside.
+    code_block_depth: usize,
+}
+
+impl MarkdownRewrite {
+    /// Rewrites one event.
+    fn next<'a>(&mut self, event: Event<'a>) -> Event<'a> {
+        match event {
+            Event::Html(text) => Event::Text(text),
+            Event::Start(Tag::CodeBlock(..)) => {
+                self.code_block_depth += 1;
+                event
+            }
+            Event::End(Tag::CodeBlock(..)) => {
+                self.code_block_depth = self.code_block_depth.saturating_sub(1);
+                event
+            }
+            Event::Start(Tag::Link(_, dest_url, _)) => self.start_link(&dest_url),
+            Event::End(Tag::Link(..)) => self.end_link(),
+            Event::Start(Tag::Image(..)) => {
+                self.open_links.push(false);
+                event
+            }
+            Event::End(Tag::Image(..)) => {
+                self.open_links.pop();
+                event
+            }
+            Event::Text(text) if self.is_prose() => linkify_text(&text),
+            other => other,
+        }
+    }
+
+    /// A link's opening tag: an anchor for an `http(s)` destination,
+    /// nothing at all for any other scheme.
+    fn start_link(&mut self, dest_url: &str) -> Event<'static> {
+        let is_anchor = is_linkable_url(dest_url);
+        self.open_links.push(is_anchor);
+        if is_anchor {
+            Event::Html(anchor_start_html(dest_url).into())
+        } else {
+            Event::Text(CowStr::Borrowed(""))
+        }
+    }
+
+    /// A link's closing tag: `</a>` when the opening tag was an anchor.
+    fn end_link(&mut self) -> Event<'static> {
+        match self.open_links.pop() {
+            Some(true) => Event::Html(CowStr::Borrowed("</a>")),
+            _ => Event::Text(CowStr::Borrowed("")),
+        }
+    }
+
+    /// Whether a text node is ordinary prose — outside every link,
+    /// image, and code block, the only place bare addresses linkify.
+    fn is_prose(&self) -> bool {
+        self.open_links.is_empty() && self.code_block_depth == 0
+    }
+}
+
+/// Splits one text node on its bare addresses and renders the result:
+/// anchors for the addresses, escaped text for everything else.
+fn linkify_text(text: &CowStr<'_>) -> Event<'static> {
+    let mut html = String::with_capacity(text.len());
+    for piece in split_bare_urls(text) {
+        match piece {
+            TextPiece::Plain(plain) => html.push_str(&escape_html(plain)),
+            TextPiece::Link { url, trailing } => {
+                html.push_str(&bare_url_html(url));
+                html.push_str(&escape_html(trailing));
+            }
+        }
+    }
+    Event::Html(html.into())
+}
+
+/// An anchor's opening tag for a markdown link destination.
+fn anchor_start_html(dest_url: &str) -> String {
+    use std::fmt::Write as _;
+    let url = escape_html(dest_url);
+    let mut out = String::with_capacity(url.len() + 64);
+    let _ = write!(out, "<a href=\"{url}\" target=\"_blank\" rel=\"noopener\">");
+    out
+}
+
+/// One stretch of a markdown text node after bare-URL detection.
+#[derive(Debug, PartialEq, Eq)]
+enum TextPiece<'a> {
+    /// Source text with no linkable address in it.
+    Plain(&'a str),
+    /// A bare `http://`/`https://` address that passed validation.
+    Link {
+        /// The address, exactly as written in the source.
+        url: &'a str,
+        /// Characters trimmed off the address's end — sentence
+        /// punctuation or an unmatched closing bracket. They render
+        /// as text right after the link so nothing is lost.
+        trailing: &'a str,
+    },
+}
+
+/// Splits one markdown text node on its bare `http://`/`https://`
+/// addresses.
+///
+/// An address runs to the next whitespace; its end is then walked back
+/// over sentence punctuation (`. , ; : ! ?` and quotes) and any closing
+/// bracket the address does not open, and what remains must parse as a
+/// URL. A candidate that fails the gate renders as plain text. Interior
+/// characters are never touched, so the commas of a map coordinate and
+/// the `?` of a query string survive intact.
+#[must_use]
+fn split_bare_urls(text: &str) -> Vec<TextPiece<'_>> {
+    const SCHEMES: [&str; 2] = ["http://", "https://"];
+
+    let mut pieces = Vec::new();
+    let mut rest = text;
+    while let Some((before, link, after)) = next_bare_url(rest, &SCHEMES) {
+        if !before.is_empty() {
+            pieces.push(TextPiece::Plain(before));
+        }
+        pieces.push(link);
+        rest = after;
+    }
+    if !rest.is_empty() {
+        pieces.push(TextPiece::Plain(rest));
+    }
+    pieces
+}
+
+/// The first linkable bare address in `text`, as the text before it, the
+/// link piece, and the text after its run.
+///
+/// A scheme match that is not at a word start (`xhttps://`) or whose
+/// candidate fails the gate is skipped — the scan resumes one byte past
+/// the `h`, which is a char boundary because every scheme begins with
+/// ASCII. Every slice below goes through a checked split, so a
+/// non-boundary can only end the scan, never panic.
+fn next_bare_url<'a>(text: &'a str, schemes: &[&str]) -> Option<(&'a str, TextPiece<'a>, &'a str)> {
+    let mut search_from = 0;
+    while let Some(scheme_at) = next_scheme(text, search_from, schemes) {
+        let (before, candidate) = text.split_at_checked(scheme_at)?;
+        let is_word_start = before.is_empty() || before.ends_with(char::is_whitespace);
+        let Some(trimmed) = is_word_start.then(|| trim_candidate(candidate)).flatten() else {
+            search_from = scheme_at + 1;
+            continue;
+        };
+        return Some((
+            before,
+            TextPiece::Link {
+                url: trimmed.url,
+                trailing: trimmed.trailing,
+            },
+            trimmed.rest,
+        ));
+    }
+    None
+}
+
+/// The earliest of the schemes in `text` at or after `from`.
+fn next_scheme(text: &str, from: usize, schemes: &[&str]) -> Option<usize> {
+    let tail = text.get(from..)?;
+    schemes
+        .iter()
+        .filter_map(|scheme| tail.find(scheme).map(|at| from + at))
+        .min()
+}
+
+/// A bare-URL candidate after its end has been walked back to the
+/// address proper.
+#[derive(Debug, PartialEq, Eq)]
+struct TrimmedCandidate<'a> {
+    /// The address proper.
+    url: &'a str,
+    /// What was trimmed off its end.
+    trailing: &'a str,
+    /// The source after the whole run.
+    rest: &'a str,
+}
+
+/// Walks a candidate's end back over sentence punctuation and unmatched
+/// closing brackets, then applies the URL-parse gate.
+///
+/// Returns `None` when the candidate fails the gate — the caller leaves
+/// it as text and resumes the scan past the scheme.
+fn trim_candidate(candidate: &str) -> Option<TrimmedCandidate<'_>> {
+    let (run, rest) = split_at_whitespace(candidate);
+    let (url, trailing) = run.split_at_checked(address_end(run))?;
+    is_linkable_url(url).then_some(TrimmedCandidate {
+        url,
+        trailing,
+        rest,
+    })
+}
+
+/// Splits `text` at its first whitespace, with the whitespace landing at
+/// the head of the tail.
+fn split_at_whitespace(text: &str) -> (&str, &str) {
+    match text.find(char::is_whitespace) {
+        Some(at) => text.split_at(at),
+        None => (text, ""),
+    }
+}
+
+/// Whether a character ends a sentence and so belongs to the prose
+/// around an address rather than to the address itself.
+fn is_sentence_punctuation(ch: char) -> bool {
+    matches!(
+        ch,
+        '.' | ',' | ';' | ':' | '!' | '?' | '"' | '\'' | '>' | '<'
+    )
+}
+
+/// Splits `run` into the address proper and the characters trimmed off
+/// its end.
+///
+/// Sentence punctuation and quotes are trimmed unconditionally. A
+/// closing bracket is trimmed only when the run holds more closers than
+/// openers of its kind, so `Foo_(bar)` keeps its `)` while an address
+/// wrapped in prose parens loses the outer one.
+fn address_end(run: &str) -> usize {
+    run.trim_end_matches(is_sentence_punctuation)
+        .trim_end_matches(|ch: char| is_unmatched_closer(ch, run))
+        .len()
+}
+
+/// Whether `ch` is a closing bracket with no matching opener in `run`.
+fn is_unmatched_closer(ch: char, run: &str) -> bool {
+    let (opener, closer) = match ch {
+        ')' => ('(', ')'),
+        ']' => ('[', ']'),
+        '}' => ('{', '}'),
+        _ => return false,
+    };
+    let openers = run.chars().filter(|c| *c == opener).count();
+    let closers = run.chars().filter(|c| *c == closer).count();
+    closers > openers
+}
+
+/// The URL-parse gate: whether `text` is a well-formed http(s) address.
+///
+/// The scheme check runs first because the parser accepts many schemes
+/// (`javascript:` and `data:` among them) that must never become links.
+fn is_linkable_url(text: &str) -> bool {
+    let is_http =
+        url_starts_with_scheme(text, "http://") || url_starts_with_scheme(text, "https://");
+    is_http && url::Url::parse(text).is_ok()
+}
+
+/// Renders a bare address as an anchor opening in a new tab.
+fn bare_url_html(url: &str) -> String {
+    use std::fmt::Write as _;
+    let url = escape_html(url);
+    let mut out = String::with_capacity(url.len() * 2 + 64);
+    let _ = write!(
+        out,
+        "<a href=\"{url}\" target=\"_blank\" rel=\"noopener\">{url}</a>"
+    );
     out
 }
 

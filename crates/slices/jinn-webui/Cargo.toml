@@ -98,6 +98,7 @@ tracing = { workspace = true }
 parking_lot = { workspace = true }
 askama = { workspace = true }
 pulldown-cmark = { workspace = true }
+url = { workspace = true }
 unicode-segmentation = { workspace = true }
 jiff = { workspace = true }
 
