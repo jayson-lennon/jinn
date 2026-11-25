@@ -1,0 +1,24 @@
+[package]
+name = "jinn-webui2-msg"
+version.workspace = true
+edition.workspace = true
+description = "The wire contract for the second web UI: the two tagged message enums the browser and the server exchange over one WebSocket."
+
+[dependencies]
+# A pure contract crate: data and pure functions only. No actor, no
+# behavior trait, and never another slice's implementation crate. The
+# entry and session vocabulary rides in from the core types crate, so a
+# payload is the same shape the bus already serializes; the phase rides in
+# from the shared vocabulary crate.
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+# The round-trip and all-kinds tests build real entries with the core
+# constructors and serialize them as JSON values.
+rstest = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

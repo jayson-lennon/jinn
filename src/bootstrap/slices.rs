@@ -589,6 +589,26 @@ async fn activate_auxiliary_slices(
         .await?;
     }
 
+    // The second web UI (`/web2`) binds beside the original, with the
+    // same constraints: after the session-store's actors (its handlers
+    // await the store for the picker's stored sessions) and never
+    // before any event publisher it subscribes. Its own port, its own
+    // actor — the two web UIs share nothing but the bus.
+    {
+        let config_snapshot = ctx.services().config.clone();
+        let bus_snapshot = ctx.services().bus.clone();
+        let state_snapshot = ctx.state().clone();
+        let services_snapshot = ctx.services().clone();
+        jinn_webui2::activate(
+            &mut ctx.host(),
+            &config_snapshot,
+            bus_snapshot,
+            state_snapshot,
+            &services_snapshot,
+        )
+        .await?;
+    }
+
     // The discord slice resolves `[discord]` (fail-fast on a malformed
     // section) and parks the gateway channels for the frontend spawn.
     let services_snapshot = ctx.services().clone();
@@ -717,6 +737,12 @@ pub enum ActivateError {
     /// whole purpose, so launch stops where the cause is visible. The
     /// slice's report rides typed.
     WebUi(error_stack::Report<jinn_webui::WebUiActivationError>),
+    /// The `[webui2]` section failed to read, its bind did not parse, or
+    /// the port was taken. Fatal with the same severity as the original
+    /// web UI: an instance whose second browser surface cannot bind
+    /// defeats that slice's whole purpose. The slice's report rides
+    /// typed.
+    WebUi2(error_stack::Report<jinn_webui2::WebUi2ActivationError>),
     /// The `[applets]` section failed to read or its bind was malformed.
     /// Fatal with the same severity as canvas: every
     /// later picker open would refuse with the same sentence, so launch
@@ -776,6 +802,12 @@ impl From<error_stack::Report<jinn_remote::RemoteActivationError>> for ActivateE
 impl From<error_stack::Report<jinn_webui::WebUiActivationError>> for ActivateError {
     fn from(report: error_stack::Report<jinn_webui::WebUiActivationError>) -> Self {
         Self::WebUi(report)
+    }
+}
+
+impl From<error_stack::Report<jinn_webui2::WebUi2ActivationError>> for ActivateError {
+    fn from(report: error_stack::Report<jinn_webui2::WebUi2ActivationError>) -> Self {
+        Self::WebUi2(report)
     }
 }
 

@@ -1,0 +1,58 @@
+//! The second web UI slice — the message-driven mirror of the terminal UI.
+//!
+//! A live instance serves a browser page at `/web2`, bound per the
+//! `[webui2]` config section, that mirrors the terminal: it shares the
+//! instance's single active session, streams the transcript, and sends,
+//! queues, cancels, switches sessions and models, and renames — each by
+//! publishing the same bus messages the terminal publishes.
+//!
+//! The design invariant: **the browser owns all view state.** The server
+//! renders no HTML fragments and reads no client state back; it answers
+//! `ClientMsg`s by reading `State` and cells and by publishing existing
+//! commands, and it pushes `ServerMsg`s — data, never markup — as the
+//! facts change. Every byte across the socket is one of the two enums
+//! in `jinn-webui2-msg`.
+
+use error_stack::ResultExt as _;
+use jinn_config::ConfigLayer;
+use jinn_kernel::{State, common::services::Services};
+use jinn_slices::{SliceHost, bus::BusService};
+
+pub use jinn_webui2_msg::WEBUI2_PROTOCOL_VERSION;
+
+/// Why the second web UI's activation failed.
+#[derive(Debug, wherror::Error)]
+#[error(debug)]
+pub enum WebUi2ActivationError {
+    /// The `[webui2]` section failed to read or the bind failed to parse.
+    #[error(debug)]
+    Startup,
+}
+
+/// Installs the second web UI: read the frozen bind.
+///
+/// Activation is fail-fast, like the original web UI: a broken bind
+/// cannot serve anything. The bind is read **once**; a live `[webui2]`
+/// edit applies at the next restart.
+///
+/// # Errors
+///
+/// Returns [`WebUi2ActivationError`] when the `[webui2]` section is
+/// unreadable or the bind is unparseable.
+pub async fn activate(
+    host: &mut SliceHost<'_, jinn_slices::RenderFacts>,
+    config: &ConfigLayer,
+    bus: BusService,
+    state: State,
+    services: &Services,
+) -> Result<(), error_stack::Report<WebUi2ActivationError>> {
+    let _ = (host, bus, state, services);
+    let webui2_config = config
+        .get::<jinn_preferences_config::schemas::WebUi2Config>()
+        .change_context(WebUi2ActivationError::Startup)
+        .attach("failed to read the [webui2] config section")?;
+    webui2_config
+        .parse_bind()
+        .map_err(|report| report.change_context(WebUi2ActivationError::Startup))?;
+    Ok(())
+}

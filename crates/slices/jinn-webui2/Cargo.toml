@@ -1,0 +1,56 @@
+[package]
+name = "jinn-webui2"
+version.workspace = true
+edition.workspace = true
+description = "The second web UI slice: a message-driven mirror of the terminal UI over one WebSocket, bound per the [webui2] config section — sessions, transcript, composer, pickers, title."
+
+[dependencies]
+# A leaf slice like the original web UI: its own contract crate
+# (jinn-webui2-msg), the kernel for State, and the existing message
+# crates whose commands it publishes and whose events it subscribes. No
+# other slice's implementation crate except the store query the picker
+# rows need; never jinn-webui (the original UI is frozen).
+jinn-webui2-msg = { workspace = true }
+jinn-preferences-config = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-config = { workspace = true }
+jinn-kernel = { workspace = true }
+jinn-core-types = { workspace = true }
+jinn-app-state = { workspace = true }
+jinn-session-state = { workspace = true }
+jinn-session-store-msg = { workspace = true }
+jinn-session-history-msg = { workspace = true }
+jinn-inference-msg = { workspace = true }
+jinn-chat-input-msg = { workspace = true }
+jinn-session-msg = { workspace = true }
+jinn-provider-selection-msg = { workspace = true }
+jinn-provider-config = { workspace = true }
+jinn-tools-msg = { workspace = true }
+axum = { version = "0.8", features = ["ws"] }
+trouper = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+
+[build-dependencies]
+# The build script verifies the committed client bundle against the
+# vendor manifest (the pin gate) and fails the build when the client
+# sources are newer than the bundle (the staleness gate).
+sha2 = "0.10"
+toml = { workspace = true }
+
+[dev-dependencies]
+# The streaming-batch tests pause the clock so the window is asserted
+# without sleeping.
+tokio = { workspace = true, features = ["test-util"] }
+rstest = { workspace = true }
+jinn-testutil = { workspace = true }
+
+[lints]
+workspace = true

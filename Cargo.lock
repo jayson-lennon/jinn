@@ -3420,6 +3420,8 @@ dependencies = [
  "jinn-watchdog",
  "jinn-webui",
  "jinn-webui-msg",
+ "jinn-webui2",
+ "jinn-webui2-msg",
  "jinn-work-time",
  "jinn-workflows",
  "jinn-workflows-msg",
@@ -6109,6 +6111,54 @@ dependencies = [
  "serde",
  "serde_json",
  "trouper",
+]
+
+[[package]]
+name = "jinn-webui2"
+version = "1.27.2"
+dependencies = [
+ "axum",
+ "error-stack",
+ "futures",
+ "jinn-app-state",
+ "jinn-chat-input-msg",
+ "jinn-config",
+ "jinn-core-types",
+ "jinn-inference-msg",
+ "jinn-kernel",
+ "jinn-preferences-config",
+ "jinn-provider-config",
+ "jinn-provider-selection-msg",
+ "jinn-session-history-msg",
+ "jinn-session-msg",
+ "jinn-session-state",
+ "jinn-session-store-msg",
+ "jinn-slices",
+ "jinn-testutil",
+ "jinn-tools-msg",
+ "jinn-webui2-msg",
+ "parking_lot",
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-stream",
+ "toml 0.8.23",
+ "tracing",
+ "trouper",
+ "wherror",
+]
+
+[[package]]
+name = "jinn-webui2-msg"
+version = "1.27.2"
+dependencies = [
+ "jinn-core-types",
+ "jinn-slices",
+ "rstest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
