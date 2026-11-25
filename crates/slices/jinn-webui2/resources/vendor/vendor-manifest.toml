@@ -1,0 +1,25 @@
+# The /web2 slice's client assets.
+#
+# Unlike the original web UI's bundle (vendored input nothing regenerates),
+# these files are build OUTPUT of webui/client2, and this manifest is
+# written by `just webui2-build` — do not hand-edit the hashes.
+#
+# Two gates, both enforced by build.rs on every compile:
+#
+#   source_sha256  the hash of the client sources the bundle was built from.
+#                  Sources newer than this pin fail the build: a stale
+#                  bundle is a compile error, never a runtime surprise.
+#   assets[].sha256  each committed file's sha256, so the bytes embedded in
+#                  the binary are exactly the ones verified.
+#
+# To change the client: edit webui/client2, then run `just webui2-build`.
+
+source_sha256 = "868b4b89fcdbb18bcb46832b1a3791f221958428f19dbdb90d80568079b3f4b4"
+
+[[assets]]
+served = "client2.js"
+sha256 = "8a5789e16862e647df072472117e80983e352eaacd743dfb494232651fc60615"
+
+[[assets]]
+served = "client2.css"
+sha256 = "935547d631dd14780899d0b5007166369079970c43990efdfab593f95e54bf72"

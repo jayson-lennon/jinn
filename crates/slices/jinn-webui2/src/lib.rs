@@ -100,7 +100,6 @@ pub async fn activate(
     );
 
     let shared = std::sync::Arc::new(server::ServerShared {
-        state: outbound.state().clone(),
         outbound: outbound.clone(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
     });
@@ -109,7 +108,6 @@ pub async fn activate(
         host.system(),
         &listener::ListenerDeps {
             bind,
-            version: env!("CARGO_PKG_VERSION").to_owned(),
             shared,
             bus: bus.clone(),
         },

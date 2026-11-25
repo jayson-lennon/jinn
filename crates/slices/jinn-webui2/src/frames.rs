@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use jinn_core_types::{ChatEntry, ChatEntryId, ChatEntryKind, SessionId, ToolCallId};
 use jinn_kernel::State;
 use jinn_webui2_msg::{
-    DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, PhaseBody, ServerMsg, TitleBody,
+    DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, PhaseBody, ServerMsg,
 };
 
 /// The frame for a phase change.
@@ -23,24 +23,6 @@ pub fn phase(session_id: &SessionId, phase: jinn_slices::PhaseView) -> ServerMsg
         session_id: session_id.clone(),
         phase,
     })
-}
-
-/// The frames describing the current model and title of the active session.
-#[must_use]
-pub fn identity(state: &State) -> Vec<ServerMsg> {
-    let guard = state.read();
-    let session = guard.session.active_session();
-    let session_id = guard.session.active_session_id().clone();
-    vec![
-        ServerMsg::Model(jinn_webui2_msg::ModelBody {
-            session_id: session_id.clone(),
-            label: session.model_selection().to_string(),
-        }),
-        ServerMsg::Title(TitleBody {
-            session_id,
-            title: session.title().unwrap_or("Untitled Session").to_owned(),
-        }),
-    ]
 }
 
 /// The session-list frame, re-read from state.

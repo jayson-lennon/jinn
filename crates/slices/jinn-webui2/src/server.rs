@@ -18,7 +18,6 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::get,
 };
-use jinn_kernel::State;
 use jinn_webui2_msg::{ClientMsg, ServerMsg};
 
 use crate::{outbound::OutboundHandle, protocol};
@@ -26,9 +25,8 @@ use crate::{outbound::OutboundHandle, protocol};
 /// What every handler reads.
 #[derive(Debug, Clone)]
 pub struct ServerShared {
-    /// The shared application state.
-    pub state: State,
-    /// The outbound actor's connections and revisions.
+    /// The outbound actor's state, connections and revisions: the one
+    /// handle every request is dispatched through.
     pub outbound: OutboundHandle,
     /// The serving binary's version.
     pub version: String,
@@ -37,9 +35,14 @@ pub struct ServerShared {
 /// The page shell, as committed under `templates/`.
 const PAGE_SHELL: &str = include_str!("../templates/page.html");
 
-/// The vendored client files, embedded at compile time from the build
-/// script's inventory: `(path, bytes, content type)`.
-static VENDOR: &[(&str, &[u8], &str)] = &[];
+/// The client bundle, embedded at compile time from the build script's
+/// inventory: one row per built file, gzip-committed and sha256-pinned.
+mod vendor_assets {
+    include!(concat!(env!("OUT_DIR"), "/vendor_assets.rs"));
+}
+
+/// Long-lived for an identical bundle; the pin changes whenever it does.
+const IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
 
 /// Builds the router.
 #[must_use]
@@ -52,8 +55,10 @@ pub fn router(shared: Arc<ServerShared>) -> Router {
         .with_state(shared)
 }
 
-async fn page() -> Html<&'static str> {
-    Html(PAGE_SHELL)
+async fn page() -> Response {
+    // The shell names the bundle by a fixed path, so it must always be
+    // revalidated; the bundle itself is immutable for as long as its pin.
+    ([(header::CACHE_CONTROL, "no-cache")], Html(PAGE_SHELL)).into_response()
 }
 
 async fn health(AxumState(shared): AxumState<Arc<ServerShared>>) -> Response {
@@ -66,10 +71,18 @@ async fn health(AxumState(shared): AxumState<Arc<ServerShared>>) -> Response {
 
 async fn vendor(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches("/vendor2/");
-    let Some((_, bytes, content_type)) = VENDOR.iter().find(|(p, _, _)| *p == path) else {
+    let Some(asset) = vendor_assets::VENDOR_ASSETS.iter().find(|asset| asset.path == path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    ([(header::CONTENT_TYPE, *content_type)], *bytes).into_response()
+    (
+        [
+            (header::CONTENT_TYPE, asset.content_type),
+            (header::CONTENT_ENCODING, "gzip"),
+            (header::CACHE_CONTROL, IMMUTABLE_CACHE),
+        ],
+        asset.bytes,
+    )
+        .into_response()
 }
 
 async fn ws_handler(

@@ -32,21 +32,23 @@ pub enum ListenerError {
 pub struct ListenerDeps {
     /// The `host:port` to bind.
     pub bind: String,
-    /// The serving binary's version, for the health probe.
-    pub version: String,
-    /// The shared state and outbound handle every request reads.
+    /// The shared state, outbound handle and version every request reads.
     pub shared: Arc<ServerShared>,
     /// The bus the actor is spawned on.
     pub bus: BusService,
 }
 
-/// The listener actor.
+/// The listener actor: a lifetime anchor for the serve task.
+///
+/// It holds the task and the bus so both live exactly as long as the actor
+/// and are dropped with it; no method reads either field back.
 #[derive(Debug)]
 pub struct ListenerActor {
-    /// The port that was actually bound (a `0` port resolves here).
-    pub port: u16,
-    /// The serve task, dropped (and so aborted) with the actor.
+    /// The serve task. Held for its `Drop` alone — dropping the actor
+    /// aborts the task — which is why nothing ever reads it.
+    #[expect(dead_code, reason = "the task is held for its Drop, which aborts it with the actor")]
     pub serve_task: tokio::task::JoinHandle<()>,
+    /// The bus the actor was spawned on.
     bus: BusService,
 }
 
@@ -123,7 +125,6 @@ pub async fn spawn(
     });
 
     let bus = deps.bus.clone();
-    let port = bound.port;
     let outbound = deps.shared.outbound.clone();
 
     trouper::builder::spawn_service_builder::<ListenerActor>(system)
@@ -131,11 +132,7 @@ pub async fn spawn(
         .init_with(move || {
             let bus = bus.clone();
             Box::pin(async move {
-                Ok(ListenerActor {
-                    port,
-                    serve_task,
-                    bus,
-                })
+                Ok(ListenerActor { serve_task, bus })
             })
         })
         .start();

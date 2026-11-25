@@ -1,0 +1,22 @@
+{
+  "name": "jinn-webui2-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The /web2 browser client: a Solid 2 app that speaks only ClientMsg and ServerMsg over one WebSocket.",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@solidjs/web": "2.0.4",
+    "dompurify": "3.5.0",
+    "markdown-it": "15.0.3",
+    "solid-js": "2.0.4"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.1",
+    "vite": "8.3.8",
+    "typescript": "7.0.2"
+  }
+}

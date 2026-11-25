@@ -67,6 +67,17 @@ fn push(state: &State, entry: ChatEntry) {
 // Send
 // ---------------------------------------------------------------------------
 
+/// Sends one message the way the page does, and fails the test when the
+/// server refuses it: every caller here is exercising an action that must
+/// succeed. The one refusal under test sends its message by hand.
+async fn say(h: &Harness, msg: ClientMsg) {
+    let reply = dispatch(msg, &h.handle).await;
+    assert!(
+        !reply.frames.iter().any(|frame| matches!(frame, ServerMsg::Error(_))),
+        "the server refused: {reply:?}"
+    );
+}
+
 #[rstest::rstest]
 #[tokio::test]
 async fn send_publishes_mark_interacted_before_enqueue() {
@@ -74,11 +85,11 @@ async fn send_publishes_mark_interacted_before_enqueue() {
     let h = harness();
 
     // When the page sends a message.
-    dispatch(
+    say(
+        &h,
         ClientMsg::Send {
             text: "hello".to_owned(),
         },
-        &h.handle,
     )
     .await;
 
@@ -96,11 +107,11 @@ async fn send_enqueues_the_text_as_a_user_entry() {
     let h = harness();
 
     // When the page sends a message.
-    dispatch(
+    say(
+        &h,
         ClientMsg::Send {
             text: "hello".to_owned(),
         },
-        &h.handle,
     )
     .await;
 
@@ -118,11 +129,11 @@ async fn send_enqueues_on_the_active_session() {
     let id = active_id(&h.state);
 
     // When the page sends a message.
-    dispatch(
+    say(
+        &h,
         ClientMsg::Send {
             text: "hello".to_owned(),
         },
-        &h.handle,
     )
     .await;
 
@@ -178,11 +189,11 @@ async fn send_while_busy_publishes_nothing() {
         .begin_streaming();
 
     // When the page sends a message.
-    dispatch(
+    say(
+        &h,
         ClientMsg::Send {
             text: "hello".to_owned(),
         },
-        &h.handle,
     )
     .await;
 
@@ -225,11 +236,11 @@ async fn queue_while_busy_still_enqueues() {
         .begin_streaming();
 
     // When the page queues a message.
-    dispatch(
+    say(
+        &h,
         ClientMsg::Queue {
             text: "next".to_owned(),
         },
-        &h.handle,
     )
     .await;
 
@@ -251,7 +262,7 @@ async fn cancel_publishes_cancel_turn_draining_to_input() {
     let h = harness();
 
     // When the page cancels.
-    dispatch(ClientMsg::Cancel, &h.handle).await;
+    say(&h, ClientMsg::Cancel).await;
 
     // Then the terminal's own cancel is published.
     let cancels = h.audit.of_type::<CancelTurn>();
@@ -272,11 +283,11 @@ async fn activate_switches_the_active_session() {
     h.state.write().session.get_or_create(&second);
 
     // When the page activates the second.
-    dispatch(
+    say(
+        &h,
         ClientMsg::ActivateSession {
             session_id: second.clone(),
         },
-        &h.handle,
     )
     .await;
 
@@ -293,11 +304,11 @@ async fn activate_publishes_a_load_request_without_a_width() {
     h.state.write().session.get_or_create(&second);
 
     // When the page activates the second.
-    dispatch(
+    say(
+        &h,
         ClientMsg::ActivateSession {
             session_id: second.clone(),
         },
-        &h.handle,
     )
     .await;
 
@@ -338,11 +349,11 @@ async fn switch_model_publishes_provider_switch_then_last_model() {
     let h = harness();
 
     // When the page picks a model.
-    dispatch(
+    say(
+        &h,
         ClientMsg::SwitchModel {
             provider_id: "ollama/llama3".to_owned(),
         },
-        &h.handle,
     )
     .await;
 
@@ -357,11 +368,11 @@ async fn switch_model_does_not_write_the_model_synchronously() {
     let h = harness();
 
     // When the page picks a model.
-    dispatch(
+    say(
+        &h,
         ClientMsg::SwitchModel {
             provider_id: "ollama/llama3".to_owned(),
         },
-        &h.handle,
     )
     .await;
 
@@ -379,11 +390,11 @@ async fn switch_model_records_the_picked_id_as_a_single_selection() {
     let h = harness();
 
     // When the page picks a model.
-    dispatch(
+    say(
+        &h,
         ClientMsg::SwitchModel {
             provider_id: "ollama/llama3".to_owned(),
         },
-        &h.handle,
     )
     .await;
 
@@ -407,11 +418,11 @@ async fn rename_writes_the_trimmed_title() {
     let h = harness();
 
     // When the page renames it.
-    dispatch(
+    say(
+        &h,
         ClientMsg::Rename {
             title: "  Road trip  ".to_owned(),
         },
-        &h.handle,
     )
     .await;
 
@@ -430,11 +441,11 @@ async fn rename_publishes_a_persist_for_the_session() {
     let id = active_id(&h.state);
 
     // When the page renames it.
-    dispatch(
+    say(
+        &h,
         ClientMsg::Rename {
             title: "Road trip".to_owned(),
         },
-        &h.handle,
     )
     .await;
 

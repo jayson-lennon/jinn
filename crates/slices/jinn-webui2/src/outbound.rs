@@ -169,6 +169,7 @@ impl OutboundHandle {
         self.deps.connections.broadcast(msg);
     }
 
+
     /// The revision a session's history is at.
     #[must_use]
     pub fn revision(&self, session_id: &SessionId) -> u64 {
@@ -212,8 +213,15 @@ impl OutboundHandle {
     }
 
     /// Merges the queued chunks and pushes one frame per entry and field.
+    ///
+    /// With no page connected the queue is dropped unmerged: the frames
+    /// would reach nobody, and a page that connects later resumes from a
+    /// full snapshot rather than from a replay of what it missed.
     pub(crate) fn flush(&self) {
         let queued = std::mem::take(&mut *self.pending.lock());
+        if self.deps.connections.is_empty() {
+            return;
+        }
         for frame in crate::frames::coalesce(queued) {
             self.broadcast(frame);
         }
