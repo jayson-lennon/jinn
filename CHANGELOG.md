@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-11-24 v.27.1
 
 - (webui) Web addresses are now linkified.
 - (webui) Reduced network load.
