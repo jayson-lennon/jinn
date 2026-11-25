@@ -56,7 +56,7 @@ pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
         }
         ClientMsg::SwitchModel { provider_id } => actions::switch_model(out, provider_id).await,
         ClientMsg::Rename { title } => actions::rename(out, title).await,
-        ClientMsg::PickerRows { filter } => actions::picker_rows(out, filter),
+        ClientMsg::PickerRows { filter } => actions::picker_rows(out, filter).await,
         ClientMsg::ModelRows { filter } => actions::model_rows(out, filter),
     }
 }

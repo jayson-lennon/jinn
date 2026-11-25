@@ -19,8 +19,10 @@ use jinn_provider_selection_msg::ProviderSwitch;
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{PersistSession, SessionLoadRequested};
 use jinn_webui2_msg::{
-    EntryEnvelope, EntryUpsertBody, ErrorBody, ModelRowsBody, PickerRowsBody, ServerMsg,
+    EntryEnvelope, EntryUpsertBody, ErrorBody, ModelRowBody, ModelRowsBody, PickerRowBody,
+    PickerRowsBody, ServerMsg,
 };
+use marked_path::MarkedPathAccess as _;
 
 use crate::{outbound::OutboundHandle, protocol::Reply, snapshot};
 
@@ -38,6 +40,8 @@ pub enum Refusal {
     UnknownSession,
     /// There is no active session.
     NoActiveSession,
+    /// The session store could not be read.
+    StoreUnavailable,
 }
 
 impl Refusal {
@@ -47,6 +51,7 @@ impl Refusal {
             Self::EmptyText => "message is empty",
             Self::UnknownSession => "unknown session",
             Self::NoActiveSession => "no active session",
+            Self::StoreUnavailable => "session store unavailable",
         }
     }
 }
@@ -287,17 +292,110 @@ fn write_title(state: &jinn_kernel::State, title: &str) -> Option<SessionId> {
 // ---------------------------------------------------------------------------
 
 /// The stored-session picker's rows for a filter.
-pub fn picker_rows(_out: &OutboundHandle, filter: String) -> Reply {
-    Reply::one(ServerMsg::PickerRows(PickerRowsBody {
-        filter,
-        rows: Vec::new(),
-    }))
+///
+/// Every session the store knows — loaded or archived — whose title
+/// matches the filter, ranked the way the terminal's session picker ranks
+/// them (the same fuzzy matcher, best score first) and capped at
+/// [`PICKER_ROW_CAP`]. An empty filter lists them newest first.
+pub async fn picker_rows(out: &OutboundHandle, filter: String) -> Reply {
+    let rows = match stored_rows(out, &filter).await {
+        Ok(rows) => rows,
+        Err(report) => {
+            tracing::warn!(error = %report, "second web UI could not read stored sessions");
+            return refused(Refusal::StoreUnavailable);
+        }
+    };
+    Reply::one(ServerMsg::PickerRows(PickerRowsBody { filter, rows }))
+}
+
+async fn stored_rows(
+    out: &OutboundHandle,
+    filter: &str,
+) -> Result<Vec<PickerRowBody>, error_stack::Report<jinn_session_state::SessionStoreError>> {
+    let store = out.session_store();
+    let mut summaries = store.load_unarchived_summaries().await?;
+    summaries.extend(store.load_archive_rows().await?);
+    let _ = &mut summaries;
+    let matched = match_titles(summaries, filter);
+    Ok(matched.into_iter().take(PICKER_ROW_CAP).collect())
+}
+
+/// Filters and ranks stored sessions by title with the terminal picker's matcher.
+pub(crate) fn match_titles(
+    summaries: Vec<jinn_session_store_msg::SessionSummary>,
+    filter: &str,
+) -> Vec<PickerRowBody> {
+    use fuzzy_matcher::FuzzyMatcher as _;
+
+    let matcher = fuzzy_matcher::skim::SkimMatcherV2::default();
+    let mut scored: Vec<(i64, PickerRowBody)> = summaries
+        .into_iter()
+        .filter_map(|summary| {
+            let title = summary.title.clone();
+            let row = PickerRowBody {
+                session_id: summary.session_id,
+                title,
+                state: summary.session_state,
+                parent_id: summary.parent_session,
+                project: summary.project.map(|p| {
+                    // The directory's name, as the terminal picker shows it.
+                    p.file_name()
+                        .map_or_else(|| p.to_string(), |n| n.to_string_lossy().into_owned())
+                }),
+            };
+            // An empty filter keeps everything, unranked; otherwise only
+            // titles the matcher accepts, best first.
+            let score = if filter.is_empty() {
+                0
+            } else {
+                matcher.fuzzy_match(&row.title, filter)?
+            };
+            Some((score, row))
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.into_iter().map(|(_, row)| row).collect()
 }
 
 /// The model picker's rows for a filter, from the shared row builder.
-pub fn model_rows(_out: &OutboundHandle, filter: String) -> Reply {
-    Reply::one(ServerMsg::ModelRows(ModelRowsBody {
-        filter,
-        rows: Vec::new(),
-    }))
+///
+/// The same `load_provider_entries` → `sorted_entries` path the terminal's
+/// picker seeds from, so the two lists cannot drift: available models
+/// first, the active one promoted to the top when unfiltered.
+pub fn model_rows(out: &OutboundHandle, filter: String) -> Reply {
+    let (active, theme) = {
+        let guard = out.state().read();
+        let active = guard
+            .session
+            .active_session()
+            .profile()
+            .model
+            .display_str()
+            .to_owned();
+        (active, guard.frontend.theme.clone())
+    };
+    let model_cache = out.provider_cell().read().model_cache.clone();
+
+    let all = {
+        let registry = out.services().provider_registry.read();
+        let api_keys = out.services().api_keys.read();
+        jinn_provider_selection_msg::load_provider_entries(
+            &registry,
+            &api_keys,
+            model_cache.as_ref(),
+            &theme,
+        )
+    };
+    let rows = jinn_provider_selection_msg::sorted_entries(&all, &filter, &active)
+        .into_iter()
+        .map(|entry| ModelRowBody {
+            provider_id: entry.provider_id,
+            model: entry.model,
+            provider_name: entry.provider_name,
+            is_available: entry.is_available,
+            is_active: entry.is_active,
+        })
+        .collect();
+
+    Reply::one(ServerMsg::ModelRows(ModelRowsBody { filter, rows }))
 }

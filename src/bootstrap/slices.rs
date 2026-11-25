@@ -589,21 +589,23 @@ async fn activate_auxiliary_slices(
         .await?;
     }
 
-    // The second web UI (`/web2`) binds beside the original, with the
-    // same constraints: after the session-store's actors (its handlers
-    // await the store for the picker's stored sessions) and never
-    // before any event publisher it subscribes. Its own port, its own
-    // actor — the two web UIs share nothing but the bus.
+    // The second web UI (`/web2`) binds beside the original. It resolves
+    // the provider cell (so it activates after the cell catalog) and
+    // publishes commands the session-store and provider actors handle,
+    // so it activates after them, like the original. Its own port, its
+    // own actor — the two web UIs share nothing but the bus.
     {
         let config_snapshot = ctx.services().config.clone();
         let bus_snapshot = ctx.services().bus.clone();
         let state_snapshot = ctx.state().clone();
         let services_snapshot = ctx.services().clone();
+        let store_snapshot = ctx.services().session_store.clone();
         jinn_webui2::activate(
             &mut ctx.host(),
             &config_snapshot,
             bus_snapshot,
             state_snapshot,
+            store_snapshot,
             &services_snapshot,
         )
         .await?;

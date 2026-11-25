@@ -11,6 +11,7 @@ description = "The wire contract for the second web UI: the two tagged message e
 # payload is the same shape the bus already serializes; the phase rides in
 # from the shared vocabulary crate.
 jinn-core-types = { workspace = true }
+jinn-session-store-msg = { workspace = true }
 jinn-slices = { workspace = true }
 serde = { workspace = true }
 

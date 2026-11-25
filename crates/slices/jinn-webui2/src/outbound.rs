@@ -62,6 +62,12 @@ pub struct OutboundActorDeps {
     pub connections: ConnectionRegistry,
     /// The per-session history revisions.
     pub revisions: RevisionTracker,
+    /// The provider registry and API keys the model picker's rows are built from.
+    pub services: jinn_kernel::Services,
+    /// The provider slice's cell: the last known model cache.
+    pub provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
+    /// The session store, for the stored-session picker's rows.
+    pub session_store: jinn_session_state::SessionStoreService,
 }
 
 /// One stream chunk waiting for the flush tick.
@@ -178,6 +184,26 @@ impl OutboundHandle {
     #[must_use]
     pub fn state(&self) -> &State {
         &self.deps.state
+    }
+
+    /// The provider registry and API keys the model picker reads.
+    #[must_use]
+    pub fn services(&self) -> &jinn_kernel::Services {
+        &self.deps.services
+    }
+
+    /// The session store, for the stored-session picker's rows.
+    #[must_use]
+    pub fn session_store(&self) -> &jinn_session_state::SessionStoreService {
+        &self.deps.session_store
+    }
+
+    /// The provider slice's cell (the last known model cache).
+    #[must_use]
+    pub fn provider_cell(
+        &self,
+    ) -> &jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell> {
+        &self.deps.provider_cell
     }
 
     /// Queues a chunk for the next flush tick.

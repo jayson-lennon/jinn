@@ -61,9 +61,9 @@ pub async fn activate(
     config: &ConfigLayer,
     bus: BusService,
     state: State,
+    session_store: jinn_session_state::SessionStoreService,
     services: &Services,
 ) -> Result<(), error_stack::Report<WebUi2ActivationError>> {
-    let _ = services;
     let webui2_config = config
         .get::<jinn_preferences_config::schemas::WebUi2Config>()
         .change_context(WebUi2ActivationError::Startup)
@@ -73,6 +73,19 @@ pub async fn activate(
         .map_err(|report| report.change_context(WebUi2ActivationError::Startup))?
         .to_string();
 
+    // The provider cell, for the model picker's rows. Resolved from the
+    // shared catalog the way the terminal's picker resolves it.
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: a missing provider slot is a broken boot order and must abort launch, not continue degraded"
+    )]
+    let provider_cell = host
+        .slices()
+        .reader::<jinn_provider_selection_msg::ProviderCell>(
+            &jinn_provider_selection_msg::provider_state_slot(),
+        )
+        .expect("the cell catalog registers the provider slot before any slice activates");
+
     let outbound = outbound::spawn(
         host.system(),
         outbound::OutboundActorDeps {
@@ -80,6 +93,9 @@ pub async fn activate(
             bus: bus.clone(),
             connections: connections::ConnectionRegistry::default(),
             revisions: revision::RevisionTracker::default(),
+            services: services.clone(),
+            provider_cell,
+            session_store,
         },
     );
 

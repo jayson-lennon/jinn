@@ -11,8 +11,8 @@ use rstest::rstest;
 
 use crate::payload::{
     DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ModelBody, ModelRowBody,
-    ModelRowsBody, PhaseBody, PickerRowsBody, SessionRowBody, SessionsBody, SnapshotBody,
-    TitleBody,
+    ModelRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
+    SnapshotBody, TitleBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION};
 
@@ -43,6 +43,17 @@ fn row(title: &str) -> SessionRowBody {
         title: title.to_owned(),
         is_active: false,
         is_busy: false,
+    }
+}
+
+/// Builds one stored-session picker row.
+fn picker_row(title: &str) -> PickerRowBody {
+    PickerRowBody {
+        session_id: SessionId::new(),
+        title: title.to_owned(),
+        state: jinn_session_store_msg::SessionState::Archived,
+        parent_id: Some(SessionId::new()),
+        project: Some("jinn".to_owned()),
     }
 }
 
@@ -423,7 +434,7 @@ fn server_picker_rows_round_trips() {
     // Given picker rows answering a filter.
     let msg = ServerMsg::PickerRows(PickerRowsBody {
         filter: "ji".to_owned(),
-        rows: vec![row("jinn work")],
+        rows: vec![picker_row("jinn work")],
     });
 
     // When it round-trips.

@@ -5,6 +5,7 @@
 //! phase as the core `PhaseView`, and ids as the core newtypes.
 
 use jinn_core_types::{ChatEntry, ChatEntryId, SessionId};
+use jinn_session_store_msg::SessionState;
 use serde::{Deserialize, Serialize};
 
 /// Which entry field an [`EntryDeltaBody`]'s chunk extends.
@@ -148,13 +149,31 @@ pub struct TitleBody {
     pub title: String,
 }
 
-/// The stored-session picker's rows.
+/// One row of the stored-session picker.
+///
+/// Richer than a sidebar row: the picker shows sessions that are not
+/// loaded, so it carries the stored state, the parent, and the project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PickerRowBody {
+    /// The session.
+    pub session_id: SessionId,
+    /// Its stored title.
+    pub title: String,
+    /// Whether it is loaded in memory or only archived on disk.
+    pub state: SessionState,
+    /// The session this one was forked from, when it was.
+    pub parent_id: Option<SessionId>,
+    /// The project directory's display name, when the session has one.
+    pub project: Option<String>,
+}
+
+/// The stored-session picker's rows for one filter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PickerRowsBody {
     /// The filter the rows answer (empty for the unfiltered list).
     pub filter: String,
     /// At most fifty rows.
-    pub rows: Vec<SessionRowBody>,
+    pub rows: Vec<PickerRowBody>,
 }
 
 /// The rows the model picker shows.

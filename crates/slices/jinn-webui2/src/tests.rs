@@ -31,11 +31,22 @@ struct Harness {
 fn harness() -> Harness {
     let (bus, audit) = BusService::new_recording();
     let state = State::new(jinn_kernel::AppState::default());
+    let slices = jinn_slices::Slices::new();
+    jinn_cell_catalog::register_all_cells(&slices);
+    let provider_cell = slices
+        .reader::<jinn_provider_selection_msg::ProviderCell>(
+            &jinn_provider_selection_msg::provider_state_slot(),
+        )
+        .expect("the catalog registers the provider slot");
+    let services = jinn_kernel::TestServices::builder().build();
     let handle = OutboundHandle::new(crate::outbound::OutboundActorDeps {
         state: state.clone(),
         bus,
         connections: ConnectionRegistry::default(),
         revisions: RevisionTracker::default(),
+        session_store: services.session_store.clone(),
+        services,
+        provider_cell,
     });
     Harness {
         handle,
@@ -570,6 +581,139 @@ fn active_last_entry_id(state: &State) -> jinn_core_types::ChatEntryId {
         .last()
         .map(|e| e.id.clone())
         .expect("history has an entry")
+}
+
+// ---------------------------------------------------------------------------
+// Stored-session picker
+// ---------------------------------------------------------------------------
+
+fn summary(title: &str) -> jinn_session_store_msg::SessionSummary {
+    jinn_session_store_msg::SessionSummary {
+        session_id: jinn_core_types::SessionId::new(),
+        title: title.to_owned(),
+        updated_at: jiff::Timestamp::UNIX_EPOCH,
+        created_at: jiff::Timestamp::UNIX_EPOCH,
+        session_state: jinn_session_store_msg::SessionState::Loaded,
+        in_library: false,
+        is_bot: false,
+        parent_session: None,
+        project: None,
+    }
+}
+
+fn titles(rows: &[jinn_webui2_msg::PickerRowBody]) -> Vec<&str> {
+    rows.iter().map(|row| row.title.as_str()).collect()
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_filter_keeps_only_titles_that_match() {
+    // Given stored sessions with mixed titles.
+    let stored = vec![
+        summary("jinn work"),
+        summary("groceries"),
+        summary("jinn plans"),
+    ];
+
+    // When the picker is filtered to "jinn".
+    let rows = crate::actions::match_titles(stored, "jinn");
+
+    // Then only the jinn titles remain.
+    assert_eq!(titles(&rows), ["jinn work", "jinn plans"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_ranks_the_closer_title_match_first() {
+    // Given a title that starts with the filter and one that merely contains it.
+    let stored = vec![summary("my jinn notes"), summary("jinn work")];
+
+    // When the picker is filtered to "jinn".
+    let rows = crate::actions::match_titles(stored, "jinn");
+
+    // Then the prefix match ranks first.
+    assert_eq!(titles(&rows), ["jinn work", "my jinn notes"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_with_an_empty_filter_keeps_every_session() {
+    // Given three stored sessions.
+    let stored = vec![summary("one"), summary("two"), summary("three")];
+
+    // When the picker is unfiltered.
+    let rows = crate::actions::match_titles(stored, "");
+
+    // Then all three are listed.
+    assert_eq!(rows.len(), 3);
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_row_carries_the_stored_state_and_parent() {
+    // Given an archived session forked from another.
+    let mut archived = summary("child");
+    archived.session_state = jinn_session_store_msg::SessionState::Archived;
+    let parent = jinn_core_types::SessionId::new();
+    archived.parent_session = Some(parent.clone());
+
+    // When the picker lists it.
+    let rows = crate::actions::match_titles(vec![archived], "");
+
+    // Then the row says so.
+    assert!(matches!(
+        rows.as_slice(),
+        [jinn_webui2_msg::PickerRowBody { state, parent_id: Some(p), .. }]
+            if *state == jinn_session_store_msg::SessionState::Archived && *p == parent
+    ));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn picker_rows_on_an_empty_store_answers_no_rows() {
+    // Given a store with no sessions.
+    let h = harness();
+
+    // When the page asks for the picker's rows.
+    let reply = dispatch(
+        ClientMsg::PickerRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then it gets an empty, well-formed answer rather than an error.
+    let [ServerMsg::PickerRows(body)] = reply.frames.as_slice() else {
+        unreachable!("a picker request answers picker rows");
+    };
+    assert!(body.rows.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Model picker
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_rows_with_no_configured_providers_answers_no_rows() {
+    // Given a registry with no providers.
+    let h = harness();
+
+    // When the page asks for the model picker's rows.
+    let reply = dispatch(
+        ClientMsg::ModelRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then it gets an empty, well-formed answer.
+    let [ServerMsg::ModelRows(body)] = reply.frames.as_slice() else {
+        unreachable!("a model-rows request answers model rows");
+    };
+    assert!(body.rows.is_empty());
 }
 
 // ---------------------------------------------------------------------------

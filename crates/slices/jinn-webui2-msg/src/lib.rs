@@ -17,8 +17,8 @@ pub mod server;
 pub use client::ClientMsg;
 pub use payload::{
     DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ModelBody, ModelRowBody,
-    ModelRowsBody, PhaseBody, PickerRowsBody, SessionRowBody, SessionsBody, SnapshotBody,
-    TitleBody,
+    ModelRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
+    SnapshotBody, TitleBody,
 };
 pub use server::ServerMsg;
 
