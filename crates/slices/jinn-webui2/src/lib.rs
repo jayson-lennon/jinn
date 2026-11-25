@@ -56,6 +56,12 @@ pub enum WebUi2ActivationError {
 /// Returns [`WebUi2ActivationError::Startup`] when the `[webui2]` section
 /// is unreadable or the bind unparseable, and
 /// [`WebUi2ActivationError::Bind`] when the address is taken.
+///
+/// # Panics
+///
+/// Panics when the cell catalog has not registered the provider
+/// selection slot. That is a boot-order bug, not a runtime condition:
+/// the catalog runs before any slice activates.
 pub async fn activate(
     host: &mut SliceHost<'_, jinn_slices::RenderFacts>,
     config: &ConfigLayer,

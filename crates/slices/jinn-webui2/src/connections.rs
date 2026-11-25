@@ -25,7 +25,7 @@ impl ConnectionRegistry {
     }
 
     /// Sends one frame to every open connection.
-    pub fn broadcast(&self, msg: ServerMsg) {
+    pub fn broadcast(&self, msg: &ServerMsg) {
         self.inner.lock().retain(|tx| tx.send(msg.clone()).is_ok());
     }
 

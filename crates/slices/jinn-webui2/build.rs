@@ -40,10 +40,8 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     // `<repo>/webui/client2`: this crate sits at crates/slices/<name>, so
     // the repository root is three levels up.
-    let client_dir = manifest_dir
-        .join("../../../webui/client2")
-        .canonicalize()
-        .unwrap_or_else(|e| panic!("webui/client2 is missing: {e}"));
+    let client_dir = manifest_dir.join("../../../webui/client2");
+    assert!(client_dir.is_dir(), "webui/client2 is missing");
     let vendor_dir = manifest_dir.join("resources/vendor");
     let manifest_path = vendor_dir.join(MANIFEST);
 
@@ -142,12 +140,11 @@ fn main() {
 /// row names a file that is not on disk (or is not gzip): a row must name
 /// a real build output to be pinned.
 fn pin_manifest(manifest_path: &Path, manifest_text: &str, source_sha256: &str, vendor_dir: &Path) {
-    let assets = toml::from_str::<toml::Value>(manifest_text)
-        .expect("the manifest parses")
+    let parsed = toml::from_str::<toml::Value>(manifest_text).expect("the manifest parses");
+    let assets = parsed
         .get("assets")
         .and_then(toml::Value::as_array)
-        .expect("the manifest carries an [[assets]] array")
-        .to_vec();
+        .expect("the manifest carries an [[assets]] array");
 
     let mut lines: Vec<String> = manifest_text.lines().map(ToOwned::to_owned).collect();
     let mut source_done = false;
@@ -155,7 +152,7 @@ fn pin_manifest(manifest_path: &Path, manifest_text: &str, source_sha256: &str, 
     // the n-th `[[assets]]` row, which is the order they are declared in.
     let mut asset_index = 0usize;
 
-    for line in lines.iter_mut() {
+    for line in &mut lines {
         let trimmed = line.trim_start();
         if !source_done && trimmed.starts_with("source_sha256") {
             *line = format!("source_sha256 = \"{source_sha256}\"");
@@ -182,9 +179,14 @@ fn pin_manifest(manifest_path: &Path, manifest_text: &str, source_sha256: &str, 
             for byte in sha2::Sha256::digest(&bytes) {
                 let _ = write!(hex, "{byte:02x}");
             }
-            let indent = &line[..line.len() - trimmed.len()];
+            let indent = line
+                .chars()
+                .take_while(char::is_ascii_whitespace)
+                .collect::<String>();
             *line = format!("{indent}sha256 = \"{hex}\"");
             asset_index += 1;
+        } else {
+            // Any other line — a table header, a served path — is kept.
         }
     }
     assert!(
@@ -199,7 +201,9 @@ fn pin_manifest(manifest_path: &Path, manifest_text: &str, source_sha256: &str, 
         assets.len(),
         asset_index
     );
-    fs::write(manifest_path, lines.join("\n") + "\n")
+    let mut manifest_text = lines.join("\n");
+    manifest_text.push('\n');
+    fs::write(manifest_path, manifest_text)
         .unwrap_or_else(|e| panic!("writing {}: {e}", manifest_path.display()));
 }
 
@@ -264,13 +268,17 @@ fn collect_files(root: &Path, base: &Path, out: &mut Vec<String>) {
         let path = entry.path();
         if path.is_dir() {
             collect_files(&path, base, out);
-        } else if path.file_name().is_some_and(|name| name != MANIFEST) {
-            let rel = path
-                .strip_prefix(base)
-                .expect("collected under base")
-                .to_string_lossy()
-                .replace(std::path::MAIN_SEPARATOR, "/");
-            out.push(rel);
+        } else {
+            // A plain file, minus the manifest — it is the record of the
+            // tree, not part of it.
+            if path.file_name().is_some_and(|name| name != MANIFEST) {
+                let rel = path
+                    .strip_prefix(base)
+                    .expect("collected under base")
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/");
+                out.push(rel);
+            }
         }
     }
 }
@@ -284,11 +292,9 @@ fn collect_files(root: &Path, base: &Path, out: &mut Vec<String>) {
 /// the installed dependencies are already covered by the lock file.
 fn source_files(client_dir: &Path) -> Vec<String> {
     let mut names = Vec::new();
-    for dir_name in ["src"] {
-        let dir = client_dir.join(dir_name);
-        if dir.is_dir() {
-            collect_files(&dir, client_dir, &mut names);
-        }
+    let src = client_dir.join("src");
+    if src.is_dir() {
+        collect_files(&src, client_dir, &mut names);
     }
     for name in [
         "index.html",

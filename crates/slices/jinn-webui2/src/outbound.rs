@@ -79,11 +79,21 @@ pub struct OutboundActorDeps {
 /// a page's replies never queue behind a busy actor.
 #[derive(Debug, Clone)]
 pub struct OutboundHandle {
-    pub(crate) deps: OutboundActorDeps,
+    deps: OutboundActorDeps,
     /// What each entry looked like when it last reached a page. Shared by
     /// the actor (which streams) and the dispatch (which answers a fresh
     /// page with a snapshot), so neither re-sends what the other delivered.
-    pub(crate) sent: Arc<Mutex<handlers::SentLengths>>,
+    sent: Arc<Mutex<handlers::SentLengths>>,
+}
+
+impl OutboundHandle {
+    /// The per-session revision counters, read when a fresh page's
+    /// snapshot is built so its revision matches what streaming will
+    /// carry forward.
+    #[must_use]
+    pub fn revisions(&self) -> &crate::revision::RevisionTracker {
+        &self.deps.revisions
+    }
 }
 
 mod handlers;
@@ -165,7 +175,7 @@ impl OutboundHandle {
     }
 
     /// Sends one frame to every open connection.
-    pub fn broadcast(&self, msg: ServerMsg) {
+    pub fn broadcast(&self, msg: &ServerMsg) {
         self.deps.connections.broadcast(msg);
     }
 
@@ -216,8 +226,8 @@ impl OutboundHandle {
 /// Spawns the outbound actor and arms its flush tick.
 #[must_use]
 pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
+    let bus = deps.bus.clone();
     let handle = OutboundHandle::new(deps);
-    let bus = handle.deps.bus.clone();
     let returned = handle.clone();
 
     trouper::builder::spawn_service_builder::<OutboundActor>(system)

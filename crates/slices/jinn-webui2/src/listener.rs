@@ -52,7 +52,7 @@ pub struct ListenerActor {
     )]
     pub serve_task: tokio::task::JoinHandle<()>,
     /// The bus the actor was spawned on.
-    bus: BusService,
+    pub bus: BusService,
 }
 
 impl ServiceActor for ListenerActor {

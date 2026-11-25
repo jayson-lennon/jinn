@@ -45,7 +45,6 @@ mod vendor_assets {
 const IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
 
 /// Builds the router.
-#[must_use]
 pub fn router(shared: Arc<ServerShared>) -> Router {
     Router::new()
         .route("/web2", get(page))

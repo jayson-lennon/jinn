@@ -77,7 +77,7 @@ impl SentLengths {
 }
 
 impl OutboundActor {
-    fn push(&self, frame: jinn_webui2_msg::ServerMsg) {
+    fn push(&self, frame: &jinn_webui2_msg::ServerMsg) {
         self.handle.broadcast(frame);
     }
 
@@ -85,7 +85,7 @@ impl OutboundActor {
     /// later reconcile does not send the same entry again.
     fn push_upsert(&self, session_id: &SessionId, index: usize, entry: &ChatEntry) {
         self.handle.sent.lock().changed(entry);
-        self.push(crate::frames::upsert_at(session_id, index, entry));
+        self.push(&crate::frames::upsert_at(session_id, index, entry));
     }
 
     /// The tick: one flush.
@@ -106,8 +106,8 @@ impl OutboundActor {
         if msg.new_phase == jinn_slices::PhaseView::Idle {
             self.reconcile(&msg.session_id);
         }
-        self.push(crate::frames::phase(&msg.session_id, msg.new_phase));
-        self.push(crate::frames::sessions(&self.handle.deps.state));
+        self.push(&crate::frames::phase(&msg.session_id, msg.new_phase));
+        self.push(&crate::frames::sessions(&self.handle.deps.state));
     }
 
     /// On a settle or a load, sends every entry the page does not hold.
@@ -186,7 +186,7 @@ impl MsgHandler<jinn_session_history_msg::HistoryAppended> for OutboundActor {
 impl OutboundActor {
     fn on_history_appended(&mut self, msg: &jinn_session_history_msg::HistoryAppended) {
         self.handle.bump(&msg.session_id);
-        self.push(crate::frames::sessions(&self.handle.deps.state));
+        self.push(&crate::frames::sessions(&self.handle.deps.state));
     }
 }
 
@@ -207,7 +207,7 @@ impl OutboundActor {
             crate::frames::upsert_by_id(&self.handle.deps.state, &msg.session_id, &msg.entry.id);
         if let Some(frame) = found {
             self.handle.sent.lock().changed(&msg.entry);
-            self.push(frame);
+            self.push(&frame);
         }
     }
 }
@@ -224,7 +224,7 @@ impl MsgHandler<jinn_provider_selection_msg::ProviderSwitched> for OutboundActor
 
 impl OutboundActor {
     fn on_provider_switched(&mut self, msg: &jinn_provider_selection_msg::ProviderSwitched) {
-        self.push(jinn_webui2_msg::ServerMsg::Model(
+        self.push(&jinn_webui2_msg::ServerMsg::Model(
             jinn_webui2_msg::ModelBody {
                 session_id: msg.session_id.clone(),
                 label: msg.provider_name.clone(),
@@ -250,7 +250,7 @@ impl OutboundActor {
         // may now be stale or may be exactly right; reconciling sends what
         // differs and nothing else, where clearing would re-send all of it.
         self.reconcile(&msg.session_id);
-        self.push(crate::frames::sessions(&self.handle.deps.state));
+        self.push(&crate::frames::sessions(&self.handle.deps.state));
     }
 }
 
@@ -294,7 +294,7 @@ pub(crate) fn reconcile(handle: &super::OutboundHandle, session_id: &SessionId) 
     let mut sent = handle.sent.lock();
     for (index, entry) in history {
         if sent.changed(&entry) {
-            handle.broadcast(crate::frames::upsert_at(session_id, index, &entry));
+            handle.broadcast(&crate::frames::upsert_at(session_id, index, &entry));
         }
     }
 }
@@ -312,13 +312,13 @@ fn send_suffix(
     current: &str,
 ) {
     if !sent.knows(&entry.id) {
-        handle.broadcast(crate::frames::upsert_at(session_id, index, entry));
+        handle.broadcast(&crate::frames::upsert_at(session_id, index, entry));
     }
     let chunk = sent.suffix(&entry.id, current);
     if chunk.is_empty() {
         return;
     }
-    handle.broadcast(crate::frames::delta(session_id, &entry.id, field, chunk));
+    handle.broadcast(&crate::frames::delta(session_id, &entry.id, field, chunk));
     sent.changed(entry);
 }
 

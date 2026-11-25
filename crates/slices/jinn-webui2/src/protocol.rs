@@ -47,7 +47,7 @@ pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
         ClientMsg::Hello {
             last_entry_id,
             revision,
-        } => actions::hello(out, last_entry_id, revision),
+        } => actions::hello(out, last_entry_id.as_ref(), revision),
         ClientMsg::Send { text } => actions::send(out, text).await,
         ClientMsg::Queue { text } => actions::queue(out, text).await,
         ClientMsg::Cancel => actions::cancel(out).await,

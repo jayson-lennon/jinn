@@ -67,8 +67,9 @@ pub fn history(state: &State, session_id: &SessionId) -> Vec<(usize, ChatEntry)>
     guard
         .session
         .get(session_id)
-        .map(|session| session.history().iter().cloned().enumerate().collect())
-        .unwrap_or_default()
+        .map_or_else(Vec::new, |session| {
+            session.history().iter().cloned().enumerate().collect()
+        })
 }
 
 /// A delta appending `chunk` to one field of an entry.

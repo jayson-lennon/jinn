@@ -484,6 +484,61 @@ fn install_maintenance_actors(ctx: &mut Ctx<'_>) {
 /// # Errors
 ///
 /// Returns an error if a fallible auxiliary activation fails.
+/// Binds the loopback control surface at launch.
+///
+/// The registry entry (pid, port, cwd) must exist before any `jinn remote`
+/// client can discover this instance, so the listener comes up eagerly,
+/// not lazily like canvas. Consumes nothing — delivery publishes the
+/// existing chat-input schemas; `/sessions` reads state at request time.
+///
+/// # Errors
+///
+/// Returns an error when the remote slice fails to activate.
+async fn activate_remote(ctx: &mut Ctx<'_>) -> Result<(), ActivateError> {
+    let config_snapshot = ctx.services().config.clone();
+    let bus_snapshot = ctx.services().bus.clone();
+    let state_snapshot = ctx.state().clone();
+    let registry_path = ctx.services().paths.remote_instances_path();
+    jinn_remote::activate(
+        &mut ctx.host(),
+        &config_snapshot,
+        bus_snapshot,
+        state_snapshot,
+        registry_path,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Binds the second web UI (`/web2`).
+///
+/// The same dependencies as the original web UI — the provider cell, the
+/// store, the bus — on its own port and actor, so it activates after the
+/// producers the original waits for. The two web UIs share nothing but the
+/// bus.
+///
+/// # Errors
+///
+/// Returns an error when the `[webui2]` section is unreadable or its bind
+/// is taken.
+async fn activate_webui2(ctx: &mut Ctx<'_>) -> Result<(), ActivateError> {
+    let config_snapshot = ctx.services().config.clone();
+    let bus_snapshot = ctx.services().bus.clone();
+    let state_snapshot = ctx.state().clone();
+    let store_snapshot = ctx.services().session_store.clone();
+    let services_snapshot = ctx.services().clone();
+    jinn_webui2::activate(
+        &mut ctx.host(),
+        &config_snapshot,
+        bus_snapshot,
+        state_snapshot,
+        store_snapshot,
+        &services_snapshot,
+    )
+    .await?;
+    Ok(())
+}
+
 async fn activate_auxiliary_slices(
     ctx: &mut Ctx<'_>,
     boot: jinn_boot::BootHandles,
@@ -529,26 +584,7 @@ async fn activate_auxiliary_slices(
         },
     )?;
 
-    // The remote slice binds the loopback control surface at launch: the
-    // registry entry (pid, port, cwd) must exist before any `jinn remote`
-    // client can discover this instance, so the listener comes up
-    // eagerly, not lazily like canvas. Consumes nothing — delivery
-    // publishes the existing chat-input schemas; /sessions reads State
-    // at request time.
-    {
-        let config_snapshot = ctx.services().config.clone();
-        let bus_snapshot = ctx.services().bus.clone();
-        let state_snapshot = ctx.state().clone();
-        let registry_path = ctx.services().paths.remote_instances_path();
-        jinn_remote::activate(
-            &mut ctx.host(),
-            &config_snapshot,
-            bus_snapshot,
-            state_snapshot,
-            registry_path,
-        )
-        .await?;
-    }
+    activate_remote(ctx).await?;
 
     // The webui slice binds the browser surface at launch, after the
     // session-store's actors (Block 1 — its handlers await the store
@@ -589,27 +625,7 @@ async fn activate_auxiliary_slices(
         .await?;
     }
 
-    // The second web UI (`/web2`) binds beside the original. It resolves
-    // the provider cell (so it activates after the cell catalog) and
-    // publishes commands the session-store and provider actors handle,
-    // so it activates after them, like the original. Its own port, its
-    // own actor — the two web UIs share nothing but the bus.
-    {
-        let config_snapshot = ctx.services().config.clone();
-        let bus_snapshot = ctx.services().bus.clone();
-        let state_snapshot = ctx.state().clone();
-        let services_snapshot = ctx.services().clone();
-        let store_snapshot = ctx.services().session_store.clone();
-        jinn_webui2::activate(
-            &mut ctx.host(),
-            &config_snapshot,
-            bus_snapshot,
-            state_snapshot,
-            store_snapshot,
-            &services_snapshot,
-        )
-        .await?;
-    }
+    activate_webui2(ctx).await?;
 
     // The discord slice resolves `[discord]` (fail-fast on a malformed
     // section) and parks the gateway channels for the frontend spawn.

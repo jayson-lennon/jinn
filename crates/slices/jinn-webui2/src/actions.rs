@@ -56,7 +56,7 @@ impl Refusal {
     }
 }
 
-fn refused(reason: Refusal) -> Reply {
+fn refused(reason: &Refusal) -> Reply {
     Reply::one(ServerMsg::Error(ErrorBody {
         message: reason.message().to_owned(),
     }))
@@ -84,13 +84,13 @@ pub fn malformed() -> Reply {
 /// wrong guess can never leave a gap.
 pub fn hello(
     out: &OutboundHandle,
-    last_entry_id: Option<ChatEntryId>,
+    last_entry_id: Option<&ChatEntryId>,
     revision: Option<u64>,
 ) -> Reply {
     let state = out.state();
     let session_id = state.read().session.active_session_id().clone();
 
-    let Some(cursor_index) = resumable_cursor(state, &session_id, &last_entry_id) else {
+    let Some(cursor_index) = resumable_cursor(state, &session_id, last_entry_id) else {
         return snapshot_reply(out);
     };
     if revision != Some(out.revision(&session_id)) {
@@ -106,7 +106,7 @@ pub fn hello(
 fn resumable_cursor(
     state: &jinn_kernel::State,
     session_id: &SessionId,
-    last_entry_id: &Option<ChatEntryId>,
+    last_entry_id: Option<&ChatEntryId>,
 ) -> Option<usize> {
     let guard = state.read();
     let id = last_entry_id.as_ref()?;
@@ -143,7 +143,7 @@ fn snapshot_reply(out: &OutboundHandle) -> Reply {
     out.mark_delivered(&session_id);
     Reply::one(ServerMsg::Snapshot(snapshot::snapshot(
         out.state(),
-        &out.deps.revisions,
+        out.revisions(),
     )))
 }
 
@@ -166,7 +166,7 @@ pub async fn send(out: &OutboundHandle, text: String) -> Reply {
         .phase()
         .is_working();
     if busy {
-        return refused(Refusal::SessionBusy);
+        return refused(&Refusal::SessionBusy);
     }
     enqueue(out, text).await
 }
@@ -181,7 +181,7 @@ pub async fn queue(out: &OutboundHandle, text: String) -> Reply {
 
 async fn enqueue(out: &OutboundHandle, text: String) -> Reply {
     if text.trim().is_empty() {
-        return refused(Refusal::EmptyText);
+        return refused(&Refusal::EmptyText);
     }
     let session_id = out.state().read().session.active_session_id().clone();
     // Order is parity: the terminal marks the session interacted before
@@ -227,7 +227,7 @@ pub async fn cancel(out: &OutboundHandle) -> Reply {
 pub async fn activate_session(out: &OutboundHandle, session_id: SessionId) -> Reply {
     let state = out.state();
     if !state.read().session.contains(&session_id) {
-        return refused(Refusal::UnknownSession);
+        return refused(&Refusal::UnknownSession);
     }
     {
         let mut guard = state.write();
@@ -270,11 +270,11 @@ pub async fn switch_model(out: &OutboundHandle, provider_id: String) -> Reply {
 pub async fn rename(out: &OutboundHandle, title: String) -> Reply {
     let title = title.trim().to_owned();
     if title.is_empty() {
-        return refused(Refusal::EmptyText);
+        return refused(&Refusal::EmptyText);
     }
     let session_id = write_title(out.state(), &title);
     let Some(session_id) = session_id else {
-        return refused(Refusal::NoActiveSession);
+        return refused(&Refusal::NoActiveSession);
     };
     out.publish(PersistSession {
         session_id: session_id.clone(),
@@ -311,7 +311,7 @@ pub async fn picker_rows(out: &OutboundHandle, filter: String) -> Reply {
         Ok(rows) => rows,
         Err(report) => {
             tracing::warn!(error = %report, "second web UI could not read stored sessions");
-            return refused(Refusal::StoreUnavailable);
+            return refused(&Refusal::StoreUnavailable);
         }
     };
     Reply::one(ServerMsg::PickerRows(PickerRowsBody { filter, rows }))
@@ -362,7 +362,7 @@ pub(crate) fn match_titles(
             Some((score, row))
         })
         .collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
     scored.into_iter().map(|(_, row)| row).collect()
 }
 

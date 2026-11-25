@@ -2,10 +2,14 @@
 //! through JSON with its `type` tag, and every entry kind survives the
 //! trip inside a snapshot.
 
-#![allow(clippy::expect_used, reason = "test assertions need expect")]
+#![allow(
+    clippy::expect_used,
+    clippy::unreachable,
+    reason = "test assertions need expect, and a let-else on a known variant is unreachable by construction"
+)]
 
 use jinn_core_types::chat_entry::ChatEntryKind;
-use jinn_core_types::{ChatEntry, ChatEntryId, SessionId, ToolResultStatus};
+use jinn_core_types::{ChatEntry, ChatEntryId, ContextOverride, SessionId, ToolResultStatus};
 use jinn_slices::PhaseView;
 use rstest::rstest;
 
@@ -77,7 +81,7 @@ fn every_kind() -> Vec<EntryEnvelope> {
         timing: jinn_core_types::entry_timing::EntryTiming::instant_now(),
         kind,
         pin_position: None,
-        context_override: Default::default(),
+        context_override: ContextOverride::default(),
         context_history: Vec::new(),
         token_count: None,
         model_used: None,
@@ -148,8 +152,8 @@ fn client_hello_without_cursor_carries_an_explicit_null_tag() {
     let json = serde_json::to_value(&msg).expect("serializes");
 
     // Then the tag is `hello` and the cursor is an explicit null.
-    assert_eq!(json["type"], "hello");
-    assert_eq!(json["last_entry_id"], serde_json::Value::Null);
+    assert_eq!(json.get("type"), Some(&serde_json::json!("hello")));
+    assert_eq!(json.get("last_entry_id"), Some(&serde_json::Value::Null));
 }
 
 #[rstest]
@@ -580,7 +584,7 @@ fn server_variant_carries_its_snake_case_tag() {
     // Then every variant's wire tag matches its snake_case name.
     for (msg, tag) in messages {
         let json = serde_json::to_value(&msg).expect("serializes");
-        assert_eq!(json["type"], tag);
+        assert_eq!(json.get("type"), Some(&serde_json::json!(tag)));
         assert_eq!(crate::server::tag_of(&msg), tag);
     }
 }
@@ -645,7 +649,7 @@ fn client_variant_carries_its_snake_case_tag() {
     // Then every variant's wire tag matches its snake_case name.
     for (msg, tag) in messages {
         let json = json_of_client(&msg);
-        assert_eq!(json["type"], tag);
+        assert_eq!(json.get("type"), Some(&serde_json::json!(tag)));
         assert_eq!(crate::client::tag_of(&msg), tag);
     }
 }

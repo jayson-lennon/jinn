@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    reason = "test assertions need expect, indexed access to a recorded audit, and a let-else on a known variant"
+)]
+
 //! Behaviour of the inbound dispatch: one test, one observable result.
 //!
 //! Every test drives a `ClientMsg` through `dispatch` against a handle
@@ -203,7 +210,7 @@ async fn send_while_busy_publishes_nothing() {
 
     // Then nothing reaches the bus: the refusal is a reply to the page, not
     // a message to the session.
-    assert!(h.audit.names().is_empty());
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
     assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
 }
 
@@ -491,11 +498,9 @@ async fn rename_to_blank_is_refused_and_leaves_the_title() {
     // Given a session with a title.
     let h = harness();
     let id = active_id(&h.state);
-    h.state
-        .write()
-        .session
-        .get_mut(&id)
-        .map(|s| s.set_title("Keep".to_owned()));
+    if let Some(session) = h.state.write().session.get_mut(&id) {
+        session.set_title("Keep".to_owned());
+    }
 
     // When the page renames it to whitespace.
     let reply = dispatch(
@@ -728,7 +733,7 @@ async fn picker_rows_on_an_empty_store_answers_no_rows() {
     let [ServerMsg::PickerRows(body)] = reply.frames.as_slice() else {
         unreachable!("a picker request answers picker rows");
     };
-    assert!(body.rows.is_empty());
+    assert_eq!(body.rows, Vec::new());
 }
 
 // ---------------------------------------------------------------------------
@@ -754,7 +759,7 @@ async fn model_rows_with_no_configured_providers_answers_no_rows() {
     let [ServerMsg::ModelRows(body)] = reply.frames.as_slice() else {
         unreachable!("a model-rows request answers model rows");
     };
-    assert!(body.rows.is_empty());
+    assert_eq!(body.rows, Vec::new());
 }
 
 // ---------------------------------------------------------------------------

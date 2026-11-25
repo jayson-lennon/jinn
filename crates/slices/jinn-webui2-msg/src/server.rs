@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 
 /// A message from the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Snapshot carries a whole transcript by design; boxing would add a heap hop to every frame, and the enum is matched by value on both dispatch paths"
+)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMsg {
     /// The whole state, on a fresh connect or whenever the server cannot
