@@ -531,17 +531,16 @@ impl SessionStoreActor {
         //
         // Only the store actor can make this call: it is the single writer of
         // the session map, so it is the only place that knows what is loaded.
+        //
+        // No `SessionLoadCompleted` here. That event means "this session was
+        // read into live state", and its subscribers act on exactly that —
+        // the discovery supervisor re-runs project-resource discovery. A
+        // session already in memory has its discovered resources; publishing
+        // would re-scan and re-announce them on every switch to a session
+        // whose line cache has gone stale. The activation itself is announced
+        // by `on_activate_in_memory` through `ActiveSessionChanged`.
         if self.state.read().session.get(&payload.session_id).is_some() {
             self.on_activate_in_memory(ctx, payload).await;
-            // The completed event every other activation path publishes
-            // (restore, insert): the fan-out keys the "user has now
-            // viewed it" unread-mark clear to it, so a live-session
-            // switch that skips it strands the mark — the session the
-            // user just looked at stays unread forever.
-            self.publish(SessionLoadCompleted {
-                session_id: payload.session_id.clone(),
-            })
-            .await;
             return;
         }
 

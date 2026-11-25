@@ -330,8 +330,8 @@ impl IntentHandler {
                 crate::session_lifecycle::intent::handle_session_new(state, config)
             }
             KernelIntent::RefreshModels => feat::session::intent::handle_refresh_models(state),
-            KernelIntent::RescanPromptTemplates => {
-                feat::session::intent::handle_rescan_prompt_templates(state)
+            KernelIntent::RefreshProjectResources => {
+                feat::session::intent::handle_refresh_project_resources(state)
             }
 
             KernelIntent::SessionLifecycleSetup {

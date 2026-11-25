@@ -44,6 +44,22 @@ pub struct RescanPromptTemplates {
 }
 impl BusMessage for RescanPromptTemplates {}
 
+/// Re-run full project-resource discovery for a specific session.
+///
+/// The manual refresh publishes this; the session-init supervisor forwards it
+/// to the session's keyed discovery worker as the same full run a
+/// watcher-detected edit triggers.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command)]
+#[schema(description = "Re-run full project-resource discovery for a session.")]
+pub struct RefreshProjectResources {
+    /// The session whose discovery re-runs.
+    pub session_id: SessionId,
+    /// The working directory driving the scans.
+    #[serde(default = "default_cwd")]
+    pub cwd: MarkedPathBuf<Absolute>,
+}
+impl BusMessage for RefreshProjectResources {}
+
 /// Prompt templates loaded after a rescan.
 ///
 /// Emitted by the prompt scan actor after scanning the prompts directory.
@@ -76,16 +92,20 @@ mod tests {
 
     #[rstest::rstest]
     #[case("RescanPromptTemplates")]
+    #[case("RefreshProjectResources")]
     #[case("PromptTemplatesLoaded")]
     #[case("ScanContextFiles")]
     #[case("ContextFilesLoaded")]
     fn crossing_schema_ids_are_stable(#[case] name: &str) {
-        // Given the four crossing contracts.
+        // Given the five crossing contracts.
         // When deriving their trouper schema ids.
         // Then the ids equal the type names (the compatibility surface).
         let id = match name {
             "RescanPromptTemplates" => {
                 <RescanPromptTemplates as trouper::schema::Schema>::schema_id()
+            }
+            "RefreshProjectResources" => {
+                <RefreshProjectResources as trouper::schema::Schema>::schema_id()
             }
             "PromptTemplatesLoaded" => {
                 <PromptTemplatesLoaded as trouper::schema::Schema>::schema_id()

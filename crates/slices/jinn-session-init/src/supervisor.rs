@@ -2,8 +2,8 @@
 //!
 //! Every crossing this slice consumes arrives on the shared
 //! [`session_init_topic`](crate::session_init_topic): the four session
-//! lifecycle trigger events and the three manual rescan commands,
-//! published onto the kernel topic. The supervisor
+//! lifecycle trigger events, the three manual rescan commands, and the manual
+//! project-resources refresh, published onto the kernel topic. The supervisor
 //! reads each trigger's payload — the session id and its cwd travel
 //! with the event — applies the pending-cwd gate, and sends a
 //! path-addressed command to the discovery partition set's public
@@ -27,7 +27,7 @@ use trouper::system::ActorSystem;
 
 use jinn_core_types::SessionId;
 use jinn_kernel::common::state::State;
-use jinn_session_init_msg::{RescanPromptTemplates, ScanContextFiles};
+use jinn_session_init_msg::{RefreshProjectResources, RescanPromptTemplates, ScanContextFiles};
 use jinn_session_lifecycle_msg::SessionSetupCompleted;
 use jinn_session_lifecycle_msg::{SessionCreated, SessionCwdChanged};
 use jinn_session_store_msg::SessionLoadCompleted;
@@ -99,6 +99,7 @@ impl SessionInitSupervisor {
             .handles::<ResourcesChanged>()
             .handles::<ScanSkills>()
             .handles::<RescanPromptTemplates>()
+            .handles::<RefreshProjectResources>()
             .handles::<ScanContextFiles>()
             .handles::<ScanWorkflows>()
             // Discovery commands leave the handler through ctx.send; the
@@ -234,6 +235,15 @@ impl MsgHandler<RescanPromptTemplates> for SessionInitSupervisor {
                 cwd: msg.cwd.clone(),
             },
         );
+    }
+}
+
+// The manual project-resources refresh is one session's full discovery —
+// the same run a watcher-detected edit triggers — so the refresh produces
+// the same `*Loaded` events and settled summary.
+impl MsgHandler<RefreshProjectResources> for SessionInitSupervisor {
+    async fn handle(&mut self, msg: &RefreshProjectResources, ctx: &mut MsgCtx<'_>) {
+        self.gated_run(ctx, &msg.session_id, &msg.cwd);
     }
 }
 
