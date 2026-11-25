@@ -131,6 +131,21 @@ impl MsgHandler<FlushTick> for OutboundActor {
     }
 }
 
+impl OutboundHandle {
+    /// A handle over the given deps, with empty streaming bookkeeping.
+    ///
+    /// The one constructor: the spawned actor and a test harness build the
+    /// same shape, so neither can leave a field unset.
+    #[must_use]
+    pub fn new(deps: OutboundActorDeps) -> Self {
+        Self {
+            deps,
+            tool_calls: Arc::new(Mutex::new(ToolCallIndex::default())),
+            pending: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
 impl BusPublish for OutboundHandle {
     fn bus(&self) -> &BusService {
         &self.deps.bus
@@ -182,11 +197,7 @@ impl OutboundHandle {
 /// Spawns the outbound actor and arms its flush tick.
 #[must_use]
 pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
-    let handle = OutboundHandle {
-        deps,
-        tool_calls: Arc::new(Mutex::new(ToolCallIndex::default())),
-        pending: Arc::new(Mutex::new(Vec::new())),
-    };
+    let handle = OutboundHandle::new(deps);
     let bus = handle.deps.bus.clone();
     let returned = handle.clone();
 

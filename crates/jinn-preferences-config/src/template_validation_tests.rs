@@ -165,6 +165,7 @@ const OWNED_KEYS: &[&str] = &[
     "browser",
     "remote",
     "webui",
+    "webui2",
     "dictation",
     // Read on demand (`ConfigList`).
     "session_lifecycle",

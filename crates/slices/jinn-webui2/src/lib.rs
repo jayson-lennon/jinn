@@ -30,6 +30,9 @@ mod revision;
 mod server;
 mod snapshot;
 
+#[cfg(test)]
+mod tests;
+
 /// Why the second web UI's activation failed.
 #[derive(Debug, wherror::Error)]
 #[error(debug)]
