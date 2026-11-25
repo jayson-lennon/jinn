@@ -1531,6 +1531,208 @@ async fn activating_an_in_memory_session_publishes_active_session_changed() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn activating_an_in_memory_session_publishes_no_load_completed() {
+    // Given a hydrated session waiting to be measured, and a recorder on
+    // the completion event spawned before anything is published.
+    let (fixture, _jobs, target_id) = measure_fixture().await;
+    let completed = fixture
+        .harness
+        .spawn_recorder::<SessionLoadCompleted>()
+        .await;
+
+    // When the store is asked to activate the session that is already in
+    // memory (the sidebar switch to a session whose line cache is stale).
+    fixture
+        .harness
+        .publish(SessionLoadRequested {
+            session_id: target_id,
+            content_width: Some(72),
+        })
+        .await;
+    // The store actor must have run the whole handler before "it published
+    // nothing" is an observation: its inbox draining is the barrier.
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // Then no completion event crossed. That event means "this session was
+    // read into live state" — the discovery supervisor re-runs
+    // project-resource discovery on it — and a session already in memory
+    // was never read.
+    assert!(
+        completed.is_empty(),
+        "an in-memory activation must not publish SessionLoadCompleted"
+    );
+}
+
+/// A running store actor with a second session live in memory, plus the
+/// session-init slice installed on the same fabric — so a `SessionLoadCompleted`
+/// the store publishes reaches the real discovery supervisor.
+///
+/// Wraps [`measure_fixture`]: the target session is live and awaiting its
+/// activation. Owns two directories and keeps both alive for as long as the
+/// fabric — the slice's home, and a project directory that is a stored
+/// session's cwd.
+struct DiscoveryFixture {
+    /// The store actor, its state, and the fabric the slice is installed on.
+    store: ActorFixture,
+    /// The session that is live in memory, awaiting its activation.
+    live_id: SessionId,
+    /// The slice's home (its user-level resource root). Never read: the
+    /// field exists to keep the directory alive for the fabric's lifetime.
+    _home: jinn_testutil::JinnTempDir,
+    /// A project directory, distinct from the slice's home.
+    project: jinn_testutil::JinnTempDir,
+    /// Every discovery run that settled on the fabric.
+    settled: Recorder<jinn_session_init::SessionDiscoverySettled>,
+}
+
+impl DiscoveryFixture {
+    /// Builds the fixture: a store actor, the session-init slice installed on
+    /// the same fabric, and a recorder for settled discovery runs.
+    async fn new() -> Self {
+        let (store, _jobs, live_id) = measure_fixture().await;
+        let home = jinn_testutil::tempdir();
+        let paths = jinn_kernel::common::app_paths::AppPaths::new_in(&home.path.as_marked_path());
+        jinn_session_init::install_actors(store.harness.system(), &paths, store.state.clone())
+            .expect("install session-init actors");
+        let settled = store
+            .harness
+            .spawn_recorder::<jinn_session_init::SessionDiscoverySettled>()
+            .await;
+        Self {
+            store,
+            live_id,
+            _home: home,
+            project: jinn_testutil::tempdir(),
+            settled,
+        }
+    }
+
+    /// Whether `session_id`'s history holds a discovery summary.
+    fn has_summary(&self, session_id: &SessionId) -> bool {
+        self.store
+            .state
+            .read()
+            .session
+            .get(session_id)
+            .is_some_and(has_discovery_summary)
+    }
+}
+
+/// Whether a session's history holds a discovery summary — either the
+/// "discovered" or the "none found" variant, so a predicate over it cannot
+/// pass vacuously against an empty project.
+fn has_discovery_summary(session: &ChatSessionState) -> bool {
+    session.history().iter().any(|entry| {
+        let text = entry.text();
+        text.starts_with("**Project resources discovered**")
+            || text.starts_with("No project resources found")
+    })
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_disk_load_publishes_load_completed_and_runs_discovery() {
+    // Given a session stored on disk, not in the live map, whose project
+    // directory is separate from the slice's home.
+    let fixture = DiscoveryFixture::new().await;
+    let stored_id = SessionId::new();
+    {
+        let mut stored = ChatSessionState::new();
+        stored.set_session_id(stored_id.clone());
+        stored.set_cwd(fixture.project.path.clone());
+        stored.push_entry(jinn_core_types::ChatEntry::user("stored on disk"));
+        fixture
+            .store
+            .store
+            .save(&stored.capture_snapshot())
+            .await
+            .expect("save the stored session");
+    }
+    {
+        let mut state = fixture.store.state.write();
+        assert!(
+            !state.session.contains(&stored_id),
+            "the precondition: the stored session is not live"
+        );
+        state.session.begin_load(stored_id.clone());
+    }
+
+    // When it is loaded from disk.
+    fixture
+        .store
+        .harness
+        .publish(SessionLoadRequested {
+            session_id: stored_id.clone(),
+            content_width: Some(72),
+        })
+        .await;
+
+    // Then its completion reaches the discovery supervisor and a discovery
+    // run settles for that session — the control that proves this fixture
+    // would observe a discovery run, so the live-switch test's "none" is
+    // a real observation and not a fixture that hears nothing.
+    let settled = await_recorded(&fixture.settled, 1, Duration::from_secs(10)).await;
+    assert_eq!(settled[0].session_id, stored_id);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_live_session_switch_runs_no_discovery() {
+    // Given a session that is already live in memory and carries no
+    // discovery summary — nothing has triggered a run for it.
+    let fixture = DiscoveryFixture::new().await;
+    let live_id = fixture.live_id.clone();
+    assert!(
+        !fixture.has_summary(&live_id),
+        "the precondition: the live session has no summary yet"
+    );
+
+    // When the store is asked to activate it — the sidebar switch to a
+    // running session whose line cache has gone stale.
+    fixture
+        .store
+        .harness
+        .publish(SessionLoadRequested {
+            session_id: live_id.clone(),
+            content_width: Some(72),
+        })
+        .await;
+    // The store's own inbox draining proves its handler finished; the quiet
+    // window on the settle recorder then covers the hop from a completion
+    // event to a discovery run that only a still-present publish could start.
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.store.harness.system(),
+        &fixture.store.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+    let settled = jinn_testutil::wait::await_settled_messages(
+        &fixture.settled,
+        Duration::from_millis(300),
+        Duration::from_secs(5),
+    )
+    .await;
+
+    // Then no discovery ran: nothing settled, and the session carries no
+    // summary. A live session already holds its discovered resources; a
+    // switch to it is not a load and must not re-scan or re-announce them.
+    assert!(
+        settled.is_empty(),
+        "a live-session switch must not run discovery (settled: {settled:?})"
+    );
+    assert!(
+        !fixture.has_summary(&live_id),
+        "a live-session switch must not post a discovery summary"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn measuring_an_absent_session_clears_the_load_guard() {
     // Given a session id that is not in the live map, with the guard held.
     let fixture = actor_fixture().await;

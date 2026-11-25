@@ -73,7 +73,7 @@ pub fn init() -> Keymap<KeyEvent, Scope, KernelIntent, KeyCategory> {
             .describe_group_with_category("gc", "context", KeyCategory::Context)
             .describe_group_with_category("<leader>c", "change", KeyCategory::General)
             .bind("gmr", KernelIntent::RefreshModels, KeyCategory::Model)
-            .bind("gcr", KernelIntent::RescanPromptTemplates, KeyCategory::Context)
+            .bind("gcr", KernelIntent::RefreshProjectResources, KeyCategory::Context)
             // Jump chords the log binds as rows keep their group labels here;
             // the rows supply the leaves.
             .describe_group_with_category("]", "next", KeyCategory::ChatHistory)

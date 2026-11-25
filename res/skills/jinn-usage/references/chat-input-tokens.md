@@ -14,8 +14,9 @@ when a name exists in both, the most-local file wins.
 
 - `#plan` might expand into your standard planning instructions.
 - Browse the available templates in the popup as you type after `#`.
-- **Added a file? Re-scan with `gcr` in normal mode**; it's re-read at
-  next use.
+- **Added a file? Refresh with `gcr` in normal mode**; it re-scans every
+  project resource (prompt templates included), and the new template is
+  picked up at next use.
 - **Expansion runs in a first pass** before the message dispatches; `@path`
   attachment resolution is the second pass. By send time the `#token` has
   been replaced entirely, so the model reads the template body.

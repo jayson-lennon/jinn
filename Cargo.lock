@@ -5304,6 +5304,7 @@ dependencies = [
  "jinn-provider",
  "jinn-provider-config",
  "jinn-selection-widget",
+ "jinn-session-init",
  "jinn-session-lifecycle-msg",
  "jinn-session-list",
  "jinn-session-msg",

@@ -45,8 +45,9 @@ pub enum KernelIntent {
     SessionNew,
     /// Refresh the model list from all providers.
     RefreshModels,
-    /// Rescan the prompt templates directory.
-    RescanPromptTemplates,
+    /// Refresh all project resources (skills, prompt templates, context
+    /// files, workflows) for the active session.
+    RefreshProjectResources,
     /// Run a lifecycle setup command to create a new session.
     SessionLifecycleSetup {
         /// The lifecycle name (e.g., "fossil branch").
@@ -124,7 +125,7 @@ impl std::fmt::Display for KernelIntent {
             KernelIntent::NoOp => write!(f, "no-op"),
             KernelIntent::SessionNew => write!(f, "new session"),
             KernelIntent::RefreshModels => write!(f, "refresh models"),
-            KernelIntent::RescanPromptTemplates => write!(f, "rescan prompt templates"),
+            KernelIntent::RefreshProjectResources => write!(f, "refresh project resources"),
 
             KernelIntent::SessionLifecycleSetup { lifecycle_name, .. } => {
                 write!(f, "session lifecycle setup: {lifecycle_name}")

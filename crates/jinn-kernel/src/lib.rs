@@ -128,4 +128,6 @@ pub use jinn_inference_msg::{
     CancelTurn, SendToLlmProvider, StreamCompleted, StreamCompletedReason, StreamOrigin,
     StreamToken,
 };
-pub use jinn_session_init_msg::{PromptTemplate, PromptTemplatesLoaded, RescanPromptTemplates};
+pub use jinn_session_init_msg::{
+    PromptTemplate, PromptTemplatesLoaded, RefreshProjectResources, RescanPromptTemplates,
+};

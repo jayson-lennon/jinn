@@ -102,6 +102,9 @@ pub fn install_actors(
     // every live session's discovery), so the schema must exist before
     // the supervisor's spawn resolves its subscription.
     system.register_schema::<jinn_boot_msg::ResourcesChanged>();
+    // The supervisor also handles the manual project-resources refresh, for
+    // the same reason as the event above.
+    system.register_schema::<jinn_session_init_msg::RefreshProjectResources>();
 
     // Partition set before any send: the supervisor addresses its
     // public path, and install validates the shard-key contract.

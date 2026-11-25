@@ -79,9 +79,9 @@ Model / provider (see `models-and-providers.md`):
 
 Misc:
 
-| Key     | Action                                                   |
-| ------- | -------------------------------------------------------- |
-| `gcr`   | Re-scan prompt templates                                 |
+| Key     | Action                                                     |
+| ------- | ---------------------------------------------------------- |
+| `gcr`   | Refresh project resources: skills, prompt templates, context files, workflows |
 | `<M-c>` | Change session cwd (search from the session's directory) |
 | `<M-d>` | Change session cwd (search from `$HOME`)                 |
 | `<M-t>` | Toggle the interactive terminal overlay                  |

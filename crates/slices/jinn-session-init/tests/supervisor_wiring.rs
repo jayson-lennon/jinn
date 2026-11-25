@@ -196,6 +196,52 @@ async fn worker_settles_and_notifier_writes_the_summary_entry() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn refresh_project_resources_command_runs_full_discovery_and_writes_the_summary() {
+    // Given a wired supervisor + notifier whose home holds one skill that
+    // no discovery run has picked up yet.
+    let wired = Wired::wire();
+    write_skill(&wired.home, "refreshed-skill");
+    assert!(
+        wired
+            .state
+            .read()
+            .session
+            .get(&wired.session_id)
+            .is_none_or(|s| s.discovered_skills().is_empty()),
+        "the precondition: nothing discovered before the refresh"
+    );
+
+    // When the manual refresh command crosses on the trigger topic.
+    wired
+        .fabric
+        .send_to_topic(jinn_session_init_msg::RefreshProjectResources {
+            session_id: wired.session_id.clone(),
+            cwd: wired.home.clone(),
+        })
+        .await;
+
+    // Then it ran as a full discovery: the skill is discovered, and the
+    // settle wrote the summary entry into the session.
+    jinn_testutil::wait::wait_for(Duration::from_secs(2), || {
+        let guard = wired.state.read();
+        guard
+            .session
+            .get(&wired.session_id)
+            .is_some_and(|s| !s.discovered_skills().is_empty())
+    })
+    .await;
+    jinn_testutil::wait::wait_for(Duration::from_secs(2), || {
+        let guard = wired.state.read();
+        guard
+            .session
+            .get(&wired.session_id)
+            .is_some_and(|s| !s.history().is_empty())
+    })
+    .await;
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn rescan_into_empty_dir_clears_stale_discovered_skills() {
     // Given a wired supervisor whose session discovered a skill, and the
     // skill file then removed from disk.

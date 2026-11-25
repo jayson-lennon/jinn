@@ -1708,7 +1708,7 @@ async fn activate(
     parse_session_id(&session_id)?;
     // Wait out the fan-out's activation wave before rendering: the
     // store sets the active id, then the fan-out actor processes the
-    // load-completed event — clearing the activated session's unread
+    // activation event — clearing the activated session's unread
     // mark and fanning the sessions signal. `wait_for_activation`
     // returns the moment the active id flips, which can beat the
     // fan-out's clear; a response rendered in between seeds the
@@ -1870,7 +1870,8 @@ const ACTIVATION_WAVE_BUDGET: Duration = Duration::from_millis(250);
 
 /// Peeks the fan-out's broadcast for the next sessions envelope
 /// addressed to `session_id` — the activation wave
-/// [`crate::fanout::WebUiFanoutActor`] fans on every load-completed —
+/// [`crate::fanout::WebUiFanoutActor`] fans on every activation
+/// (`ActiveSessionChanged`, whichever branch moved the pointer) —
 /// so the activation response renders after the fan-out's mark-clear
 /// instead of racing it. Subscriber-side only: this reads the fan-out's
 /// output; the mark cell keeps its single writer.

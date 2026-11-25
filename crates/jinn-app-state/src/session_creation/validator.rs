@@ -1,6 +1,6 @@
 //! Session and model intent validators.
 //!
-//! Validators for model refresh, prompt template rescan, and session creation.
+//! Validators for model refresh and session creation.
 
 use crate::app_state::AppState;
 use wherror::Error;
@@ -24,28 +24,6 @@ pub fn validate_refresh_models(state: &AppState) -> Result<(), RefreshModelsErro
     if state.active_session().profile().model.is_no_provider() {
         return Err(RefreshModelsError::NoProvider);
     }
-    Ok(())
-}
-
-/// Errors from validating a RescanPromptTemplates intent.
-#[derive(Debug, Error)]
-#[error(debug)]
-pub enum RescanPromptTemplatesError {
-    /// Prompt templates directory is not configured.
-    NotConfigured,
-}
-
-/// Validates the RescanPromptTemplates intent.
-///
-/// Always succeeds — the rescan has no preconditions. The error variant
-/// exists so a future precondition has somewhere to land.
-///
-/// # Errors
-///
-/// Never returns an error today.
-pub fn validate_rescan_prompt_templates(
-    _state: &AppState,
-) -> Result<(), RescanPromptTemplatesError> {
     Ok(())
 }
 

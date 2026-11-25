@@ -70,6 +70,12 @@ jinn-testutil = { workspace = true }
 # The work-time tests spawn the monitor actor — the cell's only writer — so a
 # restore publish is observed landing in the cell the way production folds it.
 jinn-work-time = { workspace = true }
+# The discovery tests install the session-init slice beside the store actor
+# on one fabric, so whether a load runs project-resource discovery is observed
+# end to end: the store's `SessionLoadCompleted` reaches the real supervisor.
+# Dev-only and cycle-free: the slice depends on this crate's `-msg` contract,
+# not on the actor.
+jinn-session-init = { workspace = true }
 
 uuid = { workspace = true }
 rstest = { workspace = true }
