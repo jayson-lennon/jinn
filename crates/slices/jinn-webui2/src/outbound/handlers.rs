@@ -21,16 +21,21 @@ use trouper::context::MsgCtx;
 
 use super::OutboundActor;
 
-/// What each streaming field looked like when it was last sent to pages.
+/// What each entry looked like when it was last sent to pages.
 ///
-/// Keyed by entry id: an entry streams one field at a time.
+/// Keyed by entry id. The length is what a streaming field's suffix is cut
+/// against; the signature is the whole serialized entry, compared when a
+/// turn settles to find entries that changed while no tick was watching.
 #[derive(Debug, Default)]
-pub(crate) struct SentLengths(pub(crate) HashMap<ChatEntryId, usize>);
+pub(crate) struct SentLengths {
+    lengths: HashMap<ChatEntryId, usize>,
+    signatures: HashMap<ChatEntryId, String>,
+}
 
 impl SentLengths {
     /// The part of `text` not yet sent for this entry, and remembers it.
     fn suffix(&mut self, entry_id: &ChatEntryId, text: &str) -> String {
-        let sent = self.0.entry(entry_id.clone()).or_insert(0);
+        let sent = self.lengths.entry(entry_id.clone()).or_insert(0);
         let fresh = text.get(*sent..).unwrap_or("").to_owned();
         *sent = text.len();
         fresh
@@ -38,17 +43,38 @@ impl SentLengths {
 
     /// Whether the page has been sent anything for this entry yet.
     pub(crate) fn knows(&self, entry_id: &ChatEntryId) -> bool {
-        self.0.contains_key(entry_id)
+        self.lengths.contains_key(entry_id)
     }
 
-    /// Forgets an entry (it settled).
+    /// Forgets an entry's streaming length: its next text starts over.
     fn forget(&mut self, entry_id: &ChatEntryId) {
-        self.0.remove(entry_id);
+        self.lengths.remove(entry_id);
     }
 
-    /// Forgets everything (a session was replaced wholesale).
-    fn clear(&mut self) {
-        self.0.clear();
+    /// Records every entry as sent exactly as it stands.
+    pub(crate) fn remember_all<'a>(&mut self, entries: impl Iterator<Item = &'a ChatEntry>) {
+        for entry in entries {
+            let _ = self.changed(entry);
+        }
+    }
+
+    /// Whether `entry` differs from the last one sent for its id, and
+    /// remembers it either way.
+    fn changed(&mut self, entry: &ChatEntry) -> bool {
+        let signature = serde_json::to_string(entry).unwrap_or_default();
+        match self.signatures.entry(entry.id.clone()) {
+            std::collections::hash_map::Entry::Occupied(slot) if *slot.get() == signature => {
+                false
+            }
+            std::collections::hash_map::Entry::Occupied(mut slot) => {
+                slot.insert(signature);
+                true
+            }
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(signature);
+                true
+            }
+        }
     }
 }
 
@@ -57,9 +83,16 @@ impl OutboundActor {
         self.handle.broadcast(frame);
     }
 
+    /// Sends one entry as an upsert and records it as delivered, so a
+    /// later reconcile does not send the same entry again.
+    fn push_upsert(&self, session_id: &SessionId, index: usize, entry: &ChatEntry) {
+        self.handle.sent.lock().changed(entry);
+        self.push(crate::frames::upsert_at(session_id, index, entry));
+    }
+
     /// The tick: one flush.
     pub(super) fn flush_streaming(&mut self) {
-        flush(&self.handle, &mut self.sent);
+        flush(&self.handle);
     }
 }
 
@@ -72,8 +105,16 @@ impl MsgHandler<jinn_session_msg::SessionPhaseChanged> for OutboundActor {
 impl OutboundActor {
     fn on_phase_changed(&mut self, msg: &jinn_session_msg::SessionPhaseChanged) {
         self.handle.bump(&msg.session_id);
+        if msg.new_phase == jinn_slices::PhaseView::Idle {
+            self.reconcile(&msg.session_id);
+        }
         self.push(crate::frames::phase(&msg.session_id, msg.new_phase));
         self.push(crate::frames::sessions(&self.handle.deps.state));
+    }
+
+    /// On a settle or a load, sends every entry the page does not hold.
+    fn reconcile(&mut self, session_id: &SessionId) {
+        reconcile(&self.handle, session_id);
     }
 }
 
@@ -89,7 +130,7 @@ impl OutboundActor {
         let found =
             crate::frames::tool_call_entry(&self.handle.deps.state, &msg.session_id, &msg.id);
         if let Some((index, entry)) = found {
-            self.push(crate::frames::upsert_at(&msg.session_id, index, &entry));
+            self.push_upsert(&msg.session_id, index, &entry);
         }
     }
 }
@@ -106,8 +147,8 @@ impl OutboundActor {
         let id = msg.tool_call.id.clone();
         let found = crate::frames::tool_call_entry(&self.handle.deps.state, &msg.session_id, &id);
         if let Some((index, entry)) = found {
-            self.sent.forget(&entry.id);
-            self.push(crate::frames::upsert_at(&msg.session_id, index, &entry));
+            self.handle.sent.lock().forget(&entry.id);
+            self.push_upsert(&msg.session_id, index, &entry);
         }
     }
 }
@@ -128,8 +169,8 @@ impl OutboundActor {
         let id = msg.result.tool_call_id.clone();
         let found = crate::frames::tool_result_entry(&self.handle.deps.state, &msg.session_id, &id);
         if let Some((index, entry)) = found {
-            self.sent.forget(&entry.id);
-            self.push(crate::frames::upsert_at(&msg.session_id, index, &entry));
+            self.handle.sent.lock().forget(&entry.id);
+            self.push_upsert(&msg.session_id, index, &entry);
         }
     }
 }
@@ -167,6 +208,7 @@ impl OutboundActor {
         let found =
             crate::frames::upsert_by_id(&self.handle.deps.state, &msg.session_id, &msg.entry.id);
         if let Some(frame) = found {
+            self.handle.sent.lock().changed(&msg.entry);
             self.push(frame);
         }
     }
@@ -205,8 +247,11 @@ impl MsgHandler<jinn_session_store_msg::SessionLoadCompleted> for OutboundActor 
 
 impl OutboundActor {
     fn on_session_load_completed(&mut self, msg: &jinn_session_store_msg::SessionLoadCompleted) {
-        self.sent.clear();
         self.handle.bump(&msg.session_id);
+        // A load replaces the session's history in memory. The page's copy
+        // may now be stale or may be exactly right; reconciling sends what
+        // differs and nothing else, where clearing would re-send all of it.
+        self.reconcile(&msg.session_id);
         self.push(crate::frames::sessions(&self.handle.deps.state));
     }
 }
@@ -216,13 +261,35 @@ impl OutboundActor {
 /// A free function over the handle so the tick's behaviour is driven
 /// directly in a test, with nothing spawned: the actor's tick calls it, and
 /// so does a test that has put a session into its streaming phase by hand.
-pub(crate) fn flush(handle: &super::OutboundHandle, sent: &mut SentLengths) {
+pub(crate) fn flush(handle: &super::OutboundHandle) {
     if handle.no_connections() {
         return;
     }
     let growing = growing_fields(handle);
+    let mut sent = handle.sent.lock();
     for (session_id, index, entry, field, current) in growing {
-        send_suffix(handle, sent, &session_id, index, &entry, field, &current);
+        send_suffix(handle, &mut sent, &session_id, index, &entry, field, &current);
+    }
+}
+
+/// Sends every entry of `session_id` that a page does not hold as it now
+/// stands.
+///
+/// A turn can begin and end between two ticks — an instant reply, a
+/// cancelled one — and its entry then settles before any tick read it. The
+/// phase change to idle arrives after the history is committed, so
+/// comparing every entry against what was last sent catches whatever the
+/// ticks missed. An entry the page already holds costs one serialization
+/// and no frame.
+///
+/// A free function over the handle so a test drives the real reconcile.
+pub(crate) fn reconcile(handle: &super::OutboundHandle, session_id: &SessionId) {
+    let history = crate::frames::history(&handle.deps.state, session_id);
+    let mut sent = handle.sent.lock();
+    for (index, entry) in history {
+        if sent.changed(&entry) {
+            handle.broadcast(crate::frames::upsert_at(session_id, index, &entry));
+        }
     }
 }
 
@@ -246,6 +313,7 @@ fn send_suffix(
         return;
     }
     handle.broadcast(crate::frames::delta(session_id, &entry.id, field, chunk));
+    sent.changed(entry);
 }
 
 /// One read of the state: every streaming field, with its entry.

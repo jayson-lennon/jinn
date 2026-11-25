@@ -12,11 +12,13 @@
 //! what lets a reconnecting page resume incrementally when — and only
 //! when — nothing but appends happened since it last saw the transcript.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use jinn_core_types::SessionId;
 use jinn_kernel::{State, common::actor_deps::BusPublish};
 use jinn_slices::bus::BusService;
+use parking_lot::Mutex;
 use jinn_webui2_msg::ServerMsg;
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
 use trouper::context::MsgCtx;
@@ -76,20 +78,23 @@ pub struct OutboundActorDeps {
 #[derive(Debug, Clone)]
 pub struct OutboundHandle {
     pub(crate) deps: OutboundActorDeps,
+    /// What each entry looked like when it last reached a page. Shared by
+    /// the actor (which streams) and the dispatch (which answers a fresh
+    /// page with a snapshot), so neither re-sends what the other delivered.
+    pub(crate) sent: Arc<Mutex<handlers::SentLengths>>,
 }
 
 mod handlers;
 
 #[cfg(test)]
-pub(crate) use handlers::{SentLengths, flush};
+pub(crate) use handlers::{flush, reconcile};
+
 
 /// The outbound actor.
 #[derive(Debug)]
 pub struct OutboundActor {
     handle: OutboundHandle,
     bus: BusService,
-    /// What each streaming field looked like when last sent.
-    sent: self::handlers::SentLengths,
 }
 
 impl ServiceActor for OutboundActor {
@@ -128,7 +133,19 @@ impl OutboundHandle {
     /// same shape, so neither can leave a field unset.
     #[must_use]
     pub fn new(deps: OutboundActorDeps) -> Self {
-        Self { deps }
+        Self {
+            deps,
+            sent: Arc::new(Mutex::new(handlers::SentLengths::default())),
+        }
+    }
+
+    /// Records that every entry of a session reached a page as it stands.
+    ///
+    /// Called by the snapshot path, whose reply replaces the page's view
+    /// wholesale: what it carried must not be streamed or reconciled again.
+    pub(crate) fn mark_delivered(&self, session_id: &SessionId) {
+        let history = crate::frames::history(&self.deps.state, session_id);
+        self.sent.lock().remember_all(history.iter().map(|(_, entry)| entry));
     }
 }
 
@@ -207,11 +224,7 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
             let handle = handle.clone();
             let bus = bus.clone();
             Box::pin(async move {
-                Ok(OutboundActor {
-                    handle,
-                    bus,
-                    sent: self::handlers::SentLengths::default(),
-                })
+                Ok(OutboundActor { handle, bus })
             })
         })
         .handles::<OutboundFlushTick>()

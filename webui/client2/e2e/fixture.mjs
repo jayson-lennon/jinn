@@ -36,6 +36,8 @@ export const sel = {
 };
 
 /** The sample provider's model — the keyless one every scratch boot configures. */
+export const MODEL_NAME = "sample";
+/** What the chip shows once it is selected: provider and model, joined. */
 export const MODEL_LABEL = "sample/sample";
 
 /**
@@ -122,7 +124,9 @@ export async function createSession(jinn, browser) {
  */
 export async function selectModel(page) {
   await page.locator(sel.MODEL_CHIP).click();
-  const row = page.locator(sel.MODEL_ROW).filter({ hasText: MODEL_LABEL });
+  // A row shows its model and its provider as two lines; the chip shows
+  // them joined. Match the row by the model it names.
+  const row = page.locator(sel.MODEL_ROW).filter({ hasText: MODEL_NAME }).first();
   await expect(row).toBeVisible({ timeout: REPLY_TIMEOUT_MS });
   await row.click();
   await expect(page.locator(sel.MODEL_CHIP)).toHaveText(MODEL_LABEL, { timeout: REPLY_TIMEOUT_MS });

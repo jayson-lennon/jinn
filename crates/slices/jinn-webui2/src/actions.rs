@@ -98,6 +98,7 @@ pub fn hello(
     }
 
     let frames = entries_after(state, &session_id, cursor_index);
+    out.mark_delivered(&session_id);
     Reply { frames }
 }
 
@@ -138,6 +139,8 @@ fn entries_after(
 }
 
 fn snapshot_reply(out: &OutboundHandle) -> Reply {
+    let session_id = out.state().read().session.active_session_id().clone();
+    out.mark_delivered(&session_id);
     Reply::one(ServerMsg::Snapshot(snapshot::snapshot(
         out.state(),
         &out.deps.revisions,

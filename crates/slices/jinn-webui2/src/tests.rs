@@ -188,17 +188,20 @@ async fn send_while_busy_publishes_nothing() {
         .active_session_mut()
         .begin_streaming();
 
-    // When the page sends a message.
-    say(
-        &h,
+    // When the page sends a message — by hand, since this is the one
+    // refusal under test and `say` fails on a refused message.
+    let reply = dispatch(
         ClientMsg::Send {
             text: "hello".to_owned(),
         },
+        &h.handle,
     )
     .await;
 
-    // Then nothing reaches the bus.
+    // Then nothing reaches the bus: the refusal is a reply to the page, not
+    // a message to the session.
     assert!(h.audit.names().is_empty());
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
 }
 
 #[rstest::rstest]
@@ -757,7 +760,6 @@ struct Page {
     handle: OutboundHandle,
     inbox: tokio::sync::mpsc::UnboundedReceiver<ServerMsg>,
     state: State,
-    sent: crate::outbound::SentLengths,
 }
 
 fn connected_page() -> Page {
@@ -767,7 +769,6 @@ fn connected_page() -> Page {
         handle: h.handle,
         inbox,
         state: h.state,
-        sent: Default::default(),
     }
 }
 
@@ -791,7 +792,7 @@ fn stream_tokens(page: &Page, tokens: &[&str]) {
 
 /// Runs one flush and returns every frame the page received.
 fn flush_frames(page: &mut Page) -> Vec<ServerMsg> {
-    crate::outbound::flush(&page.handle, &mut page.sent);
+    crate::outbound::flush(&page.handle);
     let mut frames = Vec::new();
     while let Ok(frame) = page.inbox.try_recv() {
         frames.push(frame);
@@ -921,13 +922,122 @@ fn nothing_is_flushed_while_no_page_is_connected() {
         .expect("the session is streaming");
 
     // When the tick flushes.
-    let mut sent = Default::default();
-    crate::outbound::flush(&h.handle, &mut sent);
+    crate::outbound::flush(&h.handle);
 
-    // Then the tick remembered nothing as sent — so a page connecting later
-    // starts from the entry's full text, never from a gap.
-    let mut page_inbox = h.handle.register();
-    crate::outbound::flush(&h.handle, &mut sent);
-    let first = page_inbox.try_recv().expect("the new page receives the entry");
+    // Then a page connecting afterwards is sent the entry whole — an upsert
+    // first, carrying the text the tick never streamed — never a gap.
+    let mut inbox = h.handle.register();
+    crate::outbound::flush(&h.handle);
+    let first = inbox.try_recv().expect("the new page receives the entry");
     assert!(matches!(first, ServerMsg::EntryUpsert(_)));
+}
+
+// ---------------------------------------------------------------------------
+// Reconcile: a turn that settles between ticks still reaches the page
+// ---------------------------------------------------------------------------
+
+/// Puts the active session through a whole turn by hand — begins streaming,
+/// appends text, and settles to idle — the way a turn shorter than one
+/// flush interval looks to the actor.
+fn settle_an_instant_turn(state: &State, text: &str) {
+    let mut guard = state.write();
+    let session = guard.session.active_session_mut();
+    session.begin_streaming();
+    session
+        .append_stream_token(text, jiff::Timestamp::now())
+        .expect("the session is streaming");
+    session.settle_to_idle();
+}
+
+/// Everything the connected page has received since it was last drained.
+fn drain(inbox: &mut tokio::sync::mpsc::UnboundedReceiver<ServerMsg>) -> Vec<ServerMsg> {
+    let mut frames = Vec::new();
+    while let Ok(frame) = inbox.try_recv() {
+        frames.push(frame);
+    }
+    frames
+}
+
+#[rstest::rstest]
+#[test]
+fn an_instant_turn_reaches_the_page_when_it_settles() {
+    // Given a connected page holding one entry, and a turn that began and
+    // settled before any tick read it.
+    let h = harness();
+    let mut inbox = h.handle.register();
+    push(&h.state, ChatEntry::user("before"));
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+    settle_an_instant_turn(&h.state, "instant reply");
+
+    // When the settle reconciles the history.
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+
+    // Then the settled assistant entry is the one frame the page receives.
+    let frames = drain(&mut inbox);
+    assert!(matches!(
+        frames.as_slice(),
+        [ServerMsg::EntryUpsert(body)] if body.index == 1
+    ));
+}
+
+#[rstest::rstest]
+#[test]
+fn a_settled_turn_that_changed_nothing_sends_no_frame() {
+    // Given a connected page that holds every entry the session has.
+    let h = harness();
+    let mut inbox = h.handle.register();
+    push(&h.state, ChatEntry::user("held"));
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+
+    // When another reconcile runs with the history unchanged.
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+
+    // Then the page receives nothing.
+    assert!(drain(&mut inbox).is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn an_entry_that_changed_while_settling_is_sent_again() {
+    // Given a connected page that holds one entry as it stood before a turn.
+    let h = harness();
+    let mut inbox = h.handle.register();
+    push(&h.state, ChatEntry::user("before"));
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+    let entry_id = h.state.read().session.active_session().history()[0].id.clone();
+
+    // When the entry is rewritten in place — a pin does that — and a
+    // settle reconciles the history.
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .pin_entry(&entry_id, jinn_core_types::PinPosition::Top);
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+
+    // Then the rewritten entry is the one frame the page receives.
+    assert!(matches!(
+        drain(&mut inbox).as_slice(),
+        [ServerMsg::EntryUpsert(_)]
+    ));
+}
+
+#[rstest::rstest]
+#[test]
+fn an_entry_the_snapshot_delivered_is_not_sent_again() {
+    // Given a page that connected and was answered with a snapshot.
+    let h = harness();
+    let mut inbox = h.handle.register();
+    push(&h.state, ChatEntry::user("in the snapshot"));
+    h.handle.mark_delivered(&active_id(&h.state));
+    let _ = drain(&mut inbox);
+
+    // When a reconcile runs with the history unchanged.
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+
+    // Then the snapshot's entry is not re-sent.
+    assert!(drain(&mut inbox).is_empty());
 }

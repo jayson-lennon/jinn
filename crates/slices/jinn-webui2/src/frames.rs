@@ -58,6 +58,19 @@ pub fn upsert_by_id(
     Some(upsert_at(session_id, index, entry))
 }
 
+/// One session's whole history, as (index, entry) pairs.
+///
+/// `None` when the session is not in memory.
+#[must_use]
+pub fn history(state: &State, session_id: &SessionId) -> Vec<(usize, ChatEntry)> {
+    let guard = state.read();
+    guard
+        .session
+        .get(session_id)
+        .map(|session| session.history().iter().cloned().enumerate().collect())
+        .unwrap_or_default()
+}
+
 /// A delta appending `chunk` to one field of an entry.
 #[must_use]
 pub fn delta(
