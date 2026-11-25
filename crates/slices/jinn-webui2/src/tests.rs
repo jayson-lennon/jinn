@@ -73,7 +73,10 @@ fn push(state: &State, entry: ChatEntry) {
 async fn say(h: &Harness, msg: ClientMsg) {
     let reply = dispatch(msg, &h.handle).await;
     assert!(
-        !reply.frames.iter().any(|frame| matches!(frame, ServerMsg::Error(_))),
+        !reply
+            .frames
+            .iter()
+            .any(|frame| matches!(frame, ServerMsg::Error(_))),
         "the server refused: {reply:?}"
     );
 }
@@ -438,6 +441,30 @@ async fn rename_writes_the_trimmed_title() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn rename_replies_with_the_new_title() {
+    // Given a session.
+    let h = harness();
+    let id = active_id(&h.state);
+
+    // When the page renames it.
+    let reply = dispatch(
+        ClientMsg::Rename {
+            title: "  Road trip ".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told the session's new title, trimmed.
+    assert!(matches!(
+        reply.frames.as_slice(),
+        [ServerMsg::Title(body)]
+            if body.session_id == id && body.title == "Road trip"
+    ));
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn rename_publishes_a_persist_for_the_session() {
     // Given a session.
     let h = harness();
@@ -774,7 +801,11 @@ fn connected_page() -> Page {
 
 /// Puts the active session into its streaming phase, as a live turn does.
 fn begin_streaming(page: &Page) {
-    page.state.write().session.active_session_mut().begin_streaming();
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
 }
 
 /// Streams `tokens` into the session the way the session actor does when it
@@ -843,7 +874,10 @@ fn a_lazily_created_entry_reaches_the_page_before_its_first_delta() {
         .iter()
         .position(|frame| matches!(frame, ServerMsg::EntryDelta(_)))
         .expect("the text is sent");
-    assert!(upsert_at < delta_at, "upsert at {upsert_at} must precede delta at {delta_at}");
+    assert!(
+        upsert_at < delta_at,
+        "upsert at {upsert_at} must precede delta at {delta_at}"
+    );
 }
 
 #[rstest::rstest]
@@ -913,7 +947,11 @@ fn thinking_streams_as_its_own_field() {
 fn nothing_is_flushed_while_no_page_is_connected() {
     // Given a streaming session with tokens, and no page connected.
     let h = harness();
-    h.state.write().session.active_session_mut().begin_streaming();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
     h.state
         .write()
         .session
@@ -1007,7 +1045,9 @@ fn an_entry_that_changed_while_settling_is_sent_again() {
     push(&h.state, ChatEntry::user("before"));
     crate::outbound::reconcile(&h.handle, &active_id(&h.state));
     let _ = drain(&mut inbox);
-    let entry_id = h.state.read().session.active_session().history()[0].id.clone();
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
 
     // When the entry is rewritten in place — a pin does that — and a
     // settle reconciles the history.

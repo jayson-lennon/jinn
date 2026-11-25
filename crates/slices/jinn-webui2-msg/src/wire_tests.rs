@@ -483,6 +483,20 @@ fn server_error_round_trips() {
 
 #[rstest]
 #[test]
+fn server_ping_round_trips_as_a_bare_tag() {
+    // Given a heartbeat.
+    let msg = ServerMsg::Ping;
+
+    // When it is serialized.
+    let json = serde_json::to_value(&msg).expect("ping serializes");
+
+    // Then it is the type tag alone, and reads back unchanged.
+    assert_eq!(json, serde_json::json!({ "type": "ping" }));
+    assert_eq!(json_of(&roundtrip_server(&msg)), json_of(&msg));
+}
+
+#[rstest]
+#[test]
 fn server_variant_carries_its_snake_case_tag() {
     // Given one message of every server variant.
     let session = SessionId::new();
@@ -560,6 +574,7 @@ fn server_variant_carries_its_snake_case_tag() {
             }),
             "error",
         ),
+        (ServerMsg::Ping, "ping"),
     ];
 
     // Then every variant's wire tag matches its snake_case name.

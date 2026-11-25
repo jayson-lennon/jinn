@@ -63,9 +63,7 @@ impl SentLengths {
     fn changed(&mut self, entry: &ChatEntry) -> bool {
         let signature = serde_json::to_string(entry).unwrap_or_default();
         match self.signatures.entry(entry.id.clone()) {
-            std::collections::hash_map::Entry::Occupied(slot) if *slot.get() == signature => {
-                false
-            }
+            std::collections::hash_map::Entry::Occupied(slot) if *slot.get() == signature => false,
             std::collections::hash_map::Entry::Occupied(mut slot) => {
                 slot.insert(signature);
                 true
@@ -268,7 +266,15 @@ pub(crate) fn flush(handle: &super::OutboundHandle) {
     let growing = growing_fields(handle);
     let mut sent = handle.sent.lock();
     for (session_id, index, entry, field, current) in growing {
-        send_suffix(handle, &mut sent, &session_id, index, &entry, field, &current);
+        send_suffix(
+            handle,
+            &mut sent,
+            &session_id,
+            index,
+            &entry,
+            field,
+            &current,
+        );
     }
 }
 

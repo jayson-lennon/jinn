@@ -98,4 +98,5 @@ export type ServerMsg =
   | { type: 'title'; session_id: string; title: string }
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }
   | { type: 'model_rows'; filter: string; rows: ModelRow[] }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'ping' };

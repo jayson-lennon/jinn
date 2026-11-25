@@ -39,6 +39,10 @@ export const sel = {
 export const MODEL_NAME = "sample";
 /** What the chip shows once it is selected: provider and model, joined. */
 export const MODEL_LABEL = "sample/sample";
+/** The second provider's model — the row a model-switch test picks. */
+export const OTHER_MODEL_NAME = "second-model";
+/** What the chip shows once that one is selected: provider and model, joined. */
+export const OTHER_MODEL_LABEL = "second/second-model";
 
 /**
  * Waits for the page's connection to be open: the overlay is gone and

@@ -110,6 +110,12 @@ models = ["second-model"]
  * The scratch jinn.toml body. Both browser surfaces bind a probed
  * port; the original UI is fail-fast on a taken port and every jinn
  * boots it.
+ *
+ * The project entry and the lifecycle script exist for one spec: a
+ * session-activation test needs a second session in the store, `/web2`
+ * has no new-session message, and the original UI's new-session modal
+ * creates one — but only against a configured project, offering no
+ * submit control without it.
  */
 function jinnTomlFor(port, webui2Port) {
   return `version = 1
@@ -119,6 +125,13 @@ bind = "127.0.0.1:${port}"
 
 [webui2]
 bind = "127.0.0.1:${webui2Port}"
+
+[[project.entry]]
+path = "~/e2e-scratch"
+
+[[session_lifecycle.script]]
+name = "echo-setup"
+setup_command = "echo $1"
 `;
 }
 

@@ -172,6 +172,11 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       });
       return;
     }
+    case 'ping': {
+      // A heartbeat carries no fact. Its arrival is the whole effect: the
+      // socket's liveness timer resets on every frame.
+      return;
+    }
   }
 }
 

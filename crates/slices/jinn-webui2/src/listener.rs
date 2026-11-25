@@ -46,7 +46,10 @@ pub struct ListenerDeps {
 pub struct ListenerActor {
     /// The serve task. Held for its `Drop` alone — dropping the actor
     /// aborts the task — which is why nothing ever reads it.
-    #[expect(dead_code, reason = "the task is held for its Drop, which aborts it with the actor")]
+    #[expect(
+        dead_code,
+        reason = "the task is held for its Drop, which aborts it with the actor"
+    )]
     pub serve_task: tokio::task::JoinHandle<()>,
     /// The bus the actor was spawned on.
     bus: BusService,
@@ -131,9 +134,7 @@ pub async fn spawn(
         .at(ActorPath::new(WEBUI2_ACTOR_NAME))
         .init_with(move || {
             let bus = bus.clone();
-            Box::pin(async move {
-                Ok(ListenerActor { serve_task, bus })
-            })
+            Box::pin(async move { Ok(ListenerActor { serve_task, bus }) })
         })
         .start();
 

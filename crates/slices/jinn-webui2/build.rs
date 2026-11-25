@@ -161,12 +161,22 @@ fn pin_manifest(manifest_path: &Path, manifest_text: &str, source_sha256: &str, 
             *line = format!("source_sha256 = \"{source_sha256}\"");
             source_done = true;
         } else if trimmed.starts_with("sha256") {
-            let asset = assets
-                .get(asset_index)
-                .unwrap_or_else(|| panic!("{} has more sha256 lines than asset rows", manifest_path.display()));
-            let served = asset.get("served").and_then(toml::Value::as_str).expect("row has a served path");
-            let bytes = fs::read(vendor_dir.join(format!("{served}.gz")))
-                .unwrap_or_else(|e| panic!("{} was not produced by the build ({e})", vendor_dir.join(format!("{served}.gz")).display()));
+            let asset = assets.get(asset_index).unwrap_or_else(|| {
+                panic!(
+                    "{} has more sha256 lines than asset rows",
+                    manifest_path.display()
+                )
+            });
+            let served = asset
+                .get("served")
+                .and_then(toml::Value::as_str)
+                .expect("row has a served path");
+            let bytes = fs::read(vendor_dir.join(format!("{served}.gz"))).unwrap_or_else(|e| {
+                panic!(
+                    "{} was not produced by the build ({e})",
+                    vendor_dir.join(format!("{served}.gz")).display()
+                )
+            });
             assert!(bytes.starts_with(&[0x1f, 0x8b]), "{served} is not gzip");
             let mut hex = String::with_capacity(64);
             for byte in sha2::Sha256::digest(&bytes) {
@@ -177,7 +187,11 @@ fn pin_manifest(manifest_path: &Path, manifest_text: &str, source_sha256: &str, 
             asset_index += 1;
         }
     }
-    assert!(source_done, "{} has no `source_sha256` line to refresh", manifest_path.display());
+    assert!(
+        source_done,
+        "{} has no `source_sha256` line to refresh",
+        manifest_path.display()
+    );
     assert!(
         asset_index == assets.len(),
         "{} names {} asset rows but has {} sha256 lines",
@@ -193,8 +207,14 @@ fn pin_manifest(manifest_path: &Path, manifest_text: &str, source_sha256: &str, 
 fn embed_asset(asset: &toml::Value, vendor_dir: &Path, seen: &mut Vec<String>) -> String {
     let served = str_field(asset, "served");
     let sha = str_field(asset, "sha256");
-    assert!(!served.contains('\\'), "served paths must use forward slashes: {served}");
-    assert!(!seen.iter().any(|s| s == served), "vendor manifest names {served} twice");
+    assert!(
+        !served.contains('\\'),
+        "served paths must use forward slashes: {served}"
+    );
+    assert!(
+        !seen.iter().any(|s| s == served),
+        "vendor manifest names {served} twice"
+    );
     seen.push(served.to_owned());
 
     // Every client asset is served gzip-committed: one convention.
@@ -206,7 +226,10 @@ fn embed_asset(asset: &toml::Value, vendor_dir: &Path, seen: &mut Vec<String>) -
             file_path.display()
         )
     });
-    assert!(sha.len() == 64, "asset {served}'s sha256 must be 64 hex chars");
+    assert!(
+        sha.len() == 64,
+        "asset {served}'s sha256 must be 64 hex chars"
+    );
     assert!(
         bytes.starts_with(&[0x1f, 0x8b]),
         "asset {served} is not gzip (missing the 1f 8b magic prefix)"

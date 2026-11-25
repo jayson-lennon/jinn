@@ -6,7 +6,7 @@
 //! renders no HTML beyond the shell and answers no action with a page —
 //! every fact crosses the socket as a `ServerMsg`.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     Router,
@@ -71,7 +71,10 @@ async fn health(AxumState(shared): AxumState<Arc<ServerShared>>) -> Response {
 
 async fn vendor(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches("/vendor2/");
-    let Some(asset) = vendor_assets::VENDOR_ASSETS.iter().find(|asset| asset.path == path) else {
+    let Some(asset) = vendor_assets::VENDOR_ASSETS
+        .iter()
+        .find(|asset| asset.path == path)
+    else {
         return StatusCode::NOT_FOUND.into_response();
     };
     (
@@ -92,18 +95,34 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| ws_loop(socket, shared))
 }
 
+/// How often an idle connection is sent a heartbeat.
+///
+/// An order of magnitude under the page's liveness timeout, so a healthy
+/// connection never trips it and a dead one is noticed within two beats.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+
 /// One connection's life: dispatch every `ClientMsg` the page sends and
 /// write every frame back — the replies and the pushes alike — until the
 /// socket closes.
 ///
 /// Replies to a message go out ahead of anything the tick flushes, because
 /// the dispatch writes them straight to the socket while pushed frames
-/// arrive on the connection's channel.
+/// arrive on the connection's channel. An idle connection still sends a
+/// heartbeat on a fixed interval, so the page can tell a live connection
+/// from one the network dropped without closing the socket.
 async fn ws_loop(mut socket: WebSocket, shared: Arc<ServerShared>) {
     let mut pushed = shared.outbound.register();
+    let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
+    heartbeat.tick().await;
+    heartbeat.reset();
 
     loop {
         tokio::select! {
+            _ = heartbeat.tick() => {
+                if write_frame(&mut socket, &ServerMsg::Ping).await.is_err() {
+                    return;
+                }
+            }
             inbound = socket.recv() => {
                 let Some(Ok(message)) = inbound else {
                     break;

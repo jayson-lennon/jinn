@@ -20,7 +20,7 @@ use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{PersistSession, SessionLoadRequested};
 use jinn_webui2_msg::{
     EntryEnvelope, EntryUpsertBody, ErrorBody, ModelRowBody, ModelRowsBody, PickerRowBody,
-    PickerRowsBody, ServerMsg,
+    PickerRowsBody, ServerMsg, TitleBody,
 };
 use marked_path::MarkedPathAccess as _;
 
@@ -276,8 +276,14 @@ pub async fn rename(out: &OutboundHandle, title: String) -> Reply {
     let Some(session_id) = session_id else {
         return refused(Refusal::NoActiveSession);
     };
-    out.publish(PersistSession { session_id }).await;
-    Reply::none()
+    out.publish(PersistSession {
+        session_id: session_id.clone(),
+    })
+    .await;
+    Reply::one(ServerMsg::Title(TitleBody {
+        session_id,
+        title: title.trim().to_owned(),
+    }))
 }
 
 fn write_title(state: &jinn_kernel::State, title: &str) -> Option<SessionId> {

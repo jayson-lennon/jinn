@@ -35,6 +35,13 @@ pub enum ServerMsg {
     ModelRows(ModelRowsBody),
     /// A request was refused.
     Error(ErrorBody),
+    /// A heartbeat: the server is alive and the connection is still open.
+    ///
+    /// Carries nothing. It exists so an idle connection still has traffic
+    /// — a browser cannot see a dropped connection until a frame fails to
+    /// arrive, so the page treats a silent connection as a dead one and
+    /// reconnects.
+    Ping,
 }
 
 #[must_use]
@@ -51,5 +58,6 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::PickerRows(_) => "picker_rows",
         ServerMsg::ModelRows(_) => "model_rows",
         ServerMsg::Error(_) => "error",
+        ServerMsg::Ping => "ping",
     }
 }

@@ -18,8 +18,8 @@ use std::time::Duration;
 use jinn_core_types::SessionId;
 use jinn_kernel::{State, common::actor_deps::BusPublish};
 use jinn_slices::bus::BusService;
-use parking_lot::Mutex;
 use jinn_webui2_msg::ServerMsg;
+use parking_lot::Mutex;
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
 use trouper::context::MsgCtx;
 use trouper::system::ActorSystem;
@@ -46,7 +46,9 @@ pub const FLUSH_INTERVAL: Duration = Duration::from_millis(150);
     serde::Deserialize,
     trouper::schema::Command,
 )]
-#[schema(description = "Flush queued stream chunks from the /web2 outbound actor to its connected pages.")]
+#[schema(
+    description = "Flush queued stream chunks from the /web2 outbound actor to its connected pages."
+)]
 pub struct OutboundFlushTick;
 
 impl jinn_slices::BusMessage for OutboundFlushTick {}
@@ -88,7 +90,6 @@ mod handlers;
 
 #[cfg(test)]
 pub(crate) use handlers::{flush, reconcile};
-
 
 /// The outbound actor.
 #[derive(Debug)]
@@ -145,7 +146,9 @@ impl OutboundHandle {
     /// wholesale: what it carried must not be streamed or reconciled again.
     pub(crate) fn mark_delivered(&self, session_id: &SessionId) {
         let history = crate::frames::history(&self.deps.state, session_id);
-        self.sent.lock().remember_all(history.iter().map(|(_, entry)| entry));
+        self.sent
+            .lock()
+            .remember_all(history.iter().map(|(_, entry)| entry));
     }
 }
 
@@ -171,7 +174,6 @@ impl OutboundHandle {
     pub fn no_connections(&self) -> bool {
         self.deps.connections.is_empty()
     }
-
 
     /// The revision a session's history is at.
     #[must_use]
@@ -223,9 +225,7 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         .init_with(move || {
             let handle = handle.clone();
             let bus = bus.clone();
-            Box::pin(async move {
-                Ok(OutboundActor { handle, bus })
-            })
+            Box::pin(async move { Ok(OutboundActor { handle, bus }) })
         })
         .handles::<OutboundFlushTick>()
         .handles::<jinn_session_msg::SessionPhaseChanged>()

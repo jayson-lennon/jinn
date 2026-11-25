@@ -1,6 +1,6 @@
 //! Switching the model from the chip in the title bar.
 
-import { expect, MODEL_LABEL, sel, test } from "./fixture.mjs";
+import { expect, MODEL_LABEL, OTHER_MODEL_LABEL, OTHER_MODEL_NAME, sel, test } from "./fixture.mjs";
 
 test("the model chip switches to another selectable row", async ({ page }) => {
   // Given the sample model selected (the page fixture's starting state).
@@ -8,10 +8,10 @@ test("the model chip switches to another selectable row", async ({ page }) => {
 
   // When picking the other provider.
   await page.locator(sel.MODEL_CHIP).click();
-  const other = page.locator(sel.MODEL_ROW).filter({ hasText: "second-model" });
+  const other = page.locator(sel.MODEL_ROW).filter({ hasText: OTHER_MODEL_NAME });
   await expect(other).toBeVisible();
   await other.click();
 
   // Then the chip names the new model.
-  await expect(page.locator(sel.MODEL_CHIP)).toHaveText("second-model");
+  await expect(page.locator(sel.MODEL_CHIP)).toHaveText(OTHER_MODEL_LABEL);
 });

@@ -29,6 +29,17 @@ const BACKOFF_MS = [250, 500, 1000, 2000, 4000, 8000];
 /** How long to wait for `hello` to be answered before assuming a dead socket. */
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 
+/**
+ * How long a connection may stay silent before the page decides it is dead.
+ *
+ * A browser cannot see a connection drop on its own: a socket the network
+ * lost stays `OPEN` until a send fails, and an idle page never sends. The
+ * server beats every few seconds, so a healthy connection is never this
+ * quiet — and one that is gets closed here, which the close handler treats
+ * like any other drop and reconnects.
+ */
+const LIVENESS_TIMEOUT_MS = 30_000;
+
 export interface Socket {
   /** Sends one command. A no-op while disconnected. */
   readonly send: (msg: ClientMsg) => void;
@@ -48,6 +59,16 @@ export function openSocket(handlers: SocketHandlers): Socket {
   let closedByPage = false;
   let retryTimer: number | null = null;
   let handshakeTimer: number | null = null;
+  let livenessTimer: number | null = null;
+
+  const armLiveness = (): void => {
+    if (livenessTimer !== null) window.clearTimeout(livenessTimer);
+    livenessTimer = window.setTimeout(() => {
+      // Silent past the deadline: close, and let the close handler reconnect.
+      livenessTimer = null;
+      if (socket !== null && socket.readyState === WebSocket.OPEN) socket.close();
+    }, LIVENESS_TIMEOUT_MS);
+  };
 
   const connect = (): void => {
     handlers.onState('connecting');
@@ -78,11 +99,16 @@ export function openSocket(handlers: SocketHandlers): Socket {
         window.clearTimeout(handshakeTimer);
         handshakeTimer = null;
       }
+      armLiveness();
       handlers.onFrame(msg);
     };
 
     ws.onclose = () => {
       if (socket === ws) socket = null;
+      if (livenessTimer !== null) {
+        window.clearTimeout(livenessTimer);
+        livenessTimer = null;
+      }
       handlers.onState('closed');
       if (closedByPage) return;
       scheduleRetry();
@@ -102,6 +128,23 @@ export function openSocket(handlers: SocketHandlers): Socket {
     }, delay);
   };
 
+  // The browser announcing a network change is the other way a connection
+  // dies. `offline` is noticed at once — no frame needs to time out — and
+  // `online` brings the retry forward instead of waiting out the backoff.
+  const onOffline = (): void => {
+    socket?.close();
+  };
+  const onOnline = (): void => {
+    if (socket === null && retryTimer !== null) {
+      window.clearTimeout(retryTimer);
+      retryTimer = null;
+      attempt = 0;
+      connect();
+    }
+  };
+  window.addEventListener('offline', onOffline);
+  window.addEventListener('online', onOnline);
+
   connect();
 
   return {
@@ -114,6 +157,9 @@ export function openSocket(handlers: SocketHandlers): Socket {
       closedByPage = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
+      if (livenessTimer !== null) window.clearTimeout(livenessTimer);
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
       socket?.close();
       socket = null;
     },
