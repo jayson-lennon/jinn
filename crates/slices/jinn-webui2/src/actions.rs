@@ -239,7 +239,11 @@ pub async fn activate_session(out: &OutboundHandle, session_id: SessionId) -> Re
         content_width: None,
     })
     .await;
-    Reply::none()
+    // The page is now looking at a different session, so it is told so
+    // wholesale: which session it views, that session's title, model and
+    // phase, and its transcript from the start. Everything the page shows
+    // is replaced in the one arm that already applies a snapshot.
+    snapshot_reply(out)
 }
 
 /// Switches the active session's model.
@@ -366,6 +370,43 @@ pub(crate) fn match_titles(
     scored.into_iter().map(|(_, row)| row).collect()
 }
 
+/// The text a model row is matched by: its model, then its provider.
+///
+/// The same two fields, in the same order, the terminal's model picker
+/// searches. Built here rather than shared because the picker's helper
+/// lives in that slice's implementation crate, which no sibling may
+/// depend on; the fields themselves are the contract's.
+fn model_search_text(entry: &jinn_provider_selection_msg::ProviderPickerEntry) -> String {
+    format!("{} {}", entry.model, entry.provider_name)
+}
+
+/// Narrows provider rows to those a filter matches, best match first.
+///
+/// A row is matched by its search text with the same fuzzy matcher the
+/// terminal's picker uses. An empty filter keeps every row, in the order
+/// given.
+fn filter_model_rows(
+    entries: &[jinn_provider_selection_msg::ProviderPickerEntry],
+    filter: &str,
+) -> Vec<jinn_provider_selection_msg::ProviderPickerEntry> {
+    use fuzzy_matcher::FuzzyMatcher as _;
+
+    if filter.is_empty() {
+        return entries.to_vec();
+    }
+    let matcher = fuzzy_matcher::skim::SkimMatcherV2::default();
+    let mut scored: Vec<(i64, jinn_provider_selection_msg::ProviderPickerEntry)> = entries
+        .iter()
+        .filter_map(|entry| {
+            let text = model_search_text(entry);
+            let score = matcher.fuzzy_match(&text, filter)?;
+            Some((score, entry.clone()))
+        })
+        .collect();
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    scored.into_iter().map(|(_, entry)| entry).collect()
+}
+
 /// The model picker's rows for a filter, from the shared row builder.
 ///
 /// The same `load_provider_entries` → `sorted_entries` path the terminal's
@@ -395,7 +436,12 @@ pub fn model_rows(out: &OutboundHandle, filter: String) -> Reply {
             &theme,
         )
     };
-    let rows = jinn_provider_selection_msg::sorted_entries(&all, &filter, &active)
+    // The terminal's picker matches a row by its search text with the
+    // shared fuzzy matcher and keeps only the rows that score; the sort
+    // helper alone reorders and never narrows, so the filter is applied
+    // here first, the same way, for the same result.
+    let matched = filter_model_rows(&all, &filter);
+    let rows = jinn_provider_selection_msg::sorted_entries(&matched, &filter, &active)
         .into_iter()
         .map(|entry| ModelRowBody {
             provider_id: entry.provider_id,

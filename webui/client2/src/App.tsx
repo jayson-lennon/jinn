@@ -237,6 +237,7 @@ function SessionRail(props: { store: ClientStore; send: Send }): JSX.Element {
               <button
                 class={`session${row.is_active ? ' active' : ''}`}
                 data-testid="session-row"
+                data-session-id={row.session_id}
                 onClick={() => props.send({ type: 'activate_session', session_id: row.session_id })}
               >
                 <span class="session-title">{row.title || 'Untitled Session'}</span>

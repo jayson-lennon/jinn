@@ -29,6 +29,7 @@ export const sel = {
   TITLE_EDIT: '[data-testid="title-edit"]',
   MODEL_CHIP: '[data-testid="model-chip"]',
   MODEL_ROW: '[data-testid="model-row"]',
+  MODEL_FILTER: '[data-testid="model-filter"]',
   OPEN_PICKER: '[data-testid="open-picker"]',
   PICKER_ROW: '[data-testid="picker-row"]',
   SESSION_ROW: '[data-testid="session-row"]',

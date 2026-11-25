@@ -36,6 +36,22 @@ struct Harness {
 }
 
 fn harness() -> Harness {
+    harness_with_providers(empty_providers())
+}
+
+/// A registry with nothing in it: the picker has no rows to offer.
+fn empty_providers() -> jinn_provider_config::ProvidersConfig {
+    jinn_provider_config::ProvidersConfig {
+        providers: std::collections::BTreeMap::new(),
+        aliases: vec![],
+        default_provider: None,
+        endpoint_defaults: vec![],
+    }
+}
+
+/// A harness over a registry seeded with the given providers, so the
+/// model picker has rows to filter.
+fn harness_with_providers(providers: jinn_provider_config::ProvidersConfig) -> Harness {
     let (bus, audit) = BusService::new_recording();
     let state = State::new(jinn_kernel::AppState::default());
     let slices = jinn_slices::Slices::new();
@@ -45,7 +61,9 @@ fn harness() -> Harness {
             &jinn_provider_selection_msg::provider_state_slot(),
         )
         .expect("the catalog registers the provider slot");
-    let services = jinn_kernel::TestServices::builder().build();
+    let services = jinn_kernel::TestServices::builder()
+        .providers(providers)
+        .build();
     let handle = OutboundHandle::new(crate::outbound::OutboundActorDeps {
         state: state.clone(),
         bus,
@@ -306,6 +324,75 @@ async fn activate_switches_the_active_session() {
 
     // Then it is the instance's active session.
     assert_eq!(*h.state.read().session.active_session_id(), second);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn activate_replies_with_a_snapshot_of_the_activated_session() {
+    // Given two loaded sessions.
+    let h = harness();
+    let second = jinn_core_types::SessionId::new();
+    h.state.write().session.get_or_create(&second);
+
+    // When the page activates the second.
+    let reply = dispatch(
+        ClientMsg::ActivateSession {
+            session_id: second.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told it now views that session.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("an activation answers a snapshot");
+    };
+    assert_eq!(snapshot.session_id, Some(second));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn activate_replies_with_the_activated_sessions_transcript() {
+    // Given two loaded sessions, each with its own entry.
+    let h = harness();
+    push(&h.state, ChatEntry::user("first session's entry"));
+    let second = jinn_core_types::SessionId::new();
+    {
+        let mut guard = h.state.write();
+        let session = guard.session.get_or_create(&second);
+        session.push_entry(ChatEntry::user("second session's entry"));
+    }
+
+    // When the page activates the second.
+    let reply = dispatch(
+        ClientMsg::ActivateSession {
+            session_id: second.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot carries the second session's entry alone.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("an activation answers a snapshot");
+    };
+    let texts: Vec<String> = snapshot
+        .entries
+        .iter()
+        .map(|envelope| serde_json::to_string(&envelope.entry).unwrap_or_default())
+        .collect();
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("second session's entry")),
+        "the snapshot carries the activated session's entry: {texts:?}"
+    );
+    assert!(
+        !texts
+            .iter()
+            .any(|text| text.contains("first session's entry")),
+        "the snapshot carries no entry from the session it left: {texts:?}"
+    );
 }
 
 #[rstest::rstest]
@@ -760,6 +847,97 @@ async fn model_rows_with_no_configured_providers_answers_no_rows() {
         unreachable!("a model-rows request answers model rows");
     };
     assert_eq!(body.rows, Vec::new());
+}
+
+/// Two providers whose model names share no letters with each other's
+/// provider: a filter for one can only be satisfied by a real match.
+fn two_providers() -> jinn_provider_config::ProvidersConfig {
+    let entry = |model: &str| jinn_provider_config::ProviderEntry {
+        backend: "sample".to_owned(),
+        models: vec![model.to_owned()],
+        base_url: None,
+        api_key_env: None,
+        requires_key: false,
+        extra_body: None,
+        context_length: None,
+        model_info: Vec::new(),
+    };
+    jinn_provider_config::ProvidersConfig {
+        providers: std::collections::BTreeMap::from([
+            ("deepseek".to_owned(), entry("deepseek-chat")),
+            ("aion".to_owned(), entry("aion-alpha")),
+        ]),
+        aliases: vec![],
+        default_provider: None,
+        endpoint_defaults: vec![],
+    }
+}
+
+/// The model names in a model-rows reply, in the order the page shows them.
+fn model_names(reply: &crate::protocol::Reply) -> Vec<String> {
+    let [ServerMsg::ModelRows(body)] = reply.frames.as_slice() else {
+        unreachable!("a model-rows request answers model rows");
+    };
+    body.rows.iter().map(|row| row.model.clone()).collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_rows_with_an_empty_filter_name_every_provider() {
+    // Given two configured providers.
+    let h = harness_with_providers(two_providers());
+
+    // When the page asks with no filter.
+    let reply = dispatch(
+        ClientMsg::ModelRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then both are offered.
+    let mut names = model_names(&reply);
+    names.sort();
+    assert_eq!(names, vec!["aion-alpha", "deepseek-chat"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_rows_filter_keeps_only_the_matching_provider() {
+    // Given two configured providers.
+    let h = harness_with_providers(two_providers());
+
+    // When the page filters for one of them.
+    let reply = dispatch(
+        ClientMsg::ModelRows {
+            filter: "deepseek".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then only that provider's model is offered.
+    assert_eq!(model_names(&reply), vec!["deepseek-chat"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_rows_filter_matches_the_provider_name_too() {
+    // Given two configured providers, neither model named like its provider.
+    let h = harness_with_providers(two_providers());
+
+    // When the page filters by a provider's name.
+    let reply = dispatch(
+        ClientMsg::ModelRows {
+            filter: "aion".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then that provider's model is the one offered.
+    assert_eq!(model_names(&reply), vec!["aion-alpha"]);
 }
 
 // ---------------------------------------------------------------------------

@@ -148,6 +148,11 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       if (!belongsToViewedSession(store, msg.session_id)) return;
       store.set((s) => {
         s.title = msg.title;
+        // The sidebar row shows the same title; one message updates both
+        // places it is displayed, so they cannot disagree.
+        s.sessions = s.sessions.map((row) =>
+          row.session_id === msg.session_id ? { ...row, title: msg.title } : row,
+        );
       });
       return;
     }
