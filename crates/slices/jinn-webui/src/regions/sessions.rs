@@ -3,10 +3,10 @@
 //! Parts declared: guard render + GET pull route + SSE event + page
 //! fill (all five except a distinct action surface; its client half
 //! is the row-click activate, which swaps the page rather than the
-//! region). The list merges live rows from state with archived rows
-//! from the store on the pull path; the SSE path renders live rows
-//! only (the actor's hot path — the next page pull or a
-//! load-completion-triggered refresh carries the archived truth).
+//! region). The sessions list is the loaded, non-library sessions
+//! read from live state — the pull path and the SSE path build the
+//! same rows. Archived sessions are the Archive picker's, never this
+//! list's.
 //!
 //! The list IS the TUI session picker rendered as HTML. Rows are
 //! [`jinn_session_store_msg::SessionTreeEntry`]s ordered by the
@@ -77,7 +77,7 @@ impl SessionsRegion {
         filter: Option<&str>,
     ) -> Result<String, HandlerError> {
         match view {
-            jinn_webui_msg::SessionsView::Sessions => sessions_fragment(shared, filter).await,
+            jinn_webui_msg::SessionsView::Sessions => sessions_fragment(shared, filter),
             jinn_webui_msg::SessionsView::Library => library_fragment(shared, filter).await,
         }
     }
@@ -133,30 +133,18 @@ impl WebRegion for SessionsRegion {
         guard: &StateReadGuard<'_>,
     ) -> String {
         // The region render is viewer-agnostic: the wire discards this
-        // HTML (the tick signal is the push) and the viewed row is
+        // HTML (the refresh signal is the push) and the viewed row is
         // client-side signal styling, so the page's session plays no
-        // part in the rows.
-        let bots: std::collections::HashMap<jinn_core_types::SessionId, bool> = guard
-            .session
-            .iter()
-            .map(|(id, session)| (id.clone(), session.is_bot()))
-            .collect();
-        let unread_marks = unread_marks_of(guard);
-        let working = working_set_of(guard);
-        let rows = picker_rows(
-            live_listed_entries(guard),
-            &bots,
-            None,
-            unread_marks.as_ref(),
-            working.as_ref(),
-            &memberships_of(guard),
-        );
-        crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
-            .unwrap_or_else(|error| {
-                tracing::warn!(%error, what = "sessions", "webui template render failed; \
-                     serving a blank fragment");
-                String::new()
-            })
+        // part in the rows. The same row-builder the pull runs, under
+        // the one guard this render already holds.
+        crate::templates::render(&crate::templates::SessionsTemplate::with_contract(
+            sessions_rows_under(guard, None),
+        ))
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, what = "sessions", "webui template render failed; \
+                 serving a blank fragment");
+            String::new()
+        })
     }
 }
 
@@ -394,69 +382,56 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
         })
 }
 
-/// The sessions list for a page render or a GET pull: live rows from
-/// state, archived rows from the store — the picker's full tree.
+/// The sessions list for a page render or a GET pull: every loaded,
+/// non-library session, and nothing else — read from live state alone,
+/// with no store read and no summary merge.
+///
 /// `filter` runs the TUI session picker's matching (its
 /// `TreePickerState`, verbatim): every whitespace-split term must
 /// fuzzy-match a row's title, a matching child pulls its ancestor
 /// chain in, and trees rank strongest-match first. The rows carry no
 /// viewer styling: the viewed (blue) row binds client-side to
 /// `$viewedSession`, so one list shape serves every page and a
-/// navigation recolors it with zero requests. Store summaries are
-/// awaited on the request path (request-scoped; no command
-/// round-trip); a store failure degrades to the live-only list — a
-/// web session list must not 500 because a disk read hiccuped.
+/// navigation recolors it with zero requests. Archived sessions are
+/// the Archive picker's, never this list's; library members are
+/// excluded on both render paths, parity with the TUI's `is_listed`.
 ///
 /// # Errors
 ///
 /// Returns the render error; the caller maps it to a 500.
-pub async fn sessions_fragment(
+pub fn sessions_fragment(
     shared: &ServerShared,
     filter: Option<&str>,
 ) -> Result<String, HandlerError> {
-    let (mut entries, mut bots, unread_marks, working, mut memberships) = {
+    let rows = {
         let guard = shared.read_state();
-        let bots: std::collections::HashMap<jinn_core_types::SessionId, bool> = guard
-            .session
-            .iter()
-            .map(|(id, session)| (id.clone(), session.is_bot()))
-            .collect();
-        let unread_marks = unread_marks_of(&guard);
-        let working = working_set_of(&guard);
-        let memberships = memberships_of(&guard);
-        (
-            live_listed_entries(&guard),
-            bots,
-            unread_marks,
-            working,
-            memberships,
-        )
+        sessions_rows_under(&guard, filter)
     };
-
-    // Archived rows: skip ids already live; the merged tree is the one
-    // shape both render paths consume. The store's own list already
-    // merges its live sessions the same way, so the append is the
-    // delta, not a duplicate. Library members are dropped here —
-    // `append_summaries` serves both lists, and the library needs its
-    // members, so the sessions view filters its own delta.
-    if let Ok(summaries) = shared.load_summaries().await {
-        let summaries: Vec<_> = summaries
-            .into_iter()
-            .filter(|summary| !summary.in_library)
-            .collect();
-        append_summaries(&mut entries, &mut bots, &mut memberships, summaries);
-    }
-    let rows = picker_rows(
-        entries,
-        &bots,
-        filter,
-        unread_marks.as_ref(),
-        working.as_ref(),
-        &memberships,
-    );
-
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .map_err(|e| crate::server::map_render_error(&e))
+}
+
+/// The sessions rows under an already-held state read guard — the one
+/// row-builder both render paths (the GET pull and the SSE render) call,
+/// so the two shapes are the same markup by construction.
+#[must_use]
+fn sessions_rows_under(
+    guard: &StateReadGuard<'_>,
+    filter: Option<&str>,
+) -> Vec<jinn_webui_msg::SessionListItem> {
+    let bots: std::collections::HashMap<jinn_core_types::SessionId, bool> = guard
+        .session
+        .iter()
+        .map(|(id, session)| (id.clone(), session.is_bot()))
+        .collect();
+    picker_rows(
+        live_listed_entries(guard),
+        &bots,
+        filter,
+        unread_marks_of(guard).as_ref(),
+        working_set_of(guard).as_ref(),
+        &memberships_of(guard),
+    )
 }
 
 /// The library list for a page render or a GET pull: every library

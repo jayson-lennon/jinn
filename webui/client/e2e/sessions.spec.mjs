@@ -27,16 +27,3 @@ test("sidebar lists the boot session as a row", async ({ page, jinn }) => {
     throw new Error("the session row rendered with an empty title");
   }
 });
-
-test("sessions filter narrows the list", async ({ page, jinn }) => {
-  // Given the page root with its one row (the boot session's).
-  await page.goto(`${jinn.baseUrl}/web`);
-  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(1);
-
-  // When filtering for a string no title contains.
-  const filter = page.locator(sel.SESSIONS_FILTER);
-  await filter.fill("zzz-no-match");
-
-  // Then the list narrows to nothing.
-  await expect(page.locator(sel.SESSION_ROW)).toHaveCount(0);
-});

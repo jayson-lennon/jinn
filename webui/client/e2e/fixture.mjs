@@ -27,6 +27,8 @@
 //! invisible — and the test reads its name from `staged`.
 
 import { test as base, expect } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { bootJinn, teardownJinn, staged } from "./harness.mjs";
 import * as sel from "./selectors.mjs";
 
@@ -623,6 +625,49 @@ export async function setViewport(page, size) {
 
 /** The desktop viewport the config boots every page with. */
 export const DESKTOP = { width: 1280, height: 800 };
+
+// ── Session archive ────────────────────────────────────────────────
+
+/**
+ * Opens the archive modal through the sidebar's Archive button — the
+ * user's path — and resolves once the overlay is visible.
+ *
+ * @param {import("@playwright/test").Page} page the browser page.
+ * @returns {Promise<import("@playwright/test").Locator>} the overlay.
+ */
+export async function openArchive(page) {
+  await page.locator(sel.ARCHIVE_BUTTON).click();
+  const overlay = page.locator(sel.ARCHIVE_MODAL);
+  await expect(overlay).toBeVisible();
+  return overlay;
+}
+
+/**
+ * Marks `id` archived in the test's own scratch store, with the same
+ * statement jinn's store runs (`UPDATE sessions SET archived = ? WHERE
+ * id = ?`). The web has no archive gesture — archiving is a TUI bus
+ * command that also evicts the session from memory — so this arranges
+ * the store half only: the session stays loaded in this instance, and
+ * a row reads "loaded" until the instance next boots. The archived-
+ * only (not in memory) shape is pinned by the Rust region tests.
+ *
+ * @param {{ root: string }} jinn the test's own instance.
+ * @param {string} id the session to archive.
+ * @returns {void}
+ */
+export function archiveSession(jinn, id) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    throw new Error(`archiveSession: not a session id: ${id}`);
+  }
+  execFileSync(
+    "sqlite3",
+    [
+      path.join(jinn.root, "db", "state.db"),
+      `UPDATE sessions SET archived = TRUE WHERE id = '${id}';`,
+    ],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+}
 
 // ── Library ─────────────────────────────────────────────────────────
 

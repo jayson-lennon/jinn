@@ -94,9 +94,14 @@ pub(crate) enum PushError {
 /// `data-init` and on the composer's send-time scroll, never on data
 /// arrival. Controls and the signal kinds carry one patch each.
 ///
-/// `sessions_tick` is the per-stream counter the sessions signal
-/// bumps — the endpoint owns the counter so every connection counts
-/// its own pushes.
+/// `sessions_tick` is the per-stream counter the sessions push stamps
+/// onto the sessions-refresh signal — the endpoint owns the counter so
+/// every connection counts its own pushes, and within one stream the
+/// value only ever grows. It never touches the page's own
+/// `sessionsTick`: that counter is the user-action trigger (view
+/// toggle, filter typing), and two writers with different arithmetic
+/// could hand the page a value it already held — a non-change, so no
+/// refetch would fire.
 ///
 /// # Errors
 ///
@@ -154,7 +159,7 @@ pub(crate) fn sdk_events_of(
         SseKind::Sessions => Ok(vec![
             PatchSignals::new(format!(
                 "{{\"{}\": {sessions_tick}, \"{}\": {}}}",
-                contract::SIGNAL_SESSIONS_TICK,
+                contract::SIGNAL_SESSIONS_REFRESH,
                 contract::SIGNAL_SESSIONS_ATTENTION,
                 envelope.html.parse::<u64>().unwrap_or_else(|error| {
                     tracing::warn!(%error, payload = %envelope.html, what = "sessions-attention",
@@ -290,7 +295,7 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn sessions_pushes_bump_the_tick_and_stamp_the_attention_count() {
+    fn sessions_pushes_stamp_the_refresh_counter_and_never_the_page_tick() {
         // Given a sessions refresh envelope whose payload is the
         // unread-mark count (the fan-out stamps it; the browser must
         // not receive a fragment — the effect re-pulls the list with
@@ -299,24 +304,41 @@ mod tests {
             .expect("a sessions push translates")
             .remove(0);
 
-        // Then the event is one signal patch bumping sessionsTick and
-        // stamping sessionsAttention with the payload, and no HTML
-        // rides it.
+        // Then the event is one signal patch stamping sessionsRefresh
+        // with the stream counter — never the page's own sessionsTick —
+        // and no HTML rides it.
         let datastar::DatastarEvent {
             event: kind, data, ..
         } = event;
         assert_eq!(kind, datastar::consts::EventType::PatchSignals);
         let joined = data.join("\n");
-        assert!(joined.contains("signals {"), "{joined}");
         assert!(
-            joined.contains(&format!("\"{}\": 3", contract::SIGNAL_SESSIONS_TICK)),
+            joined.contains(&format!("\"{}\": 3", contract::SIGNAL_SESSIONS_REFRESH)),
             "{joined}"
         );
+        assert!(
+            !joined.contains(&format!("\"{}\"", contract::SIGNAL_SESSIONS_TICK)),
+            "a server push must never write the page's own tick: {joined}"
+        );
+        assert!(!joined.contains("<a>row</a>"), "{joined}");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn sessions_pushes_stamp_the_attention_count() {
+        // Given a sessions refresh envelope whose payload is the
+        // unread-mark count.
+        let event = sdk_events_of(&envelope(SseKind::Sessions, "2", 0), 3)
+            .expect("a sessions push translates")
+            .remove(0);
+
+        // Then the patch carries that count on sessionsAttention.
+        let datastar::DatastarEvent { data, .. } = event;
+        let joined = data.join("\n");
         assert!(
             joined.contains(&format!("\"{}\": 2", contract::SIGNAL_SESSIONS_ATTENTION)),
             "{joined}"
         );
-        assert!(!joined.contains("<a>row</a>"), "{joined}");
     }
 
     #[rstest::rstest]

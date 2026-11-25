@@ -115,6 +115,21 @@ pub trait SessionStore: Send + Sync + 'static {
             .collect())
     }
 
+    /// Load summaries for every session, loaded and archived alike.
+    ///
+    /// The whole-store read the archive picker runs. It is a separate method
+    /// from [`Self::load_summaries`] because that one carries each row's full
+    /// metadata blob, which over a store of thousands dominates every read;
+    /// a backend with a query that skips the blob overrides this. The default
+    /// is the full read, so backends without one stay correct, just slower.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionStoreError`] if the database cannot be read.
+    async fn load_archive_rows(&self) -> Result<Vec<SessionSummary>, Report<SessionStoreError>> {
+        self.load_summaries().await
+    }
+
     /// Load a full session by ID.
     ///
     /// Returns `None` if no session with the given ID exists.

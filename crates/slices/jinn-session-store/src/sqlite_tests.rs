@@ -3954,3 +3954,120 @@ async fn library_members_returns_archived_members() {
     assert_eq!(members.len(), 1, "the archived member lists: {members:?}");
     assert_eq!(members[0].session_id, member_id);
 }
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_rows_carry_a_stored_project() {
+    // Given a store with a session stamped with a project — which the
+    // metadata blob nests as {"path": …, "marker": …}, not a bare string.
+    let (dir, store) = make_store().await;
+    let session_id = SessionId::new();
+    let mut session = ChatSessionState::new();
+    session.set_session_id(session_id.clone());
+    session.set_title("Projected".to_owned());
+    session.push_entry(ChatEntry::user("hello"));
+    let expected = dir
+        .path
+        .join("user/projects/jinn")
+        .expect("temp root joins a bare name");
+    session.set_project(Some(expected.clone()));
+
+    // When saving and reading the archive rows.
+    store.save(&session.capture_snapshot()).await.expect("save");
+    let rows = store.load_archive_rows().await.expect("archive rows");
+
+    // Then the project reaches the row — the blob's nested path is the
+    // one extracted, not the enclosing object.
+    assert_eq!(rows[0].project, Some(expected));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_rows_include_archived_sessions() {
+    // Given a store holding one loaded and one archived session.
+    let (_dir, store) = make_store().await;
+    let loaded_id = SessionId::new();
+    store
+        .save(&make_session(&loaded_id, "Loaded").capture_snapshot())
+        .await
+        .expect("save loaded");
+    let archived_id = SessionId::new();
+    store
+        .save(&make_session(&archived_id, "Archived").capture_snapshot())
+        .await
+        .expect("save archived");
+    store
+        .set_archived(&archived_id, true)
+        .await
+        .expect("archive");
+
+    // When reading the archive rows.
+    let rows = store.load_archive_rows().await.expect("archive rows");
+
+    // Then both sessions are listed — the archive picker spans the whole
+    // store, loaded and archived alike.
+    let ids: Vec<SessionId> = rows.into_iter().map(|row| row.session_id).collect();
+    assert!(
+        ids.contains(&loaded_id) && ids.contains(&archived_id),
+        "both sessions list: {ids:?}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_rows_match_the_full_summary_read() {
+    // Given a store with two sessions differing in every summary field —
+    // title, parent, archived, library, and project.
+    let (dir, store) = make_store().await;
+    let parent_id = SessionId::new();
+    let child_id = SessionId::new();
+    let mut parent = make_session(&parent_id, "Parent");
+    parent.set_project(Some(
+        dir.path
+            .join("user/projects/jinn")
+            .expect("temp root joins a bare name"),
+    ));
+    store
+        .save(&parent.capture_snapshot())
+        .await
+        .expect("save parent");
+    let mut child = ChatSessionState::new();
+    child.set_session_id(child_id.clone());
+    child.set_title("Child".to_owned());
+    child.push_entry(ChatEntry::user("hi"));
+    child.set_parent_session(parent_id.clone());
+    store
+        .save(&child.capture_snapshot())
+        .await
+        .expect("save child");
+    store
+        .set_archived(&child_id, true)
+        .await
+        .expect("archive child");
+    store
+        .set_in_library(&child_id, true)
+        .await
+        .expect("library child");
+
+    // When reading the same store through the blob-free archive query and
+    // through the full summary read.
+    let archive = store.load_archive_rows().await.expect("archive rows");
+    let full = store.load_summaries().await.expect("summaries");
+
+    // Then the two reads agree on every summary — the fast query skips the
+    // blob without changing what a row says.
+    let key = |row: &jinn_session_store_msg::SessionSummary| {
+        (
+            row.session_id.clone(),
+            row.title.clone(),
+            row.parent_session.clone(),
+            row.session_state,
+            row.in_library,
+            row.is_bot,
+            row.project.clone(),
+        )
+    };
+    let archive: Vec<_> = archive.iter().map(key).collect();
+    let full: Vec<_> = full.iter().map(key).collect();
+    assert_eq!(archive, full);
+}

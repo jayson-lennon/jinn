@@ -1,17 +1,43 @@
 <div id="{{ page_root_id }}" data-attr:{{ page_session_attr }}="$viewedSession"
-     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, appletsOpen: false, mcpTick: '', skillsTick: '', personafilter: '', skillsfilter: '', appletsfilter: '', toolsfilter: '', mcpfilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, catchupCursor: 0, switching: false, errorNotice: '', sessionsAttention: {{ sessions_attention }}, modelsTick: '', busy: {{ busy }}, modelLabel: '{{ model_label|js_str }}', title: '{{ title|js_str }}', titlePre: '{{ title|js_str }}', viewedSession: '{{ session_id }}', sessionsfilter: '', sidebarview: 'sessions', rowMenuSession: '', text: '', webTheme: '{{ web_theme }}', images: [] }"
+     data-signals="{ drawerOpen: false, menuOpen: false, modalOpen: false, sessionNewOpen: false, personaModalOpen: false, mcpOpen: false, toolsOpen: false, toolsRevert: null, toolsTick: '', skillsOpen: false, appletsOpen: false,archiveOpen: false, mcpTick: '', skillsTick: '', personafilter: '', skillsfilter: '', appletsfilter: '',archivefilter: '', toolsfilter: '', mcpfilter: '', titleEditing: false, titleCommitting: false, modelsRefreshing: false, modelfilter: '', providerId: '', sessionsTick: 0, sessionsRefresh: 0, catchupCursor: 0, switching: false, errorNotice: '', sessionsAttention: {{ sessions_attention }}, modelsTick: '', busy: {{ busy }}, modelLabel: '{{ model_label|js_str }}', title: '{{ title|js_str }}', titlePre: '{{ title|js_str }}', viewedSession: '{{ session_id }}', sessionsfilter: '', sidebarview: 'sessions', rowMenuSession: '', text: '', webTheme: '{{ web_theme }}', images: [] }"
      data-class:drawer-open="$drawerOpen"
      data-on:keydown__document="evt.key === 'Escape' && ($menuOpen ? $menuOpen = false : ($drawerOpen ? $drawerOpen = false : undefined))"
-     data-on:datastar-fetch="$switching && evt.detail.type === 'error' && ($switching = false, $errorNotice = 'Session switch failed (status ' + (evt.detail.argsRaw && evt.detail.argsRaw.status || '?') + '). The session did not load.')">
+     data-effect="jinnSwitchWatch($switching)"
+     data-on:jinnswitchstalled__document="$switching = false, $errorNotice = 'Session switch timed out. The session did not load.'"
+     data-on:datastar-fetch="$switching && evt.detail.el && evt.detail.el.matches('{{ switch_row_selector }}') && (evt.detail.type === 'error' || evt.detail.type === 'finished') && ($switching = false, evt.detail.type === 'error' && ($errorNotice = 'Session switch failed (status ' + (evt.detail.argsRaw && evt.detail.argsRaw.status || '?') + '). The session did not load.'))">
   <nav id="sidebar">
     <h2>Sessions</h2>
     {{ toggle_html|safe }}
-    <input id="{{ sessions_filter_input_id }}" type="text" placeholder="filter sessions…"
+    {#- The sidebar's list controls, one per view. The Sessions view
+        carries the Archive button: it opens the archive modal over
+        every stored session — loaded and archived — with the TUI
+        picker's own fuzzy filter (server-side). The sidebar's Sessions
+        list is loaded sessions only, and this is how an archived one is
+        reached. The Library view keeps its title filter: a bookmark
+        list is still searched by title. Each control is shown only in
+        its own view. -#}
+    <button id="{{ archive_button_id }}" type="button" data-show="$sidebarview !== 'library'"
+            data-on:click="$archiveOpen = true; @get('{{ archive_picker_route }}', {selector: '{{ archive_modal_host_selector }}', openWhenHidden: true})">Archive</button>
+    <input id="{{ sessions_filter_input_id }}" type="text" placeholder="filter library…" data-show="$sidebarview === 'library'"
            autocomplete="off" spellcheck="false" data-bind:sessionsfilter
            data-on:input="$sessionsTick = $sessionsTick + 1">
+    {#- The list re-pull has exactly two triggers and the effect keys on
+        BOTH through one string so either change re-fires it and the two
+        can never cancel out: `sessionsTick` is the page's own counter
+        (view toggle, filter typing — `$sessionsTick + 1`), and
+        `sessionsRefresh` is the server-push counter the stream stamps.
+        The string form is the page's rule for multi-trigger effects
+        (the modal filters use it too): a `||` guard would short-circuit
+        to the truthy counter and stop reacting to pushes. Both ride the
+        request through the same include pattern.
+
+        `switching` is deliberately NOT in the pattern: the navigation
+        patch re-seeds it to false on every swap, so keying the effect
+        on it would make each switch's landing a list re-pull — the
+        blank-flash the targeted-patch navigation forbids. -#}
     <div id="{{ sessions_id }}"
-         data-init="@get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true, filterSignals: {include: '^(sessionsTick|sessionsfilter|sidebarview)$'}})"
-         data-effect__debounce.150ms="$sessionsTick && @get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true, filterSignals: {include: '^(sessionsTick|sessionsfilter|sidebarview)$'}})">{{ sessions_html|safe }}</div>
+         data-init="@get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true, filterSignals: {include: '^(sessionsTick|sessionsRefresh|sessionsfilter|sidebarview)$'}})"
+         data-effect__debounce.150ms="($sessionsTick + ' ' + $sessionsRefresh).trim() && @get('{{ sessions_route }}', {selector: '#{{ sessions_id }}', openWhenHidden: true, filterSignals: {include: '^(sessionsTick|sessionsRefresh|sessionsfilter|sidebarview)$'}})">{{ sessions_html|safe }}</div>
     <div data-on:click__window="$rowMenuSession !== '' && ($rowMenuSession = '') !== undefined"></div>
   </nav>
   <main id="main">
@@ -29,6 +55,7 @@
     <span id="{{ tools_modal_host_id }}"></span>
     <span id="{{ skills_modal_host_id }}"></span>
     <span id="{{ applet_modal_host_id }}"></span>
+    <span id="{{ archive_modal_host_id }}"></span>
     <div id="{{ transcript_wrap_id }}" data-ref:transcriptwrap
          data-init="$transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })"
          data-effect__debounce.100ms="$catchupCursor > 0 && ($catchupCursor = 0, $transcriptwrap && $transcriptwrap.scrollTo({ top: Number.MAX_SAFE_INTEGER })) !== undefined">

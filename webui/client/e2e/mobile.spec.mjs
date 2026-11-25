@@ -31,6 +31,7 @@
 
 import {
   expect,
+  openArchive,
   openDrawer,
   openFirstSession,
   openMenu,
@@ -416,17 +417,23 @@ test("text inputs render at 16px at a phone viewport", async ({ page, jinn }) =>
   // Given the session page at 390×844 (the iOS focus-zoom guard).
   await openFirstSession(jinn, page);
 
-  // Then the composer textarea and the sessions filter both compute
-  // 16px.
-  const sizes = await page.evaluate(() => {
-    const read = (selector) => {
-      const element = document.querySelector(selector);
+  // Then the composer textarea and the Library view's filter compute
+  // 16px. (At phone width the sidebar's controls live in the
+  // off-canvas drawer; each control is shown only in its own view.)
+  await openDrawer(page);
+  await page.locator(sel.VIEW_LIBRARY).click();
+  const read = (selector) =>
+    page.evaluate((target) => {
+      const element = document.querySelector(target);
       return element ? getComputedStyle(element).fontSize : "absent";
-    };
-    return { textarea: read("#input"), filter: read("#sessions-filter") };
-  });
-  expect(sizes.textarea).toBe("16px");
-  expect(sizes.filter).toBe("16px");
+    }, selector);
+  expect(await read("#input")).toBe("16px");
+  expect(await read(sel.SESSIONS_FILTER)).toBe("16px");
+
+  // And so does the archive modal's filter, back in the Sessions view.
+  await page.locator(sel.VIEW_SESSIONS).click();
+  await openArchive(page);
+  expect(await read(sel.ARCHIVE_FILTER)).toBe("16px");
 });
 
 test("interactive controls reach the 40px hit height at a phone viewport", async ({
