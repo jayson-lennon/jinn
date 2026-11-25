@@ -3,6 +3,8 @@
 ## (development)
 
 - (webui) Reduced network load.
+- (webui) Session list now only shows loaded sessions.
+- (webui) Session filter input changed to "Archive" button. Clicking activates a new session picker.
 
 ## 2026-11-24 v1.27.0
 
