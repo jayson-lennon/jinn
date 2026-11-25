@@ -1,5 +1,8 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## 2026-11-24 v.27.2
+- `gcr` now refreshes all project resources.
+
 ## 2026-11-24 v.27.1
 
 - (webui) Web addresses are now linkified.
