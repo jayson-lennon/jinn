@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- (webui) Web addresses are now linkified.
+
 ## 2026-11-24 v1.27.0
 
 - (webui) Keystrokes no longer erroneously close modals.
