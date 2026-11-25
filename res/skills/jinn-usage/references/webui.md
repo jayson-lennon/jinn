@@ -7,6 +7,9 @@ in the terminal too, and the other way round. Every web feature has a
 home in the reference that owns it — `ui-map.md` maps each on-screen
 element to it; this file holds only what the TUI has no counterpart for.
 
+This is the page at `/web`. A second, smaller one is served at `/web2`
+(see `webui2.md`); this file is about `/web`.
+
 ## Open it
 
 Point a browser at `http://127.0.0.1:8387/` (the default bind; `/`
