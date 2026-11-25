@@ -6094,6 +6094,7 @@ dependencies = [
  "tracing",
  "trouper",
  "unicode-segmentation",
+ "url",
  "wherror",
 ]
 

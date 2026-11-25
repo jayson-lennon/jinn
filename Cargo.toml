@@ -514,6 +514,9 @@ base64 = "0.22"
 # `default-features = false` drops pulldown-cmark's `getopts` binary, which
 # would otherwise pull a CLI-only crate into the library graph.
 pulldown-cmark = { version = "0.9", default-features = false }
+# URL validation for the web transcript's bare-URL linkification: the
+# parser is the gate that decides whether a candidate is a real address.
+url = "2"
 regex = "1"
 tokio-util = "0.7"
 # Compile-time-checked HTML templates for the web UI slice; templates are
