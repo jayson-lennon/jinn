@@ -1,5 +1,10 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- (webui) Rebuilt from scratch. Now uses websocket.
+- Dashboard now shows link to webui.
+
 ## 2026-11-24 v.27.2
 - `gcr` now refreshes all project resources.
 
