@@ -142,6 +142,18 @@ export interface PersonaRow {
   description_runs: TextRun[];
 }
 
+/** One row of the applets modal. */
+export interface AppletRow {
+  /** The applet's directory id — its URL path segment. */
+  id: string;
+  title: string;
+  /** The title, split into matched and plain runs for the filter. */
+  title_runs: TextRun[];
+  /** Where the row opens while the applets server is serving; `null` for a
+   *  disabled row (offline, or an id the validity gate refused). */
+  href: string | null;
+}
+
 export type DeltaField = 'text' | 'thinking' | 'args' | 'output';
 
 /** Browser -> server. Exactly one object per user gesture or connect. */
@@ -164,6 +176,7 @@ export type ClientMsg =
   | { type: 'toggle_mcp'; server: string }
   | { type: 'persona_rows'; filter: string }
   | { type: 'switch_persona'; persona: string }
+  | { type: 'applet_rows'; filter: string }
   | { type: 'refresh_models' }
   | { type: 'set_theme'; theme: Theme }
   | { type: 'set_library'; session_id: string; in_library: boolean }
@@ -202,6 +215,7 @@ export type ServerMsg =
   | { type: 'tool_rows'; session_id: string; filter: string; rows: ToolRow[] }
   | { type: 'mcp_rows'; session_id: string; filter: string; rows: McpRow[] }
   | { type: 'persona_rows'; session_id: string; filter: string; rows: PersonaRow[] }
+  | { type: 'applet_rows'; filter: string; serving: boolean; bind: string; rows: AppletRow[] }
   | { type: 'new_session_options'; projects: string[]; lifecycles: LifecycleOption[] }
   | { type: 'theme'; theme: Theme }
   | { type: 'error'; message: string }
