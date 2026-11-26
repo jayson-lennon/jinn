@@ -26,8 +26,10 @@ page onto the same sessions — so most features have a TUI and a web way.
    "browser", "web UI", or a URL, or name a web-only element (the `☰` menu,
    the **Send** / `Q` / **Cancel** buttons) → read `references/webui.md`
    first. A URL or element on the **second** page (`/web2`, **Switch
-   session…**, **Queue** / **Cancel** / **Send**) → read
-   `references/webui2.md` first. Unsaid → answer for the TUI, and when the feature also exists on
+   session…**, **Queue** / **Cancel** / **Send**, its **Skills** modal)
+   → read `references/webui2.md` first. Both pages have a `☰` button:
+   when the URL is unsaid, ask which page before answering a menu
+   question — the two menus hold different items. Unsaid → answer for the TUI, and when the feature also exists on
    the web add one line for it (each feature reference carries its web
    passage beside the TUI one). A feature the web lacks is listed under
    "What the web does not do" there — say it is TUI-only; never describe a
@@ -80,7 +82,7 @@ the current truth) and echo that.
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `references/ui-map.md`                 | The on-screen surfaces, TUI and web UI: layout diagrams, what each element is, where it sits, its keys |
 | `references/webui.md`                  | The web UI itself: how to open it, its pages, its buttons, what the web cannot do — the hub that routes to each feature's web passage |
-| `references/webui2.md`                 | The second web UI (`/web2`): how to open it, its sessions / transcript / composer / model picker, its keys, reconnecting, what it does not do |
+| `references/webui2.md`                 | The second web UI (`/web2`): how to open it, its sessions / transcript / composer / model picker, its `☰` menu and Skills modal, its keys, reconnecting, what it does not do |
 | `references/keybindings.md`            | Every scope's default bindings, categorized                                                |
 | `references/context-management.md`     | Pinning, context toggles, isolate, compaction/pruning tuning                               |
 | `references/sessions-and-subagents.md` | Sessions (create, switch, rename), the Library, forks, the session tree, subagents/tasks |

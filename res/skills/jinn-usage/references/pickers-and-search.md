@@ -95,6 +95,16 @@ highlights:
   notice instead of a second copy. The modal refreshes itself when a
   skill scan lands. The markdown preview and the context-cost footer are
   TUI-only.
+- **Skill, in `/web2`**: the menu button's **Skills** item (while a
+  session is active) opens the same list for the active session —
+  the `●` / `○` mark, name, description, a `project` badge on a
+  project-scoped skill, and a `+` on each row, with the filter bar
+  narrowing it and highlighting the matches. A row click toggles the
+  skill at once, with no staging. Each row's `+` loads the body into context,
+  enabling the skill first if it was off; once loaded, the row is not a
+  toggle and its `+` is disabled. The modal refreshes itself when a
+  skill scan lands. The markdown preview and the context-cost footer
+  are TUI-only.
 - **MCP server**: `<Tab>` stages enable/disable. `<enter>` applies the staged
   toggles (enabling spawns the server, disabling kills it); `<esc>` reverts
   to how the picker opened. `<c-r>` restarts, `<c-t>` flips the preview pane
