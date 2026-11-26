@@ -12,6 +12,8 @@
 //! (by name, in order — the terminal's own sequence) or the frames
 //! replied to the page.
 
+use std::sync::Arc;
+
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::{ChatEntry, ModelSelection};
 use jinn_inference_msg::CancelTurn;
@@ -39,6 +41,179 @@ fn harness() -> Harness {
     harness_with_providers(empty_providers())
 }
 
+/// A harness whose session store keeps what is saved into it, so a test
+/// can hold a session that is stored and not in memory.
+fn harness_with_store() -> Harness {
+    harness_with(empty_providers(), Arc::new(KeepingSessionStore::default()))
+}
+
+/// A session store that remembers every snapshot saved to it and answers
+/// reads from that set, and nothing else. What the kernel's test services
+/// hand out accepts a save and forgets it, which makes "is this session in
+/// the store?" unanswerable.
+#[derive(Debug, Default)]
+struct KeepingSessionStore {
+    saved: std::sync::Mutex<Vec<jinn_session_state::SessionSnapshot>>,
+}
+
+impl KeepingSessionStore {
+    fn snapshots(&self) -> Vec<jinn_session_state::SessionSnapshot> {
+        self.saved.lock().expect("store lock").clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl jinn_session_state::SessionStore for KeepingSessionStore {
+    fn name(&self) -> &'static str {
+        "keeping"
+    }
+
+    async fn save(
+        &self,
+        snapshot: &jinn_session_state::SessionSnapshot,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        let mut saved = self.saved.lock().expect("store lock");
+        saved.retain(|held| held.metadata.session_id != snapshot.metadata.session_id);
+        saved.push(snapshot.clone());
+        Ok(())
+    }
+
+    /// No summaries: a stored snapshot's metadata is not a summary, and
+    /// no test reads picker rows from this store.
+    async fn load_summaries(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn load_session(
+        &self,
+        session_id: &jinn_core_types::SessionId,
+    ) -> Result<
+        Option<jinn_session_state::SessionSnapshot>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(self
+            .snapshots()
+            .into_iter()
+            .find(|snapshot| &snapshot.metadata.session_id == session_id))
+    }
+
+    async fn delete(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn fork(
+        &self,
+        _source_session_id: &jinn_core_types::SessionId,
+        _at_ordinal: usize,
+    ) -> Result<
+        jinn_core_types::SessionId,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(jinn_core_types::SessionId::new())
+    }
+
+    async fn set_archived(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _archived: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn set_archived_many(
+        &self,
+        _session_ids: &[jinn_core_types::SessionId],
+        _archived: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn set_in_library(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _in_library: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn load_unarchived_summaries(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        self.load_summaries().await
+    }
+
+    async fn dirty_session_ids(
+        &self,
+    ) -> Result<
+        Vec<jinn_core_types::SessionId>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn reindex_session_chunk(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _max_entries: usize,
+    ) -> Result<bool, error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(true)
+    }
+
+    async fn pending_dirty_count(
+        &self,
+    ) -> Result<usize, error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(0)
+    }
+
+    async fn search(
+        &self,
+        _params: jinn_session_store_msg::SearchParams,
+    ) -> Result<
+        jinn_session_store_msg::SearchOutcome,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(jinn_session_store_msg::SearchOutcome {
+            total_matches: 0,
+            per_session: Vec::new(),
+            hits: Vec::new(),
+        })
+    }
+
+    async fn fetch_window(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _anchor: &jinn_core_types::ChatEntryId,
+        _context: usize,
+    ) -> Result<
+        Option<jinn_session_store_msg::TranscriptWindow>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(None)
+    }
+
+    async fn fetch_tail(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _limit: usize,
+    ) -> Result<
+        Option<jinn_session_store_msg::TranscriptWindow>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(None)
+    }
+}
+
 /// A registry with nothing in it: the picker has no rows to offer.
 fn empty_providers() -> jinn_provider_config::ProvidersConfig {
     jinn_provider_config::ProvidersConfig {
@@ -52,6 +227,18 @@ fn empty_providers() -> jinn_provider_config::ProvidersConfig {
 /// A harness over a registry seeded with the given providers, so the
 /// model picker has rows to filter.
 fn harness_with_providers(providers: jinn_provider_config::ProvidersConfig) -> Harness {
+    harness_with(
+        providers,
+        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
+    )
+}
+
+/// A harness over a registry seeded with the given providers and a
+/// session store of the caller's choosing.
+fn harness_with(
+    providers: jinn_provider_config::ProvidersConfig,
+    store: Arc<dyn jinn_session_state::SessionStore>,
+) -> Harness {
     let (bus, audit) = BusService::new_recording();
     let state = State::new(jinn_kernel::AppState::default());
     let slices = jinn_slices::Slices::new();
@@ -69,7 +256,7 @@ fn harness_with_providers(providers: jinn_provider_config::ProvidersConfig) -> H
         bus,
         connections: ConnectionRegistry::default(),
         revisions: RevisionTracker::default(),
-        session_store: services.session_store.clone(),
+        session_store: jinn_session_state::SessionStoreService::new(store),
         services,
         provider_cell,
     });
@@ -438,6 +625,30 @@ async fn activate_of_an_unknown_session_is_refused() {
     assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
 }
 
+#[rstest::rstest]
+#[tokio::test]
+async fn activate_of_a_stored_session_loads_it_instead_of_refusing() {
+    // Given a session that is in the store but not in memory.
+    let h = harness_with_store();
+    let session_id = store_only_session(&h, "archived notes").await;
+
+    // When the page asks to activate it.
+    let reply = dispatch(
+        ClientMsg::ActivateSession {
+            session_id: session_id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the load is requested, and the page is answered with a snapshot
+    // of the stored session rather than an error.
+    let loads = h.audit.of_type::<SessionLoadRequested>();
+    assert_eq!(loads.len(), 1);
+    assert_eq!(loads[0].session_id, session_id);
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
+}
+
 // ---------------------------------------------------------------------------
 // Switch model
 // ---------------------------------------------------------------------------
@@ -719,6 +930,23 @@ fn active_last_entry_id(state: &State) -> jinn_core_types::ChatEntryId {
 // ---------------------------------------------------------------------------
 // Stored-session picker
 // ---------------------------------------------------------------------------
+
+/// A session with two entries, written to the store only: it is on disk
+/// and not in memory, which is what an archived session is.
+async fn store_only_session(h: &Harness, title: &str) -> jinn_core_types::SessionId {
+    let mut session = jinn_session_state::ChatSessionState::new();
+    let id = jinn_core_types::SessionId::new();
+    session.set_session_id(id.clone());
+    session.set_title(title.to_owned());
+    session.push_entry(ChatEntry::user("from the archive"));
+    session.push_entry(ChatEntry::assistant("restored from disk"));
+    h.handle
+        .session_store()
+        .save(&session.capture_snapshot())
+        .await
+        .expect("seed the store");
+    id
+}
 
 fn summary(title: &str) -> jinn_session_store_msg::SessionSummary {
     jinn_session_store_msg::SessionSummary {

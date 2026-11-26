@@ -57,6 +57,8 @@ jinn-testutil = { workspace = true }
 jinn-cell-catalog = { workspace = true }
 # Test sessions carry the store's own timestamp type.
 jiff = { workspace = true }
+# The test store implements the store trait's async methods.
+async-trait = { workspace = true }
 
 [lints]
 workspace = true

@@ -6117,6 +6117,7 @@ dependencies = [
 name = "jinn-webui2"
 version = "1.27.2"
 dependencies = [
+ "async-trait",
  "axum",
  "error-stack",
  "fuzzy-matcher",

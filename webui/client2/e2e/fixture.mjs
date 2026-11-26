@@ -10,7 +10,9 @@
 //! them. Helpers that only *assert* stay in the spec that asserts them.
 
 import { test as base, expect } from "@playwright/test";
-import { bootJinn, teardownJinn } from "./harness.mjs";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { bootJinn, restartJinn, teardownJinn } from "./harness.mjs";
 
 /** How long a reply from a running jinn may take. */
 const REPLY_TIMEOUT_MS = 15_000;
@@ -116,6 +118,31 @@ export async function createSession(jinn, browser) {
   } finally {
     await page.close();
   }
+}
+
+/**
+ * Marks `id` archived in the test's own scratch store, with the same
+ * statement jinn's store runs. `/web2` has no archive gesture, so this
+ * arranges the store half only: the session stays loaded until the
+ * instance restarts. A test that needs it gone from memory follows
+ * this with `restartJinn`.
+ *
+ * @param {{ root: string }} jinn the test's own instance.
+ * @param {string} id the session to archive.
+ * @returns {void}
+ */
+export function archiveSession(jinn, id) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    throw new Error(`archiveSession: not a session id: ${id}`);
+  }
+  execFileSync(
+    "sqlite3",
+    [
+      path.join(jinn.root, "db", "state.db"),
+      `UPDATE sessions SET archived = TRUE WHERE id = '${id}';`,
+    ],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
 }
 
 /**

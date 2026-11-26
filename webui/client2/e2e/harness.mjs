@@ -299,7 +299,35 @@ export async function bootJinn() {
   fs.mkdirSync(TMP_BASE, { recursive: true });
   const root = fs.mkdtempSync(path.join(TMP_BASE, "run-"));
   writeScratch(root, port, webui2Port);
+  const run = {
+    port,
+    webui2Port,
+    root,
+    /** The `/web2` page itself — the fixture's page opens this. */
+    baseUrl: `http://127.0.0.1:${webui2Port}/web2`,
+    /** The original web UI on the same instance; `createSession` drives it. */
+    legacyUrl: `http://127.0.0.1:${port}/web`,
+    pid: 0,
+  };
+  await launch(run);
+  return run;
+}
 
+/**
+ * Starts the binary for one run's scratch root and waits for its bind.
+ *
+ * Both a fresh boot and a restart come through here, so the two launch
+ * the same command against the same config.
+ *
+ * @param {{root: string, webui2Port: number}} run the run to start.
+ *
+ * # Errors
+ *
+ * Rejects when the boot deadline expires before the bind accepts. A
+ * failed start tears the instance down before rejecting.
+ */
+async function launch(run) {
+  const { root, webui2Port } = run;
   const child = spawn(
     "setsid",
     [
@@ -316,24 +344,34 @@ export async function bootJinn() {
     },
   );
   child.unref();
-
-  const run = {
-    port,
-    webui2Port,
-    root,
-    /** The `/web2` page itself — the fixture's page opens this. */
-    baseUrl: `http://127.0.0.1:${webui2Port}/web2`,
-    /** The original web UI on the same instance; `createSession` drives it. */
-    legacyUrl: `http://127.0.0.1:${port}/web`,
-    pid: child.pid,
-  };
+  run.pid = child.pid;
   try {
     await awaitBind(webui2Port, root);
   } catch (error) {
     await teardownJinn(run);
     throw error;
   }
-  return run;
+}
+
+/**
+ * Stops one instance and starts it again on the same scratch root, so
+ * the next boot reads what the last one wrote to its store.
+ *
+ * Startup loads only the unarchived sessions, so a session whose row
+ * was archived is on disk and not in memory after this returns: the
+ * shape a user has when they reach for an archived session days later.
+ * The page's socket drops while the instance is down and reconnects on
+ * its own.
+ *
+ * @param {{root: string}} run the run to restart.
+ *
+ * # Errors
+ *
+ * Rejects when the restarted instance does not bind in time.
+ */
+export async function restartJinn(run) {
+  await killTree(run.root);
+  await launch(run);
 }
 
 /**

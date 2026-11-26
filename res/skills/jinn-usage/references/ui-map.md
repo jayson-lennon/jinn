@@ -234,7 +234,7 @@ mirrors the TUI's core loop only:
 
 | Element | What it is | See |
 | --- | --- | --- |
-| `Switch session…` | Opens a picker over every stored session, with a title filter. | `webui2.md` |
+| `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui2.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui2.md` |
 | `●` after a session title | That session's turn is running. | `webui2.md` |
 | The session title | Click to rename in place: `Enter` commits, `Esc` cancels. | `webui2.md` |
@@ -269,5 +269,5 @@ mirrors the TUI's core loop only:
 | The browser page's `☰` / `#` / `[model]` buttons | Web UI titlebar |
 | A blue or yellow session row, a spinning row, `⋮` | Web UI sidebar |
 | The browser page's Send / `Q` / Cancel buttons | Web UI composer |
-| The `/web2` page's Switch session… button, title, model chip | Web UI 2 (`/web2`) title bar and sidebar |
+| The `/web2` page's Archive button, title, model chip | Web UI 2 (`/web2`) title bar and sidebar |
 | The `/web2` page's Send / Queue / Cancel buttons | Web UI 2 (`/web2`) composer |

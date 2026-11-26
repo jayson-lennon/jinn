@@ -10,6 +10,8 @@
 //! actor that performs the action is the one the TUI drives — never this
 //! slice.
 
+use std::time::Duration;
+
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::{ChatEntry, ChatEntryId, ModelSelection, SessionId};
 use jinn_inference_msg::CancelTurn;
@@ -226,8 +228,18 @@ pub async fn cancel(out: &OutboundHandle) -> Reply {
 /// session is harmless.
 pub async fn activate_session(out: &OutboundHandle, session_id: SessionId) -> Reply {
     let state = out.state();
+    // A session that is only archived is not in memory, and that is not a
+    // reason to refuse: the store actor reads it from disk and unarchives
+    // it on the same load request. Only an id the store does not hold can
+    // never become active, so only that one is refused, before anything
+    // is published.
     if !state.read().session.contains(&session_id) {
-        return refused(&Refusal::UnknownSession);
+        let stored = out.session_store().load_session(&session_id).await;
+        match stored {
+            Ok(Some(_)) => {}
+            Ok(None) => return refused(&Refusal::UnknownSession),
+            Err(_) => return refused(&Refusal::StoreUnavailable),
+        }
     }
     {
         let mut guard = state.write();
@@ -235,15 +247,49 @@ pub async fn activate_session(out: &OutboundHandle, session_id: SessionId) -> Re
         guard.session.set_active(session_id.clone());
     }
     out.publish(SessionLoadRequested {
-        session_id,
+        session_id: session_id.clone(),
         content_width: None,
     })
     .await;
+    // The store actor applies the activation on its own turn, and an
+    // archived session is read from disk first. The snapshot below is
+    // drawn from live state, so it waits (bounded) for that to land; a
+    // snapshot drawn mid-load would describe the session just left.
+    wait_for_activation(state, &session_id).await;
     // The page is now looking at a different session, so it is told so
     // wholesale: which session it views, that session's title, model and
     // phase, and its transcript from the start. Everything the page shows
     // is replaced in the one arm that already applies a snapshot.
+    //
+    // The load ends with a reconcile that broadcasts the session's entries
+    // as upserts, before this reply is built, so the page can receive the
+    // same entries twice: once as upserts and once in the snapshot below.
+    // That is harmless only because the page applies an upsert by id, so a
+    // repeat replaces rather than duplicates.
     snapshot_reply(out)
+}
+
+/// How long an activation is given to land before the page is answered
+/// with whatever state is current. Long enough for a disk read, short
+/// enough that a store that never answers does not hang the click.
+const ACTIVATION_BUDGET: Duration = Duration::from_millis(2_000);
+
+/// How often the active pointer is re-read while waiting.
+const ACTIVATION_POLL: Duration = Duration::from_millis(5);
+
+/// Waits until `session_id` is the active session, or the budget runs out.
+///
+/// The read guard is taken, checked, and dropped before each sleep; it is
+/// never held across the await.
+async fn wait_for_activation(state: &jinn_kernel::State, session_id: &SessionId) {
+    let deadline = tokio::time::Instant::now() + ACTIVATION_BUDGET;
+    while *state.read().session.active_session_id() != *session_id {
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            return;
+        }
+        tokio::time::sleep((deadline - now).min(ACTIVATION_POLL)).await;
+    }
 }
 
 /// Switches the active session's model.

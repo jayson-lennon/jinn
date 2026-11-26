@@ -111,7 +111,11 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         s.sessions = msg.sessions;
         s.synced = true;
       });
-      reindex(store.state.entries);
+      // Indexed from the frame's own array, not the store's. Reading the
+      // store's array here left the index naming the session just left,
+      // so an upsert for the new session was appended instead of
+      // replacing its copy from the snapshot, and the entry showed twice.
+      reindex(msg.entries);
       return;
     }
     case 'entry_upsert': {

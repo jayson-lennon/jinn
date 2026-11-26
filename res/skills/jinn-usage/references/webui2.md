@@ -25,9 +25,10 @@ but nothing coordinates them.
 
 - **Sessions** — the sidebar lists the loaded sessions; the active one is
   highlighted. Clicking a row activates that session (the TUI follows).
-- **Switch session** — the sidebar's **Switch session…** button opens a
-  picker over every stored session, loaded or archived, with a title
-  filter. Choosing a row activates it.
+- **Archive** — the sidebar's **Archive** button opens a picker over every
+  stored session, loaded or archived, with a title filter. Choosing a row
+  activates it; an archived session is loaded from disk and leaves the
+  archive.
 - **Transcript** — the full history, streamed live: markdown, thinking,
   tool calls and results, errors, and system messages all render as they
   arrive.
