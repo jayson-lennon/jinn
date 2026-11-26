@@ -5,9 +5,9 @@
 //! variant is a compile error until it has a handler.
 
 use crate::payload::{
-    EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody, ModelBody, ModelRowsBody,
-    NewSessionOptionsBody, PersonaRowsBody, PhaseBody, PickerRowsBody, SessionsBody, SkillRowsBody,
-    SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
+    AppletRowsBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody, ModelBody,
+    ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody, PickerRowsBody, SessionsBody,
+    SkillRowsBody, SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +51,8 @@ pub enum ServerMsg {
     McpRows(McpRowsBody),
     /// The persona modal's rows for one session.
     PersonaRows(PersonaRowsBody),
+    /// The applets modal's rows, with the applets server's serving phase.
+    AppletRows(AppletRowsBody),
     /// The new-session form's choices.
     NewSessionOptions(NewSessionOptionsBody),
     /// The page's color mode changed.
@@ -83,6 +85,7 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::ToolRows(_) => "tool_rows",
         ServerMsg::McpRows(_) => "mcp_rows",
         ServerMsg::PersonaRows(_) => "persona_rows",
+        ServerMsg::AppletRows(_) => "applet_rows",
         ServerMsg::NewSessionOptions(_) => "new_session_options",
         ServerMsg::Theme(_) => "theme",
         ServerMsg::Error(_) => "error",
