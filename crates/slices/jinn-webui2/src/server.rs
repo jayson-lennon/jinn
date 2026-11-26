@@ -38,7 +38,7 @@ pub struct ServerShared {
 const PAGE_SHELL: &str = include_str!("../templates/page.html");
 
 /// The client bundle, embedded at compile time from the build script's
-/// inventory: one row per built file, gzip-committed and sha256-pinned.
+/// inventory: one row per built file, gzip-compressed by the build.
 mod vendor_assets {
     include!(concat!(env!("OUT_DIR"), "/vendor_assets.rs"));
 }
