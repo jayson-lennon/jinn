@@ -8,9 +8,10 @@ export default defineConfig({
   plugins: [solid()],
   build: {
     outDir: 'dist',
-    // Fixed, content-hash-free names: the Rust build embeds these exact
-    // paths, and freshness is enforced by the source-hash pin rather than
-    // by a hashed filename.
+    // Fixed, content-hash-free names on disk: the Rust build embeds these
+    // exact paths and verifies each file against its sha256 pin, and the
+    // page shell then names each asset by that pin
+    // (`client2.<sha256>.js`), so a rebuilt bundle is a new URL.
     rollupOptions: {
       input: 'src/index.tsx',
       output: {

@@ -10,7 +10,10 @@
 //! a tool result's full untruncated output is too heavy to ride every
 //! snapshot, so the page fetches it when its disclosure opens.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 use axum::{
     Router,
@@ -41,7 +44,7 @@ pub struct ServerShared {
 }
 
 /// The page shell, as committed under `templates/`.
-const PAGE_SHELL: &str = include_str!("../templates/page.html");
+const PAGE_SHELL_TEMPLATE: &str = include_str!("../templates/page.html");
 
 /// The client bundle, embedded at compile time from the build script's
 /// inventory: one row per built file, gzip-committed and sha256-pinned.
@@ -50,7 +53,51 @@ mod vendor_assets {
 }
 
 /// Long-lived for an identical bundle; the pin changes whenever it does.
+/// True only because the shell names each asset by that pin: a changed
+/// bundle is a different URL, so a cached one is never reused across it.
 const IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
+
+/// The page shell, rendered once: its asset URLs carry the pinned hashes.
+static PAGE_SHELL: LazyLock<String> = LazyLock::new(render_page_shell);
+
+/// The shell with every asset named by `name.<sha256>.ext`, so a rebuilt
+/// bundle — a new hash — is a new URL and no cached copy can outlive it.
+///
+/// An asset the bundle does not carry is named unhashed, which the vendor
+/// route refuses: a broken bundle is a visible 404, never a stale copy.
+fn render_page_shell() -> String {
+    PAGE_SHELL_TEMPLATE
+        .replace("{{ js_url }}", &hashed_vendor_url("client2.js"))
+        .replace("{{ css_url }}", &hashed_vendor_url("client2.css"))
+}
+
+/// `client2.js` as the hashed path the shell names it by, or its plain
+/// name when the bundle does not carry it.
+fn hashed_vendor_url(served: &str) -> String {
+    let Some(sha) = pinned_sha(served) else {
+        return served.to_owned();
+    };
+    match served.rsplit_once('.') {
+        Some((stem, ext)) => format!("{stem}.{sha}.{ext}"),
+        None => served.to_owned(),
+    }
+}
+
+/// An asset's sha256, as the manifest pinned it.
+fn pinned_sha(served: &str) -> Option<&'static str> {
+    vendor_assets::VENDOR_ASSETS
+        .iter()
+        .find(|asset| asset.path == served)
+        .map(|asset| asset.sha256)
+}
+
+/// Splits a hashed vendor path back into the served name and the hash it
+/// claims: `client2.<sha>.js` → (`client2.js`, `<sha>`).
+fn split_hashed_vendor_path(path: &str) -> Option<(String, &str)> {
+    let (stem, ext) = path.rsplit_once('.')?;
+    let (name, sha) = stem.rsplit_once('.')?;
+    Some((format!("{name}.{ext}"), sha))
+}
 
 /// Builds the router.
 pub fn router(shared: Arc<ServerShared>) -> Router {
@@ -68,9 +115,13 @@ pub fn router(shared: Arc<ServerShared>) -> Router {
 }
 
 async fn page() -> Response {
-    // The shell names the bundle by a fixed path, so it must always be
-    // revalidated; the bundle itself is immutable for as long as its pin.
-    ([(header::CACHE_CONTROL, "no-cache")], Html(PAGE_SHELL)).into_response()
+    // The shell is the one document that names the bundle, so it is always
+    // revalidated; the bundle it names is immutable for as long as its hash.
+    (
+        [(header::CACHE_CONTROL, "no-cache")],
+        Html(PAGE_SHELL.as_str()),
+    )
+        .into_response()
 }
 
 async fn health(AxumState(shared): AxumState<Arc<ServerShared>>) -> Response {
@@ -83,9 +134,15 @@ async fn health(AxumState(shared): AxumState<Arc<ServerShared>>) -> Response {
 
 async fn vendor(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches("/vendor2/");
+    // Only the hashed form is served: a path naming an asset without its
+    // hash is a shell from before this bundle, or a hand-typed URL, and
+    // answering it would hand a cached-stale page the bytes it expects.
+    let Some((served, sha)) = split_hashed_vendor_path(path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
     let Some(asset) = vendor_assets::VENDOR_ASSETS
         .iter()
-        .find(|asset| asset.path == path)
+        .find(|asset| asset.path == served && asset.sha256 == sha)
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -836,5 +893,98 @@ mod attachment_route_tests {
 
         // Then there is none, whatever the ordinal.
         assert!(found.is_none());
+    }
+}
+
+/// The page shell and the vendor route: the bundle is named by its pin.
+#[cfg(test)]
+mod vendor_route_tests {
+    #![allow(
+        clippy::expect_used,
+        reason = "test assertions need expect to state what went wrong"
+    )]
+
+    use super::*;
+
+    /// The `client2.js` row's sha256, as the manifest pinned it.
+    fn js_sha() -> &'static str {
+        pinned_sha("client2.js")
+    }
+
+    /// An asset's sha256, as the manifest pinned it.
+    fn pinned_sha(served: &str) -> &'static str {
+        super::pinned_sha(served).expect("the bundle carries the asset")
+    }
+
+    async fn vendor_status(path: &str) -> (StatusCode, String) {
+        let uri: Uri = format!("/vendor2/{path}").parse().expect("a valid uri");
+        let response = vendor(uri).await;
+        let cache = response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        (response.status(), cache)
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_shell_names_each_asset_by_its_pinned_hash() {
+        // Given the page shell.
+        let shell = PAGE_SHELL.as_str();
+
+        // Then its stylesheet URL carries the pinned hash, so a rebuilt
+        // bundle can never be reached through a cached shell.
+        assert!(
+            shell.contains(&format!(
+                "/vendor2/client2.{sha}.css",
+                sha = pinned_sha("client2.css")
+            )),
+            "the shell does not name the hashed stylesheet"
+        );
+        // And so does its script URL.
+        assert!(
+            shell.contains(&format!("/vendor2/client2.{sha}.js", sha = js_sha())),
+            "the shell does not name the hashed script"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_vendor_route_serves_the_asset_at_its_hashed_path_as_immutable() {
+        // Given the hashed path the shell names.
+        let path = format!("client2.{sha}.js", sha = js_sha());
+
+        // When it is requested.
+        let (status, cache) = vendor_status(&path).await;
+
+        // Then the asset is served, immutable.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cache, IMMUTABLE_CACHE);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_vendor_route_answers_404_for_a_stale_hash() {
+        // Given a hash no asset carries — a shell from a previous bundle.
+        let stale = "client2.0000000000000000000000000000000000000000000000000000000000000000.js";
+
+        // When it is requested.
+        let (status, _) = vendor_status(stale).await;
+
+        // Then nothing is served: a stale page must not be handed bytes.
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_vendor_route_answers_404_for_an_unhashed_path() {
+        // Given the bundle's path without a hash — a shell from before the
+        // hashed scheme, or a hand-typed URL.
+        let (status, _) = vendor_status("client2.js").await;
+
+        // Then nothing is served.
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 }
