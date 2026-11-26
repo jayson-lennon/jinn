@@ -246,11 +246,54 @@ function writeSkill(root, skill) {
   fs.writeFileSync(path.join(skillsDir, "SKILL.md"), skill.body);
 }
 
+/**
+ * The scratch applet the applets spec pivots on. The title is chosen so a
+ * filter for `e2e` matches it alone, and its body carries a marker so a
+ * test that fetched the page can tell the artifact from an error page.
+ */
+export const scratchApplet = {
+  id: "e2e-scratch-applet",
+  title: "e2e scratch applet",
+  body: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>e2e scratch applet</title>
+  </head>
+  <body>
+    <h1>e2e-scratch-applet-marker</h1>
+  </body>
+</html>
+`,
+};
+
+/**
+ * Writes the staged applet under the scratch root's data dir, where the
+ * applets slice discovers saved applets: `<data>/jinn/applets/<id>/` holds
+ * the artifact, and one `applets.json` at the applets root is the
+ * catalog — an entry's directory is the truth for existence, its row the
+ * truth for title and recency. Written before jinn starts, like the
+ * staged skill — the catalog's scan runs on the first rescan.
+ */
+function writeApplet(root, applet) {
+  const appletsRoot = path.join(root, "data", "jinn", "applets");
+  const appletDir = path.join(appletsRoot, applet.id);
+  fs.mkdirSync(appletDir, { recursive: true });
+  fs.writeFileSync(path.join(appletDir, "index.html"), applet.body);
+  fs.writeFileSync(
+    path.join(appletsRoot, "applets.json"),
+    JSON.stringify({
+      entries: [{ id: applet.id, title: applet.title, created_at: "2026-01-01T00:00:00Z" }],
+    }),
+  );
+}
+
 /** Writes one scratch root: the skeleton, the config files, and any staged resources. */
 function writeScratch(root, port, webui2Port, stage = {}) {
   writeSkeleton(root);
   writeConfig(root, port, webui2Port, stage);
   if (stage.skill) writeSkill(root, scratchSkill);
+  if (stage.applet) writeApplet(root, scratchApplet);
 }
 
 /**
@@ -377,6 +420,13 @@ async function killTree(root) {
  * a tty. `setsid` puts the wrapper outside the caller's session, and
  * teardown finds the tree by the scratch root on the command line.
  *
+ * @param {{ skill?: boolean, persona?: boolean, mcp?: boolean, textOnly?: boolean, applet?: boolean }} [options]
+ *   stage the scratch skill when `skill` is set, the block-less persona
+ *   when `persona` is set, the echo MCP server when `mcp` is set, and the
+ *   scratch applet under the data dir when `applet` is set.
+ *   With `textOnly`, the sample model's row declares text only, so an
+ *   image send hits the vision gate's blocked path.
+ *
  * @returns {Promise<{port: number, webui2Port: number, root: string, baseUrl: string, pid: number}>}
  *
  * # Errors
@@ -384,16 +434,6 @@ async function killTree(root) {
  * Rejects when the binary is missing, the scratch tree cannot be
  * written, or the boot deadline expires before the bind accepts. A
  * failed boot tears its own instance down before rejecting.
- */
-/**
- * Boots one scratch-isolated, hermetically-launched jinn and returns
- * its run coordinates.
- *
- * @param {{ skill?: boolean, persona?: boolean, mcp?: boolean, textOnly?: boolean }} [options]
- *   stage the scratch skill when `skill` is set, the block-less persona
- *   when `persona` is set, and the echo MCP server when `mcp` is set.
- *   With `textOnly`, the sample model's row declares text only, so an
- *   image send hits the vision gate's blocked path.
  */
 export async function bootJinn(options = {}) {
   if (!fs.existsSync(BIN_PATH)) {
@@ -410,6 +450,7 @@ export async function bootJinn(options = {}) {
     persona: options.persona === true,
     mcp: options.mcp === true,
     textOnly: options.textOnly === true,
+    applet: options.applet === true,
   });
   const run = {
     port,
