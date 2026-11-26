@@ -117,7 +117,13 @@ pub(crate) fn phase_changed(
 ) {
     handle.bump(&msg.session_id);
     if msg.new_phase == jinn_slices::PhaseView::Idle {
-        if !is_subagent(&handle.deps.state, &msg.session_id) {
+        if is_subagent(&handle.deps.state, &msg.session_id) {
+            tracing::debug!(
+                session_id = %msg.session_id,
+                settled_at = %msg.at,
+                "unread: settle skipped (subagent)"
+            );
+        } else {
             handle.settles().record(&msg.session_id, msg.at);
         }
         reconcile(handle, &msg.session_id);

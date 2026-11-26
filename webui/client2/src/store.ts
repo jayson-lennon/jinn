@@ -135,6 +135,25 @@ export interface ClientStore {
   set: StoreSetter<ViewState>;
 }
 
+/**
+ * Whether the unread mark's decisions are logged to the console. Off
+ * unless the page is opened with `?debug=unread`, so the hot path pays
+ * nothing for it normally.
+ */
+export const UNREAD_DEBUG: boolean = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('debug') === 'unread';
+  } catch {
+    return false;
+  }
+})();
+
+/** One line on the console when unread debugging is on; nothing otherwise. */
+export function debugUnread(message: string, fields: Record<string, unknown>): void {
+  if (!UNREAD_DEBUG) return;
+  console.debug(`[unread] ${message}`, fields);
+}
+
 /** entry id -> its index in `entries`. Rebuilt on every structural change. */
 let positions = new Map<string, number>();
 
@@ -267,7 +286,13 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         // this moment is seen. One arm covers a click on the page and a
         // switch made elsewhere that the page follows — both land here.
         if (msg.session_id !== null) {
-          s.lastSeen[msg.session_id] = new Date().toISOString();
+          const now = new Date().toISOString();
+          s.lastSeen[msg.session_id] = now;
+          debugUnread('snapshot: marked seen', {
+            session: msg.session_id,
+            seenAt: now,
+            rowSettledAt: viewedRowSettledAt(msg.session_id, msg.sessions, msg.library),
+          });
         }
         // Only the snapshot the page is waiting for ends the wait. One
         // naming another session — the old session's, answered when a disk
@@ -326,6 +351,12 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       // Only a settle the map does not already hold is a change; the same
       // time arrives on every history append of the viewed session.
       const changed = settled !== null && store.state.lastSeen[viewed ?? ''] !== settled;
+      debugUnread('sessions frame', {
+        viewed,
+        viewedSettledAt: settled,
+        seenBefore: viewed === null ? null : (store.state.lastSeen[viewed] ?? null),
+        changesMap: changed,
+      });
       store.set((s) => {
         s.sessions = msg.rows;
         s.library = msg.library;

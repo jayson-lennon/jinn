@@ -13,6 +13,7 @@
 import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientStore } from './store';
+import { debugUnread } from './store';
 import { isUnread, listHasUnread } from './unread';
 import { Runs } from './pickers';
 import { beginSessionLoad } from './store';
@@ -101,6 +102,22 @@ export function SessionRail(props: RailProps): JSX.Element {
   const sessionsTabUnread = (): boolean => listHasUnread(props.store.state.sessions, props.store.state.lastSeen);
   const libraryTabUnread = (): boolean => listHasUnread(props.store.state.library, props.store.state.lastSeen);
 
+  // The row's verdict, and — for a marked row, with debugging on — the two
+  // times behind it, so a stuck mark can be read straight off the console.
+  const rowUnread = (row: import('./protocol').SessionRow): boolean => {
+    const verdict = isUnread(row, props.store.state.lastSeen);
+    if (verdict) {
+      debugUnread('row is unread', {
+        session: row.session_id,
+        title: row.title,
+        rowSettledAt: row.last_settled_at,
+        seenAt: props.store.state.lastSeen[row.session_id] ?? null,
+        active: row.is_active,
+      });
+    }
+    return verdict;
+  };
+
   return (
     <>
       <div
@@ -140,7 +157,7 @@ export function SessionRail(props: RailProps): JSX.Element {
               <li>
                 <div class="session-row" data-testid="session-row-wrap" data-session-id={row.session_id}>
                   <button
-                    class={`session${row.is_active ? ' active' : ''}${isUnread(row, props.store.state.lastSeen) ? ' unread' : ''}`}
+                    class={`session${row.is_active ? ' active' : ''}${rowUnread(row) ? ' unread' : ''}`}
                     data-testid="session-row"
                     data-session-id={row.session_id}
                     onClick={() => activate(row.session_id)}

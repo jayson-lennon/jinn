@@ -37,7 +37,12 @@ impl SettleTracker {
     }
 
     /// Records that the session settled to Idle at `at`.
+    ///
+    /// Emits a `debug` event naming the session and the moment, so a
+    /// settle that reaches the server can be followed into the page's
+    /// unread comparison (`RUST_LOG=jinn_webui2=debug`).
     pub fn record(&self, session_id: &SessionId, at: Timestamp) {
+        tracing::debug!(session_id = %session_id, settled_at = %at, "unread: settle recorded");
         self.last_settled.lock().insert(session_id.clone(), at);
     }
 }
