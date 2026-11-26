@@ -777,16 +777,14 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   .sessions-button:hover { border-color: var(--accent); }
   .sessions-button:focus-visible { outline: 1px solid var(--accent); }
   /* The composer keeps its one row on a phone — the draft, `+` and the
-     buttons on one line, the chips above — the same as at desktop. Only
-     the touch sizes change: a 16px draft (no iOS zoom-on-focus) and a
-     40px hit target on every control. */
+     buttons on one line, the chips above — at the same height as at
+     desktop. Only the touch sizes change: a 16px draft (no iOS
+     zoom-on-focus) and a 40px floor on every control, below the row's
+     own height. */
   .composer { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
   .draft { font-size: 16px; }
   .composer-actions { flex: none; }
   .composer-actions button, .attach { min-height: 40px; padding-left: 10px; padding-right: 10px; }
-  /* The draft yields to the buttons: two of them while busy, so the
-     textarea shrinks rather than pushing the row off the left edge. */
-  .draft { height: 40px; min-height: 40px; min-width: 0; flex: 1 1 0; }
 }
 
 /* The count beside Q: how many messages wait behind the running turn. A

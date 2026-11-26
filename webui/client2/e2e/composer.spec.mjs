@@ -151,3 +151,20 @@ test("on a phone the chips sit above the composer row", async ({ page }) => {
   const draft = await page.locator(sel.DRAFT).boundingBox();
   expect(chip.y + chip.height).toBeLessThanOrEqual(draft.y);
 });
+
+test("on a phone the composer row is as tall as it is at desktop", async ({
+  page,
+}) => {
+  // Given the desktop composer's height.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const desktop = (await page.locator(sel.DRAFT).boundingBox()).height;
+
+  // When the viewport is a phone.
+  await page.setViewportSize(PHONE);
+
+  // Then the draft, `+` and Send are all that same height — the row does
+  // not shrink on a phone.
+  expect((await page.locator(sel.DRAFT).boundingBox()).height).toBe(desktop);
+  expect((await page.locator(sel.ATTACH).boundingBox()).height).toBe(desktop);
+  expect((await page.locator(sel.SEND).boundingBox()).height).toBe(desktop);
+});
