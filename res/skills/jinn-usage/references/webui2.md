@@ -65,6 +65,15 @@ but nothing coordinates them.
   switches to it. Nothing the user has typed holds the page back: an
   unsent draft and any pending images belong to the user, not to the
   session, and are still there after the switch.
+- **Unread marks** — a session that finishes a turn while the page is
+  viewing another one is marked: its row turns gold, and so does the
+  **Sessions** or **Library** tab whose list holds it, so a mark is never
+  hidden behind the other list. On a phone the `#` button turns gold and
+  shows how many sessions are unread across both lists. Viewing the
+  session clears its mark — by clicking its row or by the page following
+  a switch made elsewhere. The mark is this browser's own record and
+  survives a reload; a restart of jinn forgets every mark. A subagent's
+  session is never marked.
 - **Transcript** — the full history, streamed live: markdown, thinking,
   tool calls and results, errors, and system messages all render as they
   arrive. Markdown covers footnotes, task lists, and tables; a bare
@@ -76,7 +85,12 @@ but nothing coordinates them.
   interrupt, such as a watchdog stopping a repeated tool call — is a
   yellow-tinted block collapsed to `⚡ Rule fired: <rule> · <reason>`;
   open it to read the guidance, shown without the `<system-interrupt>`
-  wrapper the model sees.
+  wrapper the model sees. Two floating buttons sit at the transcript's
+  right edge, each shown only while you are away from that end: an
+  up-arrow-to-line button in the top-right corner jumps to the start, a
+  down-arrow-to-line button in the bottom-right corner jumps to the end.
+  At the end, the transcript follows a live stream on its own; scroll up
+  and it holds still until you jump back.
 - **Composer** — one row: the draft, a `+` to attach an image, and the
   buttons, all on the same line. Sends a message, queues one while a turn
   is running, or cancels the running turn. An image can arrive three
@@ -239,8 +253,6 @@ that has it.
   verbatim; `@path` is the TUI's way to attach a file, and `/web2` has the
   `+` instead.
 - Model alloys, reasoning-effort and endpoint pickers.
-- Unread marks on session rows, and an unread badge on the phone
-  drawer's `#` button.
 
 ## How it works
 

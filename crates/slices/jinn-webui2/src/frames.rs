@@ -26,8 +26,8 @@ pub fn phase(session_id: &SessionId, phase: jinn_slices::PhaseView, queue_len: u
 
 /// The session-list frame, re-read from state: both sidebar lists.
 #[must_use]
-pub fn sessions(state: &State) -> ServerMsg {
-    let (rows, library) = crate::snapshot::session_rows(state);
+pub fn sessions(state: &State, settles: &crate::settle::SettleTracker) -> ServerMsg {
+    let (rows, library) = crate::snapshot::session_rows(state, settles);
     ServerMsg::Sessions(jinn_webui2_msg::SessionsBody { rows, library })
 }
 
@@ -61,8 +61,14 @@ pub fn upsert_by_id(
 /// The whole-state frame for a page that must switch sessions: a
 /// snapshot of the active session, replacing its view wholesale.
 #[must_use]
-pub fn snapshot(state: &State, revisions: &crate::revision::RevisionTracker) -> ServerMsg {
-    ServerMsg::Snapshot(Box::new(crate::snapshot::snapshot(state, revisions)))
+pub fn snapshot(
+    state: &State,
+    revisions: &crate::revision::RevisionTracker,
+    settles: &crate::settle::SettleTracker,
+) -> ServerMsg {
+    ServerMsg::Snapshot(Box::new(crate::snapshot::snapshot(
+        state, revisions, settles,
+    )))
 }
 
 /// One session's whole history, as (index, entry) pairs.

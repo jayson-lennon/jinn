@@ -38,6 +38,8 @@
   --scrim: rgba(0, 0, 0, .55);
   /* text on an accent or error fill: near-black */
   --on-fill: #2c2e34;
+  /* the unread fill: the warm gold /web's unread rows carry */
+  --mark: #ebdca0;
   /* the shadow a raised card casts */
   --shadow: rgba(0, 0, 0, .5);
   --radius: 8px;
@@ -80,6 +82,8 @@
   --scrim: rgba(0, 0, 0, .55);
   /* on fills: the dark ink */
   --on-fill: #2e3440;
+  /* the unread fill: /web's light-mode unread gold */
+  --mark: #ebcb8b;
   /* the shadow a raised card casts, lighter over a pale page */
   --shadow: rgba(46, 52, 64, .18);
   color-scheme: light;
@@ -104,6 +108,7 @@
     --warn-border: rgba(138, 109, 31, .45);
     --scrim: rgba(0, 0, 0, .55);
     --on-fill: #2e3440;
+    --mark: #ebcb8b;
     --shadow: rgba(46, 52, 64, .18);
     color-scheme: light;
   }
@@ -157,7 +162,25 @@ body { background: var(--bg); color: var(--fg); }
 }
 .rail-tab + .rail-tab { border-left: 1px solid var(--border); }
 .rail-tab:hover { color: var(--fg); }
+/* Selection is the same shape whatever the tab's fill: a thick accent
+   underline, on the selected tab and only there. It reads over the plain
+   fill, the selection fill, and the unread mark alike, so which list is
+   showing never depends on telling two similar fills apart. */
 .rail-tab[aria-selected="true"] { background: var(--bg-active); color: var(--fg); }
+.rail-tab[aria-selected="true"]::after {
+  content: "";
+  display: block;
+  height: 3px;
+  margin: 4px -8px -6px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+/* An unread row under a tab marks the tab, so a `#` count always points
+   at a marked row in the drawer. After the selected rule, and wins over
+   its fill: the tab being looked at is usually the selected one, and a
+   selection fill must not hide the mark. The underline above still names
+   the selected tab. */
+.rail-tab.unread { background: var(--mark); color: var(--on-fill); font-weight: 700; }
 /* A row and its kebab sit on one line; the session button takes the rest. */
 .session-row { display: flex; align-items: center; gap: 2px; }
 .session-row .session { flex: 1 1 0; min-width: 0; }
@@ -247,6 +270,11 @@ body { background: var(--bg); color: var(--fg); }
   text-align: left;
 }
 .session:hover { background: var(--bg-hover); color: var(--fg); }
+/* A session that settled while the page looked elsewhere. Before the
+   active rule: for the one frame a row is both, the active fill wins,
+   and the snapshot that follows clears the mark. */
+.session.unread { background: var(--mark); color: var(--on-fill); }
+.session.unread:hover { background: var(--mark); color: var(--on-fill); filter: brightness(1.05); }
 .session.active { background: var(--bg-hover); color: var(--fg); }
 /* Shared by the sidebar's rows and the pickers' rows, which stack the
    title above its meta line in a column. There a zero flex-basis is a
@@ -362,7 +390,38 @@ body { background: var(--bg); color: var(--fg); }
 .model-chip:hover { color: var(--fg); border-color: var(--fg-faint); }
 
 /* ---- transcript ---- */
-.transcript { min-height: 0; overflow-y: auto; padding: 16px 20px; }
+/* The transcript's row in `.main`: a wrapper that fills the row and is the
+   containing block for the two floating jump buttons. */
+.transcript-wrap { position: relative; min-height: 0; display: flex; }
+.transcript { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 16px 20px; }
+/* The two jump buttons: floating over the transcript's right edge, the
+   start one at its top-right corner and the end one at its bottom-right.
+   Opaque, so an entry underneath never shows through the glyph. They sit
+   below every overlay, so a modal, the menu, or the reconnect notice always
+   covers them. */
+.jump {
+  position: absolute;
+  right: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 4px var(--shadow);
+  cursor: pointer;
+  user-select: none;
+}
+.jump:hover { border-color: var(--accent); color: var(--accent); }
+.jump:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.jump-start { top: 10px; }
+.jump-end { bottom: 10px; }
+.jump-icon { display: block; }
 .entry { margin-bottom: 12px; }
 .entry-role {
   display: inline-block;
@@ -1013,6 +1072,21 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   }
   .sessions-button:hover { border-color: var(--accent); }
   .sessions-button:focus-visible { outline: 1px solid var(--accent); }
+  /* The `#` button while sessions are unread: the gold fill, and the
+     count beside the glyph. The gap keeps `#` and the number apart. */
+  .sessions-button.unread {
+    background: var(--mark);
+    border-color: var(--mark);
+    color: var(--on-fill);
+    gap: 4px;
+    align-items: center;
+  }
+  .sessions-button.unread:hover { border-color: var(--on-fill); }
+  .sessions-button-count {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+  }
   /* The composer keeps its one row on a phone — the draft, `+` and the
      buttons on one line, the chips above — at the same height as at
      desktop. Only the touch sizes change: a 16px draft (no iOS
@@ -1022,6 +1096,8 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   .draft { font-size: 16px; }
   .composer-actions { flex: none; }
   .composer-actions button, .attach { min-height: 40px; padding-left: 10px; padding-right: 10px; }
+  /* The jump buttons keep the phone's 40px touch floor, square. */
+  .jump { width: 40px; height: 40px; }
 }
 
 /* The count beside Q: how many messages wait behind the running turn. A

@@ -31,6 +31,7 @@ mod outbound;
 mod protocol;
 mod revision;
 mod server;
+mod settle;
 mod snapshot;
 
 #[cfg(test)]
@@ -140,6 +141,7 @@ pub async fn activate(
             bus: bus.clone(),
             connections: connections::ConnectionRegistry::default(),
             revisions: revision::RevisionTracker::default(),
+            settles: settle::SettleTracker::default(),
             services: services.clone(),
             provider_cell,
             session_store,

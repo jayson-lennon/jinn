@@ -97,29 +97,50 @@ impl OutboundActor {
 
 impl MsgHandler<jinn_session_msg::SessionPhaseChanged> for OutboundActor {
     async fn handle(&mut self, msg: &jinn_session_msg::SessionPhaseChanged, _ctx: &mut MsgCtx<'_>) {
-        self.on_phase_changed(msg);
+        phase_changed(&self.handle, msg);
     }
 }
 
-impl OutboundActor {
-    fn on_phase_changed(&mut self, msg: &jinn_session_msg::SessionPhaseChanged) {
-        self.handle.bump(&msg.session_id);
-        if msg.new_phase == jinn_slices::PhaseView::Idle {
-            self.reconcile(&msg.session_id);
+/// Turns one `SessionPhaseChanged` into the frames a page needs.
+///
+/// A landing on Idle is the end of a turn — the one moment that asks for
+/// the user's attention — so it is recorded first, and a subagent session
+/// is not: its rows are children of a session the user is already
+/// watching. The record runs before the session list is built so the
+/// frame that announces the settle carries the time it happened.
+///
+/// A free function over the handle so a test drives the real push, with
+/// nothing spawned.
+pub(crate) fn phase_changed(
+    handle: &super::OutboundHandle,
+    msg: &jinn_session_msg::SessionPhaseChanged,
+) {
+    handle.bump(&msg.session_id);
+    if msg.new_phase == jinn_slices::PhaseView::Idle {
+        if !is_subagent(&handle.deps.state, &msg.session_id) {
+            handle.settles().record(&msg.session_id, msg.at);
         }
-        let queue_len = live_queue_len(&self.handle.deps.state, &msg.session_id);
-        self.push(&crate::frames::phase(
-            &msg.session_id,
-            msg.new_phase,
-            queue_len,
-        ));
-        self.push(&crate::frames::sessions(&self.handle.deps.state));
+        reconcile(handle, &msg.session_id);
     }
+    let queue_len = live_queue_len(&handle.deps.state, &msg.session_id);
+    handle.broadcast(&crate::frames::phase(
+        &msg.session_id,
+        msg.new_phase,
+        queue_len,
+    ));
+    handle.broadcast(&crate::frames::sessions(
+        &handle.deps.state,
+        handle.settles(),
+    ));
+}
 
-    /// On a settle or a load, sends every entry the page does not hold.
-    fn reconcile(&mut self, session_id: &SessionId) {
-        reconcile(&self.handle, session_id);
-    }
+/// Whether the session was spawned as a child by another session.
+fn is_subagent(state: &jinn_kernel::State, session_id: &SessionId) -> bool {
+    let guard = state.read();
+    guard
+        .session
+        .get(session_id)
+        .is_some_and(|session| session.origin() == jinn_session_msg::SessionOrigin::Subagent)
 }
 
 impl MsgHandler<jinn_tools_msg::ToolUseStarted> for OutboundActor {
@@ -203,8 +224,11 @@ impl OutboundActor {
     /// page already holds costs one serialization and no frame.
     fn on_history_appended(&mut self, msg: &jinn_session_history_msg::HistoryAppended) {
         self.handle.bump(&msg.session_id);
-        self.reconcile(&msg.session_id);
-        self.push(&crate::frames::sessions(&self.handle.deps.state));
+        reconcile(&self.handle, &msg.session_id);
+        self.push(&crate::frames::sessions(
+            &self.handle.deps.state,
+            self.handle.settles(),
+        ));
     }
 }
 
@@ -292,8 +316,11 @@ impl OutboundActor {
         // A load replaces the session's history in memory. The page's copy
         // may now be stale or may be exactly right; reconciling sends what
         // differs and nothing else, where clearing would re-send all of it.
-        self.reconcile(&msg.session_id);
-        self.push(&crate::frames::sessions(&self.handle.deps.state));
+        reconcile(&self.handle, &msg.session_id);
+        self.push(&crate::frames::sessions(
+            &self.handle.deps.state,
+            self.handle.settles(),
+        ));
     }
 }
 
@@ -400,7 +427,10 @@ impl MsgHandler<jinn_session_store_msg::SessionLibraryMembershipChanged> for Out
 /// live state now that the store actor has mirrored the flag into the
 /// in-memory session.
 pub(crate) fn library_membership_changed(handle: &super::OutboundHandle) {
-    handle.broadcast(&crate::frames::sessions(&handle.deps.state));
+    handle.broadcast(&crate::frames::sessions(
+        &handle.deps.state,
+        handle.settles(),
+    ));
 }
 
 impl MsgHandler<jinn_session_msg::SessionArchived> for OutboundActor {
@@ -414,7 +444,10 @@ impl MsgHandler<jinn_session_msg::SessionArchived> for OutboundActor {
 /// session. The page's move to the successor, when the archived session was
 /// the one in view, is `follow_active_session`'s job.
 pub(crate) fn sessions_changed(handle: &super::OutboundHandle) {
-    handle.broadcast(&crate::frames::sessions(&handle.deps.state));
+    handle.broadcast(&crate::frames::sessions(
+        &handle.deps.state,
+        handle.settles(),
+    ));
 }
 
 impl MsgHandler<jinn_session_msg::SessionArchiveFailed> for OutboundActor {
@@ -479,6 +512,7 @@ pub(crate) async fn follow_active_session(
     handle.broadcast(&crate::frames::snapshot(
         &handle.deps.state,
         &handle.deps.revisions,
+        handle.settles(),
     ));
 }
 

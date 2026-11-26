@@ -61,6 +61,9 @@ axum = { version = "0.8", features = ["ws"] }
 fuzzy-matcher = "0.3"
 # `MarkedPathAccess` names a session project by its directory, as the TUI picker does.
 marked-path = { workspace = true }
+# Session rows carry each session's last settle-to-Idle time as the core
+# `Timestamp` — the phase event's own type.
+jiff = { workspace = true }
 trouper = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -71,11 +74,10 @@ tracing = { workspace = true }
 parking_lot = { workspace = true }
 
 [build-dependencies]
-# The build script verifies the committed client bundle against the
-# vendor manifest (the pin gate) and fails the build when the client
-# sources are newer than the bundle (the staleness gate).
-sha2 = "0.10"
-toml = { workspace = true }
+# The build script builds the /web2 client itself — `npm ci` when stale,
+# `tsc`, `vite build` — and gzips the output into OUT_DIR for embedding.
+# Node and npm are therefore build prerequisites of this crate.
+flate2 = "1"
 
 [dev-dependencies]
 # The streaming-batch tests pause the clock so the window is asserted
@@ -85,8 +87,6 @@ rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 # Tests resolve the provider cell from the same catalog boot registers it in.
 jinn-cell-catalog = { workspace = true }
-# Test sessions carry the store's own timestamp type.
-jiff = { workspace = true }
 # The tree tests build picker entries, which carry a theme the rows never
 # read on this surface.
 jinn-theme = { workspace = true }
