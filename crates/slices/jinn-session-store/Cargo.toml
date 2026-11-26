@@ -76,6 +76,10 @@ jinn-work-time = { workspace = true }
 # Dev-only and cycle-free: the slice depends on this crate's `-msg` contract,
 # not on the actor.
 jinn-session-init = { workspace = true }
+# The archive-successor tests pin the sidebar row an archived active session
+# lands on by writing the cursor's last row into the sections cell the actor
+# reads. Dev-only: production reaches that cell through `FrontendState`.
+jinn-sidebar-msg = { workspace = true }
 
 uuid = { workspace = true }
 rstest = { workspace = true }

@@ -158,8 +158,8 @@ mod handlers;
 
 #[cfg(test)]
 pub(crate) use handlers::{
-    flush, follow_active_session, library_membership_changed, mcp_runtime_stored,
-    model_cache_stored, reconcile, skills_loaded,
+    archive_failed, flush, follow_active_session, library_membership_changed, mcp_runtime_stored,
+    model_cache_stored, reconcile, sessions_changed, skills_loaded,
 };
 
 /// The outbound actor.
@@ -338,6 +338,13 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         .handles::<jinn_provider_selection_msg::ModelCacheStored>()
         // The store actor wrote a membership: both sidebar lists re-read.
         .handles::<jinn_session_store_msg::SessionLibraryMembershipChanged>()
+        // An archive landed: the row leaves every page's rail. An archived
+        // active session's successor arrives through the
+        // `ActiveSessionChanged` snapshot below. Never `SessionRemoved`: it
+        // fires just before `SessionArchived` and would only duplicate this.
+        .handles::<jinn_session_msg::SessionArchived>()
+        // A failed archive keeps the session live; the page is told why.
+        .handles::<jinn_session_msg::SessionArchiveFailed>()
         // The instance's active session moved — from this page, another
         // page, the TUI, or a subagent. Every page follows with a
         // snapshot. Never `SessionCreated`: that has several publishers,

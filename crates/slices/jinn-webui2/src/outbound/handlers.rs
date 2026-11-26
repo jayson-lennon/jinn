@@ -378,6 +378,46 @@ pub(crate) fn library_membership_changed(handle: &super::OutboundHandle) {
     handle.broadcast(&crate::frames::sessions(&handle.deps.state));
 }
 
+impl MsgHandler<jinn_session_msg::SessionArchived> for OutboundActor {
+    async fn handle(&mut self, _msg: &jinn_session_msg::SessionArchived, _ctx: &mut MsgCtx<'_>) {
+        sessions_changed(&self.handle);
+    }
+}
+
+/// Turns one `SessionArchived` into the frame the rail needs: both sidebar
+/// lists re-read from live state now that the store actor has removed the
+/// session. The page's move to the successor, when the archived session was
+/// the one in view, is `follow_active_session`'s job.
+pub(crate) fn sessions_changed(handle: &super::OutboundHandle) {
+    handle.broadcast(&crate::frames::sessions(&handle.deps.state));
+}
+
+impl MsgHandler<jinn_session_msg::SessionArchiveFailed> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_msg::SessionArchiveFailed,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        archive_failed(&self.handle, msg);
+    }
+}
+
+/// Turns one `SessionArchiveFailed` into the frame that tells every page
+/// why the row they tried to archive is still there.
+pub(crate) fn archive_failed(
+    handle: &super::OutboundHandle,
+    msg: &jinn_session_msg::SessionArchiveFailed,
+) {
+    handle.broadcast(&jinn_webui2_msg::ServerMsg::Error(
+        jinn_webui2_msg::ErrorBody {
+            message: format!(
+                "could not archive session {}: {}",
+                msg.session_id, msg.error
+            ),
+        },
+    ));
+}
+
 impl MsgHandler<jinn_kernel::protocol::system::ActiveSessionChanged> for OutboundActor {
     async fn handle(
         &mut self,

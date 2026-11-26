@@ -5313,6 +5313,7 @@ dependencies = [
  "jinn-session-schema",
  "jinn-session-state",
  "jinn-session-store-msg",
+ "jinn-sidebar-msg",
  "jinn-slices",
  "jinn-status-bar-msg",
  "jinn-testutil",

@@ -3,8 +3,9 @@
 //! A live instance serves a browser page at `/web2`, bound per the
 //! `[webui2]` config section, that mirrors the terminal: it shares the
 //! instance's single active session, streams the transcript, and sends,
-//! queues, cancels, switches sessions and models, and renames — each by
-//! publishing the same bus messages the terminal publishes. The address
+//! queues, cancels, switches and archives sessions, switches models, and
+//! renames — each by publishing the same bus messages the terminal
+//! publishes. The address
 //! the page is served on is noted on the slice's dashboard row.
 //!
 //! The design invariant: **the browser owns all view state.** The server

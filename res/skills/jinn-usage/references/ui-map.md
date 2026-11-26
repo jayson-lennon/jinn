@@ -238,7 +238,7 @@ fixed column drawn here, and the `#` is not shown.
 | Element | What it is | See |
 | --- | --- | --- |
 | `Sessions` / `Library` | The sidebar's two-segment control. Chooses which list it shows: the loaded sessions that are not library members, or the library members. Exactly one shows at a time. | `webui2.md` |
-| `⋮` on a session row | The row's menu. One item — **add to library** or **remove from library** — which moves the session to the other list. | `webui2.md` |
+| `⋮` on a session row | The row's menu. **add to library** / **remove from library** moves the session to the other list; **archive** archives that session. | `webui2.md` |
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui2.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui2.md` |
 | `●` after a session title | That session's turn is running. | `webui2.md` |
@@ -250,7 +250,8 @@ fixed column drawn here, and the `#` is not shown.
 | `[+]` | Attach an image. Opens the file picker. | `webui2.md` |
 | `[Q]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
 | `[Send]` (while idle) | Send the message. | `webui2.md` |
-| `☰` | The menu button. Opens a full-height slide-in panel over a scrim. **New session** is its first item and the **Light | Dark | System** color mode group its last, at every time; **Sessions** sits just above the group, and between the first item and **Sessions**, while a session is active, **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — each opens its picker modal. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
+| `☰` | The menu button. Opens a full-height slide-in panel over a scrim. **New session** is its first item and the **Light | Dark | System** color mode group its last, at every time; **Sessions** sits just above the group, and between the first item and **Sessions**, while a session is active, **Archive session**, **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — **Archive session** archives the session in view, and each picker opens its modal. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
+| **Archive session** (menu) | Archives the session in view. Its row leaves the rail and the page moves to another session; a session running a turn is refused with a toast. | `webui2.md` |
 | **New session** (menu) | A modal with a Project select, a Lifecycle select, **Setup arguments** when the lifecycle declares any, and **Create session**. The new session becomes active and the page moves to it. | `webui2.md` |
 | **Light | Dark | System** (menu) | The color mode. Saved to `state.toml`; **System** follows the browser. | `webui2.md` |
 | `#` (phone only) | Below 768px, at the title bar's left. Opens the sidebar as an off-canvas drawer; a scrim tap, `Esc`, or picking a row closes it. | `webui2.md` |
@@ -259,6 +260,7 @@ fixed column drawn here, and the `#` is not shown.
 | The MCP servers modal | A filter bar and one row per `[mcp.<name>]` in `jinn.toml` — a `●` (enabled) / `○` (disabled) mark, the name, the launch summary, and a status badge: `off`, `starting`, `running`, `dead`. A row click toggles at once; the badge updates live. | `webui2.md` |
 | The persona modal | A filter bar and one row per persona — a `●` on the current persona / `○` on the rest, the name, the description; the current row is highlighted. A row click switches the persona and closes the modal. | `webui2.md` |
 | `disconnected — reconnecting…` | A full-page overlay while the connection is down. | `webui2.md` |
+| A toast (bottom right) | Every refusal and failure the server reports — a busy archive, a refused image, an unknown skill. Dismisses itself after a few seconds; a tap dismisses it at once. | `webui2.md` |
 
 ## Feature → screen location (reverse lookup)
 

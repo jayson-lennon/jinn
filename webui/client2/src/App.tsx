@@ -19,6 +19,7 @@ import { McpModal, PersonaModal, ToolsModal } from './pickers';
 import { Composer } from './composer';
 import { SessionRail } from './rail';
 import { NewSessionModal } from './new-session';
+import { Toasts } from './toast';
 import { applyTheme, mirrorTheme } from './theme';
 
 type Send = (msg: ClientMsg) => void;
@@ -107,14 +108,19 @@ export function App(): JSX.Element {
     setDrawerOpen(true);
   };
 
-  // The items are in panel order: New session first, then the pickers
-  // (only while a session is active), then Sessions; the color-mode
-  // group comes after every item, last.
+  // The items are in panel order: New session first, then Archive session
+  // and the pickers (only while a session is active), then Sessions; the
+  // color-mode group comes after every item, last.
+  const archiveSession = (): void => {
+    const id = store.state.sessionId;
+    if (id !== null) send({ type: 'archive_session', session_id: id });
+  };
   const menuItems = (): MenuItem[] => [
     { id: 'new-session', label: 'New session', run: openNewSession },
     ...(store.state.sessionId === null
       ? []
       : [
+          { id: 'archive', label: 'Archive session', run: archiveSession },
           { id: 'skills', label: 'Skills', run: openSkills },
           { id: 'persona', label: 'Persona', run: openPersona },
           { id: 'tools', label: 'Tools', run: openTools },
@@ -238,6 +244,7 @@ export function App(): JSX.Element {
           {connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}
         </div>
       </Show>
+      <Toasts store={store} />
     </div>
   );
 }

@@ -73,10 +73,17 @@ export interface ViewState {
   /** The persona modal's rows, for the filter the page last asked for. */
   personaRows: PersonaRow[];
   personaFilter: string;
-  /** The most recent refusal, if any. */
-  error: string | null;
+  /** Transient notices, newest last. A toast dismisses itself, and a tap
+   *  dismisses it at once. Not the session's: a snapshot leaves them. */
+  toasts: Toast[];
   /** True once a snapshot or a resume has landed on this connection. */
   synced: boolean;
+}
+
+/** One transient notice the page shows until it is dismissed. */
+export interface Toast {
+  readonly id: number;
+  readonly message: string;
 }
 
 const INITIAL_STATE: ViewState = {
@@ -107,7 +114,7 @@ const INITIAL_STATE: ViewState = {
   mcpFilter: '',
   personaRows: [],
   personaFilter: '',
-  error: null,
+  toasts: [],
   synced: false,
 };
 
@@ -304,9 +311,8 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
     case 'error': {
-      store.set((s) => {
-        s.error = msg.message;
-      });
+      // Every refusal and every failure the server reports is one notice.
+      pushToast(store, msg.message);
       return;
     }
     case 'ping': {
@@ -430,6 +436,23 @@ export function clearComposer(store: ClientStore): void {
   store.set((s) => {
     s.draft = '';
     s.chips = [];
+  });
+}
+
+let toastCounter = 0;
+
+/** Stacks one notice. The toast component owns its lifetime. */
+export function pushToast(store: ClientStore, message: string): void {
+  const id = toastCounter++;
+  store.set((s) => {
+    s.toasts = [...s.toasts, { id, message }];
+  });
+}
+
+/** Removes one notice, by id. */
+export function dismissToast(store: ClientStore, id: number): void {
+  store.set((s) => {
+    s.toasts = s.toasts.filter((t) => t.id !== id);
   });
 }
 
