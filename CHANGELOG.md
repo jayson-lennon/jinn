@@ -7,6 +7,7 @@
 - `#plan` and `#goal` prompts should use shorter questions and more concise language.
 - `#plan` and `#goal` prompts will now short-circuit on ambiguous requests to ask what you meant.
 - (webui) Add "jump to end" and "jump to start" buttons.
+- (webui) Add messaging pinning functionality.
 
 
 ## 2026-11-24 v.27.2

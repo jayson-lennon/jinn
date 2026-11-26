@@ -13,13 +13,14 @@
 use std::time::Duration;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_core_types::{ChatEntry, ChatEntryId, ModelSelection, NameFilter, SessionId};
+use jinn_core_types::{ChatEntry, ChatEntryId, ModelSelection, NameFilter, PinPosition, SessionId};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::common::actor_deps::BusPublish as _;
 use jinn_mcp_msg::McpRowBadge;
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_preferences_config::schemas::mcp::McpServersConfig;
 use jinn_provider_selection_msg::{ProviderSwitch, RefreshModels};
+use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
@@ -63,6 +64,8 @@ pub enum Refusal {
     UnknownMcpServer,
     /// The persona catalog has no entry by that name.
     UnknownPersona,
+    /// The active session holds no entry with that id.
+    UnknownEntry,
     /// The theme is not one of the three modes.
     UnknownTheme(String),
     /// No live session and nothing in the store carries that id.
@@ -97,6 +100,7 @@ impl Refusal {
             Self::UnknownTool => "unknown tool".to_owned(),
             Self::UnknownMcpServer => "unknown mcp server".to_owned(),
             Self::UnknownPersona => "unknown persona".to_owned(),
+            Self::UnknownEntry => "unknown entry".to_owned(),
             Self::UnknownTheme(theme) => {
                 format!("unknown theme `{theme}` (want light, dark, or system)")
             }
@@ -1519,6 +1523,59 @@ pub async fn set_library(out: &OutboundHandle, session_id: SessionId, in_library
 /// button busy until that push.
 pub async fn refresh_models(out: &OutboundHandle) -> Reply {
     out.publish(RefreshModels).await;
+    Reply::none()
+}
+
+// ---------------------------------------------------------------------------
+// Pin
+// Parity: the terminal's `p` on the selected entry
+// (`jinn_chat_log_view::chat_entry_selection::intent::handle_pin_selected`)
+// ---------------------------------------------------------------------------
+
+/// Toggles the pin on one entry of the active session.
+///
+/// An unpinned entry is pinned at [`PinPosition::Relative`] — where the
+/// terminal's `p` pins it — and a pinned one is unpinned. The page can
+/// only name an entry it was sent, so the entry is always in memory: an
+/// unknown id is refused and never falls back to the store. One message
+/// is published and nothing is replied; the session actor applies the
+/// pin, marks the session interacted so it persists, and publishes
+/// `ChatEntryPinChanged`, which the outbound actor turns into the upserts
+/// the page sees.
+pub async fn toggle_pin(out: &OutboundHandle, entry_id: ChatEntryId) -> Reply {
+    // Decided under one read guard, which drops before the publish: the
+    // state lock is never held across an await.
+    let decision = {
+        let state = out.state();
+        let guard = state.read();
+        let session_id = guard.session.active_session_id().clone();
+        let Some(session) = guard.session.get(&session_id) else {
+            return refused(&Refusal::NoActiveSession);
+        };
+        let Some(pinned) = session
+            .find_entry_index_by_id(&entry_id)
+            .and_then(|index| session.history().get(index))
+            .map(ChatEntry::is_pinned)
+        else {
+            return refused(&Refusal::UnknownEntry);
+        };
+        (session_id, pinned)
+    };
+    let (session_id, pinned) = decision;
+    if pinned {
+        out.publish(UnpinChatEntry {
+            session_id,
+            entry_id,
+        })
+        .await;
+    } else {
+        out.publish(PinChatEntry {
+            session_id,
+            entry_id,
+            position: PinPosition::Relative,
+        })
+        .await;
+    }
     Reply::none()
 }
 

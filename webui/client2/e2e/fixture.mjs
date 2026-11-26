@@ -110,7 +110,19 @@ export const sel = {
   THEME_LIGHT: '[data-testid="theme-group-light"]',
   THEME_DARK: '[data-testid="theme-group-dark"]',
   THEME_SYSTEM: '[data-testid="theme-group-system"]',
+  /** The `⋮` at every transcript entry's bottom-right, its popup, and
+   *  the one item it carries today. */
+  ENTRY_MENU: '[data-testid="entry-menu"]',
+  ENTRY_MENU_POPUP: '[data-testid="entry-menu-popup"]',
+  ENTRY_MENU_PIN: '[data-testid="entry-menu-pin"]',
+  /** The pin mark a pinned entry shows at its left edge. */
+  PIN_MARK: '.pin-mark',
 };
+
+/** The `⋮` of the last entry of `kind`, e.g. `entryMenu(page, "assistant")`. */
+export function entryMenu(page, kind) {
+  return page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY(kind)} ${sel.ENTRY_MENU}`).last();
+}
 
 /** The sample provider's model — the keyless one every scratch boot configures. */
 export const MODEL_NAME = "sample";

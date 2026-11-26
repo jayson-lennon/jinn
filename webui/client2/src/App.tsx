@@ -12,7 +12,7 @@ import type { JSX } from '@solidjs/web';
 import type { ClientMsg, ModelRow } from './protocol';
 import { type ClientStore, apply, clearSessionLoad, newestEntryId, createStore } from './store';
 import { type ConnectionState, openSocket } from './socket';
-import { TranscriptEntry } from './transcript';
+import { TranscriptEntry, useEntryMenuDismiss } from './transcript';
 import { Menu, type MenuItem, type MenuGroup } from './menu';
 import { SkillsModal } from './skills';
 import { AppletsModal } from './applets';
@@ -228,7 +228,7 @@ export function App(): JSX.Element {
           openDrawer={openDrawer}
           drawerOpen={drawerOpen}
         />
-        <Transcript store={store} />
+        <Transcript store={store} send={send} />
         <Composer store={store} send={send} />
       </main>
       <Show when={newSessionOpen()}>
@@ -334,12 +334,19 @@ export function App(): JSX.Element {
  *  jump-to-end always means the stream keeps the reader at the end. */
 const EDGE_BAND_PX = 80;
 
-function Transcript(props: { store: ClientStore }): JSX.Element {
+function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) => void }): JSX.Element {
   let node: HTMLElement | undefined;
   // Which ends of the transcript the view is off. The page's own view state:
   // it lives here and never reaches the store or the socket.
   const [offStart, setOffStart] = createSignal(false);
   const [offEnd, setOffEnd] = createSignal(false);
+  // At most one entry menu is open across the whole transcript, so the
+  // open id is the transcript's — the way the rail owns its row menu.
+  const [menuFor, setMenuFor] = createSignal<string | null>(null);
+  const toggleMenu = (id: string): void => {
+    setMenuFor(menuFor() === id ? null : id);
+  };
+  useEntryMenuDismiss(menuFor, () => setMenuFor(null));
   // Follow the stream: when the newest entry grows and the reader is at
   // the bottom, keep them there. A reader who scrolled up is left alone.
   const isNearBottom = (): boolean =>
@@ -401,7 +408,11 @@ function Transcript(props: { store: ClientStore }): JSX.Element {
             second row for the same entry — one user entry, two images. */}
         <For each={props.store.state.entries}>
           {(envelope) => (
-            <TranscriptEntry envelope={envelope} sessionId={props.store.state.sessionId} />
+            <TranscriptEntry
+              envelope={envelope}
+              sessionId={props.store.state.sessionId}
+              menu={{ openFor: menuFor, toggle: toggleMenu, send: props.send }}
+            />
           )}
         </For>
       </section>
