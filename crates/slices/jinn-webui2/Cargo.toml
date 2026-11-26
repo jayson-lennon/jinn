@@ -63,6 +63,8 @@ fuzzy-matcher = "0.3"
 marked-path = { workspace = true }
 trouper = { workspace = true }
 tokio = { workspace = true }
+# The socket's read and write halves run as two tasks over one connection.
+futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wherror = { workspace = true }

@@ -237,15 +237,23 @@ impl OutboundHandle {
         }
     }
 
-    /// Records that every entry of a session reached a page as it stands.
+    /// Records that the entries of a window reached a page as they stand.
     ///
-    /// Called by the snapshot path, whose reply replaces the page's view
-    /// wholesale: what it carried must not be streamed or reconciled again.
-    pub(crate) fn mark_delivered(&self, session_id: &SessionId) {
+    /// Called by every path whose reply or push carried a snapshot's tail
+    /// or a page of older entries: what it carried must not be streamed or
+    /// reconciled again. The
+    /// entries it did **not** carry are left alone — never recorded — so a
+    /// reconcile skips them as never sent, and a later page can carry them.
+    pub(crate) fn mark_delivered(&self, session_id: &SessionId, window: &crate::page::EntryWindow) {
         let history = crate::frames::history(&self.deps.state, session_id);
-        self.sent
-            .lock()
-            .remember_all(history.iter().map(|(_, entry)| entry));
+        let carried = window.ids().collect::<std::collections::HashSet<_>>();
+        let mut sent = self.sent.lock();
+        for (index, entry) in history
+            .iter()
+            .filter(|(_, entry)| carried.contains(&entry.id))
+        {
+            sent.remember_at(session_id, *index, entry);
+        }
     }
 }
 
@@ -257,7 +265,15 @@ impl BusPublish for OutboundHandle {
 
 impl OutboundHandle {
     /// Registers a fresh connection; returns the receiver its socket reads.
-    pub fn register(&self) -> tokio::sync::mpsc::UnboundedReceiver<ServerMsg> {
+    /// Registers a connection: its id, the receiver its socket task
+    /// reads, and the guard that unregisters it when that task ends.
+    pub fn register(
+        &self,
+    ) -> (
+        crate::connections::ConnectionId,
+        tokio::sync::mpsc::UnboundedReceiver<ServerMsg>,
+        crate::connections::ConnectionGuard,
+    ) {
         self.deps.connections.register()
     }
 

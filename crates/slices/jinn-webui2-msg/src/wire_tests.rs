@@ -21,7 +21,7 @@ use crate::payload::{
     PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody, SkillRowBody,
     SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
-use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION};
+use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 
 fn roundtrip(msg: &ClientMsg) -> ClientMsg {
     let json = serde_json::to_string(msg).expect("client msg serializes");
@@ -201,8 +201,9 @@ fn every_kind() -> Vec<EntryEnvelope> {
         ChatEntry::rule_interrupt("rule", "body"),
         literal(intersession),
     ]
+    .iter()
     .map(EntryEnvelope::new)
-    .to_vec()
+    .collect()
 }
 
 #[rstest]
@@ -391,9 +392,11 @@ fn server_snapshot_round_trips() {
         model_label: "ollama/llama3".to_owned(),
         title: "title".to_owned(),
         revision: 0,
+        entries_before: 0,
         entries: [ChatEntry::user("hi"), ChatEntry::assistant("yo")]
+            .iter()
             .map(EntryEnvelope::new)
-            .to_vec(),
+            .collect(),
         sessions: vec![row("a"), row("b")],
         library: Vec::new(),
         theme: String::new(),
@@ -422,6 +425,7 @@ fn server_snapshot_without_active_session_round_trips() {
         model_label: String::new(),
         title: String::new(),
         revision: 0,
+        entries_before: 0,
         entries: Vec::new(),
         sessions: Vec::new(),
         library: Vec::new(),
@@ -442,7 +446,7 @@ fn server_entry_upsert_round_trips() {
     let msg = ServerMsg::EntryUpsert(Box::new(EntryUpsertBody {
         session_id: SessionId::new(),
         index: 7,
-        entry: EntryEnvelope::new(ChatEntry::tool_result(
+        entry: EntryEnvelope::new(&ChatEntry::tool_result(
             "c1",
             "bash",
             "out",
@@ -914,6 +918,7 @@ fn server_variant_carries_its_snake_case_tag() {
                 model_label: String::new(),
                 title: String::new(),
                 revision: 0,
+                entries_before: 0,
                 entries: Vec::new(),
                 sessions: Vec::new(),
                 library: Vec::new(),
@@ -925,7 +930,7 @@ fn server_variant_carries_its_snake_case_tag() {
             ServerMsg::EntryUpsert(Box::new(EntryUpsertBody {
                 session_id: SessionId::new(),
                 index: 0,
-                entry: EntryEnvelope::new(ChatEntry::user("hi")),
+                entry: EntryEnvelope::new(&ChatEntry::user("hi")),
             })),
             "entry_upsert",
         ),
@@ -1213,6 +1218,7 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
         model_label: String::new(),
         title: String::new(),
         revision: 0,
+        entries_before: 0,
         entries: sent.clone(),
         sessions: Vec::new(),
         library: Vec::new(),
@@ -1226,15 +1232,9 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
     };
 
     // Then every entry keeps its kind name and its id.
-    let kept = snapshot
-        .entries
-        .iter()
-        .map(|envelope| (envelope.kind.clone(), envelope.entry.id.clone()))
-        .collect::<Vec<_>>();
-    let sent = sent
-        .iter()
-        .map(|envelope| (envelope.kind.clone(), envelope.entry.id.clone()))
-        .collect::<Vec<_>>();
+    let describe = |envelope: &EntryEnvelope| (envelope.kind.clone(), envelope.id());
+    let kept = snapshot.entries.iter().map(describe).collect::<Vec<_>>();
+    let sent = sent.iter().map(describe).collect::<Vec<_>>();
     assert_eq!(kept, sent);
 }
 
@@ -1243,7 +1243,7 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
 fn a_round_tripped_transient_entry_reads_back_as_a_system_entry() {
     // Given the core persisted form's one deliberate asymmetry: a
     // transient is never persisted, so its map has no deserializer arm.
-    let transient = EntryEnvelope::new(ChatEntry::transient("note"));
+    let transient = EntryEnvelope::new(&ChatEntry::transient("note"));
 
     // When only the inner entry round-trips, without the envelope.
     let json = serde_json::to_string(&transient.entry).expect("serializes");
@@ -1264,10 +1264,10 @@ fn every_entry_kind_serializes_as_the_frozen_persisted_map_tag() {
     let tags = entries
         .iter()
         .map(|envelope| {
-            let json = serde_json::to_value(&envelope.entry.kind).expect("kind serializes");
             // The persisted map is externally tagged: its single key is
-            // the PascalCase variant name.
-            json.as_object()
+            // the PascalCase variant name, under the entry's `kind`.
+            envelope.entry.as_json()["kind"]
+                .as_object()
                 .and_then(|map| map.keys().next())
                 .cloned()
                 .expect("a persisted entry map has one key")
@@ -1337,7 +1337,7 @@ fn a_transient_entry_keeps_its_kind_name_through_the_wire() {
     let msg = ServerMsg::EntryUpsert(Box::new(EntryUpsertBody {
         session_id: SessionId::new(),
         index: 0,
-        entry: EntryEnvelope::new(ChatEntry::transient("welcome")),
+        entry: EntryEnvelope::new(&ChatEntry::transient("welcome")),
     }));
 
     // When it round-trips.
@@ -1597,6 +1597,7 @@ fn snapshot_carries_its_library_rows_and_theme() {
         model_label: String::new(),
         title: String::new(),
         revision: 0,
+        entries_before: 0,
         entries: Vec::new(),
         sessions: Vec::new(),
         library: vec![row("kept")],
@@ -1627,4 +1628,157 @@ fn sessions_frame_carries_its_library_rows() {
 
     // Then the member row carries its flag.
     assert_eq!(json["library"][0]["in_library"], true);
+}
+
+// ---------------------------------------------------------------------------
+// The wire projection: full tool output and attachment bytes stay off the wire
+// ---------------------------------------------------------------------------
+
+/// A tool result carrying a full, untruncated output — the heavy field.
+fn truncated_result() -> ChatEntry {
+    ChatEntry::tool_result_truncated(
+        "c1",
+        "bash",
+        "out".to_owned(),
+        "the whole 250 kilobytes".to_owned(),
+        ToolResultStatus::Success,
+        jinn_core_types::tool_types::TruncationMeta {
+            truncated_by: jinn_core_types::tool_types::TruncatedBy::Bytes,
+            total_lines: 500,
+            total_bytes: 24,
+            output_lines: 1,
+            output_bytes: 3,
+        },
+    )
+}
+
+/// The projected entry's tool-result body, as JSON.
+fn tool_result_body(entry: &ChatEntry) -> serde_json::Value {
+    wire_entry(entry)["kind"]["ToolResult"].clone()
+}
+
+#[rstest]
+#[test]
+fn a_tool_results_full_output_does_not_cross_the_wire() {
+    // Given a tool result with a full untruncated output.
+    let entry = truncated_result();
+
+    // When it is projected for the wire.
+    let body = tool_result_body(&entry);
+
+    // Then the full output is absent, and the truncated content stays.
+    assert!(body.get("full_content").is_none());
+    assert_eq!(body["content"], "out");
+}
+
+#[rstest]
+#[test]
+fn a_tool_results_truncation_meta_crosses_the_wire() {
+    // Given a tool result with a full untruncated output.
+    let entry = truncated_result();
+
+    // When it is projected for the wire.
+    let body = tool_result_body(&entry);
+
+    // Then the truncation meta stays: its presence is how the page knows
+    // there is a full output to fetch.
+    assert!(body.get("truncation").is_some());
+}
+
+#[rstest]
+#[test]
+fn a_user_entries_attachment_bytes_do_not_cross_the_wire() {
+    // Given a user entry carrying one image.
+    let entry = ChatEntry::user_with_attachments(
+        "look",
+        vec![jinn_core_types::attachment::Attachment::image(
+            "image/png".to_owned(),
+            vec![0x89, 0x50, 0x4e, 0x47],
+        )],
+    );
+
+    // When it is projected for the wire.
+    let attachments = wire_entry(&entry)["kind"]["User"]["attachments"].clone();
+
+    // Then the attachment is still listed, with its media type, but without its bytes.
+    assert_eq!(attachments.as_array().map(Vec::len), Some(1));
+    assert_eq!(attachments[0]["media_type"], "image/png");
+    assert!(attachments[0].get("data").is_none());
+}
+
+#[rstest]
+#[test]
+fn a_tool_results_attachment_bytes_do_not_cross_the_wire() {
+    // Given a tool result carrying one image, the way `read_image` returns one.
+    let entry = ChatEntry::tool_result_with_attachments(
+        "c1",
+        "read_image",
+        "a picture".to_owned(),
+        ToolResultStatus::Success,
+        vec![jinn_core_types::attachment::Attachment::image(
+            "image/png".to_owned(),
+            vec![0x89],
+        )],
+    );
+
+    // When it is projected for the wire.
+    let attachments = wire_entry(&entry)["kind"]["ToolResult"]["attachments"].clone();
+
+    // Then the attachment is listed without its bytes.
+    assert_eq!(attachments.as_array().map(Vec::len), Some(1));
+    assert!(attachments[0].get("data").is_none());
+}
+
+#[rstest]
+#[test]
+fn a_projected_entry_reads_back_as_the_core_entry_sans_the_stripped_fields() {
+    // Given a user entry with no heavy fields.
+    let entry = ChatEntry::user("plain");
+
+    // When the projection is read back into the core type.
+    let back: ChatEntry = serde_json::from_value(wire_entry(&entry)).expect("deserializes");
+
+    // Then it is the same entry: same id, same kind text.
+    assert_eq!(back.id, entry.id);
+    assert_eq!(back.kind_str(), entry.kind_str());
+    assert_eq!(back.prompt_text(), entry.prompt_text());
+}
+
+#[rstest]
+#[test]
+fn client_more_entries_round_trips() {
+    // Given a request for the page before one entry.
+    let before = ChatEntryId::new();
+    let msg = ClientMsg::MoreEntries {
+        before: before.clone(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it names the same entry.
+    assert_eq!(back, msg);
+    assert_eq!(crate::client::tag_of(&back), "more_entries");
+}
+
+#[rstest]
+#[test]
+fn server_entries_page_round_trips() {
+    // Given one page of two older entries with three before them.
+    let session = SessionId::new();
+    let msg = ServerMsg::EntriesPage(Box::new(crate::EntriesPageBody {
+        session_id: session.clone(),
+        entries: [ChatEntry::user("old"), ChatEntry::user("older")]
+            .iter()
+            .map(EntryEnvelope::new)
+            .collect(),
+        entries_before: 3,
+    }));
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+    assert_eq!(crate::server::tag_of(&back), "entries_page");
 }

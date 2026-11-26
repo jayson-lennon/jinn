@@ -6121,6 +6121,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "error-stack",
+ "futures",
  "fuzzy-matcher",
  "jiff",
  "jinn-app-state",

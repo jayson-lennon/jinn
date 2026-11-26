@@ -117,6 +117,13 @@ export const sel = {
   ENTRY_MENU_PIN: '[data-testid="entry-menu-pin"]',
   /** The pin mark a pinned entry shows at its left edge. */
   PIN_MARK: '.pin-mark',
+  /** The transcript's "loading older entries…" row, and the affordance
+   *  that asks for a page. */
+  OLDER_SPINNER: '[data-testid="older-spinner"]',
+  OLDER_MORE: '[data-testid="older-more"]',
+  /** A tool result's "full output" disclosure, and its loading row. */
+  TOOL_OUTPUT: '[data-testid="tool-output"]',
+  TOOL_OUTPUT_SPINNER: '[data-testid="tool-output-spinner"]',
 };
 
 /** The `⋮` of the last entry of `kind`, e.g. `entryMenu(page, "assistant")`. */
@@ -377,6 +384,117 @@ export function seedChildSession(jinn, parentId, title) {
     { stdio: ["ignore", "ignore", "pipe"] },
   );
   return id;
+}
+
+/**
+ * Seeds `copies` older entries into `id` directly in the scratch store, so
+ * the session's history runs past the page's one-page tail.
+ *
+ * The copies are clones of the session's first real entry — the same
+ * persisted `kind` and `timing` a real send wrote — inserted *before* it
+ * by shifting every existing ordinal up. Each clone's text carries its
+ * sequence number, so a test can name the oldest page's content. The
+ * page's newest entry stays the real one the test sent.
+ *
+ * A test that needs the long history follows this with `restartJinn`: a
+ * running instance has already loaded the session into memory.
+ *
+ * @param {{ root: string }} jinn the test's own instance.
+ * @param {string} id the session to grow.
+ * @param {{ copies: number, text?: string }} options how many older
+ *   entries to seed, and the text each carries before its number.
+ * @returns {void}
+ */
+export function seedOlderEntries(jinn, id, { copies, text = "older entry" }) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    throw new Error(`seedOlderEntries: not a session id: ${id}`);
+  }
+  const db = path.join(jinn.root, "db", "state.db");
+  // One statement; stdout is captured for the SELECTs, stderr piped so a
+  // bad statement surfaces as the thrown error's message.
+  const run = (sql) =>
+    execFileSync("sqlite3", [db, sql], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  // The first real entry, as the store persisted it.
+  const [, timing, kind] = run(
+    `SELECT e.id, e.timing, e.kind FROM entries e
+       JOIN session_history h ON h.entry_id = e.id
+      WHERE h.session_id = '${id}' ORDER BY h.ordinal ASC LIMIT 1;`,
+  )
+    .trim()
+    .split("|");
+  const template = JSON.parse(kind);
+  // The persisted map is externally tagged: `{ "User": { display, ... } }`.
+  const tag = Object.keys(template)[0];
+  if (tag === undefined) throw new Error(`seedOlderEntries: entry has no kind: ${kind}`);
+  run(`UPDATE session_history SET ordinal = ordinal + ${copies} WHERE session_id = '${id}';`);
+  for (let i = 0; i < copies; i += 1) {
+    const cloneId = randomUUID();
+    const body = { ...template[tag] };
+    if (typeof body.display === "string") body.display = `${text} ${i}`;
+    if (typeof body.expanded === "string") body.expanded = `${text} ${i}`;
+    if (typeof body.text === "string") body.text = `${text} ${i}`;
+    const cloneKind = JSON.stringify({ [tag]: body }).replace(/'/g, "''");
+    run(
+      `INSERT INTO entries (id, timing, kind) VALUES ('${cloneId}', '${timing.replace(/'/g, "''")}', '${cloneKind}');`,
+    );
+    run(
+      `INSERT INTO session_history (session_id, entry_id, ordinal) VALUES ('${id}', '${cloneId}', ${i});`,
+    );
+  }
+}
+
+/** The full output the seeded truncated tool result carries. */
+export const SEEDED_FULL_OUTPUT = "the seeded full output — line one\nline two\nline three";
+
+/**
+ * Appends one truncated tool result to `id` directly in the scratch
+ * store: the persisted `ToolResult` map with a `full_content` and a
+ * `truncation`, exactly as a real tool leaves one. The sample provider
+ * runs no tool, so a spec that exercises the "full output" disclosure
+ * arranges the store the way a truncating tool does.
+ *
+ * A test that needs the entry follows this with `restartJinn`.
+ *
+ * @param {{ root: string }} jinn the test's own instance.
+ * @param {string} id the session to append to.
+ * @returns {void}
+ */
+export function seedTruncatedToolResult(jinn, id) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    throw new Error(`seedTruncatedToolResult: not a session id: ${id}`);
+  }
+  const db = path.join(jinn.root, "db", "state.db");
+  // One statement; stdout is captured for the SELECTs, stderr piped so a
+  // bad statement surfaces as the thrown error's message.
+  const run = (sql) =>
+    execFileSync("sqlite3", [db, sql], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const next = Number(
+    run(`SELECT COALESCE(MAX(ordinal), -1) + 1 FROM session_history WHERE session_id = '${id}';`).trim(),
+  );
+  const entryId = randomUUID();
+  const timing = JSON.stringify({ Instant: { at: new Date().toISOString() } });
+  const kind = JSON.stringify({
+    ToolResult: {
+      id: "seeded-call",
+      name: "bash",
+      content: "the seeded truncated output",
+      status: "Success",
+      full_content: SEEDED_FULL_OUTPUT,
+      truncation: {
+        truncated_by: "Bytes",
+        total_lines: 3,
+        total_bytes: SEEDED_FULL_OUTPUT.length,
+        output_lines: 1,
+        output_bytes: 28,
+      },
+    },
+  }).replace(/'/g, "''");
+  run(
+    `INSERT INTO entries (id, timing, kind) VALUES ('${entryId}', '${timing.replace(/'/g, "''")}', '${kind}');`,
+  );
+  run(
+    `INSERT INTO session_history (session_id, entry_id, ordinal) VALUES ('${id}', '${entryId}', ${next});`,
+  );
 }
 
 /**

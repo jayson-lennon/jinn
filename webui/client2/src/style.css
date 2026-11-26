@@ -856,6 +856,54 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   border-radius: 50%;
   animation: spin .8s linear infinite;
 }
+/* The inline size, for a spinner that sits inside a line of text: the
+   full-output disclosure while it fetches, and the older-entries row. */
+.spinner-small {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+
+/* ---- older entries ---- */
+/* Above the transcript's first row: a spinner while a page loads, or the
+   affordance that asks for one. Both sit inside the scroll container so
+   they scroll away with the history they describe. */
+.older-spinner,
+.older-more {
+  display: block;
+  margin: 6px auto 10px;
+  color: var(--fg-dim);
+  font-size: 0.85em;
+  text-align: center;
+}
+.older-more {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  cursor: pointer;
+  color: var(--fg-dim);
+}
+.older-more:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* ---- full tool output ---- */
+/* A tool result's full output is fetched when its disclosure opens, so the
+   disclosure has three states: loading, the text, or unavailable. */
+.tool-output-loading,
+.tool-output-spinner {
+  color: var(--fg-dim);
+  font-size: 0.85em;
+}
+.tool-output-missing {
+  color: var(--fg-dim);
+  font-style: italic;
+  margin: 4px 0;
+}
 
 /* ---- session-load overlay ---- */
 /* Raised by the page itself when it asks for a session, and cleared only by

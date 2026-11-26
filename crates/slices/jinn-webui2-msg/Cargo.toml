@@ -17,12 +17,14 @@ jinn-slices = { workspace = true }
 # the browser formats in its zone.
 jiff = { workspace = true }
 serde = { workspace = true }
+# The wire projection (`wire_entry`) is built as a JSON tree: the entry's
+# persisted serde form with two heavy fields removed.
+serde_json = { workspace = true }
 
 [dev-dependencies]
 # The round-trip and all-kinds tests build real entries with the core
-# constructors and serialize them as JSON values.
+# constructors.
 rstest = { workspace = true }
-serde_json = { workspace = true }
 
 [lints]
 workspace = true

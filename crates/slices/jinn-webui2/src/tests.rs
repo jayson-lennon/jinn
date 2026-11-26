@@ -25,10 +25,13 @@ use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, UnpinChatEntry
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{PersistSession, SessionLoadRequested, SetSessionLibrary};
 use jinn_slices::bus::BusService;
-use jinn_webui2_msg::{ClientMsg, ServerMsg};
+use jinn_webui2_msg::{ClientMsg, EntryEnvelope, ServerMsg};
 
 use crate::{
-    actions, connections::ConnectionRegistry, outbound::OutboundHandle, protocol::dispatch,
+    actions,
+    connections::ConnectionRegistry,
+    outbound::OutboundHandle,
+    protocol::{Reply, dispatch},
     revision::RevisionTracker,
 };
 
@@ -514,6 +517,18 @@ fn active_id(state: &State) -> jinn_core_types::SessionId {
 
 fn push(state: &State, entry: ChatEntry) {
     state.write().session.active_session_mut().push_entry(entry);
+}
+
+/// Records the active session's tail as delivered — what a snapshot reply
+/// does for the page it answers.
+fn mark_tail_delivered(h: &Harness) {
+    let session_id = active_id(&h.state);
+    let window = {
+        let guard = h.state.read();
+        let session = guard.session.active_session();
+        crate::page::tail(session.history())
+    };
+    h.handle.mark_delivered(&session_id, &window);
 }
 
 // ---------------------------------------------------------------------------
@@ -1162,6 +1177,192 @@ async fn hello_with_an_unknown_cursor_answers_a_snapshot() {
 
     // Then it receives the whole transcript.
     assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
+}
+
+/// Pushes `count` user entries onto the active session, so its history
+/// runs past one page.
+fn push_many(state: &State, count: usize) {
+    for i in 0..count {
+        push(state, ChatEntry::user(format!("entry {i}")));
+    }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_on_a_fresh_page_carries_the_newest_entries_up_to_one_page() {
+    // Given a session whose history runs past one page.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 50);
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot carries one page of the newest entries.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert_eq!(snapshot.entries.len(), jinn_webui2_msg::TAIL_MAX_ENTRIES);
+    assert_eq!(snapshot.entries_before, 50);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_on_a_fresh_page_carries_the_oldest_entry_of_the_tail_at_index_zero_of_the_frame() {
+    // Given a session whose history runs past one page.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 50);
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the frame's first entry is history entry 50, and its last is the newest.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    let texts = snapshot
+        .entries
+        .iter()
+        .map(EntryEnvelope::entry_text)
+        .collect::<Vec<_>>();
+    assert_eq!(texts.first().copied(), Some("entry 50"));
+    assert_eq!(texts.last().copied(), Some("entry 249"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_with_a_cursor_more_than_one_page_behind_answers_a_snapshot() {
+    // Given a page that saw the first entry, while the session grew past a page since.
+    let h = harness();
+    push(&h.state, ChatEntry::user("one"));
+    let cursor = active_last_entry_id(&h.state);
+    let revision = h.handle.revision(&active_id(&h.state));
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 1);
+
+    // When it reconnects naming the current revision and a cursor now more than a page old.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: Some(cursor),
+            revision: Some(revision),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then it receives the bounded tail, never a replay of the gap.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
+}
+
+// ---------------------------------------------------------------------------
+// Older pages
+// ---------------------------------------------------------------------------
+
+/// Sends a `MoreEntries` for the oldest entry the page holds.
+async fn more_before(h: &Harness, before: &jinn_core_types::ChatEntryId) -> Reply {
+    dispatch(
+        ClientMsg::MoreEntries {
+            before: before.clone(),
+        },
+        &h.handle,
+    )
+    .await
+}
+
+/// The texts of one page reply's entries, in history order, together with
+/// how many entries precede the page.
+fn page_texts(reply: &Reply) -> (Vec<&str>, usize) {
+    let [ServerMsg::EntriesPage(page)] = reply.frames.as_slice() else {
+        unreachable!("a MoreEntries reply is one EntriesPage");
+    };
+    let texts = page.entries.iter().map(EntryEnvelope::entry_text).collect();
+    (texts, page.entries_before)
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn more_entries_returns_the_page_before_the_oldest_held_entry() {
+    // Given a page that holds the tail of a 250-entry history.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 50);
+
+    // When it asks for the entries before history entry 50, the tail's oldest.
+    let before = h.state.read().session.active_session().history()[50]
+        .id
+        .clone();
+    let reply = more_before(&h, &before).await;
+
+    // Then it receives entries 0–49, with nothing before them.
+    let (texts, before_count) = page_texts(&reply);
+    assert_eq!(texts.first().copied(), Some("entry 0"));
+    assert_eq!(texts.last().copied(), Some("entry 49"));
+    assert_eq!(before_count, 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn more_entries_names_how_many_entries_precede_the_page() {
+    // Given a page that holds the tail of a 650-entry history.
+    let h = harness();
+    push_many(&h.state, 3 * jinn_webui2_msg::TAIL_MAX_ENTRIES + 50);
+
+    // When it asks for the entries before history entry 450, the tail's oldest.
+    let before = h.state.read().session.active_session().history()[450]
+        .id
+        .clone();
+    let reply = more_before(&h, &before).await;
+
+    // Then the page says 250 entries precede it.
+    let (_, before_count) = page_texts(&reply);
+    assert_eq!(before_count, 250);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn more_entries_is_refused_for_the_sessions_first_entry() {
+    // Given a session whose first entry is what the page names.
+    let h = harness();
+    push_many(&h.state, 3);
+
+    // When the page asks for entries before history entry 0.
+    let first = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+    let reply = more_before(&h, &first).await;
+
+    // Then the answer is a refusal, not a page.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        panic!("expected a refusal, got {:?}", reply.frames);
+    };
+    assert_eq!(error.message, "no older entries");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn more_entries_is_refused_for_an_entry_of_another_session() {
+    // Given a session, and an entry that belongs to no session it holds.
+    let h = harness();
+    push_many(&h.state, 3);
+
+    // When the page asks for entries before that foreign id.
+    let reply = more_before(&h, &jinn_core_types::ChatEntryId::new()).await;
+
+    // Then the answer is a refusal.
+    let [ServerMsg::Error(_)] = reply.frames.as_slice() else {
+        panic!("expected a refusal, got {:?}", reply.frames);
+    };
 }
 
 fn active_last_entry_id(state: &State) -> jinn_core_types::ChatEntryId {
@@ -1868,15 +2069,20 @@ struct Page {
     handle: OutboundHandle,
     inbox: tokio::sync::mpsc::UnboundedReceiver<ServerMsg>,
     state: State,
+    /// Held so the connection stays registered for the page's life: a
+    /// dropped guard unregisters at once, and the flush skips a page
+    /// nobody is connected to.
+    _connection: crate::connections::ConnectionGuard,
 }
 
 fn connected_page() -> Page {
     let h = harness();
-    let inbox = h.handle.register();
+    let (_id, inbox, connection) = h.handle.register();
     Page {
         handle: h.handle,
         inbox,
         state: h.state,
+        _connection: connection,
     }
 }
 
@@ -1983,13 +2189,11 @@ fn a_refresh_summary_written_without_a_history_event_reaches_the_page() {
     let [ServerMsg::EntryUpsert(upsert)] = frames.as_slice() else {
         panic!("expected one upsert, got {frames:?}");
     };
-    // `upsert.entry` is the wire envelope; the persisted entry is inside it.
-    let jinn_core_types::ChatEntryKind::Transient(text) = &upsert.entry.entry.kind else {
-        panic!(
-            "expected a transient entry, got {:?}",
-            upsert.entry.entry.kind
-        );
-    };
+    // The envelope names the kind itself; the projected entry carries the text.
+    assert_eq!(upsert.entry.kind, "transient");
+    let text = upsert.entry.entry.as_json()["kind"]["Transient"]
+        .as_str()
+        .unwrap_or_default();
     assert!(text.contains("ollama"), "summary missing: {text}");
 }
 
@@ -2152,7 +2356,7 @@ fn nothing_is_flushed_while_no_page_is_connected() {
 
     // Then a page connecting afterwards is sent the entry whole — an upsert
     // first, carrying the text the tick never streamed — never a gap.
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     crate::outbound::flush(&h.handle);
     let first = inbox.try_recv().expect("the new page receives the entry");
     assert!(matches!(first, ServerMsg::EntryUpsert(_)));
@@ -2190,7 +2394,7 @@ fn an_instant_turn_reaches_the_page_when_it_settles() {
     // Given a connected page holding one entry, and a turn that began and
     // settled before any tick read it.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     push(&h.state, ChatEntry::user("before"));
     crate::outbound::reconcile(&h.handle, &active_id(&h.state));
     let _ = drain(&mut inbox);
@@ -2212,7 +2416,7 @@ fn an_instant_turn_reaches_the_page_when_it_settles() {
 fn a_settled_turn_that_changed_nothing_sends_no_frame() {
     // Given a connected page that holds every entry the session has.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     push(&h.state, ChatEntry::user("held"));
     crate::outbound::reconcile(&h.handle, &active_id(&h.state));
     let _ = drain(&mut inbox);
@@ -2229,7 +2433,7 @@ fn a_settled_turn_that_changed_nothing_sends_no_frame() {
 fn an_entry_that_changed_while_settling_is_sent_again() {
     // Given a connected page that holds one entry as it stood before a turn.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     push(&h.state, ChatEntry::user("before"));
     crate::outbound::reconcile(&h.handle, &active_id(&h.state));
     let _ = drain(&mut inbox);
@@ -2258,9 +2462,9 @@ fn an_entry_that_changed_while_settling_is_sent_again() {
 fn an_entry_the_snapshot_delivered_is_not_sent_again() {
     // Given a page that connected and was answered with a snapshot.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     push(&h.state, ChatEntry::user("in the snapshot"));
-    h.handle.mark_delivered(&active_id(&h.state));
+    mark_tail_delivered(&h);
     let _ = drain(&mut inbox);
 
     // When a reconcile runs with the history unchanged.
@@ -2268,6 +2472,32 @@ fn an_entry_the_snapshot_delivered_is_not_sent_again() {
 
     // Then the snapshot's entry is not re-sent.
     assert_eq!(drain(&mut inbox).len(), 0);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_settle_after_a_tail_still_reaches_the_page() {
+    // Given a page that holds the tail of a long history, delivered by a snapshot.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 50);
+    mark_tail_delivered(&h);
+    let _ = drain(&mut inbox);
+
+    // When a turn settles and appends one entry the ticks never streamed.
+    push(&h.state, ChatEntry::assistant("settled reply"));
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+
+    // Then that entry is the one frame the page receives — not the 50 older ones.
+    let frames = drain(&mut inbox);
+    assert!(matches!(frames.as_slice(), [ServerMsg::EntryUpsert(_)]));
+    let ServerMsg::EntryUpsert(upsert) = &frames[0] else {
+        unreachable!("matched above");
+    };
+    assert_eq!(
+        upsert.entry.entry.as_json()["kind"]["Assistant"].as_str(),
+        Some("settled reply")
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2399,7 +2629,7 @@ async fn toggling_a_tool_result_pins_the_entry_the_page_named() {
 fn a_pin_changed_event_upserts_the_entry_the_page_holds_differently() {
     // Given a connected page that holds one entry as it stood unpinned.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     push(&h.state, ChatEntry::user("keep me"));
     crate::outbound::reconcile(&h.handle, &active_id(&h.state));
     let _ = drain(&mut inbox);
@@ -2427,8 +2657,10 @@ fn a_pin_changed_event_upserts_the_entry_the_page_holds_differently() {
     let ServerMsg::EntryUpsert(upsert) = &frames[0] else {
         unreachable!("matched above");
     };
-    assert_eq!(upsert.entry.entry.id, entry_id);
-    assert!(upsert.entry.entry.is_pinned());
+    let entry: ChatEntry = serde_json::from_value(upsert.entry.entry.as_json().clone())
+        .expect("the projected entry deserializes back");
+    assert_eq!(entry.id, entry_id);
+    assert!(entry.is_pinned());
 }
 
 #[rstest::rstest]
@@ -2436,7 +2668,7 @@ fn a_pin_changed_event_upserts_the_entry_the_page_holds_differently() {
 fn a_pin_changed_event_for_another_session_sends_nothing() {
     // Given a connected page holding one entry, already delivered.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     push(&h.state, ChatEntry::user("keep me"));
     crate::outbound::reconcile(&h.handle, &active_id(&h.state));
     let _ = drain(&mut inbox);
@@ -2641,7 +2873,7 @@ async fn a_discovery_scan_pushes_rows_for_its_session_in_the_last_asked_filter()
     // Given a page connected to a session whose modal asked for a filter,
     // before the session discovered anything.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     let _ = dispatch(
         ClientMsg::SkillRows {
             filter: "alp".to_owned(),
@@ -2678,7 +2910,7 @@ async fn a_discovery_scan_pushes_rows_for_its_session_in_the_last_asked_filter()
 async fn a_discovery_scan_for_another_session_pushes_nothing_for_this_one() {
     // Given a page connected to a session that discovered one skill.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     let _dir = discover(&h, &["alpha"]);
     let _ = drain(&mut inbox);
 
@@ -3697,7 +3929,7 @@ async fn a_runtime_store_pushes_rows_in_the_last_asked_filter() {
         .session
         .active_session_mut()
         .set_enabled_mcp_servers(std::collections::BTreeSet::from(["echo".to_owned()]));
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     let _ = dispatch(
         ClientMsg::McpRows {
             filter: "ec".to_owned(),
@@ -3734,7 +3966,7 @@ async fn a_runtime_store_pushes_rows_in_the_last_asked_filter() {
 async fn a_runtime_store_for_a_session_with_no_mcp_modal_pushes_nothing() {
     // Given a config holding one server, and a page whose modal never asked.
     let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
 
     // When the stored event is handled.
     crate::outbound::mcp_runtime_stored(&h.handle);
@@ -4418,7 +4650,7 @@ async fn applets_rescanned_pushes_the_events_catalog_not_the_cells() {
     // Given a cell holding row A, while the event carries row B — the
     // republisher has not written the cell yet.
     let h = harness_with_applets(&[("stale", "Stale")], Some("127.0.0.1:41234"));
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     let _ = dispatch(
         ClientMsg::AppletRows {
             filter: String::new(),
@@ -4452,7 +4684,7 @@ async fn applets_rescanned_pushes_the_events_catalog_not_the_cells() {
 async fn applets_serving_changed_pushes_the_events_phase_over_the_cell_catalog() {
     // Given an open modal whose cell is offline and holds one applet.
     let h = harness_with_applets(&[("quiz", "Quiz")], None);
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     let _ = dispatch(
         ClientMsg::AppletRows {
             filter: String::new(),
@@ -4484,7 +4716,7 @@ async fn applets_serving_changed_pushes_the_events_phase_over_the_cell_catalog()
 async fn applets_rescanned_with_no_modal_open_pushes_nothing() {
     // Given a harness with a saved applet and no modal that ever asked.
     let h = harness_with_applets(&[("quiz", "Quiz")], None);
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
 
     // When a rescanned event is handled.
     crate::outbound::applets_rescanned(&h.handle, &jinn_applets_msg::AppletsCatalog::default());
@@ -4854,7 +5086,7 @@ fn harness_with_a_model() -> Harness {
 async fn model_cache_stored_pushes_fresh_rows_to_an_open_model_picker() {
     // Given a page whose model picker asked for rows.
     let h = harness_with_a_model();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     let _ = dispatch(
         ClientMsg::ModelRows {
             filter: String::new(),
@@ -4879,7 +5111,7 @@ async fn model_cache_stored_pushes_fresh_rows_to_an_open_model_picker() {
 async fn model_cache_stored_pushes_nothing_when_no_picker_asked() {
     // Given a page that never opened the model picker.
     let h = harness_with_a_model();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
 
     // When a discovery scan lands.
     model_cache_stored(&h);
@@ -4893,7 +5125,7 @@ async fn model_cache_stored_pushes_nothing_when_no_picker_asked() {
 async fn model_cache_stored_pushes_rows_naming_the_askers_session() {
     // Given a page whose model picker asked for rows.
     let h = harness_with_a_model();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     let _ = dispatch(
         ClientMsg::ModelRows {
             filter: String::new(),
@@ -4952,7 +5184,7 @@ fn a_non_member_is_listed_under_sessions_and_not_library() {
 fn membership_changed_pushes_a_sessions_frame() {
     // Given a page.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
 
     // When the store actor announces a membership change.
     crate::outbound::library_membership_changed(&h.handle);
@@ -4967,7 +5199,7 @@ fn membership_changed_pushes_a_sessions_frame() {
 async fn active_session_changed_pushes_one_snapshot() {
     // Given a page.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
 
     // When the instance's active session moves.
     crate::outbound::follow_active_session(
@@ -4991,7 +5223,7 @@ async fn active_session_changed_pushes_one_snapshot() {
 async fn follow_snapshot_marks_the_new_sessions_history_delivered() {
     // Given a page whose active session has one entry.
     let h = harness();
-    let mut inbox = h.handle.register();
+    let (_id, mut inbox, _connection) = h.handle.register();
     push(&h.state, ChatEntry::user("already here"));
 
     // When the instance's active session moves to it.
@@ -5043,6 +5275,7 @@ async fn spawn_listener_and_collect_notes() -> (Vec<jinn_slices::ServiceStatusUp
         shared: Arc::new(crate::server::ServerShared {
             outbound: h.handle.clone(),
             version: "test".to_owned(),
+            health: crate::health::WebUi2Health::new(fabric.bus()),
         }),
         bus: fabric.bus(),
     };

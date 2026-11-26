@@ -5,9 +5,9 @@
 //! variant is a compile error until it has a handler.
 
 use crate::payload::{
-    AppletRowsBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody, ModelBody,
-    ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody, PickerRowsBody, SessionsBody,
-    SkillRowsBody, SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
+    AppletRowsBody, EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody,
+    ModelBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody, PickerRowsBody,
+    SessionsBody, SkillRowsBody, SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +29,11 @@ pub enum ServerMsg {
     /// Boxed: a `ChatEntry` is large on its own, and this is the heaviest
     /// frame on the wire (see `Snapshot` for why that matters).
     EntryUpsert(Box<EntryUpsertBody>),
+    /// One page of older entries, answering a `MoreEntries` request.
+    ///
+    /// Boxed, like `Snapshot`: a page is one of the heaviest frames, and
+    /// every broadcast clones the enum at the size of its largest variant.
+    EntriesPage(Box<EntriesPageBody>),
     /// A text chunk extending one streamed field.
     EntryDelta(EntryDeltaBody),
     /// The session's phase changed.
@@ -74,6 +79,7 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
     match msg {
         ServerMsg::Snapshot(_) => "snapshot",
         ServerMsg::EntryUpsert(_) => "entry_upsert",
+        ServerMsg::EntriesPage(_) => "entries_page",
         ServerMsg::EntryDelta(_) => "entry_delta",
         ServerMsg::Phase(_) => "phase",
         ServerMsg::Sessions(_) => "sessions",

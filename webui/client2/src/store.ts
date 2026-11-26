@@ -41,6 +41,13 @@ export interface ViewState {
   /** The history revision the page last saw, echoed back on reconnect. */
   revision: number;
   entries: EntryEnvelope[];
+  /** How many entries of the session precede the oldest one held: the
+   *  transcript is a bounded tail, and this is how much older history a
+   *  scroll to the top can still ask for. */
+  entriesBefore: number;
+  /** Whether a page of older entries is in flight, so the top of the
+   *  transcript shows a spinner and a second request cannot fire. */
+  loadingMore: boolean;
   sessions: SessionRow[];
   /** The library members the sidebar's Library view lists. */
   library: SessionRow[];
@@ -96,6 +103,8 @@ const INITIAL_STATE: ViewState = {
   title: '',
   revision: 0,
   entries: [],
+  entriesBefore: 0,
+  loadingMore: false,
   sessions: [],
   library: [],
   railView: 'sessions',
@@ -188,6 +197,8 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         s.title = msg.title;
         s.revision = msg.revision;
         s.entries = msg.entries;
+        s.entriesBefore = msg.entries_before;
+        s.loadingMore = false;
         s.sessions = msg.sessions;
         s.library = msg.library;
         s.theme = msg.theme;
@@ -229,6 +240,11 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       store.set((s) => {
         s.newSession = { projects: msg.projects, lifecycles: msg.lifecycles };
       });
+      return;
+    }
+    case 'entries_page': {
+      if (store.state.sessionId !== msg.session_id) return;
+      prependPage(store, msg.entries, msg.entries_before);
       return;
     }
     case 'entry_upsert': {
@@ -358,6 +374,10 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
   }
+  // No fallback arm: a message kind without a case above must fail the
+  // type check here, not fall through unapplied.
+  const unhandled: never = msg;
+  return void unhandled;
 }
 
 /**
@@ -389,9 +409,25 @@ function upsert(store: ClientStore, index: number, envelope: EntryEnvelope): voi
     // a second copy, so one user entry with an image showed twice.
     const at = next.findIndex((e) => e.entry.id === envelope.entry.id);
     if (at !== -1) next.splice(at, 1);
-    next.splice(clamp(index, next.length), 0, envelope);
+    // The index is live: it counts from the session's first entry, while
+    // the page holds only a tail. Shift it by what precedes the tail, and
+    // an entry inside the tail lands at its own slot while a new one at
+    // the end still lands at the end.
+    next.splice(clamp(index - s.entriesBefore, next.length), 0, envelope);
     s.entries = next;
     installed = next;
+  });
+  reindex(installed);
+}
+
+/** Prepends one page of older entries, keeping the index offset true. */
+function prependPage(store: ClientStore, page: EntryEnvelope[], entriesBefore: number): void {
+  let installed: EntryEnvelope[] = [];
+  store.set((s) => {
+    s.entries = [...page, ...s.entries];
+    s.entriesBefore = entriesBefore;
+    s.loadingMore = false;
+    installed = s.entries;
   });
   reindex(installed);
 }

@@ -27,10 +27,25 @@ use jinn_kernel::State;
 /// Keyed by entry id. The length is what a streaming field's suffix is cut
 /// against; the signature is the whole serialized entry, compared when a
 /// turn settles to find entries that changed while no tick was watching.
+///
+/// `held` is the set of entries some frame has carried to pages. The
+/// transcript a page receives is a bounded tail plus pages it asks for, so
+/// most of a long history was never sent: a reconcile must not push those
+/// as "changed". The set only ever grows — a snapshot's tail adds its
+/// entries, a page adds its own, and a streamed entry joins when it is
+/// first upserted. It is shared by every connection, so "held" means "some
+/// page has been sent this", which is the same single-bookkeeping model
+/// the lengths and signatures already use.
 #[derive(Debug, Default)]
 pub(crate) struct SentLengths {
     lengths: HashMap<ChatEntryId, usize>,
     signatures: HashMap<ChatEntryId, String>,
+    held: std::collections::HashSet<ChatEntryId>,
+    /// Per session, how many leading entries of the history any frame
+    /// has carried — the newest held entry's index plus one. A reconcile
+    /// treats an unheld entry at or after it as new (an append the ticks
+    /// missed), and one before it as history a page never asked for.
+    held_through: HashMap<SessionId, usize>,
 }
 
 impl SentLengths {
@@ -52,11 +67,52 @@ impl SentLengths {
         self.lengths.remove(entry_id);
     }
 
-    /// Records every entry as sent exactly as it stands.
-    pub(crate) fn remember_all<'a>(&mut self, entries: impl Iterator<Item = &'a ChatEntry>) {
-        for entry in entries {
-            let _ = self.changed(entry);
-        }
+    /// Whether some frame has carried this entry to pages.
+    pub(crate) fn held(&self, entry_id: &ChatEntryId) -> bool {
+        self.held.contains(entry_id)
+    }
+
+    /// Whether `entry` is new to pages: never carried, and appended after
+    /// everything any frame carried for its session.
+    ///
+    /// The second half is what keeps a reconcile from pushing a long
+    /// history's older half: those entries were never carried either, but
+    /// they lie before the watermark and are reached by paging, not by a
+    /// reconcile.
+    pub(crate) fn is_new(
+        &self,
+        session_id: &SessionId,
+        history_index: usize,
+        entry: &ChatEntry,
+    ) -> bool {
+        !self.held(&entry.id)
+            && history_index >= self.held_through.get(session_id).copied().unwrap_or(0)
+    }
+
+    /// Moves the session's watermark forward to just past `entry`, when
+    /// that is forward. An older page never moves it.
+    fn advance_watermark(&mut self, session_id: &SessionId, history_index: usize) {
+        let through = self.held_through.entry(session_id.clone()).or_insert(0);
+        *through = (*through).max(history_index + 1);
+    }
+
+    /// Records an entry as held, when a frame carried it to pages.
+    pub(crate) fn hold(&mut self, entry_id: &ChatEntryId) {
+        self.held.insert(entry_id.clone());
+    }
+
+    /// Records that the entry at `history_index` of `session_id` reached
+    /// pages exactly as it stands, and moves the watermark past it when
+    /// that is forward.
+    pub(crate) fn remember_at(
+        &mut self,
+        session_id: &SessionId,
+        history_index: usize,
+        entry: &ChatEntry,
+    ) {
+        self.hold(&entry.id);
+        self.advance_watermark(session_id, history_index);
+        let _ = self.changed(entry);
     }
 
     /// Whether `entry` differs from the last one sent for its id, and
@@ -85,7 +141,9 @@ impl OutboundActor {
     /// Sends one entry as an upsert and records it as delivered, so a
     /// later reconcile does not send the same entry again.
     fn push_upsert(&self, session_id: &SessionId, index: usize, entry: &ChatEntry) {
-        self.handle.sent.lock().changed(entry);
+        let mut sent = self.handle.sent.lock();
+        sent.remember_at(session_id, index, entry);
+        drop(sent);
         self.push(&crate::frames::upsert_at(session_id, index, entry));
     }
 
@@ -249,7 +307,10 @@ impl OutboundActor {
         let found =
             crate::frames::upsert_by_id(&self.handle.deps.state, &msg.session_id, &msg.entry.id);
         if let Some(frame) = found {
-            self.handle.sent.lock().changed(&msg.entry);
+            let mut sent = self.handle.sent.lock();
+            sent.hold(&msg.entry.id);
+            sent.changed(&msg.entry);
+            drop(sent);
             self.push(&frame);
         }
     }
@@ -435,11 +496,9 @@ pub(crate) async fn follow_active_session(
     msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
 ) {
     crate::actions::wait_for_activation(&handle.deps.state, &msg.session_id).await;
-    handle.mark_delivered(&msg.session_id);
-    handle.broadcast(&crate::frames::snapshot(
-        &handle.deps.state,
-        &handle.deps.revisions,
-    ));
+    let (frame, window) = crate::frames::snapshot(&handle.deps.state, &handle.deps.revisions);
+    handle.mark_delivered(&msg.session_id, &window);
+    handle.broadcast(&frame);
 }
 
 impl MsgHandler<jinn_mcp_msg::McpRuntimeStored> for OutboundActor {
@@ -628,7 +687,12 @@ pub(crate) fn reconcile(handle: &super::OutboundHandle, session_id: &SessionId) 
     let history = crate::frames::history(&handle.deps.state, session_id);
     let mut sent = handle.sent.lock();
     for (index, entry) in history {
-        if sent.changed(&entry) {
+        // An entry no frame ever carried is new only when it was appended
+        // after everything carried; history older than the tail a page
+        // received is reached by paging, never pushed as "changed".
+        let deliverable = sent.held(&entry.id) || sent.is_new(session_id, index, &entry);
+        if deliverable && sent.changed(&entry) {
+            sent.remember_at(session_id, index, &entry);
             handle.broadcast(&crate::frames::upsert_at(session_id, index, &entry));
         }
     }
@@ -647,6 +711,7 @@ fn send_suffix(
     current: &str,
 ) {
     if !sent.knows(&entry.id) {
+        sent.hold(&entry.id);
         handle.broadcast(&crate::frames::upsert_at(session_id, index, entry));
     }
     let chunk = sent.suffix(&entry.id, current);

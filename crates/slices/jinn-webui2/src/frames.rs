@@ -37,7 +37,7 @@ pub fn upsert_at(session_id: &SessionId, index: usize, entry: &ChatEntry) -> Ser
     ServerMsg::EntryUpsert(Box::new(EntryUpsertBody {
         session_id: session_id.clone(),
         index,
-        entry: EntryEnvelope::new(entry.clone()),
+        entry: EntryEnvelope::new(entry),
     }))
 }
 
@@ -58,11 +58,16 @@ pub fn upsert_by_id(
     Some(upsert_at(session_id, index, entry))
 }
 
-/// The whole-state frame for a page that must switch sessions: a
-/// snapshot of the active session, replacing its view wholesale.
+/// The whole-state frame for a page that must switch sessions: the active
+/// session's bounded-tail snapshot, replacing its view wholesale — together
+/// with the window it carried, so the push is recorded as delivered.
 #[must_use]
-pub fn snapshot(state: &State, revisions: &crate::revision::RevisionTracker) -> ServerMsg {
-    ServerMsg::Snapshot(Box::new(crate::snapshot::snapshot(state, revisions)))
+pub fn snapshot(
+    state: &State,
+    revisions: &crate::revision::RevisionTracker,
+) -> (ServerMsg, crate::page::EntryWindow) {
+    let frame = crate::snapshot::snapshot(state, revisions);
+    (ServerMsg::Snapshot(Box::new(frame.body)), frame.window)
 }
 
 /// One session's whole history, as (index, entry) pairs.

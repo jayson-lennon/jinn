@@ -359,8 +359,54 @@ function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) => void 
       }
     },
   );
+  // Older entries, on scroll. The transcript is a bounded tail; the top of
+  // it is the edge of what the page holds, not the start of the session.
+  const oldestHeld = (): string | undefined => props.store.state.entries[0]?.entry.id;
+  const requestOlder = (): void => {
+    const s = props.store.state;
+    if (s.loadingMore || s.entriesBefore === 0 || !s.synced) return;
+    const before = oldestHeld();
+    if (before === undefined) return;
+    props.store.set((v) => {
+      v.loadingMore = true;
+    });
+    props.send({ type: 'more_entries', before });
+  };
+  // Scroll anchoring across a prepend: the browser keeps `scrollTop` fixed,
+  // which would jump the reader up by the page's height. Record the height
+  // before, and restore the delta after the rows land.
+  let heightBeforePage: number | null = null;
+  createRenderEffect(
+    () => props.store.state.loadingMore,
+    (loading, prev) => {
+      if (loading && node) {
+        heightBeforePage = node.scrollHeight;
+        return;
+      }
+      if (prev === true && !loading && node && heightBeforePage !== null) {
+        const delta = node.scrollHeight - heightBeforePage;
+        heightBeforePage = null;
+        queueMicrotask(() => {
+          if (node) node.scrollTop += delta;
+        });
+      }
+    },
+  );
+  const onScroll = (): void => {
+    if (node && node.scrollTop < 160) requestOlder();
+  };
   return (
-    <section class="transcript" data-testid="transcript" ref={node}>
+    <section class="transcript" data-testid="transcript" ref={node} onScroll={onScroll}>
+      <Show when={props.store.state.loadingMore}>
+        <div class="older-spinner" data-testid="older-spinner">
+          <span class="spinner spinner-small" aria-hidden="true" /> loading older entries…
+        </div>
+      </Show>
+      <Show when={!props.store.state.loadingMore && props.store.state.entriesBefore > 0}>
+        <button type="button" class="older-more" data-testid="older-more" onClick={requestOlder}>
+          load older entries
+        </button>
+      </Show>
       {/* Keyed by entry id, not by the envelope object: an upsert replaces
           the envelope in place, and a reference-keyed list would mount a
           second row for the same entry — one user entry, two images. */}

@@ -24,7 +24,11 @@ export type EntryKind =
   | 'rule_interrupt'
   | 'intersession';
 
-/** One transcript entry: its kind name, and the core entry as persisted. */
+/** One transcript entry: its kind name, and the core entry as persisted —
+ * minus two fields the page never reads from the socket. A tool result's
+ * `full_content` is fetched from `/web2/tool-output/...` when its disclosure
+ * opens (its `truncation` meta stays, as the marker that there is one), and
+ * an attachment's `data` bytes are fetched from `/web2/attachment/...`. */
 export interface EntryEnvelope {
   kind: EntryKind;
   entry: {
@@ -187,6 +191,7 @@ export type ClientMsg =
   | { type: 'persona_rows'; filter: string }
   | { type: 'switch_persona'; persona: string }
   | { type: 'toggle_pin'; entry_id: string }
+  | { type: 'more_entries'; before: string }
   | { type: 'applet_rows'; filter: string }
   | { type: 'refresh_models' }
   | { type: 'set_theme'; theme: Theme }
@@ -210,11 +215,20 @@ export type ServerMsg =
       title: string;
       revision: number;
       entries: EntryEnvelope[];
+      /** How many entries of the session precede the oldest one carried. */
+      entries_before: number;
       sessions: SessionRow[];
       library: SessionRow[];
       theme: Theme;
     }
   | { type: 'entry_upsert'; session_id: string; index: number; entry: EntryEnvelope }
+  | {
+      type: 'entries_page';
+      session_id: string;
+      entries: EntryEnvelope[];
+      /** How many entries precede this page's oldest. */
+      entries_before: number;
+    }
   | { type: 'entry_delta'; session_id: string; entry_id: string; field: DeltaField; chunk: string }
   | { type: 'phase'; session_id: string; phase: Phase; queue_len: number }
   | { type: 'sessions'; rows: SessionRow[]; library: SessionRow[] }

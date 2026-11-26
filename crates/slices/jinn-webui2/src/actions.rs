@@ -27,7 +27,7 @@ use jinn_session_store_msg::{
     PersistSession, SessionLoadRequested, SessionTreeEntry, SetSessionLibrary,
 };
 use jinn_webui2_msg::{
-    AppletRowBody, AppletRowsBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
+    AppletRowBody, AppletRowsBody, EntriesPageBody, EntryUpsertBody, ErrorBody, ImageUploadBody,
     LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelRowBody, ModelRowsBody,
     NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PickerRowBody, PickerRowsBody,
     ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
@@ -152,75 +152,121 @@ pub fn malformed() -> Reply {
 
 /// Answers the first frame on every connect.
 ///
-/// Incremental when the page's cursor is an entry of the active session
-/// **and** its revision is the session's current one — nothing but appends
-/// can have happened since. Any other case, including a cursor the session
-/// no longer holds and a revision from before a restart, is a full
-/// [`ServerMsg::Snapshot`]: the page's view is replaced wholesale, so a
-/// wrong guess can never leave a gap.
+/// Incremental when the page's cursor is an entry of the active session,
+/// its revision is the session's current one (nothing but appends can have
+/// happened), **and** what came after the cursor fits one window: the
+/// reply is then just those entries, as upserts. Any other case — a fresh
+/// page, a cursor the session no longer holds, a revision from before a
+/// restart, or a gap larger than one window — answers with the bounded
+/// tail as a [`ServerMsg::Snapshot`]. The page's view is replaced
+/// wholesale there, so a wrong guess can never leave a gap, and a
+/// reconnect can never replay an unbounded stretch of history.
 pub fn hello(
     out: &OutboundHandle,
     last_entry_id: Option<&ChatEntryId>,
     revision: Option<u64>,
 ) -> Reply {
-    let state = out.state();
-    let session_id = state.read().session.active_session_id().clone();
-
-    let Some(cursor_index) = resumable_cursor(state, &session_id, last_entry_id) else {
-        return snapshot_reply(out);
-    };
-    if revision != Some(out.revision(&session_id)) {
-        return snapshot_reply(out);
+    let session_id = out.state().read().session.active_session_id().clone();
+    let resumed = resume_window(
+        out.state(),
+        &session_id,
+        last_entry_id,
+        revision,
+        out.revision(&session_id),
+    );
+    match resumed {
+        Some(window) => {
+            out.mark_delivered(&session_id, &window);
+            Reply {
+                frames: upserts_of(out.state(), &session_id, &window),
+            }
+        }
+        None => snapshot_reply(out),
     }
-
-    let frames = entries_after(state, &session_id, cursor_index);
-    out.mark_delivered(&session_id);
-    Reply { frames }
 }
 
-/// The cursor's position, when the active session still holds it.
-fn resumable_cursor(
+/// The gap after the page's cursor, when a resume is safe.
+///
+/// `None` unless the cursor is held, the revision matches, and the gap
+/// fits one window. The history is read once; the window is built from
+/// that read and the revision checked against the tracker beside it.
+fn resume_window(
     state: &jinn_kernel::State,
     session_id: &SessionId,
     last_entry_id: Option<&ChatEntryId>,
-) -> Option<usize> {
+    revision: Option<u64>,
+    current_revision: u64,
+) -> Option<crate::page::EntryWindow> {
+    let cursor = last_entry_id?;
+    if revision != Some(current_revision) {
+        return None;
+    }
     let guard = state.read();
-    let id = last_entry_id.as_ref()?;
-    guard.session.get(session_id)?.find_entry_index_by_id(id)
+    let session = guard.session.get(session_id)?;
+    let cursor_index = session.find_entry_index_by_id(cursor)?;
+    crate::page::gap_after(session.history(), cursor_index)
 }
 
-/// Every entry after a position, as upserts carrying their live index.
-fn entries_after(
+/// One upsert per entry in a resume gap, each at its live index.
+///
+/// A gap is the run of entries at the very end of the history, so the
+/// index of its *k*-th entry is the history's length minus the entries
+/// after it — no id lookup needed.
+fn upserts_of(
     state: &jinn_kernel::State,
     session_id: &SessionId,
-    cursor_index: usize,
+    gap: &crate::page::EntryWindow,
 ) -> Vec<ServerMsg> {
     let guard = state.read();
     let Some(session) = guard.session.get(session_id) else {
         return Vec::new();
     };
-    session
-        .history()
+    let first_index = session.history().len().saturating_sub(gap.entries.len());
+    gap.entries
         .iter()
         .enumerate()
-        .skip(cursor_index + 1)
-        .map(|(index, entry)| {
+        .map(|(offset, envelope)| {
             ServerMsg::EntryUpsert(Box::new(EntryUpsertBody {
                 session_id: session_id.clone(),
-                index,
-                entry: EntryEnvelope::new(entry.clone()),
+                index: first_index + offset,
+                entry: envelope.clone(),
             }))
         })
         .collect()
 }
 
+/// Answers one page of entries older than the ones the page holds.
+///
+/// `before` names the oldest entry the page holds. It must be an entry of
+/// the active session with something before it; anything else is refused,
+/// since there is no older history to load for it.
+pub fn more_entries(out: &OutboundHandle, before: &ChatEntryId) -> Reply {
+    let guard = out.state().read();
+    let session_id = guard.session.active_session_id().clone();
+    let Some(session) = guard.session.get(&session_id) else {
+        return refused_with("no older entries");
+    };
+    let Some(before_index) = session.find_entry_index_by_id(before) else {
+        return refused_with("no older entries");
+    };
+    let Some(window) = crate::page::page_before(session.history(), before_index) else {
+        return refused_with("no older entries");
+    };
+    drop(guard);
+    out.mark_delivered(&session_id, &window);
+    Reply::one(ServerMsg::EntriesPage(Box::new(EntriesPageBody {
+        session_id,
+        entries: window.entries,
+        entries_before: window.entries_before,
+    })))
+}
+
+/// The bounded-tail snapshot for the active session, recorded as delivered.
 fn snapshot_reply(out: &OutboundHandle) -> Reply {
-    let session_id = out.state().read().session.active_session_id().clone();
-    out.mark_delivered(&session_id);
-    Reply::one(ServerMsg::Snapshot(Box::new(snapshot::snapshot(
-        out.state(),
-        out.revisions(),
-    ))))
+    let frame = snapshot::snapshot(out.state(), out.revisions());
+    let session_id = frame.body.session_id.clone().unwrap_or_default();
+    out.mark_delivered(&session_id, &frame.window);
+    Reply::one(ServerMsg::Snapshot(Box::new(frame.body)))
 }
 
 // ---------------------------------------------------------------------------

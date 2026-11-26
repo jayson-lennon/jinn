@@ -86,7 +86,7 @@ impl jinn_kernel::common::actor_deps::BusPublish for ListenerActor {
 pub(crate) const PAGE_PATH: &str = "/web2";
 
 /// What the dashboard row calls the slice.
-const WEBUI2_ROW_DESCRIPTION: &str = "Web UI 2 (browser transcript, send, cancel)";
+pub(crate) const WEBUI2_ROW_DESCRIPTION: &str = "Web UI 2 (browser transcript, send, cancel)";
 
 /// The address the listener bound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,6 +165,9 @@ pub async fn spawn(
         .attach("bound listener has no local address")
         .change_context(ListenerError::Bind)?;
     let bound = BoundAddress(addr);
+    // The row's note carries the address from here on; the shared state
+    // was built before the bind and could not name it yet.
+    deps.shared.health.bound(bound.connection_note());
 
     let router = crate::server::router(deps.shared.clone());
     let serve_task = tokio::spawn(async move {

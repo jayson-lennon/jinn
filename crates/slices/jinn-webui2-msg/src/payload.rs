@@ -1,12 +1,21 @@
 //! The payload types carried by the two message enums.
 //!
 //! Every field is plain data the browser can render without another round
-//! trip: entries ride as the core `ChatEntry` (its `kind` tag intact), the
-//! phase as the core `PhaseView`, and ids as the core newtypes.
+//! trip: entries ride as a wire projection of the core `ChatEntry` (its
+//! `kind` tag intact), the phase as the core `PhaseView`, and ids as the
+//! core newtypes.
 
 use jinn_core_types::{ChatEntry, ChatEntryId, SessionId};
 use jinn_session_store_msg::SessionState;
 use serde::{Deserialize, Serialize};
+
+/// The most entries a snapshot's transcript tail, or one page of older
+/// entries, carries.
+pub const TAIL_MAX_ENTRIES: usize = 200;
+
+/// The most wire bytes a snapshot's transcript tail, or one page of older
+/// entries, carries — whichever limit is hit first ends the page.
+pub const TAIL_MAX_BYTES: usize = 1_048_576;
 
 /// Which entry field an [`EntryDeltaBody`]'s chunk extends.
 ///
@@ -62,8 +71,14 @@ pub struct SnapshotBody {
     /// in `Hello` so the server can tell a safe incremental resume from
     /// one that needs the whole transcript again.
     pub revision: u64,
-    /// The active session's transcript, in order.
+    /// The newest part of the active session's transcript, in order: at
+    /// most [`TAIL_MAX_ENTRIES`] entries or [`TAIL_MAX_BYTES`] of wire
+    /// bytes, whichever comes first. Older entries load a page at a time
+    /// through `MoreEntries`.
     pub entries: Vec<EntryEnvelope>,
+    /// How many entries precede the oldest one carried — how much older
+    /// history a scroll to the top can still load.
+    pub entries_before: usize,
     /// The loaded sessions the sidebar shows.
     pub sessions: Vec<SessionRowBody>,
     /// The library members the sidebar's Library view shows.
@@ -82,23 +97,148 @@ pub struct SnapshotBody {
 /// to survive, so the envelope names it explicitly with the core's own
 /// `kind_str` vocabulary (`snake_case`) and the browser dispatches on
 /// that name — never on the persisted map's tag.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EntryEnvelope {
     /// The kind's stable snake_case name, from the core `kind_str`.
     pub kind: String,
-    /// The entry, in its persisted serde form.
-    pub entry: ChatEntry,
+    /// The entry, in its wire projection (see [`wire_entry`]).
+    pub entry: WireEntry,
 }
 
 impl EntryEnvelope {
-    /// Wraps an entry, deriving its kind name from the core vocabulary.
+    /// Wraps an entry, deriving its kind name from the core vocabulary and
+    /// carrying its wire projection.
     #[must_use]
-    pub fn new(entry: ChatEntry) -> Self {
+    pub fn new(entry: &ChatEntry) -> Self {
         Self {
             kind: entry.kind_str().to_owned(),
-            entry,
+            entry: WireEntry::project(entry),
         }
     }
+
+    /// The entry's id, read back out of the projection.
+    ///
+    /// A projected entry always carries its id: it is the persisted serde
+    /// form, which has one for every kind. The fallback below is
+    /// unreachable for an envelope this crate built, and is a nil id
+    /// rather than a panic so a hand-built frame can still be inspected.
+    #[must_use]
+    pub fn id(&self) -> ChatEntryId {
+        self.entry
+            .0
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(ChatEntryId::try_from_string)
+            .unwrap_or_default()
+    }
+
+    /// The entry's primary text — what a user or assistant entry says, or
+    /// a tool result's (truncated) output. Empty for kinds with none.
+    #[must_use]
+    pub fn entry_text(&self) -> &str {
+        self.entry
+            .0
+            .get("kind")
+            .and_then(|kind| kind.as_object())
+            .and_then(|kind| kind.values().next())
+            .and_then(|body| {
+                body.get("display")
+                    .or_else(|| body.get("text"))
+                    .or_else(|| body.get("content"))
+                    .or_else(|| body.get("expanded"))
+            })
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+    }
+}
+
+/// The entry as the browser needs it: the persisted serde form with two
+/// heavy fields removed — see [`wire_entry`] for which and why.
+///
+/// A newtype over the projected JSON rather than a bare `ChatEntry`, so
+/// the projection cannot be bypassed by constructing an envelope from the
+/// raw entry. It serializes as the JSON it holds (transparent), and
+/// deserializes from the same shape, so every frame round-trips.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WireEntry(serde_json::Value);
+
+impl WireEntry {
+    /// Projects an entry for the wire.
+    #[must_use]
+    pub fn project(entry: &ChatEntry) -> Self {
+        Self(wire_entry(entry))
+    }
+
+    /// The projected entry as JSON, for a size measurement or a test.
+    #[must_use]
+    pub fn as_json(&self) -> &serde_json::Value {
+        &self.0
+    }
+}
+
+impl Serialize for WireEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for WireEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self(serde_json::Value::deserialize(deserializer)?))
+    }
+}
+
+/// Projects one entry onto the `/web2` wire: the entry's persisted serde
+/// form minus the two fields the browser never reads from the socket.
+///
+/// - `ToolResult.full_content` — a tool result's full untruncated output,
+///   up to hundreds of kilobytes the page only shows inside a collapsed
+///   disclosure. The page fetches it on demand from the tool-output route
+///   when the disclosure opens; `truncation` stays, because its presence
+///   is how the page knows there is a full output to fetch.
+/// - `attachments[*].data` — an attachment's raw bytes, on a user entry or
+///   a tool result alike. The page fetches each image from the attachment
+///   route, because an `<img>` needs an address; the bytes on the socket
+///   were dead weight, serialized as a JSON number array.
+///
+/// The projection is wire-only. The core types' serde form is the session
+/// store's on-disk format and is never changed by this; the strip happens
+/// in the JSON tree after serialization.
+#[must_use]
+pub fn wire_entry(entry: &ChatEntry) -> serde_json::Value {
+    let mut value = serde_json::to_value(entry).unwrap_or(serde_json::Value::Null);
+    let Some(kind) = value
+        .get_mut("kind")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return value;
+    };
+    for body in kind
+        .values_mut()
+        .filter_map(serde_json::Value::as_object_mut)
+    {
+        if body.get("full_content").is_some() {
+            body.remove("full_content");
+        }
+        if let Some(attachments) = body
+            .get_mut("attachments")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for attachment in attachments
+                .iter_mut()
+                .filter_map(serde_json::Value::as_object_mut)
+            {
+                attachment.remove("data");
+            }
+        }
+    }
+    value
 }
 
 /// A whole entry, placed at its position in the transcript.
@@ -115,6 +255,23 @@ pub struct EntryUpsertBody {
     pub index: usize,
     /// The entry.
     pub entry: EntryEnvelope,
+}
+
+/// One page of older entries, answering a `MoreEntries` request.
+///
+/// The entries end just before the entry the page named, in history
+/// order, bounded by the same 200-entries-or-1-MB rule as a snapshot's
+/// tail. `entries_before` counts what precedes the oldest entry in *this*
+/// page, so the browser knows whether another scroll can load more.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntriesPageBody {
+    /// The session the entries belong to: a page that has switched
+    /// sessions drops the frame.
+    pub session_id: SessionId,
+    /// The older entries, in history order.
+    pub entries: Vec<EntryEnvelope>,
+    /// How many entries precede the oldest one carried.
+    pub entries_before: usize,
 }
 
 /// A text chunk extending one of the four streamed entry fields.
