@@ -54,7 +54,9 @@ fn row(title: &str) -> SessionRowBody {
     }
 }
 
-/// Builds one stored-session picker row.
+/// Builds one stored-session picker row: a child row, its title split into
+/// a matched and a plain run, so a round trip proves the tree depth, the
+/// timestamp, and the split all survive.
 fn picker_row(title: &str) -> PickerRowBody {
     PickerRowBody {
         session_id: SessionId::new(),
@@ -62,6 +64,18 @@ fn picker_row(title: &str) -> PickerRowBody {
         state: jinn_session_store_msg::SessionState::Archived,
         parent_id: Some(SessionId::new()),
         project: Some("jinn".to_owned()),
+        depth: 1,
+        updated_at: jiff::Timestamp::UNIX_EPOCH,
+        title_runs: vec![
+            TextRunBody {
+                text: "jinn".to_owned(),
+                matched: true,
+            },
+            TextRunBody {
+                text: title.strip_prefix("jinn").unwrap_or_default().to_owned(),
+                matched: false,
+            },
+        ],
     }
 }
 
@@ -535,7 +549,8 @@ fn server_picker_rows_round_trips() {
 #[rstest]
 #[test]
 fn server_model_rows_round_trips() {
-    // Given model rows answering a filter.
+    // Given model rows answering a filter — the model split into a matched
+    // and a plain run, the provider wholly plain.
     let msg = ServerMsg::ModelRows(ModelRowsBody {
         session_id: SessionId::new(),
         filter: "ll".to_owned(),
@@ -545,6 +560,20 @@ fn server_model_rows_round_trips() {
             provider_name: "ollama".to_owned(),
             is_available: true,
             is_active: true,
+            model_runs: vec![
+                TextRunBody {
+                    text: "ll".to_owned(),
+                    matched: true,
+                },
+                TextRunBody {
+                    text: "ama3".to_owned(),
+                    matched: false,
+                },
+            ],
+            provider_runs: vec![TextRunBody {
+                text: "ollama".to_owned(),
+                matched: false,
+            }],
         }],
     });
 

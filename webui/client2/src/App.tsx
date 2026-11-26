@@ -14,8 +14,8 @@ import { type ClientStore, apply, newestEntryId, createStore } from './store';
 import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry } from './transcript';
 import { Menu, type MenuItem, type MenuGroup } from './menu';
+import { McpModal, PersonaModal, Runs, ToolsModal } from './pickers';
 import { SkillsModal } from './skills';
-import { McpModal, PersonaModal, ToolsModal } from './pickers';
 import { Composer } from './composer';
 import { SessionRail } from './rail';
 import { NewSessionModal } from './new-session';
@@ -394,11 +394,23 @@ function ModelPicker(props: { store: ClientStore; send: Send; onClose: () => voi
   };
   // A refresh asks the registry to rediscover. The button stays busy until
   // the store's `refreshing` flag clears — which a pushed `model_rows`
-  // frame does when discovery lands.
+  // frame does when discovery lands. The press is also gated by a plain
+  // flag: store writes are batched, so a second click in the same tick
+  // would still read `refreshing` as false and send a second refresh.
+  let pressing = false;
   const refresh = (): void => {
+    if (pressing || props.store.state.refreshing) return;
+    pressing = true;
     props.store.set((s) => { s.refreshing = true; });
     props.send({ type: 'refresh_models' });
   };
+  // The pushed rows that clear the store's busy state re-arm the press.
+  createEffect(
+    () => props.store.state.refreshing,
+    (refreshing) => {
+      if (!refreshing) pressing = false;
+    },
+  );
   const refreshing = (): boolean => props.store.state.refreshing;
   return (
     <div class="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) props.onClose(); }}>
@@ -428,9 +440,9 @@ function ModelPicker(props: { store: ClientStore; send: Send; onClose: () => voi
             {(row) => (
               <li>
                 <button data-testid="model-row" disabled={!row.is_available} onClick={() => pick(row)}>
-                  <span class="session-title">{row.model}</span>
+                  <span class="session-title"><Runs runs={row.model_runs} /></span>
                   <span class="session-meta">
-                    {row.provider_name}
+                    <Runs runs={row.provider_runs} />
                     <Show when={row.is_active}> · current</Show>
                     <Show when={!row.is_available}> · unavailable</Show>
                   </span>

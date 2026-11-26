@@ -13,6 +13,9 @@ description = "The wire contract for the second web UI: the two tagged message e
 jinn-core-types = { workspace = true }
 jinn-session-store-msg = { workspace = true }
 jinn-slices = { workspace = true }
+# The stored-session picker's row carries the store's own timestamp, which
+# the browser formats in its zone.
+jiff = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]

@@ -11,6 +11,7 @@
 
 import { test as base, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { bootJinn, restartJinn, scratchSkill, teardownJinn } from "./harness.mjs";
 
@@ -35,6 +36,11 @@ export const sel = {
   MODEL_FILTER: '[data-testid="model-filter"]',
   OPEN_PICKER: '[data-testid="open-picker"]',
   PICKER_ROW: '[data-testid="picker-row"]',
+  PICKER_FILTER: '[data-testid="picker-filter"]',
+  /** One picker row, by its depth in the tree. */
+  PICKER_ROW_AT_DEPTH: (depth) => `[data-testid="picker-row"][data-depth="${depth}"]`,
+  /** One picker row, by its stored state. */
+  PICKER_ROW_IN_STATE: (state) => `[data-testid="picker-row"][data-state="${state}"]`,
   MENU_BUTTON: '[data-testid="menu-button"]',
   MENU_PANEL: '[data-testid="menu-panel"]',
   MENU_SCRIM: '[data-testid="menu-scrim"]',
@@ -314,6 +320,38 @@ export function archiveSession(jinn, id) {
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
+}
+
+/**
+ * Seeds a session forked from `parentId` directly in the scratch store —
+ * a row whose `parent_session` names its parent, and nothing else, which
+ * is all the session tree reads. `/web2` has no fork gesture, so the
+ * store is arranged the way a fork leaves it.
+ *
+ * A test that needs the row listed follows this with `restartJinn`: the
+ * picker reads the store, and a running instance has already cached its
+ * summaries.
+ *
+ * @param {{ root: string }} jinn the test's own instance.
+ * @param {string} parentId the session the new one is forked from.
+ * @param {string} title the child's title.
+ * @returns {string} the child's id.
+ */
+export function seedChildSession(jinn, parentId, title) {
+  if (!/^[0-9a-f-]{36}$/i.test(parentId)) {
+    throw new Error(`seedChildSession: not a session id: ${parentId}`);
+  }
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  execFileSync(
+    "sqlite3",
+    [
+      path.join(jinn.root, "db", "state.db"),
+      `INSERT INTO sessions (id, title, updated_at, created_at, parent_session) VALUES ('${id}', '${title.replace(/'/g, "''")}', '${now}', '${now}', '${parentId}');`,
+    ],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+  return id;
 }
 
 /**
