@@ -101,6 +101,9 @@ function SkillRowView(props: {
           <span class="skill-row-name">
             <Runs runs={row().name_runs} />
           </span>
+          <span class="skill-row-sep" aria-hidden="true">
+            -
+          </span>
           <span class="skill-row-description">
             <Runs runs={row().description_runs} />
           </span>

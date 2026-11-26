@@ -234,3 +234,41 @@ test.with({ skill: true })("a loaded skill's + button is disabled, so it cannot 
   // same body twice. The server still guards a repeat frame on its own.
   await expect(row.locator("[data-testid=\"skill-load\"]")).toBeDisabled();
 });
+
+test.with({ skill: true })("each skill renders on one line with the + at the end", async ({
+  page,
+}) => {
+  // Given the open skills modal listing the staged skill, at a desktop
+  // width.
+  await page.setViewportSize({ width: 1100, height: 720 });
+  await openSkills(page);
+  const row = page.locator(sel.SKILL_ROW_NAMED(SKILL_NAME));
+  await expect(row).toBeVisible({ timeout: 15_000 });
+
+  // Then the marker, name, separator and description share one centre
+  // line, and the + is a small square flush with the row's end.
+  const line = await row.evaluate((el) => {
+    const box = (node) => {
+      const r = node.getBoundingClientRect();
+      return {
+        cy: Math.round(r.y + r.height / 2),
+        right: Math.round(r.right),
+        w: Math.round(r.width),
+        h: Math.round(r.height),
+      };
+    };
+    const rowBox = box(el);
+    const text = ["marker", "name", "sep", "description"].map((part) =>
+      box(el.querySelector(`.skill-row-${part}`)),
+    );
+    const load = box(el.querySelector(".skill-load"));
+    return {
+      centres: new Set(text.map((part) => part.cy)).size,
+      loadSquare: load.w === load.h,
+      loadFlush: rowBox.right - load.right <= 14,
+    };
+  });
+  expect(line.centres).toBe(1);
+  expect(line.loadSquare).toBe(true);
+  expect(line.loadFlush).toBe(true);
+});
