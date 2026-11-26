@@ -6,6 +6,7 @@
 - Dashboard now shows link to webui.
 - `#plan` and `#goal` prompts should use shorter questions and more concise language.
 - `#plan` and `#goal` prompts will now short-circuit on ambiguous requests to ask what you meant.
+- (webui) Add ability to archive sessions (kebab menu + hamburger menu)
 - (webui) Add messaging pinning functionality.
 
 

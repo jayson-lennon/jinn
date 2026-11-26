@@ -79,7 +79,6 @@ export function Composer(props: ComposerProps): JSX.Element {
     // The message appears now; the server's own entry replaces it.
     if (text.trim() !== '') addOptimistic(props.store, text);
     clearComposer(props.store);
-    props.store.set((s) => { s.error = null; });
     props.send({ type: busy() ? 'queue' : 'send', text, images });
   };
 
@@ -166,11 +165,6 @@ export function Composer(props: ComposerProps): JSX.Element {
           </Show>
         </div>
       </div>
-      <Show when={props.store.state.error}>
-        <div class="composer-error" role="alert" data-testid="composer-error">
-          {props.store.state.error}
-        </div>
-      </Show>
     </footer>
   );
 }
