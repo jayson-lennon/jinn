@@ -180,9 +180,9 @@ mod handlers;
 
 #[cfg(test)]
 pub(crate) use handlers::{
-    applets_rescanned, applets_serving_changed, archive_failed, flush,
-    follow_active_session, library_membership_changed, mcp_runtime_stored,
-    model_cache_stored, reconcile, sessions_changed, skills_loaded,
+    applets_rescanned, applets_serving_changed, archive_failed, flush, follow_active_session,
+    library_membership_changed, mcp_runtime_stored, model_cache_stored, reconcile,
+    sessions_changed, skills_loaded,
 };
 
 /// The outbound actor.
