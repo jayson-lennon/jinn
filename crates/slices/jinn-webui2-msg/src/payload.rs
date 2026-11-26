@@ -165,6 +165,8 @@ pub struct TitleBody {
 ///
 /// Richer than a sidebar row: the picker shows sessions that are not
 /// loaded, so it carries the stored state, the parent, and the project.
+/// The rows are a tree in display order: each names its `depth` so the
+/// browser can indent a forked session under its parent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PickerRowBody {
     /// The session.
@@ -177,6 +179,14 @@ pub struct PickerRowBody {
     pub parent_id: Option<SessionId>,
     /// The project directory's display name, when the session has one.
     pub project: Option<String>,
+    /// How deep the row sits in the visible tree: 0 for a root, one more
+    /// for each level under a parent.
+    pub depth: usize,
+    /// When the session was last modified, as the store holds it. The
+    /// browser formats it in its own zone.
+    pub updated_at: jiff::Timestamp,
+    /// The title, split into matched and plain runs for the filter.
+    pub title_runs: Vec<TextRunBody>,
 }
 
 /// The stored-session picker's rows for one filter.
@@ -226,6 +236,10 @@ pub struct ErrorBody {
 }
 
 /// One row of the model picker.
+///
+/// The model and provider names arrive split into matched and plain runs
+/// so the browser can highlight what the filter hit — the same split the
+/// terminal picker draws, from the same shared filter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelRowBody {
     /// The full row id — what a `SwitchModel` sends back.
@@ -238,6 +252,10 @@ pub struct ModelRowBody {
     pub is_available: bool,
     /// Whether this row is the session's current model.
     pub is_active: bool,
+    /// The model name, split into runs the filter matched and plain runs.
+    pub model_runs: Vec<TextRunBody>,
+    /// The provider name, split the same way.
+    pub provider_runs: Vec<TextRunBody>,
 }
 
 /// One run of a skill row's text: a stretch the filter matched, or did

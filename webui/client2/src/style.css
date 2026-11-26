@@ -722,6 +722,15 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   white-space: nowrap;
 }
 .picker-rows .picker-row mark { background: transparent; color: var(--accent); font-weight: 600; }
+/* The model and session pickers draw a plain `.modal-list` row; their
+   matched runs highlight the same way the picker rows above do. */
+.modal-list mark { background: transparent; color: var(--accent); font-weight: 600; }
+
+/* The stored-session picker is a tree: each row is indented by its depth
+   (an inline style from the page) and shows its title over a smaller,
+   muted date-and-project line. Archived rows dim, as in the terminal. */
+.session-pick .session-title { min-width: 0; }
+.session-pick[data-state='archived'] { color: var(--fg-dim); }
 
 /* Tools: ✓ / ✗, a disabled row muted. */
 .tool-row[data-enabled='true'] .picker-marker { color: var(--accent); }

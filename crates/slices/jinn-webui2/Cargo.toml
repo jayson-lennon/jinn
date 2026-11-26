@@ -87,6 +87,9 @@ jinn-testutil = { workspace = true }
 jinn-cell-catalog = { workspace = true }
 # Test sessions carry the store's own timestamp type.
 jiff = { workspace = true }
+# The tree tests build picker entries, which carry a theme the rows never
+# read on this surface.
+jinn-theme = { workspace = true }
 # The queue-depth tests put real items on a session's turn queue, the way
 # the session actor does on a busy-phase enqueue; the item type is this
 # crate's and is not re-exported by anything /web2 depends on in production.
