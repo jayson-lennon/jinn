@@ -62,6 +62,9 @@ struct ActorFixture {
     /// normalizes the persisted persona against it, so a test asserting
     /// that seed reads the same cell the actor reads.
     personas: jinn_slices::cell::TypedCell<jinn_persona_msg::Personas>,
+    /// The sidebar sections cell, from the same `Slices` — the archive path
+    /// reads the cursor's last row from it to land the active pointer.
+    sections_cell: jinn_slices::cell::TypedCell<jinn_sidebar_msg::SidebarSections>,
 }
 
 impl ActorFixture {
@@ -122,7 +125,22 @@ async fn actor_fixture() -> ActorFixture {
         .slices
         .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
         .expect("the cell catalog registers the personas slot");
+    // The sidebar sections cell, from the same `Slices` — the same reason as
+    // `status_bar`. An archive of the active session lands the pointer on the
+    // row this cell's cursor last occupied, so a test pinning that rule
+    // writes the row through the cell the actor reads.
+    let sections_cell = services
+        .slices
+        .reader::<jinn_sidebar_msg::SidebarSections>(&jinn_sidebar_msg::sidebar_sections_slot())
+        .expect("the cell catalog registers the sidebar sections slot");
     let state = State::new(AppState::default());
+    // The actor reads the cursor row through the frontend's attached
+    // registry, so the fixture's frontend carries the actor's own — without
+    // this the actor's read falls back to "no row captured" in every test.
+    state
+        .write()
+        .frontend
+        .attach_slices(services.slices.clone());
     let app_state_storage = services.app_state_storage.clone();
     let config = services.config.clone();
     let actor_path = SessionStoreActor::spawn(
@@ -149,6 +167,7 @@ async fn actor_fixture() -> ActorFixture {
         actor_path,
         library_cell,
         personas,
+        sections_cell,
     }
 }
 
@@ -4120,12 +4139,246 @@ async fn archive_that_leaves_others_listed_inserts_nothing_and_keeps_active() {
     assert!(removed, "the archived session must leave the map");
 
     // Then nothing was inserted: the two remaining listed sessions cover
-    // the list. (Where the map's own retarget lands the active id among its
-    // residents is the map's documented nondeterministic choice, not this
-    // repair's subject.)
+    // the list, so the repair has nothing to do. (Which of them the active
+    // id lands on is the removal's own successor rule, pinned by the
+    // archiving_the_active_session_* tests rather than here.)
     let state = fixture.state.read();
     assert_eq!(state.session.session_count(), 3);
     assert_eq!(listed_count(&fixture), 2);
+}
+
+// ---------------------------------------------------------------------------
+// The successor an archived active session lands on: the row the sidebar's
+// cursor last occupied, clamped to the shortened list, with no captured row
+// the first visible row. The same row the TUI's own removal repair lands on,
+// so one archive leaves every surface on the same session.
+// ---------------------------------------------------------------------------
+
+/// Arranges three listed sessions with distinct creation times and returns
+/// their ids in **visible** order — newest root first, the order the
+/// sidebar draws them and the order the successor rule indexes by.
+///
+/// Every other resident (the fixture's opening session) is moved into the
+/// library so it is never listed and never a candidate.
+async fn three_listed_sessions(fixture: &ActorFixture) -> Vec<SessionId> {
+    let oldest = insert_listed_session(fixture, "row two").await;
+    let middle = insert_listed_session(fixture, "row one").await;
+    let newest = insert_listed_session(fixture, "row zero").await;
+    for (index, id) in [&oldest, &middle, &newest].into_iter().enumerate() {
+        fixture.state.with_session(|view| {
+            view.session
+                .map()
+                .get_mut(id)
+                .expect("inserted session is in the map")
+                .restore_created_at(
+                    jiff::Timestamp::from_second(1_000_000_000 + index as i64 * 86_400)
+                        .expect("valid creation time"),
+                );
+        });
+    }
+    flag_all_but_one_as_members(fixture, &oldest);
+    fixture.state.with_session(|view| {
+        for id in [&middle, &newest] {
+            view.session
+                .map()
+                .get_mut(id)
+                .expect("inserted session is in the map")
+                .set_in_library(false);
+        }
+    });
+    vec![newest, middle, oldest]
+}
+
+/// The listed sessions in the sidebar's visible-tree order, read through the
+/// same projection the archive path resolves its successor row with.
+fn visible_listed(fixture: &ActorFixture) -> Vec<SessionId> {
+    let state = fixture.state.read();
+    let nodes: Vec<jinn_session_list::SessionTreeNode> = state
+        .session
+        .iter()
+        .filter(|(_, session)| session.is_listed())
+        .map(|(id, session)| jinn_session_list::SessionTreeNode {
+            id: id.clone(),
+            created_at: *session.created_at(),
+            parent_id: session.parent_session().clone(),
+        })
+        .collect();
+    drop(state);
+    jinn_session_list::visible_session_tree(
+        nodes
+            .into_iter()
+            .map(|node| jinn_session_list::SessionEntry {
+                kind: jinn_session_list::SessionEntryKind::Session,
+                id: node.id,
+                title: String::new(),
+                is_active: false,
+                created_at: node.created_at,
+                is_idle: true,
+                last_entry_is_error: false,
+                parent_id: node.parent_id,
+                depth: 0,
+                ancestor_continuations: vec![],
+                is_last_child: false,
+                is_subagent: false,
+                is_bot: false,
+                is_bot_prepping: false,
+                bot_fires_on_parent_completion: false,
+                has_live_term: false,
+                is_in_flight: false,
+            })
+            .collect(),
+        &std::collections::HashMap::new(),
+    )
+    .into_iter()
+    .map(|entry| entry.id)
+    .collect()
+}
+
+/// Records the sidebar cursor's last occupied row, the way a rendered frame
+/// does, so an archive of the active session lands on it.
+fn capture_cursor_row(fixture: &ActorFixture, row: usize) {
+    fixture
+        .sections_cell
+        .update(|sections| sections.sessions.last_cursor_row = Some(row));
+}
+
+/// Makes `id` the active session.
+fn activate(fixture: &ActorFixture, id: &SessionId) {
+    fixture.state.with_session(|view| {
+        view.session.map().set_active(id.clone());
+    });
+}
+
+/// Publishes `ArchiveSession` for `id` and waits for the actor to finish.
+async fn archive(fixture: &ActorFixture, id: &SessionId) {
+    fixture
+        .harness
+        .publish(ArchiveSession {
+            session_id: id.clone(),
+        })
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+}
+
+/// The active session's id.
+fn active(fixture: &ActorFixture) -> SessionId {
+    fixture.state.read().session.active_session_id().clone()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archiving_the_active_session_lands_on_the_cursor_row() {
+    // Given three listed sessions, the cursor's last row captured at the
+    // last of them, and the first one active.
+    let fixture = actor_fixture().await;
+    let rows = three_listed_sessions(&fixture).await;
+    assert_eq!(visible_listed(&fixture), rows, "the arrangement's order");
+    capture_cursor_row(&fixture, 2);
+    activate(&fixture, &rows[0]);
+
+    // When the active session is archived.
+    archive(&fixture, &rows[0]).await;
+
+    // Then the session drawn at the cursor's row — before the list shrank —
+    // is the active one.
+    assert_eq!(active(&fixture), rows[2]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archiving_the_active_session_with_no_captured_row_lands_on_the_first_listed() {
+    // Given three listed sessions with no cursor row ever captured, and the
+    // last one active.
+    let fixture = actor_fixture().await;
+    let rows = three_listed_sessions(&fixture).await;
+    activate(&fixture, &rows[2]);
+
+    // When the active session is archived.
+    archive(&fixture, &rows[2]).await;
+
+    // Then the session at the first visible row is the active one.
+    assert_eq!(active(&fixture), rows[0]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archiving_the_active_session_clamps_a_stale_cursor_row() {
+    // Given three listed sessions and a captured cursor row far past the
+    // end of the list.
+    let fixture = actor_fixture().await;
+    let rows = three_listed_sessions(&fixture).await;
+    capture_cursor_row(&fixture, 5);
+    activate(&fixture, &rows[2]);
+
+    // When the active session is archived.
+    archive(&fixture, &rows[2]).await;
+
+    // Then the row clamps to the last one that remains.
+    assert_eq!(active(&fixture), rows[1]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archiving_an_inactive_session_keeps_the_active_session() {
+    // Given three listed sessions, the first active, cursor on the last row.
+    let fixture = actor_fixture().await;
+    let rows = three_listed_sessions(&fixture).await;
+    capture_cursor_row(&fixture, 2);
+    activate(&fixture, &rows[0]);
+
+    // When a session the user is not reading is archived.
+    archive(&fixture, &rows[1]).await;
+
+    // Then the active session is still the one it was.
+    assert_eq!(active(&fixture), rows[0]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archiving_the_active_session_announces_the_new_active_session() {
+    // Given a recorder for activations, three listed sessions, the cursor's
+    // row captured, and the first one active.
+    let fixture = actor_fixture().await;
+    let activations = fixture
+        .harness
+        .spawn_recorder::<ActiveSessionChanged>()
+        .await;
+    let rows = three_listed_sessions(&fixture).await;
+    capture_cursor_row(&fixture, 2);
+    activate(&fixture, &rows[0]);
+
+    // When the active session is archived.
+    archive(&fixture, &rows[0]).await;
+
+    // Then exactly one activation is announced, naming the successor.
+    let announced = await_recorded(&activations, 1, Duration::from_secs(2)).await;
+    assert_eq!(announced.len(), 1);
+    assert_eq!(announced[0].session_id, rows[2]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archiving_an_inactive_session_announces_no_activation() {
+    // Given a recorder for activations, three listed sessions, and the
+    // first one active.
+    let fixture = actor_fixture().await;
+    let activations = fixture
+        .harness
+        .spawn_recorder::<ActiveSessionChanged>()
+        .await;
+    let rows = three_listed_sessions(&fixture).await;
+    activate(&fixture, &rows[0]);
+
+    // When a session the user is not reading is archived.
+    archive(&fixture, &rows[1]).await;
+
+    // Then no activation is announced.
+    assert!(activations.is_empty());
 }
 
 #[rstest::rstest]

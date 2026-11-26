@@ -64,6 +64,10 @@ export function SessionRail(props: RailProps): JSX.Element {
     props.send({ type: 'set_library', session_id: id, in_library: inLibrary });
     setMenuFor(null);
   };
+  const archive = (id: string): void => {
+    props.send({ type: 'archive_session', session_id: id });
+    setMenuFor(null);
+  };
 
   // Escape closes the top overlay: the kebab popup, then the drawer. The
   // menu and every modal register their own listener and stop the event
@@ -172,6 +176,14 @@ export function SessionRail(props: RailProps): JSX.Element {
                           onClick={() => setLibrary(row.session_id, !row.in_library)}
                         >
                           {row.in_library ? 'remove from library' : 'add to library'}
+                        </button>
+                        <button
+                          type="button"
+                          class="row-menu-item"
+                          data-testid="row-menu-archive"
+                          onClick={() => archive(row.session_id)}
+                        >
+                          archive
                         </button>
                       </div>
                     </Show>
