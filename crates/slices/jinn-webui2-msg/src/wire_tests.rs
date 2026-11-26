@@ -1531,6 +1531,23 @@ fn client_create_session_round_trips() {
 
 #[rstest]
 #[test]
+fn client_toggle_pin_round_trips() {
+    // Given a pin toggle naming one entry.
+    let entry_id = ChatEntryId::new();
+    let msg = ClientMsg::TogglePin {
+        entry_id: entry_id.clone(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the entry id survives and the wire tag is `toggle_pin`.
+    assert_eq!(back, msg);
+    assert_eq!(json_of_client(&back)["type"], "toggle_pin");
+}
+
+#[rstest]
+#[test]
 fn server_new_session_options_round_trips() {
     // Given the form's choices: two projects and a lifecycle taking one named arg.
     let msg = ServerMsg::NewSessionOptions(NewSessionOptionsBody {
