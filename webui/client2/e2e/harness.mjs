@@ -138,11 +138,12 @@ models = ["second-model"]
  * port; the original UI is fail-fast on a taken port and every jinn
  * boots it.
  *
- * The project entry and the lifecycle script exist for one spec: a
- * session-activation test needs a second session in the store, `/web2`
- * has no new-session message, and the original UI's new-session modal
- * creates one — but only against a configured project, offering no
- * submit control without it.
+ * The project entry and the lifecycle script exist for the new-session
+ * specs: `/web2`'s modal creates a session only against a configured
+ * project, and offers no submit control without one. The lifecycle's
+ * setup takes a NAMED argument so one spec can assert the page shows the
+ * template's own spelling of it rather than a label made up from its
+ * position.
  *
  * With `mcp` staged, an `[mcp.e2e-echo]` entry points at the repo's
  * debug binary serving the scratch echo tool over stdio (`jinn luau
@@ -170,7 +171,7 @@ path = "~/e2e-scratch"
 
 [[session_lifecycle.script]]
 name = "echo-setup"
-setup_command = "echo $1"
+setup_command = "echo <greeting>"
 ${mcpEntry}`;
 }
 

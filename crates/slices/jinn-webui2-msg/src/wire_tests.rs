@@ -361,6 +361,7 @@ fn server_snapshot_round_trips() {
         phase: PhaseBody {
             session_id: session.clone(),
             phase: PhaseView::Streaming,
+            queue_len: 0,
         },
         model_label: "ollama/llama3".to_owned(),
         title: "title".to_owned(),
@@ -391,6 +392,7 @@ fn server_snapshot_without_active_session_round_trips() {
         phase: PhaseBody {
             session_id: session,
             phase: PhaseView::Idle,
+            queue_len: 0,
         },
         model_label: String::new(),
         title: String::new(),
@@ -456,6 +458,7 @@ fn server_phase_round_trips() {
     let msg = ServerMsg::Phase(PhaseBody {
         session_id: session,
         phase: PhaseView::Cancelling,
+        queue_len: 0,
     });
 
     // When it round-trips.
@@ -821,6 +824,7 @@ fn server_variant_carries_its_snake_case_tag() {
     let phase = PhaseBody {
         session_id: session.clone(),
         phase: PhaseView::Idle,
+        queue_len: 0,
     };
     let messages = [
         (
@@ -1110,6 +1114,7 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
         phase: PhaseBody {
             session_id: session.clone(),
             phase: PhaseView::Idle,
+            queue_len: 0,
         },
         model_label: String::new(),
         title: String::new(),
@@ -1433,12 +1438,13 @@ fn client_create_session_round_trips() {
 #[rstest]
 #[test]
 fn server_new_session_options_round_trips() {
-    // Given the form's choices: two projects and a lifecycle taking one arg.
+    // Given the form's choices: two projects and a lifecycle taking one named arg.
     let msg = ServerMsg::NewSessionOptions(NewSessionOptionsBody {
         projects: vec!["~/a".to_owned(), "~/b".to_owned()],
         lifecycles: vec![LifecycleOptionBody {
             name: "setup".to_owned(),
             param_count: 1,
+            params: vec!["<name>".to_owned()],
         }],
     });
 
@@ -1475,6 +1481,7 @@ fn snapshot_carries_its_library_rows_and_theme() {
         phase: PhaseBody {
             session_id: session,
             phase: PhaseView::Idle,
+            queue_len: 0,
         },
         model_label: String::new(),
         title: String::new(),

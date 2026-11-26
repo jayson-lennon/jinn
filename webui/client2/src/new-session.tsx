@@ -9,7 +9,7 @@
 
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientMsg } from './protocol';
+import type { ClientMsg, LifecycleOption } from './protocol';
 import type { ClientStore } from './store';
 
 export interface NewSessionModalProps {
@@ -41,10 +41,12 @@ export function NewSessionModal(props: NewSessionModalProps): JSX.Element {
 
   // The selected lifecycle's argument minimum; the field shows only when
   // a lifecycle declares at least one.
-  const paramCount = (): number =>
-    lifecycles().find((option) => option.name === lifecycle())?.param_count ?? 0;
-  const argTokens = (): string =>
-    Array.from({ length: paramCount() }, (_, at) => `$${at + 1}`).join(' ');
+  const chosen = (): LifecycleOption | undefined =>
+    lifecycles().find((option) => option.name === lifecycle());
+  const paramCount = (): number => chosen()?.param_count ?? 0;
+  // What the setup's template actually calls each argument: `<branch>`,
+  // not a label the page made up from its position.
+  const argTokens = (): string => (chosen()?.params ?? []).join(' ');
 
   // Escape closes the modal. The listener is removed on unmount so a closed
   // modal never swallows the key another overlay wants.

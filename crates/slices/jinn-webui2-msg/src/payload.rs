@@ -137,6 +137,10 @@ pub struct PhaseBody {
     pub session_id: SessionId,
     /// The phase.
     pub phase: jinn_slices::PhaseView,
+    /// How many messages are waiting behind the running turn. The page
+    /// shows it so a queued message is not simply gone: a queued entry
+    /// does not enter the transcript until its turn runs.
+    pub queue_len: usize,
 }
 
 /// The current model label, corrected by the server when a switch lands.
@@ -455,11 +459,16 @@ pub struct NewSessionOptionsBody {
 /// One project or lifecycle option the new-session form lists.
 ///
 /// A named struct: a tuple has no field names on the wire, and the
-/// browser reads `name` and `param_count` by name.
+/// browser reads `name`, `param_count`, and `params` by name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LifecycleOptionBody {
     /// The lifecycle's name — what a `CreateSession` sends back.
     pub name: String,
     /// How many arguments its setup requires. 0 hides the arguments field.
     pub param_count: usize,
+    /// Each argument as the setup's template spells it, in order — `<branch>`
+    /// for a named placeholder, `$1` for a positional one. What the page
+    /// shows so the user knows which argument is which; a count alone
+    /// cannot say.
+    pub params: Vec<String>,
 }

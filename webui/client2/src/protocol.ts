@@ -63,6 +63,8 @@ export interface LifecycleOption {
   name: string;
   /** How many arguments its setup requires; 0 hides the arguments field. */
   param_count: number;
+  /** Each argument as the setup's template spells it, in order. */
+  params: string[];
 }
 
 export interface PickerRow {
@@ -179,7 +181,7 @@ export type ServerMsg =
       type: 'snapshot';
       protocol: number;
       session_id: string | null;
-      phase: { session_id: string; phase: Phase };
+      phase: { session_id: string; phase: Phase; queue_len: number };
       model_label: string;
       title: string;
       revision: number;
@@ -190,7 +192,7 @@ export type ServerMsg =
     }
   | { type: 'entry_upsert'; session_id: string; index: number; entry: EntryEnvelope }
   | { type: 'entry_delta'; session_id: string; entry_id: string; field: DeltaField; chunk: string }
-  | { type: 'phase'; session_id: string; phase: Phase }
+  | { type: 'phase'; session_id: string; phase: Phase; queue_len: number }
   | { type: 'sessions'; rows: SessionRow[]; library: SessionRow[] }
   | { type: 'model'; session_id: string; label: string }
   | { type: 'title'; session_id: string; title: string }

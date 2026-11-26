@@ -1479,6 +1479,113 @@ fn a_lazily_created_entry_reaches_the_page_before_its_first_delta() {
 
 #[rstest::rstest]
 #[test]
+fn a_refresh_summary_written_without_a_history_event_reaches_the_page() {
+    // Given a connected page, shown a session with nothing pending, and then
+    // the provider actor writing a refresh summary into history on its own —
+    // no history event, the way a real refresh lands.
+    let mut page = connected_page();
+    let _ = flush_frames(&mut page);
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .push_entry(jinn_core_types::ChatEntry::transient("| ollama | 3 | ✅ |"));
+
+    // When the model cache lands.
+    crate::outbound::model_cache_stored(&page.handle);
+
+    // Then the page is sent the summary it was never told about.
+    let frames = drain(&mut page.inbox);
+    let [ServerMsg::EntryUpsert(upsert)] = frames.as_slice() else {
+        panic!("expected one upsert, got {frames:?}");
+    };
+    // `upsert.entry` is the wire envelope; the persisted entry is inside it.
+    let jinn_core_types::ChatEntryKind::Transient(text) = &upsert.entry.entry.kind else {
+        panic!(
+            "expected a transient entry, got {:?}",
+            upsert.entry.entry.kind
+        );
+    };
+    assert!(text.contains("ollama"), "summary missing: {text}");
+}
+
+/// Puts `count` messages behind the running turn, as the session actor does
+/// when it receives an enqueue while busy.
+fn queue_messages(page: &Page, texts: &[&str]) {
+    let mut guard = page.state.write();
+    let session = guard.session.active_session_mut();
+    for text in texts {
+        session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+            jinn_core_types::ChatEntry::user(*text),
+        )));
+    }
+}
+
+#[rstest::rstest]
+#[test]
+fn a_queued_message_reaches_the_page_as_the_queue_depth_on_the_next_tick() {
+    // Given a streaming session with an empty queue, already flushed once.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    let _ = flush_frames(&mut page);
+
+    // When a message is queued behind the running turn.
+    queue_messages(&page, &["behind the turn"]);
+    let frames = flush_frames(&mut page);
+
+    // Then the page is told the depth is one.
+    let [ServerMsg::Phase(phase)] = frames.as_slice() else {
+        panic!("expected one phase frame, got {frames:?}");
+    };
+    assert_eq!(phase.queue_len, 1);
+}
+
+#[rstest::rstest]
+#[test]
+fn two_queued_messages_report_a_depth_of_two() {
+    // Given a streaming session with an empty queue, already flushed once.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    let _ = flush_frames(&mut page);
+
+    // When two messages are queued behind the running turn.
+    queue_messages(&page, &["first", "second"]);
+    let frames = flush_frames(&mut page);
+
+    // Then the page is told the depth is two.
+    let depth = frames
+        .iter()
+        .find_map(|frame| match frame {
+            ServerMsg::Phase(phase) => Some(phase.queue_len),
+            _ => None,
+        })
+        .expect("a phase frame");
+    assert_eq!(depth, 2);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_tick_with_an_unchanged_queue_sends_no_phase_frame() {
+    // Given a streaming session with one queued message, already told to the page.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    queue_messages(&page, &["waiting"]);
+    let _ = flush_frames(&mut page);
+
+    // When the tick runs again and nothing about the queue changed.
+    let frames = flush_frames(&mut page);
+
+    // Then no phase frame repeats the depth the page already holds.
+    assert!(
+        frames
+            .iter()
+            .all(|frame| !matches!(frame, ServerMsg::Phase(_))),
+        "unexpected phase frame in {frames:?}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
 fn a_flush_with_no_new_text_sends_nothing() {
     // Given a streaming session whose text was already flushed once.
     let mut page = connected_page();
@@ -3603,13 +3710,46 @@ fn new_session_options_list_the_configured_projects_and_lifecycles() {
     // When the page asks for the form's choices.
     let reply = actions::new_session_options(&h.handle);
 
-    // Then the project and the lifecycle are listed with its argument count.
+    // Then the project and the lifecycle are listed, with how many arguments
+    // its setup takes and the template's own spelling of each.
     let [ServerMsg::NewSessionOptions(options)] = reply.frames.as_slice() else {
         panic!("expected options, got {reply:?}");
     };
     assert_eq!(options.projects, ["/tmp/demo-project"]);
     assert_eq!(options.lifecycles[0].name, "kickoff");
     assert_eq!(options.lifecycles[0].param_count, 2);
+    assert_eq!(options.lifecycles[0].params, ["$1", "$2"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn new_session_options_name_a_named_placeholder_as_the_template_spells_it() {
+    // Given a lifecycle whose setup takes a named argument.
+    let h = harness_seeded(
+        empty_providers(),
+        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
+        &Seed {
+            projects: vec![demo_project()],
+            lifecycles: vec![jinn_preferences_config::schemas::SessionLifecycle {
+                name: "kickoff".to_owned(),
+                description: None,
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "deploy.sh <branch>".to_owned(),
+                )),
+                teardown: None,
+            }],
+            ..Seed::default()
+        },
+    );
+
+    // When the page asks for the form's choices.
+    let reply = actions::new_session_options(&h.handle);
+
+    // Then the argument is named as the template spells it.
+    let [ServerMsg::NewSessionOptions(options)] = reply.frames.as_slice() else {
+        panic!("expected options, got {reply:?}");
+    };
+    assert_eq!(options.lifecycles[0].params, ["<branch>"]);
 }
 
 #[rstest::rstest]

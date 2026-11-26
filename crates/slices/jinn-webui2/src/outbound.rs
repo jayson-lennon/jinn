@@ -108,6 +108,9 @@ pub struct OutboundHandle {
     /// discovery push can answer with the view the page is holding. The
     /// dispatch records it; the actor reads it.
     row_filters: Arc<Mutex<std::collections::HashMap<(SessionId, RowsKind), String>>>,
+    /// The queue depth each session's pages were last told, so the tick
+    /// pushes a frame only when the depth has actually changed.
+    told_queue_lens: Arc<Mutex<std::collections::HashMap<SessionId, usize>>>,
 }
 
 impl OutboundHandle {
@@ -206,6 +209,7 @@ impl OutboundHandle {
             deps,
             sent: Arc::new(Mutex::new(handlers::SentLengths::default())),
             row_filters: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            told_queue_lens: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 

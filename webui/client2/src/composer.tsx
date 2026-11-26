@@ -1,10 +1,10 @@
 // The composer: the draft, the pending images, and the one row they sit in.
 //
-// The draft and the chips are store state — a snapshot the page did not
-// ask for is declined while either is non-empty, and only the store's
-// `apply()` can see them. This component reads them, writes them, and
-// turns a submit into the one message a send or a queue is. Nothing here
-// holds state of its own.
+// The draft and the chips are store state rather than the component's own,
+// so a session switch — which replaces the transcript — leaves them where
+// they are and the user never loses unsent text. This component reads
+// them, writes them, and turns a submit into the one message a send or a
+// queue is. Nothing here holds state of its own.
 
 import { For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
@@ -46,10 +46,21 @@ function pastedImages(event: ClipboardEvent): File[] {
 
 export function Composer(props: ComposerProps): JSX.Element {
   const busy = (): boolean => isBusy(props.store.state.phase);
+  // How many messages already wait behind the running turn — what tells the
+  // user a queued message was taken, since it does not enter the transcript
+  // until its turn runs.
+  const queueLen = (): number => props.store.state.queueLen;
   const draft = (): string => props.store.state.draft;
   const chips = (): ImageUpload[] => props.store.state.chips;
   // A send needs something to send: text, or an image.
   const hasContent = (): boolean => draft().trim() !== '' || chips().length > 0;
+
+  const placeholder = (): string => {
+    if (!busy()) return 'Message jinn…';
+    return queueLen() === 0
+      ? 'Queue a message for after this turn…'
+      : `Queue a message — ${queueLen()} already queued`;
+  };
 
   const attach = (files: File[]): void => {
     for (const file of files) {
@@ -102,7 +113,7 @@ export function Composer(props: ComposerProps): JSX.Element {
         <textarea
           class="draft"
           data-testid="draft"
-          placeholder={busy() ? 'Queue a message for after this turn…' : 'Message jinn…'}
+          placeholder={placeholder()}
           value={draft()}
           onInput={(e) => setDraft(props.store, e.currentTarget.value)}
           onKeyDown={(e) => {
@@ -143,6 +154,11 @@ export function Composer(props: ComposerProps): JSX.Element {
           >
             <button data-testid="queue" onClick={submit} disabled={!hasContent()}>
               Q
+              <Show when={queueLen() > 0}>
+                <span class="queue-depth" data-testid="queue-depth">
+                  {queueLen()}
+                </span>
+              </Show>
             </button>
             <button class="danger" data-testid="cancel" onClick={() => props.send({ type: 'cancel' })}>
               Cancel

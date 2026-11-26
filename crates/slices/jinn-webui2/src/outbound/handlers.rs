@@ -20,6 +20,7 @@ use trouper::actor::MsgHandler;
 use trouper::context::MsgCtx;
 
 use super::OutboundActor;
+use jinn_kernel::State;
 
 /// What each entry looked like when it was last sent to pages.
 ///
@@ -106,7 +107,12 @@ impl OutboundActor {
         if msg.new_phase == jinn_slices::PhaseView::Idle {
             self.reconcile(&msg.session_id);
         }
-        self.push(&crate::frames::phase(&msg.session_id, msg.new_phase));
+        let queue_len = live_queue_len(&self.handle.deps.state, &msg.session_id);
+        self.push(&crate::frames::phase(
+            &msg.session_id,
+            msg.new_phase,
+            queue_len,
+        ));
         self.push(&crate::frames::sessions(&self.handle.deps.state));
     }
 
@@ -304,14 +310,19 @@ impl MsgHandler<jinn_provider_selection_msg::ModelCacheStored> for OutboundActor
     }
 }
 
-/// Turns one `ModelCacheStored` into the frames an open model picker needs.
+/// Turns one `ModelCacheStored` into the frames the page needs.
 ///
 /// The event carries no session and no rows — it is only the "the cache was
-/// written" fact, emitted strictly after the write. Every session whose
-/// model picker last asked for rows gets a fresh frame, built from the cell
-/// now, in the filter that picker is holding — so the rows follow the
-/// discovery without the page asking. The frame is what tells the page its
-/// refresh is done.
+/// written" fact, emitted strictly after the write. Two things follow it:
+///
+/// - Every session whose model picker last asked for rows gets a fresh
+///   frame, built from the cell now, in the filter that picker is holding.
+///   The frame is what tells the page its refresh is done.
+/// - Every loaded session is reconciled. The provider actor writes the
+///   refresh's summary table into history as a transient entry and publishes
+///   no history event for it — the terminal re-reads history on every tick,
+///   so it shows; a page only shows what it is told. Without this the table
+///   the TUI shows would never reach `/web2`.
 pub(crate) fn model_cache_stored(handle: &super::OutboundHandle) {
     for (session_id, filter) in handle.filters_for_kind(super::RowsKind::Model) {
         handle.broadcast(&jinn_webui2_msg::ServerMsg::ModelRows(
@@ -322,6 +333,19 @@ pub(crate) fn model_cache_stored(handle: &super::OutboundHandle) {
             },
         ));
     }
+    for session_id in loaded_session_ids(&handle.deps.state) {
+        reconcile(handle, &session_id);
+    }
+}
+
+/// Every session currently in memory, in the map's order.
+fn loaded_session_ids(state: &State) -> Vec<SessionId> {
+    state
+        .read()
+        .session
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect()
 }
 
 impl MsgHandler<jinn_session_store_msg::SessionLibraryMembershipChanged> for OutboundActor {
@@ -419,6 +443,7 @@ pub(crate) fn flush(handle: &super::OutboundHandle) {
     if handle.no_connections() {
         return;
     }
+    push_drifted_queue_depths(handle);
     let growing = growing_fields(handle);
     let mut sent = handle.sent.lock();
     for (session_id, index, entry, field, current) in growing {
@@ -431,6 +456,52 @@ pub(crate) fn flush(handle: &super::OutboundHandle) {
             field,
             &current,
         );
+    }
+}
+
+/// The depth of `session_id`'s turn queue, read from committed state.
+fn live_queue_len(state: &State, session_id: &SessionId) -> usize {
+    state
+        .read()
+        .session
+        .get(session_id)
+        .map_or(0, jinn_kernel::ChatSessionState::queue_len)
+}
+
+/// Pushes a phase frame for every session whose queue depth pages were
+/// last told no longer matches its queue.
+///
+/// A message queued behind a running turn publishes nothing — not a
+/// history event (the entry is not in the transcript yet) and not a phase
+/// change — so without this a page would not learn its queue had grown
+/// until the turn ended. The tick reads the committed depth, so the value
+/// is never the pre-enqueue one a reply racing the session actor would read.
+fn push_drifted_queue_depths(handle: &super::OutboundHandle) {
+    let depths = {
+        let guard = handle.deps.state.read();
+        guard
+            .session
+            .iter()
+            .map(|(session_id, session)| (session_id.clone(), session.phase(), session.queue_len()))
+            .collect::<Vec<_>>()
+    };
+    let mut told = handle.told_queue_lens.lock();
+    for (session_id, phase, queue_len) in depths {
+        match told.get(&session_id) {
+            // Unchanged: the page already holds this depth.
+            Some(known) if *known == queue_len => continue,
+            // The first tick for a session only records its baseline. A
+            // page that connects late is sent its snapshot, and a depth
+            // frame racing ahead of it would describe a session the page
+            // has not been shown yet; the depth rides the snapshot anyway.
+            None => {
+                told.insert(session_id, queue_len);
+                continue;
+            }
+            Some(_) => {}
+        }
+        told.insert(session_id.clone(), queue_len);
+        handle.broadcast(&crate::frames::phase(&session_id, phase, queue_len));
     }
 }
 

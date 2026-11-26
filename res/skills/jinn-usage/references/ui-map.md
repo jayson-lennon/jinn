@@ -285,7 +285,7 @@ is the fixed column drawn here, and the `#` is not shown.
 | A blue or yellow session row, a spinning row, `⋮` | Web UI sidebar |
 | The browser page's Send / `Q` / Cancel buttons | Web UI composer |
 | The `/web2` page's Archive button, title, model chip | Web UI 2 (`/web2`) title bar and sidebar |
-| The `/web2` page's Send / Queue / Cancel buttons | Web UI 2 (`/web2`) composer |
+| The `/web2` page's Send / `Q` / Cancel buttons | Web UI 2 (`/web2`) composer |
 | The `/web2` page's `☰` button and its menu | Web UI 2 (`/web2`) title bar and menu |
 | The `/web2` page's skills list — filter, `●` / `○` marks, `+` | Web UI 2 (`/web2`) skills modal |
 | The `/web2` page's tools list — `✓` / `✗` marks | Web UI 2 (`/web2`) tools modal |

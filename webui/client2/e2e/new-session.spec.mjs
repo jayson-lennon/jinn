@@ -89,3 +89,18 @@ test("the new session appears in the rail without a reload", async ({ page }) =>
   // Then the rail lists two, with no reload.
   await expect(page.locator(sel.SESSION_ROW)).toHaveCount(2);
 });
+
+test("the setup arguments field names each argument as the template spells it", async ({
+  page,
+}) => {
+  // Given the modal, with the staged lifecycle — `echo <greeting>` — chosen.
+  await openNewSession(page);
+  await page.locator(sel.NEW_SESSION_LIFECYCLE).selectOption("echo-setup");
+
+  // Then the field's placeholder is the template's own placeholder: named,
+  // not a `$1` the page derived from the argument's position.
+  await expect(page.locator(sel.NEW_SESSION_ARGS)).toHaveAttribute(
+    "placeholder",
+    "Please enter: <greeting>",
+  );
+});

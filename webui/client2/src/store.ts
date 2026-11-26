@@ -33,6 +33,8 @@ export interface ViewState {
   /** The instance's active session, or null before the first snapshot. */
   sessionId: string | null;
   phase: Phase;
+  /** How many messages wait behind the running turn. */
+  queueLen: number;
   modelLabel: string;
   title: string;
   /** The history revision the page last saw, echoed back on reconnect. */
@@ -45,9 +47,9 @@ export interface ViewState {
   railView: 'sessions' | 'library';
   /** The persisted color mode, as the server last reported it. */
   theme: Theme;
-  /** The composer's draft. In the store so a snapshot can be declined
-   *  while the user has unsent text — a component-local draft is invisible
-   *  to `apply()`. */
+  /** The composer's draft. In the store, not the component, so a snapshot
+   *  for another session can leave it alone: a session switch never costs
+   *  the user their unsent text. */
   draft: string;
   /** The composer's pending images, in chip order. */
   chips: ImageUpload[];
@@ -80,6 +82,7 @@ export interface ViewState {
 const INITIAL_STATE: ViewState = {
   sessionId: null,
   phase: 'Idle',
+  queueLen: 0,
   modelLabel: '',
   title: '',
   revision: 0,
@@ -147,29 +150,19 @@ let optimisticCounter = 0;
  * Applies one frame: the browser's single dispatch. Every `ServerMsg`
  * variant has exactly one arm and there is no fallback, so a new frame
  * kind is a type error until it is handled here.
- */
-/** Whether the page holds unsent work: a draft, or a pending image. */
-export function hasUnsent(state: ViewState): boolean {
-  return state.draft.trim() !== '' || state.chips.length > 0;
-}
-
-/**
- * Applies one frame: the browser's single dispatch. Every `ServerMsg`
- * variant has exactly one arm and there is no fallback, so a new frame
- * kind is a type error until it is handled here.
  *
- * `requested` marks a frame the page itself asked for — a row click's
- * reply, a creation's reply. A pushed snapshot that moves the page to
- * another session is declined while the user holds unsent text; a
- * requested one is never declined, because the user just asked for it.
+ * A snapshot is always applied. It replaces which session the page views
+ * and that session's transcript; the draft and pending images are not
+ * the transcript's and are left as they are, so following a switch made
+ * elsewhere never discards what the user is typing.
  */
-export function apply(store: ClientStore, msg: ServerMsg, requested = false): void {
+export function apply(store: ClientStore, msg: ServerMsg): void {
   switch (msg.type) {
     case 'snapshot': {
-      if (!requested && !follows(msg, store.state)) return;
       store.set((s) => {
         s.sessionId = msg.session_id;
         s.phase = msg.phase.phase;
+        s.queueLen = msg.phase.queue_len;
         s.modelLabel = msg.model_label;
         s.title = msg.title;
         s.revision = msg.revision;
@@ -178,6 +171,8 @@ export function apply(store: ClientStore, msg: ServerMsg, requested = false): vo
         s.library = msg.library;
         s.theme = msg.theme;
         s.synced = true;
+        // Not the draft or the chips: they belong to the user, not to the
+        // session, and a switch must not take unsent text with it.
         // A different session's picker rows are not the ones the page was
         // looking at; an open modal re-asks for its own rows on open.
         s.skillRows = [];
@@ -222,6 +217,7 @@ export function apply(store: ClientStore, msg: ServerMsg, requested = false): vo
       if (!belongsToViewedSession(store, msg.session_id)) return;
       store.set((s) => {
         s.phase = msg.phase;
+        s.queueLen = msg.queue_len;
       });
       return;
     }
@@ -402,15 +398,6 @@ const GROWING_FIELD: Record<string, string> = {
   ToolCall: 'arguments',
   ToolResult: 'content',
 };
-
-/**
- * Whether a pushed snapshot moves the page to a session it is not already
- * showing. A snapshot for the session already in view is always applied —
- * it cannot lose anything, and a reconnect's handshake arrives as one.
- */
-function follows(msg: Extract<ServerMsg, { type: 'snapshot' }>, state: ViewState): boolean {
-  return msg.session_id === state.sessionId || !hasUnsent(state);
-}
 
 /** Replaces the composer's draft. */
 export function setDraft(store: ClientStore, text: string): void {

@@ -25,6 +25,7 @@ export const sel = {
   DRAFT: '[data-testid="draft"]',
   SEND: '[data-testid="send"]',
   QUEUE: '[data-testid="queue"]',
+  QUEUE_DEPTH: '[data-testid="queue-depth"]',
   CANCEL: '[data-testid="cancel"]',
   COMPOSER_ERROR: '[data-testid="composer-error"]',
   TITLE: '[data-testid="title"]',

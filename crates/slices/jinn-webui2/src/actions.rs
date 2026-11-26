@@ -1389,6 +1389,20 @@ pub fn new_session_options(out: &OutboundHandle) -> Reply {
                 }
                 Some(jinn_preferences_config::schemas::LifecycleCommand::Builtin(_)) | None => 0,
             },
+            // The template's own spelling of each argument, not a number the
+            // page would have to invent a label for.
+            params: match lifecycle.setup.as_ref() {
+                Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(shell)) => {
+                    CommandTemplate::parse(shell)
+                        .params()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect()
+                }
+                Some(jinn_preferences_config::schemas::LifecycleCommand::Builtin(_)) | None => {
+                    Vec::new()
+                }
+            },
             name: lifecycle.name,
         })
         .collect();

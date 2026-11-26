@@ -6146,6 +6146,7 @@ dependencies = [
  "jinn-slices",
  "jinn-testutil",
  "jinn-tools-msg",
+ "jinn-turn-dispatch-msg",
  "jinn-webui2-msg",
  "marked-path",
  "parking_lot",

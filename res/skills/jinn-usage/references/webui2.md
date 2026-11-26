@@ -42,7 +42,9 @@ but nothing coordinates them.
   form.
 - **Follows the active session** — when the active session changes
   anywhere (another `/web2` page, `/web`, the TUI), every `/web2` page
-  switches to it, unless it holds an unsent draft or a pending image.
+  switches to it. Nothing the user has typed holds the page back: an
+  unsent draft and any pending images belong to the user, not to the
+  session, and are still there after the switch.
 - **Transcript** — the full history, streamed live: markdown, thinking,
   tool calls and results, errors, and system messages all render as they
   arrive.
@@ -136,7 +138,10 @@ There are no keybinds beyond these:
 The composer's buttons follow the session's phase:
 
 - **Idle** — **Send** only.
-- **Working** — **Q** and **Cancel**; there is no Send. `Q` queues.
+- **Working** — **Q** and **Cancel**; there is no Send. `Q` queues the
+  draft behind the running turn, and any number of messages can wait
+  there. A count beside the `Q` shows how many are queued, since a
+  queued message does not appear in the transcript until its turn runs.
 
 `Enter` follows the same rule: idle it sends, working it queues. An
 empty draft with no image does nothing either way; an image with no text

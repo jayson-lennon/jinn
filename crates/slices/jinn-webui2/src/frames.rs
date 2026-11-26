@@ -16,10 +16,11 @@ use jinn_webui2_msg::{
 
 /// The frame for a phase change.
 #[must_use]
-pub fn phase(session_id: &SessionId, phase: jinn_slices::PhaseView) -> ServerMsg {
+pub fn phase(session_id: &SessionId, phase: jinn_slices::PhaseView, queue_len: usize) -> ServerMsg {
     ServerMsg::Phase(PhaseBody {
         session_id: session_id.clone(),
         phase,
+        queue_len,
     })
 }
 

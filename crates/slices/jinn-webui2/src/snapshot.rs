@@ -33,6 +33,7 @@ pub fn snapshot(state: &State, revisions: &RevisionTracker) -> SnapshotBody {
             phase: PhaseBody {
                 session_id: active_id,
                 phase: jinn_slices::PhaseView::Idle,
+                queue_len: 0,
             },
             model_label: String::new(),
             title: String::new(),
@@ -50,6 +51,7 @@ pub fn snapshot(state: &State, revisions: &RevisionTracker) -> SnapshotBody {
         phase: PhaseBody {
             session_id: active_id,
             phase: active.phase(),
+            queue_len: active.queue_len(),
         },
         model_label: active.model_selection().to_string(),
         title: active.title().unwrap_or(UNTITLED).to_owned(),

@@ -1,9 +1,9 @@
-//! Following the instance's active session — and declining to while the
-//! page holds unsent text.
+//! Following the instance's active session, whatever the page holds.
 //!
 //! A change is made by a second page on the same instance, so the page
 //! under test never asked for it: that is what makes the arrival a push
-//! rather than a reply.
+//! rather than a reply. Nothing the user has typed holds the page back; a
+//! draft is theirs, not the session's, and it survives the switch.
 
 import {
   createSession,
@@ -18,30 +18,31 @@ import {
 const MARKER = "only the first session holds this";
 
 /**
- * Arranges two sessions with the first in view and a marker typed into
- * its draft. Returns the first session's id.
+ * Arranges two sessions with the first in view. Returns both ids: the
+ * first, then the second (titled by its first message).
  */
-async function arrangeFirstWithDraft(page) {
+async function arrangeTwoSessions(page) {
   const firstId = await viewedSessionId(page);
   await sendAndWaitForEcho(page, MARKER);
   await createSession(page);
+  await sendAndWaitForEcho(page, "the second session's marker");
+  const secondId = await viewedSessionId(page);
   await page.locator(sel.SESSION_ROW).filter({ hasText: MARKER }).click();
-  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute("data-session-id", firstId);
-  await page.locator(sel.DRAFT).fill("unsent text");
-  return firstId;
+  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute(
+    "data-session-id",
+    firstId,
+  );
+  return { firstId, secondId };
 }
 
-/** Switches the instance to the second (untitled) session from another page. */
+/** Switches the instance to the second session from another page. */
 async function switchAwayFromOtherPage(page, browser) {
   const other = await browser.newPage();
   try {
     await other.goto(page.url());
-    await other.locator(sel.SESSION_ROW).filter({ hasText: "Untitled Session" }).click();
-    await expect(other.locator(sel.ACTIVE_SESSION_ROW)).not.toHaveAttribute(
-      "data-session-id",
-      await viewedSessionId(page),
-      { timeout: 10_000 },
-    );
+    await other.locator(sel.SESSION_ROW)
+      .filter({ hasText: "the second session's marker" })
+      .click();
   } finally {
     await other.close();
   }
@@ -52,72 +53,75 @@ test("a page with no draft follows when the active session changes", async ({
   browser,
 }) => {
   // Given two sessions, the first in view, and no draft.
-  const firstId = await viewedSessionId(page);
-  await sendAndWaitForEcho(page, MARKER);
-  await createSession(page);
-  await page.locator(sel.SESSION_ROW).filter({ hasText: MARKER }).click();
-  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute("data-session-id", firstId);
+  const { secondId } = await arrangeTwoSessions(page);
 
-  // When another page switches the instance to the second session.
+  // When another page switches the instance to the second.
   await switchAwayFromOtherPage(page, browser);
 
-  // Then this page follows to it, with an empty transcript.
-  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).not.toHaveAttribute("data-session-id", firstId);
-  await expect(page.locator(sel.ENTRY("user"))).toHaveCount(0);
+  // Then this page follows.
+  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute(
+    "data-session-id",
+    secondId,
+    { timeout: 10_000 },
+  );
 });
 
-test("a page holding a draft stays put when the active session changes", async ({
+test("a page holding a draft follows when the active session changes", async ({
   page,
   browser,
 }) => {
   // Given the first session in view, with a draft typed.
-  const firstId = await arrangeFirstWithDraft(page);
+  const { firstId, secondId } = await arrangeTwoSessions(page);
+  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute(
+    "data-session-id",
+    firstId,
+  );
+  await page.locator(sel.DRAFT).fill("unsent text");
 
-  // When another page switches the instance to the second session.
+  // When another page switches the instance to the second.
   await switchAwayFromOtherPage(page, browser);
 
-  // Then this page stays on the first, and the draft is intact.
-  await page.waitForTimeout(600);
-  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute("data-session-id", firstId);
+  // Then this page follows — the draft does not hold it back.
+  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute(
+    "data-session-id",
+    secondId,
+    { timeout: 10_000 },
+  );
+});
+
+test("a draft survives being switched to another session", async ({
+  page,
+  browser,
+}) => {
+  // Given the first session in view, with a draft typed.
+  const { secondId } = await arrangeTwoSessions(page);
+  await page.locator(sel.DRAFT).fill("unsent text");
+
+  // When another page switches the instance to the second.
+  await switchAwayFromOtherPage(page, browser);
+  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute(
+    "data-session-id",
+    secondId,
+    { timeout: 10_000 },
+  );
+
+  // Then the draft is exactly as it was typed.
   await expect(page.locator(sel.DRAFT)).toHaveValue("unsent text");
 });
 
-test("clearing the draft does not jump to the session the page declined", async ({
-  page,
-  browser,
-}) => {
-  // Given a page that declined a switch to the second session, holding a draft.
-  const firstId = await arrangeFirstWithDraft(page);
-  await switchAwayFromOtherPage(page, browser);
-  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute("data-session-id", firstId);
+test("a row click switches session while a draft is held", async ({ page }) => {
+  // Given two sessions, the first in view, with a draft typed.
+  await arrangeTwoSessions(page);
+  await page.locator(sel.DRAFT).fill("unsent text");
+  const second = page.locator(sel.SESSION_ROW).filter({
+    hasText: "the second session's marker",
+  });
 
-  // When the draft is cleared, with no further change to the active session.
-  await page.locator(sel.DRAFT).fill("");
-  await page.waitForTimeout(800);
+  // When clicking the other session's row on this page.
+  await second.click();
 
-  // Then the page is still on the first session: the switch it declined
-  // is not replayed.
-  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute("data-session-id", firstId);
-});
-
-test("after clearing the draft the page follows the next change", async ({
-  page,
-  browser,
-}) => {
-  // Given a page that declined a switch, whose draft is now cleared.
-  const firstId = await arrangeFirstWithDraft(page);
-  await switchAwayFromOtherPage(page, browser);
-  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute("data-session-id", firstId);
-  await page.locator(sel.DRAFT).fill("");
-  await page.waitForTimeout(600);
-  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute("data-session-id", firstId);
-
-  // When the instance's active session changes again — away and back,
-  // then away once more, each from the other page.
-  await page.locator(sel.SESSION_ROW).filter({ hasText: MARKER }).click();
-  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute("data-session-id", firstId);
-  await switchAwayFromOtherPage(page, browser);
-
-  // Then this page follows that change.
-  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).not.toHaveAttribute("data-session-id", firstId);
+  // Then the page switches — its own request is never declined.
+  await expect(second).toHaveClass(/active/);
+  // And the draft is still there.
+  await expect(page.locator(sel.DRAFT)).toHaveValue("unsent text");
 });
