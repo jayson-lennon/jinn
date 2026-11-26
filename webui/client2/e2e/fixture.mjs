@@ -20,6 +20,8 @@ const REPLY_TIMEOUT_MS = 15_000;
 /** The selectors every spec shares. */
 export const sel = {
   OVERLAY: '[data-testid="overlay"]',
+  /** The "Loading session…" overlay a row click or an Archive pick raises. */
+  SESSION_LOAD: '[data-testid="session-load-overlay"]',
   TRANSCRIPT: '[data-testid="transcript"]',
   ENTRY: (kind) => `.entry-${kind}`,
   DRAFT: '[data-testid="draft"]',

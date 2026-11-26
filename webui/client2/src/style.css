@@ -725,16 +725,64 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
 }
 
 /* ---- reconnect overlay ---- */
+/* A row, so the spinner sits beside the text. */
 .overlay {
   position: fixed;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   background: var(--scrim);
   color: var(--fg);
   font-size: 15px;
   backdrop-filter: blur(2px);
   z-index: 10;
+}
+
+/* ---- spinner ---- */
+/* One spinner for both overlays: the reconnect banner and the session-load card. */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+/* ---- session-load overlay ---- */
+/* Raised by the page itself when it asks for a session, and cleared only by
+   that session's snapshot, a refusal, or the stall timeout. It covers every
+   surface — modals (80), the menu panel (70), the rail (50), the drawer
+   scrim (40) — and swallows the pointer, so a second activation cannot fire
+   under it. Nothing dismisses it: it ends when the load ends. */
+.session-load-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim);
+}
+.session-load-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 26px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px var(--shadow);
+}
+.session-load-label {
+  color: var(--fg);
+  font-size: 14px;
 }
 
 /* ---- phone: the rail becomes an off-canvas drawer ---- */
