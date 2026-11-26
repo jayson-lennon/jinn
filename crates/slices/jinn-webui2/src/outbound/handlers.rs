@@ -190,8 +190,20 @@ impl MsgHandler<jinn_session_history_msg::HistoryAppended> for OutboundActor {
 }
 
 impl OutboundActor {
+    /// On any history append, sends every entry the page does not hold.
+    ///
+    /// `HistoryAppended` is the one event every committed entry gets, from
+    /// fourteen sites. Most of them are followed by another event that
+    /// carries the entry itself — a dispatch's `ChatEntrySubmitted`, a
+    /// phase change — but a few commit and stop: the attachment gate
+    /// blocks with a user entry and an error and never dispatches, a
+    /// provider error settles the turn without one. Without this the page
+    /// holds those entries only after the next unrelated send, and the
+    /// error a user should see now shows up a message late. An entry the
+    /// page already holds costs one serialization and no frame.
     fn on_history_appended(&mut self, msg: &jinn_session_history_msg::HistoryAppended) {
         self.handle.bump(&msg.session_id);
+        self.reconcile(&msg.session_id);
         self.push(&crate::frames::sessions(&self.handle.deps.state));
     }
 }

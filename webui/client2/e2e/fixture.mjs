@@ -374,6 +374,7 @@ const test = base.extend({
       skill: stage.skill === true,
       persona: stage.persona === true,
       mcp: stage.mcp === true,
+      textOnly: stage.textOnly === true,
     });
     await use(run);
     await teardownJinn(run);

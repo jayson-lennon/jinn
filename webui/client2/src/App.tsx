@@ -271,8 +271,13 @@ function Transcript(props: { store: ClientStore }): JSX.Element {
   );
   return (
     <section class="transcript" data-testid="transcript" ref={node}>
+      {/* Keyed by entry id, not by the envelope object: an upsert replaces
+          the envelope in place, and a reference-keyed list would mount a
+          second row for the same entry — one user entry, two images. */}
       <For each={props.store.state.entries}>
-        {(envelope) => <TranscriptEntry envelope={envelope} sessionId={props.store.state.sessionId} />}
+        {(envelope) => (
+          <TranscriptEntry envelope={envelope} sessionId={props.store.state.sessionId} />
+        )}
       </For>
     </section>
   );

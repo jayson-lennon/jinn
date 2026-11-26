@@ -1,6 +1,11 @@
 //! The composer row: the draft, the `+`, and the buttons on one line.
 
-import { expect, sel, startBusyTurn, test } from "./fixture.mjs";
+import { TINY_PNG, attachImage, expect, sel, startBusyTurn, test } from "./fixture.mjs";
+
+/** Narrower than the 768px breakpoint: a phone. */
+const PHONE = { width: 390, height: 800 };
+/** The narrowest phone the row must still hold together on. */
+const NARROW = { width: 320, height: 800 };
 
 /** The vertical centre of an element, in page pixels. */
 async function centreY(page, selector) {
@@ -86,4 +91,63 @@ test("the placeholder names how many messages are already queued", async ({ page
     "placeholder",
     "Queue a message — 1 already queued",
   );
+});
+
+/* ---- the phone composer ----
+ * The row is the same on a phone as at desktop: the draft, `+` and the
+ * buttons on one line, the chips above them. It used to wrap — the draft
+ * took a whole line and the buttons dropped below — and, while busy, the
+ * two buttons made the column wider than the phone and pushed the draft
+ * off the left edge. */
+
+test("on a phone the draft, the attach control, and Send share one line", async ({
+  page,
+}) => {
+  // Given an idle composer at phone width.
+  await page.setViewportSize(PHONE);
+
+  // Then the three controls' vertical centres agree.
+  const draft = await centreY(page, sel.DRAFT);
+  expect(Math.abs(draft - (await centreY(page, sel.ATTACH)))).toBeLessThan(2);
+  expect(Math.abs(draft - (await centreY(page, sel.SEND)))).toBeLessThan(2);
+});
+
+test("on a phone the busy composer keeps its row", async ({ page }) => {
+  // Given a busy composer at phone width, with Q and Cancel shown.
+  await page.setViewportSize(PHONE);
+  await startBusyTurn(page);
+
+  // Then the draft, `+`, Q and Cancel all share one line.
+  const draft = await centreY(page, sel.DRAFT);
+  expect(Math.abs(draft - (await centreY(page, sel.ATTACH)))).toBeLessThan(2);
+  expect(Math.abs(draft - (await centreY(page, sel.QUEUE)))).toBeLessThan(2);
+  expect(Math.abs(draft - (await centreY(page, sel.CANCEL)))).toBeLessThan(2);
+});
+
+test("on a narrow phone the busy composer does not overflow the viewport", async ({
+  page,
+}) => {
+  // Given the narrowest phone, busy.
+  await page.setViewportSize(NARROW);
+  await startBusyTurn(page);
+
+  // Then the draft starts at the composer's padding, not off the left
+  // edge, and every control's right edge is inside the viewport.
+  const draft = await page.locator(sel.DRAFT).boundingBox();
+  expect(draft.x).toBeGreaterThanOrEqual(0);
+  for (const selector of [sel.ATTACH, sel.QUEUE, sel.CANCEL]) {
+    const box = await page.locator(selector).boundingBox();
+    expect(box.x + box.width).toBeLessThanOrEqual(NARROW.width);
+  }
+});
+
+test("on a phone the chips sit above the composer row", async ({ page }) => {
+  // Given a pending image at phone width.
+  await page.setViewportSize(PHONE);
+  await attachImage(page, TINY_PNG);
+
+  // Then the chip's bottom edge is at or above the draft's top edge.
+  const chip = await page.locator(sel.CHIP).boundingBox();
+  const draft = await page.locator(sel.DRAFT).boundingBox();
+  expect(chip.y + chip.height).toBeLessThanOrEqual(draft.y);
 });

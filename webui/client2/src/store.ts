@@ -328,24 +328,29 @@ function belongsToViewedSession(store: ClientStore, sessionId: string): boolean 
 }
 
 function upsert(store: ClientStore, index: number, envelope: EntryEnvelope): void {
+  // The array that is installed, so the index below is rebuilt from the
+  // very array the transcript now holds and not from a read-back of the
+  // store, which can lag the write by one frame.
+  let installed: EntryEnvelope[] = [];
   store.set((s) => {
     // A real user entry is the server catching up with a sent message:
     // that is the moment every optimistic placeholder is superseded.
     const base = envelope.kind === 'user' ? dropOptimistic(s.entries) : s.entries;
     const next = [...base];
 
-    // The entry may already be known (an in-place rewrite) or relocated (a
-    // compaction reordered the history); either way it ends up exactly
-    // once, where the server says it sits.
-    const known = positions.get(envelope.entry.id);
-    if (known !== undefined) {
-      const at = next.findIndex((e) => e.entry.id === envelope.entry.id);
-      if (at !== -1) next.splice(at, 1);
-    }
+    // An entry is in the transcript exactly once, at the index the server
+    // names. A same-id copy is removed by search rather than through the
+    // index: the first real upsert drops the optimistic placeholder, and a
+    // second upsert for the same entry can arrive before the index
+    // catches up — gated on the index, it skipped the removal and appended
+    // a second copy, so one user entry with an image showed twice.
+    const at = next.findIndex((e) => e.entry.id === envelope.entry.id);
+    if (at !== -1) next.splice(at, 1);
     next.splice(clamp(index, next.length), 0, envelope);
     s.entries = next;
+    installed = next;
   });
-  reindex(store.state.entries);
+  reindex(installed);
 }
 
 /** A copy of the transcript without optimistic placeholders. */
@@ -442,10 +447,12 @@ export function addOptimistic(store: ClientStore, text: string): void {
       context_history: [],
     },
   };
+  let installed: EntryEnvelope[] = [];
   store.set((s) => {
     s.entries = [...s.entries, envelope];
+    installed = s.entries;
   });
-  reindex(store.state.entries);
+  reindex(installed);
 }
 
 /** The text a user entry displays. */

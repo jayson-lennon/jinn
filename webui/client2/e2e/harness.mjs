@@ -107,8 +107,21 @@ export function probePort() {
   });
 }
 
-/** The scratch providers.toml — sample-only, keyless, network-free. */
-const PROVIDERS_TOML = `version = 1
+/**
+ * The scratch providers.toml — sample-only, keyless, network-free.
+ *
+ * @param {boolean} textOnly
+ *   write the sample model's capability marker as text-only, so an image
+ *   send is blocked by the vision gate instead of going through.
+ */
+function providersTomlFor(textOnly) {
+  // The attachments spec sends images; the sample model is not in the
+  // models.dev reference data, so the vision gate needs the explicit
+  // capability marker on the model's own row (the lever the gate's error
+  // entry names). The original UI's harness carries the same block. A
+  // text-only row is the gate's blocked path: the error it names.
+  const modalities = textOnly ? '["text"]' : '["text", "image"]';
+  return `version = 1
 
 default_provider = "sample"
 
@@ -123,7 +136,7 @@ models = ["sample"]
 # entry names). The original UI's harness carries the same block.
 [[providers.sample.model_info]]
 id = "sample"
-input_modalities = ["text", "image"]
+input_modalities = ${modalities}
 
 # A second, selectable, keyless provider: the model-picker spec needs a
 # row that is not the current one to switch to.
@@ -132,6 +145,7 @@ backend = "sample"
 requires_key = false
 models = ["second-model"]
 `;
+}
 
 /**
  * The scratch jinn.toml body. Both browser surfaces bind a probed
@@ -179,7 +193,10 @@ ${mcpEntry}`;
 function writeConfig(root, port, webui2Port, stage) {
   const configDir = path.join(root, "config", "jinn");
   fs.mkdirSync(configDir, { recursive: true });
-  fs.writeFileSync(path.join(configDir, "providers.toml"), PROVIDERS_TOML);
+  fs.writeFileSync(
+    path.join(configDir, "providers.toml"),
+    providersTomlFor(stage.textOnly === true),
+  );
   fs.writeFileSync(path.join(configDir, "jinn.toml"), jinnTomlFor(port, webui2Port, stage.mcp));
   if (stage.persona) {
     // Personas are discovered from the config dir's `personas/` child —
@@ -372,9 +389,11 @@ async function killTree(root) {
  * Boots one scratch-isolated, hermetically-launched jinn and returns
  * its run coordinates.
  *
- * @param {{ skill?: boolean, persona?: boolean, mcp?: boolean }} [options]
+ * @param {{ skill?: boolean, persona?: boolean, mcp?: boolean, textOnly?: boolean }} [options]
  *   stage the scratch skill when `skill` is set, the block-less persona
  *   when `persona` is set, and the echo MCP server when `mcp` is set.
+ *   With `textOnly`, the sample model's row declares text only, so an
+ *   image send hits the vision gate's blocked path.
  */
 export async function bootJinn(options = {}) {
   if (!fs.existsSync(BIN_PATH)) {
@@ -390,6 +409,7 @@ export async function bootJinn(options = {}) {
     skill: options.skill === true,
     persona: options.persona === true,
     mcp: options.mcp === true,
+    textOnly: options.textOnly === true,
   });
   const run = {
     port,
