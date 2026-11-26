@@ -150,10 +150,43 @@ function writeSkeleton(root) {
   }
 }
 
-/** Writes one scratch root: the skeleton and the config files. */
-function writeScratch(root, port, webui2Port) {
+/**
+ * The scratch skill the skills spec pivots on. Its name and description
+ * are chosen so a filter for `e2e` matches it alone among the skills a
+ * scratch session discovers, and its body carries a marker a test can
+ * look for once the skill is loaded into context.
+ */
+export const scratchSkill = {
+  name: "e2e-scratch-skill",
+  description: "scratch skill for the webui2 skills modal",
+  body: `---
+name: e2e-scratch-skill
+description: scratch skill for the webui2 skills modal
+---
+
+# e2e scratch skill
+
+Say the magic word: e2e-scratch-skill-body-marker.
+`,
+};
+
+/**
+ * Writes the staged skill under the scratch root's project-local skills
+ * dir, so the session's project walk discovers it as a project skill.
+ * Discovery scans at boot, so this has to happen before jinn starts —
+ * a file written afterwards is invisible until a rescan.
+ */
+function writeSkill(root, skill) {
+  const skillsDir = path.join(root, ".agents", "skills", skill.name);
+  fs.mkdirSync(skillsDir, { recursive: true });
+  fs.writeFileSync(path.join(skillsDir, "SKILL.md"), skill.body);
+}
+
+/** Writes one scratch root: the skeleton, the config files, and any staged resources. */
+function writeScratch(root, port, webui2Port, stage = {}) {
   writeSkeleton(root);
   writeConfig(root, port, webui2Port);
+  if (stage.skill) writeSkill(root, scratchSkill);
 }
 
 /**
@@ -288,7 +321,14 @@ async function killTree(root) {
  * written, or the boot deadline expires before the bind accepts. A
  * failed boot tears its own instance down before rejecting.
  */
-export async function bootJinn() {
+/**
+ * Boots one scratch-isolated, hermetically-launched jinn and returns
+ * its run coordinates.
+ *
+ * @param {{ skill?: boolean }} [options] stage the scratch skill when
+ *   `skill` is set.
+ */
+export async function bootJinn(options = {}) {
   if (!fs.existsSync(BIN_PATH)) {
     throw new Error(
       `jinn binary not found at ${BIN_PATH} — run the tier through a recipe (just webui2-e2e / just webui2-e2e-one), which builds it`,
@@ -298,7 +338,7 @@ export async function bootJinn() {
   const webui2Port = await probePort();
   fs.mkdirSync(TMP_BASE, { recursive: true });
   const root = fs.mkdtempSync(path.join(TMP_BASE, "run-"));
-  writeScratch(root, port, webui2Port);
+  writeScratch(root, port, webui2Port, { skill: options.skill === true });
   const run = {
     port,
     webui2Port,

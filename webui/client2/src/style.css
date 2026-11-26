@@ -264,6 +264,37 @@ body { background: var(--bg); color: var(--fg); }
 .modal-list button:hover:not(:disabled) { background: var(--bg-hover); }
 .modal-list button:disabled { color: var(--fg-faint); cursor: not-allowed; }
 
+/* ---- skills modal ---- */
+.skills-modal { width: min(640px, 92vw); }
+.skills-rows { max-height: 60vh; }
+.skill-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+}
+.skill-row-marker { width: 1.2em; flex: none; color: var(--fg-faint); text-align: center; }
+.skill-row-enabled .skill-row-marker { color: var(--accent); }
+.skill-row-name { flex: none; font-weight: 600; }
+.skill-row-enabled .skill-row-name { font-weight: 650; }
+.skill-row-description {
+  color: var(--fg-dim);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-row-source {
+  flex: none;
+  font-size: 0.85em;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+}
+.skill-row mark { background: transparent; color: var(--accent); font-weight: 600; }
+
 /* ---- reconnect overlay ---- */
 .overlay {
   position: fixed;

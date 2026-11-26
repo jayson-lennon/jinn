@@ -59,6 +59,11 @@ pub enum ClientMsg {
         /// The filter (empty for the unfiltered list).
         filter: String,
     },
+    /// Ask for the skills modal's rows for the active session.
+    SkillRows {
+        /// The filter (empty for the unfiltered list).
+        filter: String,
+    },
 }
 
 #[must_use]
@@ -74,5 +79,6 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::Rename { .. } => "rename",
         ClientMsg::PickerRows { .. } => "picker_rows",
         ClientMsg::ModelRows { .. } => "model_rows",
+        ClientMsg::SkillRows { .. } => "skill_rows",
     }
 }

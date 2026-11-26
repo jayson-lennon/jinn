@@ -221,3 +221,57 @@ pub struct ModelRowBody {
     /// Whether this row is the session's current model.
     pub is_active: bool,
 }
+
+/// One run of a skill row's text: a stretch the filter matched, or did
+/// not. The browser renders the matched runs highlighted and the rest
+/// plain; the split is the shared filter's, cut on grapheme boundaries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextRunBody {
+    /// The run's text.
+    pub text: String,
+    /// Whether the filter matched this run.
+    pub matched: bool,
+}
+
+/// One row of the skills modal.
+///
+/// Everything the browser needs to draw the row and decide what a click
+/// does: whether the skill is enabled (the marker), whether it is already
+/// loaded into context (a loaded skill cannot be toggled), and where it
+/// was discovered from (only a project-scoped skill shows a badge). The
+/// skill's body is deliberately absent — the browser never needs it, and
+/// a load pins it server-side.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillRowBody {
+    /// The skill's name — what a `ToggleSkill` or `LoadSkill` sends back.
+    pub name: String,
+    /// The skill's description.
+    pub description: String,
+    /// Whether the skill passes the session's skill filter.
+    pub enabled: bool,
+    /// Whether the skill's body is already loaded into the session's context.
+    pub loaded: bool,
+    /// Whether the skill was discovered from a project-local directory,
+    /// as opposed to the user's global skills directory.
+    pub is_project: bool,
+    /// The name, split into matched and plain runs for the filter the rows
+    /// answer. One plain run when the filter is empty.
+    pub name_runs: Vec<TextRunBody>,
+    /// The description, split the same way.
+    pub description_runs: Vec<TextRunBody>,
+}
+
+/// The skills modal's rows for one filter.
+///
+/// Carries the session the rows describe: an open modal must ignore rows
+/// for a session the page has left. The filter is echoed so a page that
+/// has typed past it can drop the frame.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillRowsBody {
+    /// The session whose skills these are.
+    pub session_id: SessionId,
+    /// The filter the rows answer (empty for the unfiltered list).
+    pub filter: String,
+    /// The rows, sorted by skill name, filtered by the shared filter.
+    pub rows: Vec<SkillRowBody>,
+}

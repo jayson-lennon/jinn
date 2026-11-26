@@ -20,6 +20,7 @@ import type {
   PickerRow,
   ServerMsg,
   SessionRow,
+  SkillRow,
 } from './protocol';
 
 export interface ViewState {
@@ -36,6 +37,9 @@ export interface ViewState {
   pickerFilter: string;
   modelRows: ModelRow[];
   modelFilter: string;
+  /** The skills modal's rows, for the filter the page last asked for. */
+  skillRows: SkillRow[];
+  skillFilter: string;
   /** The most recent refusal, if any. */
   error: string | null;
   /** True once a snapshot or a resume has landed on this connection. */
@@ -54,6 +58,8 @@ const INITIAL_STATE: ViewState = {
   pickerFilter: '',
   modelRows: [],
   modelFilter: '',
+  skillRows: [],
+  skillFilter: '',
   error: null,
   synced: false,
 };
@@ -110,6 +116,10 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         s.entries = msg.entries;
         s.sessions = msg.sessions;
         s.synced = true;
+        // A different session's skills are not the ones the page was
+        // looking at; an open modal re-asks for its own rows on open.
+        s.skillRows = [];
+        s.skillFilter = '';
       });
       // Indexed from the frame's own array, not the store's. Reading the
       // store's array here left the index naming the session just left,
@@ -172,6 +182,16 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       if (msg.filter !== store.state.modelFilter) return;
       store.set((s) => {
         s.modelRows = msg.rows;
+      });
+      return;
+    }
+    case 'skill_rows': {
+      // A frame for a session the page has left, or for text the user
+      // has typed past, is not the view the page is holding.
+      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
+      if (msg.filter !== store.state.skillFilter) return;
+      store.set((s) => {
+        s.skillRows = msg.rows;
       });
       return;
     }

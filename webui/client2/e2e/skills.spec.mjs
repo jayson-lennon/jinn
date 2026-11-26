@@ -3,7 +3,15 @@
 //! the features that supply them; here the panel's content is not under
 //! test, only the chrome.
 
-import { expect, openMenu, sel, test } from "./fixture.mjs";
+import {
+  expect,
+  openMenu,
+  openSkills,
+  SKILL_FILTER,
+  SKILL_NAME,
+  sel,
+  test,
+} from "./fixture.mjs";
 
 test("the hamburger sits in the title bar, left of the title", async ({ page }) => {
   // Given a connected page.
@@ -68,4 +76,77 @@ test("Escape closes the menu", async ({ page }) => {
 
   // Then the panel is gone.
   await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
+});
+
+test.with({ skill: true })("the menu offers a Skills item while a session is active", async ({
+  page,
+}) => {
+  // Given an open menu.
+  await openMenu(page);
+
+  // Then it lists Skills.
+  await expect(page.locator(sel.MENU_ITEM_SKILLS)).toBeVisible();
+});
+
+test.with({ skill: true })("the Skills item opens the modal listing the discovered skill", async ({
+  page,
+}) => {
+  // Given the boot session, which discovered the staged skill.
+  // When opening the skills modal through the menu.
+  await openSkills(page);
+
+  // Then the menu closed, and the modal lists the skill — enabled, as a
+  // fresh session with no filter permits everything — with no source
+  // badge (the skill is staged in the scratch root's global skills dir,
+  // and global skills badge nothing), and the description from its
+  // frontmatter.
+  await expect(page.locator(sel.MENU_PANEL)).toBeHidden();
+  const row = page.locator(sel.SKILL_ROW_NAMED(SKILL_NAME));
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await expect(row).toHaveAttribute("data-enabled", "true");
+  await expect(row).toHaveAttribute("data-loaded", "false");
+  await expect(row.locator(".skill-row-source")).toHaveCount(0);
+  await expect(row).toContainText("scratch skill for the webui2 skills modal");
+});
+
+test.with({ skill: true })("Escape closes the skills modal", async ({ page }) => {
+  // Given the open skills modal, with its filter focused.
+  await openSkills(page);
+
+  // When pressing Escape.
+  await page.keyboard.press("Escape");
+
+  // Then the modal is gone.
+  await expect(page.locator(sel.SKILLS_MODAL)).toBeHidden();
+});
+
+test.with({ skill: true })("clicking the backdrop closes the skills modal", async ({ page }) => {
+  // Given the open skills modal.
+  await openSkills(page);
+
+  // When clicking the backdrop, outside the dialog.
+  await page.locator(".modal-backdrop").click({ position: { x: 5, y: 5 } });
+
+  // Then the modal is gone.
+  await expect(page.locator(sel.SKILLS_MODAL)).toBeHidden();
+});
+
+test.with({ skill: true })("typing in the filter narrows the rows and marks the match", async ({
+  page,
+}) => {
+  // Given the open skills modal listing the staged skill.
+  await openSkills(page);
+  const row = page.locator(sel.SKILL_ROW_NAMED(SKILL_NAME));
+  await expect(row).toBeVisible({ timeout: 15_000 });
+
+  // When typing a filter the skill's name matches, with real keypresses.
+  await page.locator(sel.SKILLS_FILTER).click();
+  await page.keyboard.type(SKILL_FILTER);
+
+  // Then the row is still listed with its matched run highlighted, the
+  // input keeps what was typed, and no row that fails the filter remains.
+  await expect(row).toBeVisible();
+  await expect(row.locator("mark").first()).toHaveText("e2e-scra");
+  await expect(page.locator(sel.SKILLS_FILTER)).toHaveValue(SKILL_FILTER);
+  await expect(page.locator(sel.SKILL_ROW)).toHaveCount(1);
 });

@@ -14,6 +14,7 @@ import { type ClientStore, addOptimistic, apply, isBusy, newestEntryId, createSt
 import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry } from './transcript';
 import { Menu, type MenuItem } from './menu';
+import { SkillsModal } from './skills';
 
 type Send = (msg: ClientMsg) => void;
 
@@ -37,7 +38,21 @@ export function App(): JSX.Element {
   // The hamburger menu's items, in panel order. An item that has no
   // destination on this page is not listed, so the panel never offers a
   // control that leads nowhere.
-  const menuItems = (): MenuItem[] => [];
+  //
+  // Skills edits the active session's skill filter, so it is offered
+  // only while a session is active.
+  const [skillsOpen, setSkillsOpen] = createSignal(false);
+  const onSkillFilter = useFilter(store, 'skillFilter', send, (filter) => ({ type: 'skill_rows', filter }));
+  const openSkills = (): void => {
+    store.set((s) => {
+      s.skillFilter = '';
+      s.skillRows = [];
+    });
+    send({ type: 'skill_rows', filter: '' });
+    setSkillsOpen(true);
+  };
+  const menuItems = (): MenuItem[] =>
+    store.state.sessionId === null ? [] : [{ id: 'skills', label: 'Skills', run: openSkills }];
 
   return (
     <div class={`app${connection() === 'open' ? '' : ' disconnected'}`}>
@@ -47,6 +62,16 @@ export function App(): JSX.Element {
         <Transcript store={store} />
         <Composer store={store} send={send} />
       </main>
+      <Show when={skillsOpen()}>
+        <SkillsModal
+          rows={store.state.skillRows}
+          filter={store.state.skillFilter}
+          onFilter={onSkillFilter}
+          onClose={() => {
+            setSkillsOpen(false);
+          }}
+        />
+      </Show>
       <Show when={connection() !== 'open'}>
         <div class="overlay" role="status" aria-live="polite" data-testid="overlay">
           {connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}
@@ -265,7 +290,7 @@ function SessionRail(props: { store: ClientStore; send: Send }): JSX.Element {
 
 /** A debounced filter request; the store holds the filter so a stale
  *  answer (to text the user has typed past) can be recognised and dropped. */
-function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter', send: Send, request: (filter: string) => ClientMsg) {
+function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter' | 'skillFilter', send: Send, request: (filter: string) => ClientMsg) {
   let timer: number | null = null;
   return (value: string): void => {
     store.set((s) => { s[key] = value; });

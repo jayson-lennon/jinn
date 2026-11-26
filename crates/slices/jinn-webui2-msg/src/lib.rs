@@ -18,7 +18,7 @@ pub use client::ClientMsg;
 pub use payload::{
     DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ModelBody, ModelRowBody,
     ModelRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
-    SnapshotBody, TitleBody,
+    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, TitleBody,
 };
 pub use server::ServerMsg;
 

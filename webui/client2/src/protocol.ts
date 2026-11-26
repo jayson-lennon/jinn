@@ -63,6 +63,28 @@ export interface ModelRow {
   is_active: boolean;
 }
 
+/** One run of a skill row's text: matched by the filter, or plain. */
+export interface TextRun {
+  text: string;
+  matched: boolean;
+}
+
+/** One row of the skills modal. */
+export interface SkillRow {
+  name: string;
+  description: string;
+  /** Whether the skill passes the active session's skill filter. */
+  enabled: boolean;
+  /** Whether the skill's body is already pinned in the session's context. */
+  loaded: boolean;
+  /** Whether the skill was discovered from a project-local directory. */
+  is_project: boolean;
+  /** The name, split into matched and plain runs for the filter. */
+  name_runs: TextRun[];
+  /** The description, split the same way. */
+  description_runs: TextRun[];
+}
+
 export type DeltaField = 'text' | 'thinking' | 'args' | 'output';
 
 /** Browser -> server. Exactly one object per user gesture or connect. */
@@ -75,7 +97,8 @@ export type ClientMsg =
   | { type: 'switch_model'; provider_id: string }
   | { type: 'rename'; title: string }
   | { type: 'picker_rows'; filter: string }
-  | { type: 'model_rows'; filter: string };
+  | { type: 'model_rows'; filter: string }
+  | { type: 'skill_rows'; filter: string };
 
 /** Server -> browser. Exactly one fact per frame. */
 export type ServerMsg =
@@ -98,5 +121,6 @@ export type ServerMsg =
   | { type: 'title'; session_id: string; title: string }
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }
   | { type: 'model_rows'; filter: string; rows: ModelRow[] }
+  | { type: 'skill_rows'; session_id: string; filter: string; rows: SkillRow[] }
   | { type: 'error'; message: string }
   | { type: 'ping' };

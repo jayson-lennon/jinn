@@ -22,7 +22,7 @@ use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{PersistSession, SessionLoadRequested};
 use jinn_webui2_msg::{
     EntryEnvelope, EntryUpsertBody, ErrorBody, ModelRowBody, ModelRowsBody, PickerRowBody,
-    PickerRowsBody, ServerMsg, TitleBody,
+    PickerRowsBody, ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, TitleBody,
 };
 use marked_path::MarkedPathAccess as _;
 
@@ -499,4 +499,81 @@ pub fn model_rows(out: &OutboundHandle, filter: String) -> Reply {
         .collect();
 
     Reply::one(ServerMsg::ModelRows(ModelRowsBody { filter, rows }))
+}
+
+// ---------------------------------------------------------------------------
+// Skill rows
+// Parity: jinn-skills `skill_picker_reload.rs::build_skill_entries` (the
+// sort), `jinn-skills-msg::filter_skills` (the match core)
+// ---------------------------------------------------------------------------
+
+/// The skills modal's rows for the active session and a filter.
+///
+/// One row per discovered skill the shared filter accepts, in the order
+/// the terminal picker lists them: sorted case-insensitively by name,
+/// then filtered by `filter_skills` — the same match core, over the same
+/// `{name} {description}` search text. Enablement is the gate the prompt
+/// assembler applies (`is_skill_enabled`), read under the same guard as
+/// the discovered set so a row can never pair a skill with another
+/// moment's filter. With no active session the answer is an empty list.
+pub fn skill_rows(out: &OutboundHandle, filter: String) -> Reply {
+    let state = out.state();
+    let session_id = state.read().session.active_session_id().clone();
+    let rows = {
+        let guard = state.read();
+        guard
+            .session
+            .get(&session_id)
+            .map_or_else(Vec::new, |session| skill_row_bodies(session, &filter))
+    };
+    out.remember_skill_filter(&session_id, &filter);
+    Reply::one(ServerMsg::SkillRows(SkillRowsBody {
+        session_id,
+        filter,
+        rows,
+    }))
+}
+
+/// One session's skill rows: every skill the shared filter accepts, each
+/// paired with its enablement and loaded-ness, with the matched runs of
+/// name and description split for the browser to highlight.
+///
+/// Sorted case-insensitively by name before filtering, so the rows keep
+/// the terminal picker's order and an empty filter lists all of them.
+pub(crate) fn skill_row_bodies(
+    session: &jinn_session_state::ChatSessionState,
+    filter: &str,
+) -> Vec<SkillRowBody> {
+    let mut skills: Vec<jinn_skills_msg::Skill> = session.discovered_skills().to_vec();
+    skills.sort_by_key(|skill| skill.name.to_lowercase());
+    let loaded = session.loaded_skills();
+    jinn_skills_msg::filter_skills(&skills, filter)
+        .into_iter()
+        .map(|filtered| {
+            let enabled = session.is_skill_enabled(&filtered.skill.name);
+            let segments = filtered.segments();
+            SkillRowBody {
+                enabled,
+                loaded: loaded.contains(&filtered.skill.name),
+                is_project: matches!(
+                    filtered.skill.source,
+                    jinn_skills_msg::SkillSource::Project { .. }
+                ),
+                name: filtered.skill.name,
+                description: filtered.skill.description,
+                name_runs: runs(segments.name),
+                description_runs: runs(segments.description),
+            }
+        })
+        .collect()
+}
+
+/// The shared filter's text runs, as the wire carries them.
+fn runs(runs: Vec<jinn_selection_widget::TextRun>) -> Vec<TextRunBody> {
+    runs.into_iter()
+        .map(|run| TextRunBody {
+            text: run.text,
+            matched: run.matched,
+        })
+        .collect()
 }
