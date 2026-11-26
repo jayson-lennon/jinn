@@ -56,6 +56,9 @@ axum = { version = "0.8", features = ["ws"] }
 fuzzy-matcher = "0.3"
 # `MarkedPathAccess` names a session project by its directory, as the TUI picker does.
 marked-path = { workspace = true }
+# Session rows carry each session's last settle-to-Idle time as the core
+# `Timestamp` — the phase event's own type.
+jiff = { workspace = true }
 trouper = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -80,8 +83,6 @@ rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 # Tests resolve the provider cell from the same catalog boot registers it in.
 jinn-cell-catalog = { workspace = true }
-# Test sessions carry the store's own timestamp type.
-jiff = { workspace = true }
 # The queue-depth tests put real items on a session's turn queue, the way
 # the session actor does on a busy-phase enqueue; the item type is this
 # crate's and is not re-exported by anything /web2 depends on in production.

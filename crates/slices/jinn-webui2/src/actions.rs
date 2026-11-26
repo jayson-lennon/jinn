@@ -214,6 +214,7 @@ fn snapshot_reply(out: &OutboundHandle) -> Reply {
     Reply::one(ServerMsg::Snapshot(Box::new(snapshot::snapshot(
         out.state(),
         out.revisions(),
+        out.settles(),
     ))))
 }
 

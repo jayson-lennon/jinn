@@ -33,6 +33,8 @@
   --scrim: rgba(0, 0, 0, .55);
   /* text on an accent or error fill: near-black */
   --on-fill: #2c2e34;
+  /* the unread fill: the warm gold /web's unread rows carry */
+  --mark: #ebdca0;
   /* the shadow a raised card casts */
   --shadow: rgba(0, 0, 0, .5);
   --radius: 8px;
@@ -70,6 +72,8 @@
   --scrim: rgba(0, 0, 0, .55);
   /* on fills: the dark ink */
   --on-fill: #2e3440;
+  /* the unread fill: /web's light-mode unread gold */
+  --mark: #ebcb8b;
   /* the shadow a raised card casts, lighter over a pale page */
   --shadow: rgba(46, 52, 64, .18);
   color-scheme: light;
@@ -91,6 +95,7 @@
     --ok: #3d6b2a;
     --scrim: rgba(0, 0, 0, .55);
     --on-fill: #2e3440;
+    --mark: #ebcb8b;
     --shadow: rgba(46, 52, 64, .18);
     color-scheme: light;
   }
@@ -145,6 +150,14 @@ body { background: var(--bg); color: var(--fg); }
 .rail-tab + .rail-tab { border-left: 1px solid var(--border); }
 .rail-tab:hover { color: var(--fg); }
 .rail-tab[aria-selected="true"] { background: var(--bg-active); color: var(--fg); }
+/* An unread row under a tab marks the tab, so a `#` count always points
+   at a marked row in the drawer. After the selected rule, and wins over
+   it: the tab being looked at is usually the selected one, and a
+   selection fill must not hide the mark. The selected tab then wears an
+   inset ring in the mark's ink, so which tab is selected stays legible
+   when both carry a mark. */
+.rail-tab.unread { background: var(--mark); color: var(--on-fill); font-weight: 700; }
+.rail-tab.unread[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--on-fill); }
 /* A row and its kebab sit on one line; the session button takes the rest. */
 .session-row { display: flex; align-items: center; gap: 2px; }
 .session-row .session { flex: 1 1 0; min-width: 0; }
@@ -230,6 +243,11 @@ body { background: var(--bg); color: var(--fg); }
   text-align: left;
 }
 .session:hover { background: var(--bg-hover); color: var(--fg); }
+/* A session that settled while the page looked elsewhere. Before the
+   active rule: for the one frame a row is both, the active fill wins,
+   and the snapshot that follows clears the mark. */
+.session.unread { background: var(--mark); color: var(--on-fill); }
+.session.unread:hover { background: var(--mark); color: var(--on-fill); filter: brightness(1.05); }
 .session.active { background: var(--bg-hover); color: var(--fg); }
 /* Shared by the sidebar's rows and the pickers' rows, which stack the
    title above its meta line in a column. There a zero flex-basis is a
@@ -776,6 +794,21 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   }
   .sessions-button:hover { border-color: var(--accent); }
   .sessions-button:focus-visible { outline: 1px solid var(--accent); }
+  /* The `#` button while sessions are unread: the gold fill, and the
+     count beside the glyph. The gap keeps `#` and the number apart. */
+  .sessions-button.unread {
+    background: var(--mark);
+    border-color: var(--mark);
+    color: var(--on-fill);
+    gap: 4px;
+    align-items: center;
+  }
+  .sessions-button.unread:hover { border-color: var(--on-fill); }
+  .sessions-button-count {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+  }
   /* The composer keeps its one row on a phone — the draft, `+` and the
      buttons on one line, the chips above — at the same height as at
      desktop. Only the touch sizes change: a 16px draft (no iOS

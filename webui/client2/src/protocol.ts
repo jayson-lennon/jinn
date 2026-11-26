@@ -47,6 +47,9 @@ export interface SessionRow {
   is_busy: boolean;
   /** Whether the session is a library member (listed under Library). */
   in_library: boolean;
+  /** When the session last landed on Idle, as RFC 3339 — or null when it
+   *  has not settled since the server started, or is a subagent's. */
+  last_settled_at: string | null;
 }
 
 /** The page's color mode. */

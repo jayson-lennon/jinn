@@ -6166,6 +6166,7 @@ dependencies = [
 name = "jinn-webui2-msg"
 version = "1.27.2"
 dependencies = [
+ "jiff",
  "jinn-core-types",
  "jinn-session-store-msg",
  "jinn-slices",
