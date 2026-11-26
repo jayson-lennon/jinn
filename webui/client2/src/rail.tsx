@@ -102,18 +102,26 @@ export function SessionRail(props: RailProps): JSX.Element {
   const sessionsTabUnread = (): boolean => listHasUnread(props.store.state.sessions, props.store.state.lastSeen);
   const libraryTabUnread = (): boolean => listHasUnread(props.store.state.library, props.store.state.lastSeen);
 
-  // The row's verdict, and — for a marked row, with debugging on — the two
-  // times behind it, so a stuck mark can be read straight off the console.
+  // The row's verdict, and — for a marked row — the two times behind it,
+  // so a stuck mark can be read straight off the console. Logged once per
+  // session until its verdict changes: a mark that persists re-renders on
+  // every frame, and each of those would repeat the same line.
+  const loggedUnread = new Set<string>();
   const rowUnread = (row: import('./protocol').SessionRow): boolean => {
     const verdict = isUnread(row, props.store.state.lastSeen);
     if (verdict) {
-      debugUnread('row is unread', {
-        session: row.session_id,
-        title: row.title,
-        rowSettledAt: row.last_settled_at,
-        seenAt: props.store.state.lastSeen[row.session_id] ?? null,
-        active: row.is_active,
-      });
+      if (!loggedUnread.has(row.session_id)) {
+        loggedUnread.add(row.session_id);
+        debugUnread('row is unread', {
+          session: row.session_id,
+          title: row.title,
+          rowSettledAt: row.last_settled_at,
+          seenAt: props.store.state.lastSeen[row.session_id] ?? null,
+          active: row.is_active,
+        });
+      }
+    } else {
+      loggedUnread.delete(row.session_id);
     }
     return verdict;
   };

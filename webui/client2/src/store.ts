@@ -136,21 +136,11 @@ export interface ClientStore {
 }
 
 /**
- * Whether the unread mark's decisions are logged to the console. Off
- * unless the page is opened with `?debug=unread`, so the hot path pays
- * nothing for it normally.
+ * One line on the console for an unread-mark decision. Always on: the
+ * mark is a quiet feature, and a mark that will not clear is only
+ * diagnosable from the two times behind it.
  */
-export const UNREAD_DEBUG: boolean = (() => {
-  try {
-    return new URLSearchParams(window.location.search).get('debug') === 'unread';
-  } catch {
-    return false;
-  }
-})();
-
-/** One line on the console when unread debugging is on; nothing otherwise. */
 export function debugUnread(message: string, fields: Record<string, unknown>): void {
-  if (!UNREAD_DEBUG) return;
   console.debug(`[unread] ${message}`, fields);
 }
 
@@ -285,13 +275,20 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         // The page is now viewing this session: whatever settled before
         // this moment is seen. One arm covers a click on the page and a
         // switch made elsewhere that the page follows — both land here.
+        // The page is now viewing this session: whatever settled before
+        // this moment is seen. One arm covers a click on the page and a
+        // switch made elsewhere that the page follows — both land here.
+        // The time recorded is the server's own settle time for the
+        // session, never the browser's clock: the two run on different
+        // machines and drift, and a browser that is behind would record
+        // a "seen" older than the settle and never clear the mark.
         if (msg.session_id !== null) {
-          const now = new Date().toISOString();
-          s.lastSeen[msg.session_id] = now;
+          const settled = viewedRowSettledAt(msg.session_id, msg.sessions, msg.library);
+          s.lastSeen[msg.session_id] = settled ?? new Date().toISOString();
           debugUnread('snapshot: marked seen', {
             session: msg.session_id,
-            seenAt: now,
-            rowSettledAt: viewedRowSettledAt(msg.session_id, msg.sessions, msg.library),
+            seenAt: s.lastSeen[msg.session_id],
+            rowSettledAt: settled,
           });
         }
         // Only the snapshot the page is waiting for ends the wait. One
@@ -351,12 +348,16 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       // Only a settle the map does not already hold is a change; the same
       // time arrives on every history append of the viewed session.
       const changed = settled !== null && store.state.lastSeen[viewed ?? ''] !== settled;
-      debugUnread('sessions frame', {
-        viewed,
-        viewedSettledAt: settled,
-        seenBefore: viewed === null ? null : (store.state.lastSeen[viewed] ?? null),
-        changesMap: changed,
-      });
+      // Only a frame that moves the map is worth a line: the same settle
+      // arrives on every history append, and logging each would bury
+      // the decision under noise.
+      if (changed) {
+        debugUnread('sessions frame: marked seen', {
+          viewed,
+          seenBefore: store.state.lastSeen[viewed ?? ''] ?? null,
+          seenAt: settled,
+        });
+      }
       store.set((s) => {
         s.sessions = msg.rows;
         s.library = msg.library;

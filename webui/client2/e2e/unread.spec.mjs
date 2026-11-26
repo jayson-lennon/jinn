@@ -113,6 +113,26 @@ test("viewing a marked session clears its mark", async ({ page, jinn }) => {
   await expect(rowOf(page, secondId)).not.toHaveClass(/unread/);
 });
 
+test("a mark clears when the browser clock is behind the server", async ({
+  page,
+  jinn,
+}) => {
+  // Given a page whose clock runs nine minutes behind the server's, as a
+  // browser on another machine does, and a background session that settled.
+  await page.clock.install({ time: new Date(Date.now() - 9 * 60 * 1000) });
+  await page.reload();
+  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toBeVisible();
+  const { secondId } = await arrangeBackgroundSession(page);
+  await startBackgroundTurn(jinn, secondId);
+  await expect(rowOf(page, secondId)).toHaveClass(/unread/, { timeout: 10_000 });
+
+  // When the page views it by clicking its row.
+  await rowOf(page, secondId).click();
+
+  // Then the mark is gone: "seen" is the server's time, not the clock's.
+  await expect(rowOf(page, secondId)).not.toHaveClass(/unread/);
+});
+
 test("a mark survives a reload", async ({ page, jinn }) => {
   // Given a marked session.
   const { secondId } = await arrangeBackgroundSession(page);
