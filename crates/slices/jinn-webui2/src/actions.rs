@@ -24,7 +24,7 @@ use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
-    PersistSession, SessionLoadRequested, SessionTreeEntry, SetSessionLibrary,
+    ArchiveSession, PersistSession, SessionLoadRequested, SessionTreeEntry, SetSessionLibrary,
 };
 use jinn_webui2_msg::{
     AppletRowBody, AppletRowsBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
@@ -70,6 +70,10 @@ pub enum Refusal {
     UnknownTheme(String),
     /// No live session and nothing in the store carries that id.
     UnknownLibraryTarget(SessionId),
+    /// The session to archive is running a turn.
+    ArchiveSessionBusy,
+    /// The session to archive is already archived.
+    AlreadyArchived(SessionId),
     /// The request named no configured `[[project.entry]]`.
     UnknownProject(String),
     /// A configured project path is neither `~`-prefixed nor absolute.
@@ -107,6 +111,8 @@ impl Refusal {
             Self::UnknownLibraryTarget(id) => {
                 format!("no session with id {id} is live or stored")
             }
+            Self::ArchiveSessionBusy => "session is busy — cancel the turn first".to_owned(),
+            Self::AlreadyArchived(id) => format!("session {id} is already archived"),
             Self::UnknownProject(project) => {
                 format!("project {project:?} is not a configured [[project.entry]]")
             }
@@ -1512,6 +1518,42 @@ pub async fn set_library(out: &OutboundHandle, session_id: SessionId, in_library
         in_library,
     })
     .await;
+    Reply::none()
+}
+
+/// Archives a session without running its teardown lifecycle.
+///
+/// Publishes the existing `ArchiveSession` command and nothing else: the
+/// store actor writes the archived snapshot all-or-nothing, removes the
+/// session, and announces `SessionRemoved`, `SessionArchived`, and — when
+/// this was the session the user was reading — the successor's
+/// `ActiveSessionChanged`. The outbound actor turns those into the sessions
+/// frame and the snapshot that move every page, so the reply itself carries
+/// no frame: a TUI-initiated archive reaches the page the same way.
+///
+/// A session running a turn is refused before the publish. The store's
+/// single-session archive has no busy guard of its own — that is the
+/// caller's job, and the TUI's `a` key does it in `validate_session_close`.
+/// An id that is neither live nor stored is refused the same way, and a
+/// stored-but-not-live id is one already in the archive.
+pub async fn archive_session(out: &OutboundHandle, session_id: SessionId) -> Reply {
+    // Owned, so the read guard drops before the store await below.
+    let phase = out
+        .state()
+        .read()
+        .session
+        .get(&session_id)
+        .map(jinn_kernel::ChatSessionState::phase);
+    match phase {
+        Some(phase) if phase.is_working() => return refused(&Refusal::ArchiveSessionBusy),
+        Some(_) => {}
+        None => match out.session_store().load_session(&session_id).await {
+            Ok(Some(_)) => return refused(&Refusal::AlreadyArchived(session_id)),
+            Ok(None) => return refused(&Refusal::UnknownSession),
+            Err(_) => return refused(&Refusal::StoreUnavailable),
+        },
+    }
+    out.publish(ArchiveSession { session_id }).await;
     Reply::none()
 }
 

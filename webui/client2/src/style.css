@@ -188,6 +188,10 @@ body { background: var(--bg); color: var(--fg); }
   right: 0;
   top: 100%;
   z-index: 20;
+  /* A column of entries: without this the buttons flow inline and the
+     second one lands beside the first, overflowing the popup. */
+  display: flex;
+  flex-direction: column;
   min-width: 180px;
   max-width: min(240px, calc(100vw - 24px));
   background: var(--bg-raised);
@@ -373,7 +377,38 @@ body { background: var(--bg); color: var(--fg); }
 .model-chip:hover { color: var(--fg); border-color: var(--fg-faint); }
 
 /* ---- transcript ---- */
-.transcript { min-height: 0; overflow-y: auto; padding: 16px 20px; }
+/* The transcript's row in `.main`: a wrapper that fills the row and is the
+   containing block for the two floating jump buttons. */
+.transcript-wrap { position: relative; min-height: 0; display: flex; }
+.transcript { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 16px 20px; }
+/* The two jump buttons: floating over the transcript's right edge, the
+   start one at its top-right corner and the end one at its bottom-right.
+   Opaque, so an entry underneath never shows through the glyph. They sit
+   below every overlay, so a modal, the menu, or the reconnect notice always
+   covers them. */
+.jump {
+  position: absolute;
+  right: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 4px var(--shadow);
+  cursor: pointer;
+  user-select: none;
+}
+.jump:hover { border-color: var(--accent); color: var(--accent); }
+.jump:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.jump-start { top: 10px; }
+.jump-end { bottom: 10px; }
+.jump-icon { display: block; }
 .entry { margin-bottom: 12px; }
 .entry-role {
   display: inline-block;
@@ -544,7 +579,6 @@ body { background: var(--bg); color: var(--fg); }
 .composer-actions button:disabled { color: var(--fg-faint); cursor: not-allowed; }
 .composer-actions .primary { background: var(--accent); color: var(--on-fill); border-color: var(--accent); font-weight: 600; }
 .composer-actions .danger { color: var(--danger); border-color: var(--danger); }
-.composer-error { margin-top: 8px; color: var(--danger); font-size: 13px; }
 
 /* A user entry's images, beneath its text. */
 .entry-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
@@ -871,6 +905,35 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   z-index: 10;
 }
 
+/* ---- toasts: every refusal and failure, bottom-right ---- */
+
+/* Above the menu panel (70), every modal (80), and the session-load
+   overlay (90): a refusal is what clears that overlay, and a toast raised
+   while one is still up must still be seen. */
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 32px));
+  z-index: 91;
+}
+.toast {
+  padding: 10px 14px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px var(--shadow);
+  cursor: pointer;
+}
+
 /* ---- spinner ---- */
 /* One spinner for both overlays: the reconnect banner and the session-load card. */
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -979,6 +1042,8 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   .draft { font-size: 16px; }
   .composer-actions { flex: none; }
   .composer-actions button, .attach { min-height: 40px; padding-left: 10px; padding-right: 10px; }
+  /* The jump buttons keep the phone's 40px touch floor, square. */
+  .jump { width: 40px; height: 40px; }
 }
 
 /* The count beside Q: how many messages wait behind the running turn. A

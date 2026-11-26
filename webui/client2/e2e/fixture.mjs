@@ -31,7 +31,6 @@ export const sel = {
   QUEUE: '[data-testid="queue"]',
   QUEUE_DEPTH: '[data-testid="queue-depth"]',
   CANCEL: '[data-testid="cancel"]',
-  COMPOSER_ERROR: '[data-testid="composer-error"]',
   TITLE: '[data-testid="title"]',
   TITLE_EDIT: '[data-testid="title-edit"]',
   MODEL_CHIP: '[data-testid="model-chip"]',
@@ -48,6 +47,7 @@ export const sel = {
   MENU_PANEL: '[data-testid="menu-panel"]',
   MENU_SCRIM: '[data-testid="menu-scrim"]',
   MENU_ITEM_SKILLS: '[data-testid="menu-item-skills"]',
+  MENU_ITEM_ARCHIVE: '[data-testid="menu-item-archive"]',
   MENU_ITEM_PERSONA: '[data-testid="menu-item-persona"]',
   MENU_ITEM_TOOLS: '[data-testid="menu-item-tools"]',
   MENU_ITEM_MCP: '[data-testid="menu-item-mcp"]',
@@ -95,6 +95,9 @@ export const sel = {
   LIBRARY_VIEW: '[data-testid="library-view"]',
   ROW_MENU: '[data-testid="row-menu"]',
   ROW_MENU_LIBRARY: '[data-testid="row-menu-library"]',
+  ROW_MENU_ARCHIVE: '[data-testid="row-menu-archive"]',
+  /** The toast region's rows: every refusal and failure the page reports. */
+  TOAST: '[data-testid="toast"]',
   /** The composer's `+`, and the hidden file input behind it. */
   ATTACH: '[data-testid="attach"]',
   ATTACH_INPUT: '[data-testid="attach-input"]',
@@ -264,6 +267,28 @@ export async function toggleLibraryThroughMenu(page, sessionId) {
   await page.locator(sel.ROW_MENU_LIBRARY).click();
 }
 
+/**
+ * Archives the session the page is viewing through the hamburger menu's
+ * Archive session item.
+ *
+ * @param {import('@playwright/test').Page} page the test's own page.
+ */
+export async function archiveThroughMenu(page) {
+  await openMenu(page);
+  await page.locator(sel.MENU_ITEM_ARCHIVE).click();
+}
+
+/**
+ * Archives the session whose row holds the `⋮`, through that row's menu.
+ *
+ * @param {import('@playwright/test').Page} page the test's own page.
+ * @param {string} sessionId the session to archive.
+ */
+export async function archiveThroughRowMenu(page, sessionId) {
+  await page.locator(`${sel.ROW_WRAP(sessionId)} ${sel.ROW_MENU}`).click();
+  await page.locator(sel.ROW_MENU_ARCHIVE).click();
+}
+
 /** The id of the session the page is viewing, or null when none is. */
 export async function viewedSessionId(page) {
   return page.locator(sel.ACTIVE_SESSION_ROW).getAttribute("data-session-id");
@@ -374,10 +399,10 @@ export async function pasteImage(page, image) {
 
 /**
  * Marks `id` archived in the test's own scratch store, with the same
- * statement jinn's store runs. `/web2` has no archive gesture, so this
- * arranges the store half only: the session stays loaded until the
- * instance restarts. A test that needs it gone from memory follows
- * this with `restartJinn`.
+ * statement jinn's store runs. This arranges the store half only, for a
+ * test that needs a session *already* archived before an instance
+ * restarts: the session stays loaded in memory until then. A live archive
+ * through the page is `archiveThroughMenu` / `archiveThroughRowMenu`.
  *
  * @param {{ root: string }} jinn the test's own instance.
  * @param {string} id the session to archive.

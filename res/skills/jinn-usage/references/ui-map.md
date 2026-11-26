@@ -223,10 +223,11 @@ fixed column drawn here, and the `#` is not shown.
 │Sessions│Libra│ ☰ Session title        [provider/model]      │ ← title bar
 │ ▎Session A   ├──────────────────────────────────────────────┤
 │  Session B ● │  Transcript                                  │
-│        ⋮     │  (scrolling conversation)                    │
+│        ⋮     │  (scrolling conversation)              [⇱]   │ ← jump to start (top-right, when off the top)
 │              │  a user message with an attached image:      │
 │  Archive     │    you  look at this                         │
 │              │    [img]                                     │
+│              │                                        [⇲]   │ ← jump to end (bottom-right, when off the end)
 │              ├──────────────────────────────────────────────┤
 │              │ [chip: dot.png ✕]                            │ ← chips
 │              │ [Message jinn…      ] [+]        [Send]      │ ← composer
@@ -238,7 +239,7 @@ fixed column drawn here, and the `#` is not shown.
 | Element | What it is | See |
 | --- | --- | --- |
 | `Sessions` / `Library` | The sidebar's two-segment control. Chooses which list it shows: the loaded sessions that are not library members, or the library members. Exactly one shows at a time. | `webui2.md` |
-| `⋮` on a session row | The row's menu. One item — **add to library** or **remove from library** — which moves the session to the other list. | `webui2.md` |
+| `⋮` on a session row | The row's menu. **add to library** / **remove from library** moves the session to the other list; **archive** archives that session. | `webui2.md` |
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui2.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui2.md` |
 | **Loading session…** card | A full-page overlay with a spinner, raised the instant a session row or an Archive row is picked and cleared when that session arrives. Covers everything; `Esc` does not close it. | `webui2.md` |
@@ -249,13 +250,16 @@ fixed column drawn here, and the `#` is not shown.
 | `[provider/model]` | The model chip. Opens the model picker; its **Refresh models** button asks the registry to rediscover and stays busy until the fresh rows land. | `webui2.md` |
 | `[chip: … ✕]` | A pending image, one per chip, above the composer. Arrives from a paste, the `+`, or an `https://` image URL already sent. `✕` removes it. | `webui2.md` |
 | `[img]` on a user message | An image the message carried. | `webui2.md` |
+| `[⇱]` top-right of the transcript | **Jump to start** — an up arrow against a bar above it. Shown only while scrolled away from the top; click to land on the first entry. | `webui2.md` |
+| `[⇲]` bottom-right of the transcript | **Jump to end** — a down arrow against a bar below it. Shown only while scrolled away from the end; click to land on the newest entry and follow the stream again. | `webui2.md` |
 | `⋮` at an entry's bottom-right | Every transcript entry's menu, always visible at every width. **Pin** pins the entry at its relative position and it shows a 📌; pinned, the item reads **Unpin**. `Esc`, an outside click, or picking an item closes it. | `webui2.md` |
 | 📌 at an entry's left edge | A pinned entry — always in context, and pinned at its relative position. | `webui2.md` |
 | `[Message jinn…]` | The composer's draft. `Enter` sends; `Shift+Enter` is a newline. An image with no text sends. | `webui2.md` |
 | `[+]` | Attach an image. Opens the file picker. | `webui2.md` |
 | `[Q]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
 | `[Send]` (while idle) | Send the message. | `webui2.md` |
-| `☰` | The menu button. Opens a full-height slide-in panel over a scrim. **New session** is its first item and the **Light | Dark | System** color mode group its last, at every time; **Sessions** sits just above the group; **Applets** sits just above **Sessions**, at every time; and between the first item and **Applets**, while a session is active, **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — each opens its picker modal. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
+| `☰` | The menu button. Opens a full-height slide-in panel over a scrim. **New session** is its first item and the **Light | Dark | System** color mode group its last, at every time; **Sessions** sits just above the group; **Applets** sits just above **Sessions**, at every time; and between the first item and **Applets**, while a session is active, **Archive session**, **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — **Archive session** archives the session in view, and each picker opens its modal. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
+| **Archive session** (menu) | Archives the session in view. Its row leaves the rail and the page moves to another session; a session running a turn is refused with a toast. | `webui2.md` |
 | **Applets** (menu) | A modal over the saved applets, newest first, each a new-tab link while the applets server is serving and a disabled line while it is offline; a status line names the serving bind, and a filter narrows by title. | `webui2.md` |
 | `serving http://<bind>` / `<server offline>` | The applets modal's status line: where the applets server is reachable, or that it is down (rows disabled). | `webui2.md` |
 | **New session** (menu) | A modal with a Project select, a Lifecycle select, **Setup arguments** when the lifecycle declares any, and **Create session**. The new session becomes active and the page moves to it. | `webui2.md` |
@@ -266,6 +270,7 @@ fixed column drawn here, and the `#` is not shown.
 | The MCP servers modal | A filter bar and one row per `[mcp.<name>]` in `jinn.toml` — a `●` (enabled) / `○` (disabled) mark, the name, the launch summary, and a status badge: `off`, `starting`, `running`, `dead`. A row click toggles at once; the badge updates live. | `webui2.md` |
 | The persona modal | A filter bar and one row per persona — a `●` on the current persona / `○` on the rest, the name, the description; the current row is highlighted. A row click switches the persona and closes the modal. | `webui2.md` |
 | `disconnected — reconnecting…` | A full-page overlay while the connection is down. | `webui2.md` |
+| A toast (bottom right) | Every refusal and failure the server reports — a busy archive, a refused image, an unknown skill. Dismisses itself after a few seconds; a tap dismisses it at once. | `webui2.md` |
 
 ## Feature → screen location (reverse lookup)
 

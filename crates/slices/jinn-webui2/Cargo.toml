@@ -74,11 +74,10 @@ tracing = { workspace = true }
 parking_lot = { workspace = true }
 
 [build-dependencies]
-# The build script verifies the committed client bundle against the
-# vendor manifest (the pin gate) and fails the build when the client
-# sources are newer than the bundle (the staleness gate).
-sha2 = "0.10"
-toml = { workspace = true }
+# The build script builds the /web2 client itself — `npm ci` when stale,
+# `tsc`, `vite build` — and gzips the output into OUT_DIR for embedding.
+# Node and npm are therefore build prerequisites of this crate.
+flate2 = "1"
 
 [dev-dependencies]
 # The streaming-batch tests pause the clock so the window is asserted
