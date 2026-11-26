@@ -136,11 +136,21 @@ export interface ClientStore {
 }
 
 /**
- * One line on the console for an unread-mark decision. Always on: the
- * mark is a quiet feature, and a mark that will not clear is only
+ * One line on the console for an unread-mark decision. Off unless the
+ * page is opened with `?debug=unread`: the mark is a quiet feature and
+ * normal operation logs nothing, but a mark that will not clear is only
  * diagnosable from the two times behind it.
  */
-export function debugUnread(message: string, fields: Record<string, unknown>): void {
+const UNREAD_DEBUG: boolean = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('debug') === 'unread';
+  } catch {
+    return false;
+  }
+})();
+
+function debugUnread(message: string, fields: Record<string, unknown>): void {
+  if (!UNREAD_DEBUG) return;
   console.debug(`[unread] ${message}`, fields);
 }
 
@@ -284,12 +294,15 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         // a "seen" older than the settle and never clear the mark.
         if (msg.session_id !== null) {
           const settled = viewedRowSettledAt(msg.session_id, msg.sessions, msg.library);
-          s.lastSeen[msg.session_id] = settled ?? new Date().toISOString();
-          debugUnread('snapshot: marked seen', {
-            session: msg.session_id,
-            seenAt: s.lastSeen[msg.session_id],
-            rowSettledAt: settled,
-          });
+          const seen = settled ?? new Date().toISOString();
+          s.lastSeen[msg.session_id] = seen;
+          if (UNREAD_DEBUG) {
+            debugUnread('snapshot: marked seen', {
+              session: msg.session_id,
+              seenAt: seen,
+              rowSettledAt: settled,
+            });
+          }
         }
         // Only the snapshot the page is waiting for ends the wait. One
         // naming another session — the old session's, answered when a disk
@@ -348,16 +361,6 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       // Only a settle the map does not already hold is a change; the same
       // time arrives on every history append of the viewed session.
       const changed = settled !== null && store.state.lastSeen[viewed ?? ''] !== settled;
-      // Only a frame that moves the map is worth a line: the same settle
-      // arrives on every history append, and logging each would bury
-      // the decision under noise.
-      if (changed) {
-        debugUnread('sessions frame: marked seen', {
-          viewed,
-          seenBefore: store.state.lastSeen[viewed ?? ''] ?? null,
-          seenAt: settled,
-        });
-      }
       store.set((s) => {
         s.sessions = msg.rows;
         s.library = msg.library;

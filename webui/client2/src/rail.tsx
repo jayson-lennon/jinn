@@ -13,7 +13,6 @@
 import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientStore } from './store';
-import { debugUnread } from './store';
 import { isUnread, listHasUnread } from './unread';
 import { Runs } from './pickers';
 import { beginSessionLoad } from './store';
@@ -102,29 +101,6 @@ export function SessionRail(props: RailProps): JSX.Element {
   const sessionsTabUnread = (): boolean => listHasUnread(props.store.state.sessions, props.store.state.lastSeen);
   const libraryTabUnread = (): boolean => listHasUnread(props.store.state.library, props.store.state.lastSeen);
 
-  // The row's verdict, and — for a marked row — the two times behind it,
-  // so a stuck mark can be read straight off the console. Logged once per
-  // session until its verdict changes: a mark that persists re-renders on
-  // every frame, and each of those would repeat the same line.
-  const loggedUnread = new Set<string>();
-  const rowUnread = (row: import('./protocol').SessionRow): boolean => {
-    const verdict = isUnread(row, props.store.state.lastSeen);
-    if (verdict) {
-      if (!loggedUnread.has(row.session_id)) {
-        loggedUnread.add(row.session_id);
-        debugUnread('row is unread', {
-          session: row.session_id,
-          title: row.title,
-          rowSettledAt: row.last_settled_at,
-          seenAt: props.store.state.lastSeen[row.session_id] ?? null,
-          active: row.is_active,
-        });
-      }
-    } else {
-      loggedUnread.delete(row.session_id);
-    }
-    return verdict;
-  };
 
   return (
     <>
@@ -165,7 +141,7 @@ export function SessionRail(props: RailProps): JSX.Element {
               <li>
                 <div class="session-row" data-testid="session-row-wrap" data-session-id={row.session_id}>
                   <button
-                    class={`session${row.is_active ? ' active' : ''}${rowUnread(row) ? ' unread' : ''}`}
+                    class={`session${row.is_active ? ' active' : ''}${isUnread(row, props.store.state.lastSeen) ? ' unread' : ''}`}
                     data-testid="session-row"
                     data-session-id={row.session_id}
                     onClick={() => activate(row.session_id)}
