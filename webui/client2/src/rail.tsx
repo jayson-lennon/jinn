@@ -2,12 +2,13 @@
 // on a phone.
 //
 // The rail is always in the document. Which list it shows is store state
-// (so a push can update it and a snapshot can reset it); whether it is
-// slid in is the component's own — nobody else reads it, and nothing
-// about it survives a reconnect. Below 768px the stylesheet takes the
-// rail off-canvas and this component's scrim and `#` button are live; at
-// wider widths the stylesheet pins the rail in place and hides both, so
-// the open flag is simply inert there.
+// (so a push can update it and a snapshot can reset it). Whether it is
+// slid in belongs to the page, because two things open it: the title
+// bar's `#` button and the hamburger menu's Sessions item. Both reach it
+// through one signal the page owns. Below 768px the stylesheet takes the
+// rail off-canvas and the drawer's scrim is live; at wider widths the
+// stylesheet pins the rail in place and hides the scrim, so the open
+// flag is simply inert there.
 
 import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
@@ -17,10 +18,14 @@ export interface RailProps {
   store: ClientStore;
   /** Sends one command; a row click activates, a kebab item sets membership. */
   send: (msg: import('./protocol').ClientMsg) => void;
+  /** Whether the drawer is slid in, and the setter that slides it. */
+  open: () => boolean;
+  setOpen: (open: boolean) => void;
 }
 
 export function SessionRail(props: RailProps): JSX.Element {
-  const [open, setOpen] = createSignal(false);
+  const open = (): boolean => props.open();
+  const setOpen = props.setOpen;
   const [picker, setPicker] = createSignal(false);
   const [menuFor, setMenuFor] = createSignal<string | null>(null);
 
@@ -73,22 +78,12 @@ export function SessionRail(props: RailProps): JSX.Element {
 
   return (
     <>
-      <button
-        type="button"
-        class="sessions-button"
-        data-testid="sessions-button"
-        aria-label="Sessions"
-        aria-expanded={open() ? 'true' : 'false'}
-        onClick={() => setOpen(!open())}
-      >
-        #
-      </button>
       <div
         class={`drawer-scrim${open() ? ' open' : ''}`}
         data-testid="drawer-scrim"
         onClick={() => setOpen(false)}
       />
-      <nav class={`rail${open() ? ' open' : ''}`} data-testid="rail">
+      <nav id="session-rail" class={`rail${open() ? ' open' : ''}`} data-testid="rail">
         <div class="rail-toggle" role="tablist" aria-label="sidebar list">
           <button
             type="button"

@@ -15,15 +15,12 @@ import {
 
 test("the hamburger sits in the title bar, left of the title", async ({ page }) => {
   // Given a connected page.
-  // Then the menu button is the title bar's first control, and the
-  // title sits to its right.
+  // Then the menu button is inside the title bar, and the title sits to
+  // its right. It is not the bar's first control at phone widths: the `#`
+  // sits left of it there, so the claim is the order, not the first child.
   const bar = page.locator(".title-bar");
   const button = page.locator(sel.MENU_BUTTON);
-  await expect(button).toBeVisible();
-  await expect(bar.locator("> *").first()).toHaveAttribute(
-    "class",
-    new RegExp("menu"),
-  );
+  await expect(bar.locator(sel.MENU_BUTTON)).toBeVisible();
   const [buttonBox, titleBox] = await Promise.all([
     button.boundingBox(),
     page.locator(sel.TITLE).boundingBox(),

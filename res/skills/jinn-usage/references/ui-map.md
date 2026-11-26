@@ -214,8 +214,9 @@ button appears; details are in `webui.md`.
 
 A second browser page the instance serves beside the TUI and the original
 web UI (what it is and how to open it: `webui2.md`). Below 768px the
-sidebar is an off-canvas drawer behind a `#` button; at wider widths it
-is the fixed column drawn here, and the `#` is not shown.
+sidebar is an off-canvas drawer behind a `#` button left of the `☰`
+(the menu's **Sessions** item opens it too); at wider widths it is the
+fixed column drawn here, and the `#` is not shown.
 
 ```text
 ┌──────────────┬──────────────────────────────────────────────┐
@@ -249,7 +250,7 @@ is the fixed column drawn here, and the `#` is not shown.
 | `[+]` | Attach an image. Opens the file picker. | `webui2.md` |
 | `[Q]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
 | `[Send]` (while idle) | Send the message. | `webui2.md` |
-| `☰` | The menu button. Opens a full-height slide-in panel over a scrim. **New session** is its first item and the **Light | Dark | System** color mode group its last, at every time; between them, while a session is active, **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — each opens its picker modal. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
+| `☰` | The menu button. Opens a full-height slide-in panel over a scrim. **New session** is its first item and the **Light | Dark | System** color mode group its last, at every time; **Sessions** sits just above the group, and between the first item and **Sessions**, while a session is active, **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — each opens its picker modal. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
 | **New session** (menu) | A modal with a Project select, a Lifecycle select, **Setup arguments** when the lifecycle declares any, and **Create session**. The new session becomes active and the page moves to it. | `webui2.md` |
 | **Light | Dark | System** (menu) | The color mode. Saved to `state.toml`; **System** follows the browser. | `webui2.md` |
 | `#` (phone only) | Below 768px, at the title bar's left. Opens the sidebar as an off-canvas drawer; a scrim tap, `Esc`, or picking a row closes it. | `webui2.md` |

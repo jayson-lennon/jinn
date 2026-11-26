@@ -85,6 +85,7 @@ export const sel = {
   ATTACHMENT: '[data-testid="attachment"]',
   REFRESH_MODELS: '[data-testid="refresh-models"]',
   MENU_ITEM_NEW_SESSION: '[data-testid="menu-item-new-session"]',
+  MENU_ITEM_SESSIONS: '[data-testid="menu-item-sessions"]',
   NEW_SESSION_MODAL: '[data-testid="new-session-modal"]',
   NEW_SESSION_PROJECT: '[data-testid="new-session-project"]',
   NEW_SESSION_LIFECYCLE: '[data-testid="new-session-lifecycle"]',

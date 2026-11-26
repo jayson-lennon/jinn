@@ -64,6 +64,9 @@ but nothing coordinates them.
 - **Menu** — the `☰` at the title bar's left opens a full-height panel
   over a dimmed page. **New session** is its first item and the
   **Light | Dark | System** color mode group its last, at every time.
+  Just above the group, at every time, is **Sessions**, which opens
+  the session list — on a phone the drawer, at wider widths nothing,
+  since the sidebar is already in place.
   Between them, while a session is active, it lists **Skills**,
   **Persona**, **Tools**, and **MCP servers**, in that order; each opens
   its picker. With no active session those four are omitted. A scrim
@@ -72,7 +75,8 @@ but nothing coordinates them.
   is saved (`state.toml`) and survives a reload and a restart; **System**
   follows the browser. It is applied before the transcript's first paint.
 - **Phone layout** — below 768px the sidebar becomes an off-canvas drawer
-  opened by a `#` button at the title bar's left. A scrim tap, `Esc`, or
+  opened by the small `#` button left of the `☰` in the title bar, or by
+  the menu's **Sessions** item. A scrim tap, `Esc`, or
   picking a row closes it. At wider widths the `#` is not shown and the
   sidebar is a fixed column.
 - **Skills** — the menu's **Skills** item (only while a session is

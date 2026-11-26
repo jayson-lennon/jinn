@@ -114,9 +114,15 @@ body { background: var(--bg); color: var(--fg); }
   overflow-x: hidden;
   overflow-y: auto;
 }
-/* The titlebar's sessions button is a phone control: the rail is pinned
-   in place at desktop widths and there is nothing to toggle. */
-.sessions-button { display: none; }
+/* The title bar's `#`: a phone control — the rail is pinned in place at
+   desktop widths and there is nothing to toggle. It takes its size the
+   way its neighbours do, from the same padding and line-height, so it is
+   as tall as the hamburger and the model chip beside it; `flex: none`
+   keeps it from ever stretching across the bar. */
+.sessions-button {
+  display: none;
+  flex: none;
+}
 .drawer-scrim { display: none; }
 /* The two-list control above the rows. */
 .rail-toggle {
@@ -754,9 +760,6 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   .drawer-scrim.open { visibility: visible; pointer-events: auto; }
   .sessions-button {
     display: inline-flex;
-    align-items: center;
-    min-height: 40px;
-    min-width: 40px;
     background: var(--bg-raised);
     color: var(--fg);
     border: 1px solid var(--border);

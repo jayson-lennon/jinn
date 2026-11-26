@@ -99,8 +99,17 @@ export function App(): JSX.Element {
     send({ type: 'new_session_options' });
     setNewSessionOpen(true);
   };
+  // Whether the phone's session drawer is slid in. The page owns it:
+  // both the title bar's `#` and the menu's Sessions item open it, and a
+  // picked row closes it.
+  const [drawerOpen, setDrawerOpen] = createSignal(false);
+  const openDrawer = (): void => {
+    setDrawerOpen(true);
+  };
+
   // The items are in panel order: New session first, then the pickers
-  // (only while a session is active), then the color-mode group last.
+  // (only while a session is active), then Sessions; the color-mode
+  // group comes after every item, last.
   const menuItems = (): MenuItem[] => [
     { id: 'new-session', label: 'New session', run: openNewSession },
     ...(store.state.sessionId === null
@@ -111,6 +120,7 @@ export function App(): JSX.Element {
           { id: 'tools', label: 'Tools', run: openTools },
           { id: 'mcp', label: 'MCP servers', run: openMcp },
         ]),
+    { id: 'sessions', label: 'Sessions', run: openDrawer },
   ];
   const menuGroups = (): MenuGroup[] => [
     {
@@ -142,13 +152,22 @@ export function App(): JSX.Element {
 
   return (
     <div class={`app${connection() === 'open' ? '' : ' disconnected'}`}>
-      <SessionRail store={store} send={send} />
+      <SessionRail
+        store={store}
+        send={send}
+        open={drawerOpen}
+        setOpen={(next: boolean): void => {
+          setDrawerOpen(next);
+        }}
+      />
       <main class="main">
         <TitleBar
           store={store}
           send={send}
           menuItems={menuItems()}
           menuGroups={menuGroups()}
+          openDrawer={openDrawer}
+          drawerOpen={drawerOpen}
         />
         <Transcript store={store} />
         <Composer store={store} send={send} />
@@ -280,6 +299,10 @@ function TitleBar(props: {
   send: Send;
   menuItems: readonly MenuItem[];
   menuGroups: readonly MenuGroup[];
+  /** Slides in the phone's session drawer. */
+  openDrawer: () => void;
+  /** Whether that drawer is slid in — what the `#` button reports. */
+  drawerOpen: () => boolean;
 }): JSX.Element {
   const [editing, setEditing] = createSignal(false);
   const [draft, setDraft] = createSignal('');
@@ -298,6 +321,19 @@ function TitleBar(props: {
 
   return (
     <header class="title-bar">
+      {/* Left of the hamburger, and only at phone widths: there the rail is an
+          off-canvas drawer and this is what opens it. */}
+      <button
+        type="button"
+        class="sessions-button"
+        data-testid="sessions-button"
+        aria-label="Sessions"
+        aria-expanded={props.drawerOpen() ? 'true' : 'false'}
+        aria-controls="session-rail"
+        onClick={props.openDrawer}
+      >
+        #
+      </button>
       <Menu items={props.menuItems} groups={props.menuGroups} />
       <Switch>
         <Match when={editing()}>
