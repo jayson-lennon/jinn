@@ -46,15 +46,16 @@ test("a long session title is cut with an ellipsis inside the rail", async ({
 }) => {
   // Given a session whose title overflows the rail's column.
   await page.setViewportSize(DESKTOP);
-  await createSession(page);
-  const row = page.locator('[data-testid="session-row"]').first();
+  const id = await createSession(page);
 
-  // When renaming it to a long title.
+  // When renaming the session just created to a long title. Its own row is
+  // the one that changes — the list's first row is a different session.
   await page.locator(sel.TITLE).click();
   await page.locator('[data-testid="title-edit"]').fill(LONG_TITLE);
   await page.keyboard.press("Enter");
 
   // Then the row does not overflow the rail: the rail does not scroll sideways.
+  const row = page.locator(`[data-testid="session-row"][data-session-id="${id}"]`);
   await expect(row).toContainText("a session title so long");
   const rail = await page.locator(sel.RAIL).evaluate((node) => ({
     client: node.clientWidth,
@@ -66,13 +67,18 @@ test("a long session title is cut with an ellipsis inside the rail", async ({
 test("the row's kebab sits entirely inside the rail", async ({ page }) => {
   // Given a session with a long title.
   await page.setViewportSize(DESKTOP);
-  await createSession(page);
+  const id = await createSession(page);
   await page.locator(sel.TITLE).click();
   await page.locator('[data-testid="title-edit"]').fill(LONG_TITLE);
   await page.keyboard.press("Enter");
 
-  // Then the kebab's box is inside the rail's box.
-  const kebab = await page.locator('[data-testid="row-menu"]').first().boundingBox();
+  // Then the kebab's box is inside the rail's box. The row is the renamed
+  // session's own, so the long title is the one being measured.
+  const wrap = page.locator(
+    `[data-testid="session-row-wrap"][data-session-id="${id}"]`,
+  );
+  await expect(wrap).toContainText("a session title so long");
+  const kebab = await wrap.locator('[data-testid="row-menu"]').boundingBox();
   const rail = await page.locator(sel.RAIL).boundingBox();
   expect(kebab.x).toBeGreaterThanOrEqual(rail.x);
   expect(kebab.x + kebab.width).toBeLessThanOrEqual(rail.x + rail.width);
@@ -92,4 +98,63 @@ test("the Archive label is centred in its button", async ({ page }) => {
     return { text: text.x + text.width / 2, box: box.x + box.width / 2 };
   });
   expect(Math.abs(centres.text - centres.box)).toBeLessThan(2);
+});
+
+/* ---- the pickers' rows ----
+ * A picker row stacks its title above its meta line (a column). The title
+ * class is shared with the sidebar's row (a single line), where a zero
+ * flex-basis is the truncation the ellipsis needs. In a column that same
+ * zero is a zero HEIGHT: the title collapsed and a row showed only its
+ * project or provider. These pin the height in both places, so scoping the
+ * truncation to the sidebar can never regress either. */
+
+/** The height of a row's `.session-title`, in page pixels. */
+async function titleHeight(page, rowSelector) {
+  const row = page.locator(rowSelector).first();
+  await expect(row).toBeVisible({ timeout: 10_000 });
+  return row
+    .locator(".session-title")
+    .evaluate((node) => node.getBoundingClientRect().height);
+}
+
+test("the Archive picker shows each session's title at full height", async ({
+  page,
+}) => {
+  // Given a session that has been persisted, so the picker has a row for it.
+  await page.setViewportSize(DESKTOP);
+  await sendAndWaitForEcho(page, "a title the picker must show");
+  await page.locator(sel.OPEN_PICKER).click();
+
+  // Then the row's title has real height — it is not collapsed onto the
+  // project line beneath it.
+  const height = await titleHeight(page, sel.PICKER_ROW);
+  expect(height).toBeGreaterThan(14);
+});
+
+test("the model picker shows each model's name at full height", async ({
+  page,
+}) => {
+  // Given the model picker, open.
+  await page.setViewportSize(DESKTOP);
+  await page.locator(sel.MODEL_CHIP).click();
+
+  // Then the row's title has real height.
+  const height = await titleHeight(page, sel.MODEL_ROW);
+  expect(height).toBeGreaterThan(14);
+});
+
+test("the sidebar's row still gives its title a zero width basis", async ({
+  page,
+}) => {
+  // Given a session in the sidebar.
+  await page.setViewportSize(DESKTOP);
+
+  // Then its title's flex-basis is the absolute zero a single-line row
+  // needs to truncate — not the shared class's percentage.
+  const basis = await page
+    .locator(sel.SESSION_ROW)
+    .first()
+    .locator(".session-title")
+    .evaluate((node) => getComputedStyle(node).flex);
+  expect(basis).toBe("1 1 0px");
 });

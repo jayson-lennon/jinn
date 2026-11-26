@@ -14,7 +14,7 @@
 #
 # To change the client: edit webui/client2, then run `just webui2-build`.
 
-source_sha256 = "8b28a0af459e29e0baca387c18ebb8a3f743c914e0221a1e39df59da6a3d5b46"
+source_sha256 = "9d65b77bb6fc6034b774160c11afbfaeb0ca8b353e4fd33da1075022f44f90a7"
 
 [[assets]]
 served = "client2.js"
@@ -22,4 +22,4 @@ sha256 = "cef43985e83920b9dc84eb45c2be96219ff828bd1502308710d339f4e05cd0f3"
 
 [[assets]]
 served = "client2.css"
-sha256 = "dae84a725a2040c05b1b8e7add6a1c3b8e6e4cf0b1fc9ae8a469ddbe82599efc"
+sha256 = "9388cab7a427bee5f12933e8cb7e4474f1415b6c2c77929a7333ff1efaf52ea1"

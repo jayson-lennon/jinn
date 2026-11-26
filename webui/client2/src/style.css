@@ -225,14 +225,18 @@ body { background: var(--bg); color: var(--fg); }
 }
 .session:hover { background: var(--bg-hover); color: var(--fg); }
 .session.active { background: var(--bg-hover); color: var(--fg); }
-.session-title {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* Shared by the sidebar's rows and the pickers' rows, which stack the
+   title above its meta line in a column. There a zero flex-basis is a
+   zero HEIGHT — the title collapses and only the meta line shows — so
+   this stays the original `flex: 1` (a percentage basis, which a column
+   resolves to its natural height). The sidebar's own truncation is
+   scoped below, where the row is a single line. */
+.session-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-meta { color: var(--fg-faint); font-size: 12px; }
+/* The sidebar's row is one line, and its title must give way to the
+   kebab rather than widen the rail: a zero basis in a row is a zero
+   width, which is the truncation the ellipsis needs. */
+.session .session-title { flex: 1 1 0; min-width: 0; }
 .session-busy { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 
 /* ---- main column ---- */
