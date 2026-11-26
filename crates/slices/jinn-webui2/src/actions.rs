@@ -16,17 +16,24 @@ use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::{ChatEntry, ChatEntryId, ModelSelection, NameFilter, SessionId};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::common::actor_deps::BusPublish as _;
+use jinn_mcp_msg::McpRowBadge;
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
+use jinn_preferences_config::schemas::mcp::McpServersConfig;
 use jinn_provider_selection_msg::ProviderSwitch;
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{PersistSession, SessionLoadRequested};
 use jinn_webui2_msg::{
-    EntryEnvelope, EntryUpsertBody, ErrorBody, ModelRowBody, ModelRowsBody, PickerRowBody,
-    PickerRowsBody, ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, TitleBody,
+    EntryEnvelope, EntryUpsertBody, ErrorBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelRowBody,
+    ModelRowsBody, PersonaRowBody, PersonaRowsBody, PickerRowBody, PickerRowsBody, ServerMsg,
+    SkillRowBody, SkillRowsBody, TextRunBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
 use marked_path::MarkedPathAccess as _;
 
-use crate::{outbound::OutboundHandle, protocol::Reply, snapshot};
+use crate::{
+    outbound::{OutboundHandle, RowsKind},
+    protocol::Reply,
+    snapshot,
+};
 
 /// The most picker rows one answer carries.
 pub const PICKER_ROW_CAP: usize = 50;
@@ -46,6 +53,12 @@ pub enum Refusal {
     StoreUnavailable,
     /// The active session has not discovered a skill by that name.
     UnknownSkill,
+    /// The active session's registry offers no tool by that name.
+    UnknownTool,
+    /// No `[mcp.<name>]` entry carries that name.
+    UnknownMcpServer,
+    /// The persona catalog has no entry by that name.
+    UnknownPersona,
 }
 
 impl Refusal {
@@ -57,6 +70,9 @@ impl Refusal {
             Self::NoActiveSession => "no active session",
             Self::StoreUnavailable => "session store unavailable",
             Self::UnknownSkill => "unknown skill",
+            Self::UnknownTool => "unknown tool",
+            Self::UnknownMcpServer => "unknown mcp server",
+            Self::UnknownPersona => "unknown persona",
         }
     }
 }
@@ -529,7 +545,7 @@ pub fn skill_rows(out: &OutboundHandle, filter: String) -> Reply {
             .get(&session_id)
             .map_or_else(Vec::new, |session| skill_row_bodies(session, &filter))
     };
-    out.remember_skill_filter(&session_id, &filter);
+    out.remember_filter(&session_id, RowsKind::Skills, &filter);
     Reply::one(ServerMsg::SkillRows(SkillRowsBody {
         session_id,
         filter,
@@ -556,7 +572,7 @@ pub fn skill_rows(out: &OutboundHandle, filter: String) -> Reply {
 pub fn toggle_skill(out: &OutboundHandle, skill: &str) -> Reply {
     let state = out.state();
     let session_id = state.read().session.active_session_id().clone();
-    let filter = out.last_skill_filter(&session_id);
+    let filter = out.last_filter(&session_id, RowsKind::Skills);
     let outcome = {
         let mut guard = state.write();
         guard
@@ -599,7 +615,7 @@ enum Toggle {
 pub async fn load_skill(out: &OutboundHandle, skill: &str) -> Reply {
     let state = out.state();
     let session_id = state.read().session.active_session_id().clone();
-    let filter = out.last_skill_filter(&session_id);
+    let filter = out.last_filter(&session_id, RowsKind::Skills);
 
     // The load's three outcomes, decided and written under one guard; the
     // guard drops before the publish below, so no lock is held across
@@ -785,6 +801,420 @@ fn runs(runs: Vec<jinn_selection_widget::TextRun>) -> Vec<TextRunBody> {
         .map(|run| TextRunBody {
             text: run.text,
             matched: run.matched,
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Tool rows / toggle
+// Parity: jinn-tools `<leader>st` picker confirm (deny-over-off-rows), via
+// the shared seed vocabulary in jinn-tools-msg
+// ---------------------------------------------------------------------------
+
+/// The tools modal's rows for the active session and a filter.
+///
+/// Built by the shared seed vocabulary — the same provider and bot gates
+/// and the same case-insensitive sort the terminal's picker seeds from —
+/// over the session's registry view, its bot facts, and its live tool
+/// filter, read under one guard so a row can never pair a tool with
+/// another moment's filter. An absent registry yields no rows. The
+/// filter is then the shared fuzzy filter over `{name} {description}`,
+/// with the matched runs split for the browser to highlight.
+pub fn tool_rows(out: &OutboundHandle, filter: String) -> Reply {
+    let session_id = out.state().read().session.active_session_id().clone();
+    let rows = tool_row_bodies(out.state(), &session_id, &filter);
+    out.remember_filter(&session_id, RowsKind::Tools, &filter);
+    Reply::one(ServerMsg::ToolRows(ToolRowsBody {
+        session_id,
+        filter,
+        rows,
+    }))
+}
+
+/// Toggles one tool's enablement on the active session and answers with
+/// the fresh rows.
+///
+/// The terminal picker's confirm applied per click: the session's tool
+/// filter becomes a **deny** filter over every row that renders disabled
+/// after the flip — never a delta, never an allow-mode write, and an
+/// allow-mode session is demoted to its withheld names exactly as the
+/// terminal's confirm demotes one. The desired state is derived here
+/// from the state the server holds; the wire carries only the name.
+///
+/// Nothing is published: the terminal's picker path publishes none, and
+/// the filter is the session's own. A tool the session's registry does
+/// not offer was never rendered, so it is refused with nothing written.
+pub fn toggle_tool(out: &OutboundHandle, tool: &str) -> Reply {
+    let state = out.state();
+    let session_id = state.read().session.active_session_id().clone();
+    let filter = out.last_filter(&session_id, RowsKind::Tools);
+    // The registry cell and the session are read under the one write
+    // guard, so the post-click rows are derived from the same registry
+    // view the modal rendered — a tool that was never offered is refused
+    // with nothing written.
+    let outcome = {
+        let mut guard = state.write();
+        let registry = guard.tool_registry();
+        guard
+            .session
+            .get_mut(&session_id)
+            .map_or(ToolToggle::Unknown, |session| {
+                apply_tool_toggle(session, &session_id, registry, tool)
+            })
+    };
+    match outcome {
+        ToolToggle::Toggled => tool_rows(out, filter),
+        ToolToggle::Unknown => refused(&Refusal::UnknownTool),
+    }
+}
+
+/// What a tool toggle found: the filter was rewritten, or the registry
+/// offers no such tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolToggle {
+    Toggled,
+    Unknown,
+}
+
+/// Flips one tool on a session's filter by rewriting the whole deny list
+/// from the post-click row state.
+fn apply_tool_toggle(
+    session: &mut jinn_session_state::ChatSessionState,
+    session_id: &SessionId,
+    registry: Option<jinn_slices::TypedCell<jinn_tools_msg::ToolRegistry>>,
+    tool: &str,
+) -> ToolToggle {
+    let rows = seed_rows(registry, session, session_id);
+    let Some(clicked) = rows.iter().find(|row| row.name == tool) else {
+        return ToolToggle::Unknown;
+    };
+    let committed = jinn_tools_msg::committed_tool_filter(&toggled_rows(&rows, clicked));
+    session.set_tool_filter(Some(committed));
+    ToolToggle::Toggled
+}
+
+/// The rows as they read after `clicked` is flipped — the pure post-click
+/// state the commit derives from.
+fn toggled_rows(
+    rows: &[jinn_tools_msg::WebToolRow],
+    clicked: &jinn_tools_msg::WebToolRow,
+) -> Vec<jinn_tools_msg::WebToolRow> {
+    rows.iter()
+        .map(|row| {
+            if row.name == clicked.name {
+                jinn_tools_msg::WebToolRow {
+                    enabled: !row.enabled,
+                    ..row.clone()
+                }
+            } else {
+                row.clone()
+            }
+        })
+        .collect()
+}
+
+/// One session's seeded tool rows: the registry view gated and sorted by
+/// the shared vocabulary, with enablement read from the live filter.
+///
+/// Takes the registry cell and the session rather than a guard so the same
+/// seed serves a read (the rows) and a read-modify-write (the toggle),
+/// each under its own single guard — the registry is never read twice
+/// under different guards. An absent registry yields no rows.
+fn seed_rows(
+    registry: Option<jinn_slices::TypedCell<jinn_tools_msg::ToolRegistry>>,
+    session: &jinn_session_state::ChatSessionState,
+    session_id: &SessionId,
+) -> Vec<jinn_tools_msg::WebToolRow> {
+    let provider_name = session.model_selection().provider_name().to_owned();
+    let is_bot = session.is_bot();
+    let bot_has_parent = session.parent_session().is_some();
+    let definitions: Vec<jinn_core_types::ToolDefinition> =
+        registry.map_or_default(|registry| registry.read().tools_for_session(session_id));
+    jinn_tools_msg::modal_rows(
+        &definitions,
+        &provider_name,
+        is_bot,
+        bot_has_parent,
+        session.tool_filter(),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// MCP rows / toggle
+// Parity: jinn-mcp-slice inspector toggle, via the shared row builder in
+// jinn-mcp-msg
+// ---------------------------------------------------------------------------
+
+/// The MCP servers modal's rows for the active session and a filter.
+///
+/// The shared builder over the `[mcp.<name>]` catalog, the session's
+/// enabled set, and the runtime cell's **effective** status projection —
+/// so a singleton reports its shared connection, never a per-session
+/// bucket that never fills. Each badge is the shared derivation, so a
+/// disabled server reads `off` whatever its connection last reported.
+pub fn mcp_rows(out: &OutboundHandle, filter: String) -> Reply {
+    let session_id = out.state().read().session.active_session_id().clone();
+    let rows = mcp_row_bodies(out, &session_id, &filter);
+    out.remember_filter(&session_id, RowsKind::Mcp, &filter);
+    Reply::one(ServerMsg::McpRows(McpRowsBody {
+        session_id,
+        filter,
+        rows,
+    }))
+}
+
+/// Toggles one MCP server's enablement on the active session and answers
+/// with the fresh rows.
+///
+/// XORs the server in or out of the session's enabled set — the desired
+/// state derived here, written synchronously before the publish — and
+/// publishes the existing `McpEnablementChanged` carrying the **full**
+/// desired set, never a delta: that is its documented contract, and the
+/// coordinator diffs it against its spawned-actor map. No `PersistSession`
+/// rides along; the terminal's toggle publishes none. A server outside
+/// the configured set was never rendered, so it is refused with nothing
+/// written and nothing published.
+pub async fn toggle_mcp(out: &OutboundHandle, server: &str) -> Reply {
+    let configured = out
+        .config()
+        .get::<McpServersConfig>()
+        .is_ok_and(|servers| servers.0.contains_key(server));
+    if !configured {
+        return refused(&Refusal::UnknownMcpServer);
+    }
+    let state = out.state();
+    let session_id = state.read().session.active_session_id().clone();
+    // The write lands under one guard, dropped before the publish below.
+    let desired = {
+        let mut guard = state.write();
+        let Some(session) = guard.session.get_mut(&session_id) else {
+            return refused(&Refusal::NoActiveSession);
+        };
+        let mut enabled = session.enabled_mcp_servers().clone();
+        if !enabled.remove(server) {
+            enabled.insert(server.to_owned());
+        }
+        session.set_enabled_mcp_servers(enabled.clone());
+        enabled
+    };
+    out.publish(jinn_mcp_msg::McpEnablementChanged {
+        session_id: session_id.clone(),
+        enabled: desired,
+    })
+    .await;
+    let filter = out.last_filter(&session_id, RowsKind::Mcp);
+    mcp_rows(out, filter)
+}
+
+/// The shared row builder's inputs, read under one guard each: the
+/// configured catalog as `(name, description)` pairs, the session's
+/// enabled set, and the effective status projection.
+pub(crate) fn mcp_row_bodies(
+    out: &OutboundHandle,
+    session_id: &SessionId,
+    filter: &str,
+) -> Vec<McpRowBody> {
+    let servers: Vec<(String, String)> =
+        out.config()
+            .get::<McpServersConfig>()
+            .map_or_default(|config| {
+                config
+                    .0
+                    .into_iter()
+                    .map(|(name, server)| (name, server.description_for_picker()))
+                    .collect()
+            });
+    let enabled = out
+        .state()
+        .read()
+        .session
+        .get(session_id)
+        .map_or_default(|session| session.enabled_mcp_servers().clone());
+    let statuses = out.mcp_runtime_cell().read().effective_statuses(session_id);
+    jinn_mcp_msg::filter_rows(
+        &jinn_mcp_msg::build_rows(&servers, &enabled, &statuses),
+        filter,
+    )
+    .into_iter()
+    .map(|filtered| {
+        let segments = filtered.row.segments(&filtered.match_indices);
+        McpRowBody {
+            badge: mcp_badge_body(McpRowBadge::derive(
+                filtered.row.enabled,
+                filtered.row.status,
+            )),
+            name: filtered.row.name,
+            description: filtered.row.description,
+            enabled: filtered.row.enabled,
+            name_runs: runs(segments.name),
+            description_runs: runs(segments.description),
+        }
+    })
+    .collect()
+}
+
+/// The shared derivation's badge, as the wire carries it.
+fn mcp_badge_body(badge: McpRowBadge) -> McpBadgeBody {
+    match badge {
+        McpRowBadge::Off => McpBadgeBody::Off,
+        McpRowBadge::Starting => McpBadgeBody::Starting,
+        McpRowBadge::Running => McpBadgeBody::Running,
+        McpRowBadge::Dead => McpBadgeBody::Dead,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Persona rows / switch
+// Parity: jinn-persona picker confirm, via the shared row builder in
+// jinn-persona-msg
+// ---------------------------------------------------------------------------
+
+/// The persona modal's rows for the active session and a filter.
+///
+/// The shared builder over the personas cell — the terminal picker's own
+/// rows, in the cell's name-sorted order — with the active mark read from
+/// the session at row build, then the shared fuzzy filter over
+/// `{name} {description}` with the matched runs split for the browser.
+pub fn persona_rows(out: &OutboundHandle, filter: String) -> Reply {
+    let session_id = out.state().read().session.active_session_id().clone();
+    let rows = persona_row_bodies(out, &session_id, &filter);
+    out.remember_filter(&session_id, RowsKind::Persona, &filter);
+    Reply::one(ServerMsg::PersonaRows(PersonaRowsBody {
+        session_id,
+        filter,
+        rows,
+    }))
+}
+
+/// Switches the active session's persona.
+///
+/// The terminal picker's confirm: the name is validated against the
+/// catalog the modal renders (the offered set is the accepted set), the
+/// session's persona is written synchronously before the publish, and the
+/// same two messages the terminal publishes are published in its order —
+/// `UpdateAppState(SetPersona)`, the startup-session seed, then
+/// `MarkSessionInteracted`.
+///
+/// A persona with no `<compaction>` handoff block is a loud error, not a
+/// silent downgrade: the shared message is appended to the session before
+/// the publishes, and its upsert rides this reply — nothing pushes an
+/// idle-time history append to the page, so the reply is the only
+/// delivery path. A persona outside the catalog is refused with nothing
+/// written, appended, or published.
+pub async fn switch_persona(out: &OutboundHandle, persona: &str) -> Reply {
+    // The offered set is the accepted set: the modal's rows are built from
+    // this cell, so a name outside it was never rendered.
+    let Some(chosen) = out
+        .personas_cell()
+        .read()
+        .entries
+        .iter()
+        .find(|entry| entry.name == persona)
+        .cloned()
+    else {
+        return refused(&Refusal::UnknownPersona);
+    };
+    let state = out.state();
+    let session_id = state.read().session.active_session_id().clone();
+    let blockless = chosen.handoff_prompt.is_empty();
+
+    // The switch, and the block-less warning, land under one guard that
+    // drops before the publishes below.
+    {
+        let mut guard = state.write();
+        let Some(session) = guard.session.get_mut(&session_id) else {
+            return refused(&Refusal::NoActiveSession);
+        };
+        session.set_persona_name(chosen.name.clone());
+        if blockless {
+            session.push_entry(ChatEntry::error(
+                jinn_persona_msg::missing_compaction_block_message(&chosen.name),
+            ));
+        }
+    }
+
+    out.publish(UpdateAppState {
+        updates: vec![AppStateUpdate::SetPersona(Some(chosen.name.clone()))],
+    })
+    .await;
+    out.publish(MarkSessionInteracted {
+        session_id: session_id.clone(),
+    })
+    .await;
+
+    let mut reply = Reply::none();
+    if blockless {
+        reply.frames.extend(last_n_upserts(state, &session_id, 1));
+    }
+    reply
+}
+
+/// One session's persona rows: every persona the shared filter accepts,
+/// with the active mark computed once at row build.
+fn persona_row_bodies(
+    out: &OutboundHandle,
+    session_id: &SessionId,
+    filter: &str,
+) -> Vec<PersonaRowBody> {
+    let active = out
+        .state()
+        .read()
+        .session
+        .get(session_id)
+        .map(|session| session.persona_name().to_owned());
+    let rows = {
+        let personas = out.personas_cell().read();
+        jinn_persona_msg::PersonaRow::rows(&personas.entries, active.as_deref())
+    };
+    let plain = |segments: Vec<jinn_persona_msg::TextSegment>| -> Vec<TextRunBody> {
+        segments
+            .into_iter()
+            .map(|segment| TextRunBody {
+                text: segment.text,
+                matched: segment.matched,
+            })
+            .collect()
+    };
+    jinn_persona_msg::filter_rows(&rows, filter)
+        .into_iter()
+        .map(|filtered| {
+            let segments = filtered.segments();
+            PersonaRowBody {
+                name: filtered.row.name,
+                description: filtered.row.description,
+                is_active: filtered.row.is_active,
+                name_runs: plain(segments.name),
+                description_runs: plain(segments.description),
+            }
+        })
+        .collect()
+}
+
+/// One session's tool rows, filtered and split for the browser.
+fn tool_row_bodies(
+    state: &jinn_kernel::State,
+    session_id: &SessionId,
+    filter: &str,
+) -> Vec<ToolRowBody> {
+    let rows = {
+        let guard = state.read();
+        guard
+            .session
+            .get(session_id)
+            .map(|session| seed_rows(guard.tool_registry(), session, session_id))
+            .unwrap_or_default()
+    };
+    jinn_tools_msg::filter_rows(&rows, filter)
+        .into_iter()
+        .map(|filtered| {
+            let segments = filtered.row.segments(&filtered.match_indices);
+            ToolRowBody {
+                name: filtered.row.name,
+                description: filtered.row.description,
+                enabled: filtered.row.enabled,
+                name_runs: runs(segments.name),
+                description_runs: runs(segments.description),
+            }
         })
         .collect()
 }

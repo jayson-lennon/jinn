@@ -76,6 +76,38 @@ pub enum ClientMsg {
         /// The skill's name.
         skill: String,
     },
+    /// Ask for the tools modal's rows for the active session.
+    ToolRows {
+        /// The filter (empty for the unfiltered list).
+        filter: String,
+    },
+    /// Toggle one tool's enablement on the active session, committed at
+    /// once to its tool filter; the reply carries the fresh rows.
+    ToggleTool {
+        /// The tool's name.
+        tool: String,
+    },
+    /// Ask for the MCP servers modal's rows for the active session.
+    McpRows {
+        /// The filter (empty for the unfiltered list).
+        filter: String,
+    },
+    /// Toggle one MCP server's enablement on the active session; the reply
+    /// carries the fresh rows.
+    ToggleMcp {
+        /// The server's name.
+        server: String,
+    },
+    /// Ask for the persona modal's rows for the active session.
+    PersonaRows {
+        /// The filter (empty for the unfiltered list).
+        filter: String,
+    },
+    /// Switch the active session's persona.
+    SwitchPersona {
+        /// The persona's name.
+        persona: String,
+    },
 }
 
 #[must_use]
@@ -94,5 +126,11 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::SkillRows { .. } => "skill_rows",
         ClientMsg::ToggleSkill { .. } => "toggle_skill",
         ClientMsg::LoadSkill { .. } => "load_skill",
+        ClientMsg::ToolRows { .. } => "tool_rows",
+        ClientMsg::ToggleTool { .. } => "toggle_tool",
+        ClientMsg::McpRows { .. } => "mcp_rows",
+        ClientMsg::ToggleMcp { .. } => "toggle_mcp",
+        ClientMsg::PersonaRows { .. } => "persona_rows",
+        ClientMsg::SwitchPersona { .. } => "switch_persona",
     }
 }

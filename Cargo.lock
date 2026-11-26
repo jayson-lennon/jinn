@@ -6129,6 +6129,8 @@ dependencies = [
  "jinn-core-types",
  "jinn-inference-msg",
  "jinn-kernel",
+ "jinn-mcp-msg",
+ "jinn-persona-msg",
  "jinn-preferences-config",
  "jinn-provider-config",
  "jinn-provider-selection-msg",

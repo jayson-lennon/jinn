@@ -16,9 +16,10 @@ pub mod server;
 
 pub use client::ClientMsg;
 pub use payload::{
-    DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ModelBody, ModelRowBody,
-    ModelRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
-    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, TitleBody,
+    DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, McpBadgeBody,
+    McpRowBody, McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, PersonaRowBody,
+    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
+    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
 pub use server::ServerMsg;
 

@@ -242,8 +242,11 @@ mirrors the TUI's core loop only:
 | `[Message jinn…]` | The composer. `Enter` sends; `Shift+Enter` is a newline. | `webui2.md` |
 | `[Queue]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
 | `[Send]` (while idle) | Send the message. | `webui2.md` |
-| `☰` | The menu button. Opens a full-height slide-in panel over a scrim; **Skills** is its one item, and only while a session is active. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
+| `☰` | The menu button. Opens a full-height slide-in panel over a scrim; while a session is active its items are **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — each opens its picker modal. With no active session it lists none of them. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
 | The skills modal | A filter bar and the session's discovered skills — a `●` / `○` mark, name, description, a `project` badge on project skills, and a `+`. A row click toggles at once; `+` loads the body into context. | `webui2.md` |
+| The tools modal | A filter bar and one row per tool the session's registry offers — a `✓` (enabled) / `✗` (disabled) mark, the name, the description's first sentence. A row click commits at once and the modal stays open; dismissing does not revert. | `webui2.md` |
+| The MCP servers modal | A filter bar and one row per `[mcp.<name>]` in `jinn.toml` — a `●` (enabled) / `○` (disabled) mark, the name, the launch summary, and a status badge: `off`, `starting`, `running`, `dead`. A row click toggles at once; the badge updates live. | `webui2.md` |
+| The persona modal | A filter bar and one row per persona — a `●` on the current persona / `○` on the rest, the name, the description; the current row is highlighted. A row click switches the persona and closes the modal. | `webui2.md` |
 | `disconnected — reconnecting…` | A full-page overlay while the connection is down. | `webui2.md` |
 
 ## Feature → screen location (reverse lookup)
@@ -273,5 +276,8 @@ mirrors the TUI's core loop only:
 | The browser page's Send / `Q` / Cancel buttons | Web UI composer |
 | The `/web2` page's Archive button, title, model chip | Web UI 2 (`/web2`) title bar and sidebar |
 | The `/web2` page's Send / Queue / Cancel buttons | Web UI 2 (`/web2`) composer |
-| The `/web2` page's `☰` button and its Skills panel | Web UI 2 (`/web2`) title bar and menu |
+| The `/web2` page's `☰` button and its menu | Web UI 2 (`/web2`) title bar and menu |
 | The `/web2` page's skills list — filter, `●` / `○` marks, `+` | Web UI 2 (`/web2`) skills modal |
+| The `/web2` page's tools list — `✓` / `✗` marks | Web UI 2 (`/web2`) tools modal |
+| The `/web2` page's MCP servers list — `●` / `○` marks, status badge | Web UI 2 (`/web2`) MCP servers modal |
+| The `/web2` page's persona list — `●` / `○` marks | Web UI 2 (`/web2`) persona modal |

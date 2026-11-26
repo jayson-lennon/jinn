@@ -5,8 +5,9 @@
 //! variant is a compile error until it has a handler.
 
 use crate::payload::{
-    EntryDeltaBody, EntryUpsertBody, ErrorBody, ModelBody, ModelRowsBody, PhaseBody,
-    PickerRowsBody, SessionsBody, SkillRowsBody, SnapshotBody, TitleBody,
+    EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody, ModelBody, ModelRowsBody,
+    PersonaRowsBody, PhaseBody, PickerRowsBody, SessionsBody, SkillRowsBody, SnapshotBody,
+    TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +40,12 @@ pub enum ServerMsg {
     ModelRows(ModelRowsBody),
     /// The skills modal's rows for one session.
     SkillRows(SkillRowsBody),
+    /// The tools modal's rows for one session.
+    ToolRows(ToolRowsBody),
+    /// The MCP servers modal's rows for one session.
+    McpRows(McpRowsBody),
+    /// The persona modal's rows for one session.
+    PersonaRows(PersonaRowsBody),
     /// A request was refused.
     Error(ErrorBody),
     /// A heartbeat: the server is alive and the connection is still open.
@@ -64,6 +71,9 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::PickerRows(_) => "picker_rows",
         ServerMsg::ModelRows(_) => "model_rows",
         ServerMsg::SkillRows(_) => "skill_rows",
+        ServerMsg::ToolRows(_) => "tool_rows",
+        ServerMsg::McpRows(_) => "mcp_rows",
+        ServerMsg::PersonaRows(_) => "persona_rows",
         ServerMsg::Error(_) => "error",
         ServerMsg::Ping => "ping",
     }
