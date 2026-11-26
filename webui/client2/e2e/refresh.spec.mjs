@@ -80,12 +80,22 @@ test("the button cannot be pressed again while busy", async ({ page }) => {
   await settled(page, settled_before);
   const before = await summaries(page).count();
 
-  // When pressing refresh and, without waiting, forcing a second press onto
-  // the now-busy button.
-  await page.locator(sel.REFRESH_MODELS).evaluate((button) => {
+  // When pressing refresh and, once the busy state has rendered, forcing a
+  // second press onto the now-disabled button. The second press is made
+  // from inside the page one microtask after the first — after the effect
+  // that sets `disabled` has flushed, but before discovery can answer —
+  // because the busy window is only a few milliseconds wide and an
+  // assertion from outside the page can miss it entirely. A real second
+  // click always finds the attribute already set.
+  const presses = await page.locator(sel.REFRESH_MODELS).evaluate(async (button) => {
     button.click();
+    await Promise.resolve();
+    const disabledWhenPressedAgain = button.disabled;
     button.click();
+    return disabledWhenPressedAgain;
   });
+  // The gate held: the second press landed on a disabled button.
+  expect(presses).toBe(true);
   await settled(page, before);
 
   // Then one summary was added for the two presses: the busy button took
