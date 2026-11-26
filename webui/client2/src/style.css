@@ -720,6 +720,34 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
 .persona-row[data-active='true'] .picker-marker { color: var(--accent); }
 .persona-row[data-active='true'] .picker-name { font-weight: 600; }
 
+/* ---- applets modal ---- */
+/* The same one-line row as the pickers above, carried by an <a> (or a
+   disabled <span>) instead of a button. The generic `.modal-list button`
+   rules do not reach an anchor, so `.picker-row` carries the row shape and
+   the anchor supplies no underline of its own. The status line is the one
+   thing the other pickers do not have: where the applets server is. */
+.applet-status {
+  margin: 0;
+  padding: 4px 12px 8px;
+  color: var(--fg-dim);
+  font-size: .9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.applet-status[data-serving='true'] { color: var(--ok); }
+.applet-rows .applet-row { text-decoration: none; }
+.applet-rows .applet-row .picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.applet-rows .applet-row-disabled { color: var(--fg-faint); cursor: default; }
+.applet-rows .applet-row-disabled:hover { background: transparent; }
+.applet-empty { padding: 12px; color: var(--fg-dim); }
+
 @media (max-width: 767px) {
   .picker-rows .picker-row { min-height: 40px; align-items: center; }
 }

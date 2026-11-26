@@ -13,6 +13,7 @@
 import { createStore as createStoreValue } from 'solid-js';
 import type { Store, StoreSetter } from 'solid-js';
 import type {
+  AppletRow,
   DeltaField,
   EntryEnvelope,
   McpRow,
@@ -73,6 +74,11 @@ export interface ViewState {
   /** The persona modal's rows, for the filter the page last asked for. */
   personaRows: PersonaRow[];
   personaFilter: string;
+  /** The applets modal's rows, for the filter the page last asked for. */
+  appletRows: AppletRow[];
+  appletFilter: string;
+  /** The applets server's serving phase, as the last rows frame carried it. */
+  appletServing: { serving: boolean; bind: string };
   /** The most recent refusal, if any. */
   error: string | null;
   /** The session the page asked to activate and is still waiting on — the
@@ -110,6 +116,9 @@ const INITIAL_STATE: ViewState = {
   mcpFilter: '',
   personaRows: [],
   personaFilter: '',
+  appletRows: [],
+  appletFilter: '',
+  appletServing: { serving: false, bind: '' },
   error: null,
   loadingSessionId: null,
   synced: false,
@@ -314,6 +323,18 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       if (msg.filter !== store.state.personaFilter) return;
       store.set((s) => {
         s.personaRows = msg.rows;
+      });
+      return;
+    }
+    case 'applet_rows': {
+      // The saved-app catalog is instance-wide, so there is no session to
+      // match; the filter alone says whether this is the view the page is
+      // holding. A push from an open modal re-asks in the same filter, so
+      // it is never dropped by this guard.
+      if (msg.filter !== store.state.appletFilter) return;
+      store.set((s) => {
+        s.appletRows = msg.rows;
+        s.appletServing = { serving: msg.serving, bind: msg.bind };
       });
       return;
     }
