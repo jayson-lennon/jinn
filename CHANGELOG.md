@@ -4,6 +4,7 @@
 
 - (webui) Rebuilt from scratch. Now uses websocket.
 - Dashboard now shows link to webui.
+- `#plan` and `#goal` prompts should use more concise language.
 
 ## 2026-11-24 v.27.2
 - `gcr` now refreshes all project resources.
