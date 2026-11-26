@@ -70,9 +70,15 @@ export interface LifecycleOption {
 export interface PickerRow {
   session_id: string;
   title: string;
-  state: 'Loaded' | 'Archived';
+  state: 'loaded' | 'archived';
   parent_id: string | null;
   project: string | null;
+  /** The row's depth in the tree: 0 for a root, one more per level under a parent. */
+  depth: number;
+  /** When the session was last modified, as an ISO timestamp. */
+  updated_at: string;
+  /** The title, split into matched and plain runs for the filter. */
+  title_runs: TextRun[];
 }
 
 export interface ModelRow {
@@ -81,6 +87,10 @@ export interface ModelRow {
   provider_name: string;
   is_available: boolean;
   is_active: boolean;
+  /** The model name, split into matched and plain runs for the filter. */
+  model_runs: TextRun[];
+  /** The provider name, split the same way. */
+  provider_runs: TextRun[];
 }
 
 /** One run of a skill row's text: matched by the filter, or plain. */
@@ -176,6 +186,7 @@ export type ClientMsg =
   | { type: 'toggle_mcp'; server: string }
   | { type: 'persona_rows'; filter: string }
   | { type: 'switch_persona'; persona: string }
+  | { type: 'toggle_pin'; entry_id: string }
   | { type: 'applet_rows'; filter: string }
   | { type: 'refresh_models' }
   | { type: 'set_theme'; theme: Theme }

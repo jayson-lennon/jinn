@@ -13,17 +13,18 @@
 use std::time::Duration;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_core_types::{ChatEntry, ChatEntryId, ModelSelection, NameFilter, SessionId};
+use jinn_core_types::{ChatEntry, ChatEntryId, ModelSelection, NameFilter, PinPosition, SessionId};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::common::actor_deps::BusPublish as _;
 use jinn_mcp_msg::McpRowBadge;
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_preferences_config::schemas::mcp::McpServersConfig;
 use jinn_provider_selection_msg::{ProviderSwitch, RefreshModels};
+use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
-    ArchiveSession, PersistSession, SessionLoadRequested, SetSessionLibrary,
+    ArchiveSession, PersistSession, SessionLoadRequested, SessionTreeEntry, SetSessionLibrary,
 };
 use jinn_webui2_msg::{
     AppletRowBody, AppletRowsBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
@@ -32,7 +33,6 @@ use jinn_webui2_msg::{
     ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
     ToolRowsBody,
 };
-use marked_path::MarkedPathAccess as _;
 
 use crate::{
     outbound::{OutboundHandle, RowsKind},
@@ -64,6 +64,8 @@ pub enum Refusal {
     UnknownMcpServer,
     /// The persona catalog has no entry by that name.
     UnknownPersona,
+    /// The active session holds no entry with that id.
+    UnknownEntry,
     /// The theme is not one of the three modes.
     UnknownTheme(String),
     /// No live session and nothing in the store carries that id.
@@ -102,6 +104,7 @@ impl Refusal {
             Self::UnknownTool => "unknown tool".to_owned(),
             Self::UnknownMcpServer => "unknown mcp server".to_owned(),
             Self::UnknownPersona => "unknown persona".to_owned(),
+            Self::UnknownEntry => "unknown entry".to_owned(),
             Self::UnknownTheme(theme) => {
                 format!("unknown theme `{theme}` (want light, dark, or system)")
             }
@@ -438,10 +441,10 @@ fn write_title(state: &jinn_kernel::State, title: &str) -> Option<SessionId> {
 
 /// The stored-session picker's rows for a filter.
 ///
-/// Every session the store knows — loaded or archived — whose title
-/// matches the filter, ranked the way the terminal's session picker ranks
-/// them (the same fuzzy matcher, best score first) and capped at
-/// [`PICKER_ROW_CAP`]. An empty filter lists them newest first.
+/// Every session the store knows — loaded or archived — as the terminal's
+/// session picker shows it: a tree, forked sessions under their parent,
+/// filtered by the terminal's own tree filter and capped at
+/// [`PICKER_ROW_CAP`] whole trees.
 pub async fn picker_rows(out: &OutboundHandle, filter: String) -> Reply {
     let rows = match stored_rows(out, &filter).await {
         Ok(rows) => rows,
@@ -457,93 +460,131 @@ async fn stored_rows(
     out: &OutboundHandle,
     filter: &str,
 ) -> Result<Vec<PickerRowBody>, error_stack::Report<jinn_session_state::SessionStoreError>> {
-    let store = out.session_store();
-    let mut summaries = store.load_unarchived_summaries().await?;
-    summaries.extend(store.load_archive_rows().await?);
-    let _ = &mut summaries;
-    let matched = match_titles(summaries, filter);
-    Ok(matched.into_iter().take(PICKER_ROW_CAP).collect())
+    // One read: every session, loaded and archived alike, each with the
+    // parent and project the tree needs.
+    let summaries = out.session_store().load_summaries().await?;
+    let theme = out.state().read().frontend.theme.clone();
+    let entries = jinn_session_store_msg::session_tree_entries(summaries, &theme);
+    Ok(session_tree_rows(entries, filter))
 }
 
-/// Filters and ranks stored sessions by title with the terminal picker's matcher.
-pub(crate) fn match_titles(
-    summaries: Vec<jinn_session_store_msg::SessionSummary>,
+/// The stored-session picker's rows: the terminal's own tree filter over
+/// the entries, each visible row with its depth and title runs.
+///
+/// Drives the same [`TreePickerState`] the terminal's picker cell holds:
+/// with no filter every row shows in tree order; with one, each
+/// whitespace-separated term must match a title, the ancestors of every
+/// match stay in place above it, and the strongest tree ranks first. Only
+/// the visible list is read back — the rendering the state also knows how
+/// to do is the terminal's, not this surface's.
+pub(crate) fn session_tree_rows(
+    entries: Vec<SessionTreeEntry>,
     filter: &str,
 ) -> Vec<PickerRowBody> {
-    use fuzzy_matcher::FuzzyMatcher as _;
-
-    let matcher = fuzzy_matcher::skim::SkimMatcherV2::default();
-    let mut scored: Vec<(i64, PickerRowBody)> = summaries
-        .into_iter()
-        .filter_map(|summary| {
-            let title = summary.title.clone();
-            let row = PickerRowBody {
-                session_id: summary.session_id,
-                title,
-                state: summary.session_state,
-                parent_id: summary.parent_session,
-                project: summary.project.map(|p| {
-                    // The directory's name, as the terminal picker shows it.
-                    p.file_name()
-                        .map_or_else(|| p.to_string(), |n| n.to_string_lossy().into_owned())
-                }),
-            };
-            // An empty filter keeps everything, unranked; otherwise only
-            // titles the matcher accepts, best first.
-            let score = if filter.is_empty() {
-                0
-            } else {
-                matcher.fuzzy_match(&row.title, filter)?
-            };
-            Some((score, row))
-        })
-        .collect();
-    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    scored.into_iter().map(|(_, row)| row).collect()
-}
-
-/// The text a model row is matched by: its model, then its provider.
-///
-/// The same two fields, in the same order, the terminal's model picker
-/// searches. Built here rather than shared because the picker's helper
-/// lives in that slice's implementation crate, which no sibling may
-/// depend on; the fields themselves are the contract's.
-fn model_search_text(entry: &jinn_provider_selection_msg::ProviderPickerEntry) -> String {
-    format!("{} {}", entry.model, entry.provider_name)
-}
-
-/// Narrows provider rows to those a filter matches, best match first.
-///
-/// A row is matched by its search text with the same fuzzy matcher the
-/// terminal's picker uses. An empty filter keeps every row, in the order
-/// given.
-fn filter_model_rows(
-    entries: &[jinn_provider_selection_msg::ProviderPickerEntry],
-    filter: &str,
-) -> Vec<jinn_provider_selection_msg::ProviderPickerEntry> {
-    use fuzzy_matcher::FuzzyMatcher as _;
-
-    if filter.is_empty() {
-        return entries.to_vec();
+    let mut tree = jinn_selection_widget::TreePickerState::<SessionTreeEntry>::with_items(entries);
+    if !filter.is_empty() {
+        tree.insert_text(filter);
     }
-    let matcher = fuzzy_matcher::skim::SkimMatcherV2::default();
-    let mut scored: Vec<(i64, jinn_provider_selection_msg::ProviderPickerEntry)> = entries
-        .iter()
-        .filter_map(|entry| {
-            let text = model_search_text(entry);
-            let score = matcher.fuzzy_match(&text, filter)?;
-            Some((score, entry.clone()))
-        })
+    let rows = (0..tree.filtered_count())
+        .filter_map(|idx| visible_row(&tree, idx))
         .collect();
-    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    scored.into_iter().map(|(_, entry)| entry).collect()
+    cap_whole_trees(rows, PICKER_ROW_CAP)
+}
+
+/// One visible row of the tree, as the browser draws it.
+fn visible_row(
+    tree: &jinn_selection_widget::TreePickerState<SessionTreeEntry>,
+    idx: usize,
+) -> Option<PickerRowBody> {
+    let visible = tree.visible_entry(idx);
+    let entry = tree.filtered_item(idx);
+    let offsets = tree.filtered_match_indices(idx).unwrap_or(&[]);
+    // `idx` is below `filtered_count`, so both are present; an out-of-range
+    // read is not a row the page could draw.
+    let (Some(entry), Some(visible)) = (entry, visible) else {
+        return None;
+    };
+    let project = (!entry.project_display.is_empty()).then(|| entry.project_display.clone());
+    PickerRowBody {
+        session_id: entry.session_id.clone(),
+        title: entry.title.clone(),
+        state: entry.session_state,
+        parent_id: entry.parent_id.clone(),
+        project,
+        depth: visible.depth,
+        updated_at: entry.updated_at,
+        title_runs: runs(jinn_selection_widget::split_matched_runs(
+            &entry.title,
+            offsets,
+        )),
+    }
+    .into()
+}
+
+/// Keeps the first whole trees that fit in `cap` rows, in display order.
+///
+/// A depth-0 row starts a tree; the rows after it belong to it. Trees are
+/// taken in order until the next one would not fit, so every tree the page
+/// receives is complete — a parent is never shown without the children the
+/// filter found under it. The one exception is a first tree larger than
+/// the cap on its own: it is cut at the cap rather than left out.
+pub(crate) fn cap_whole_trees(rows: Vec<PickerRowBody>, cap: usize) -> Vec<PickerRowBody> {
+    let kept_end = whole_trees_end(&rows, cap);
+    // A first tree too large for the cap is cut at the cap, not skipped.
+    let kept_end = if kept_end == 0 && !rows.is_empty() {
+        cap.min(rows.len())
+    } else {
+        kept_end
+    };
+    rows.into_iter().take(kept_end).collect()
+}
+
+/// The index just past the last whole tree that fits in `cap` rows.
+fn whole_trees_end(rows: &[PickerRowBody], cap: usize) -> usize {
+    let mut taken = 0;
+    for (start, end) in trees(rows) {
+        if taken + (end - start) > cap {
+            return taken;
+        }
+        taken = end;
+    }
+    taken
+}
+
+/// Where each tree starts and ends in the display-ordered rows: a tree
+/// begins at a depth-0 row and runs until the next one (or the end).
+///
+/// The walk starts at row 0, so rows ahead of the first root — should any
+/// ever appear — are their own leading group rather than dropped from the
+/// cap's count.
+fn trees(rows: &[PickerRowBody]) -> Vec<(usize, usize)> {
+    // Each root closes the group before it and opens the next; the end of
+    // the rows closes the last.
+    let starts = std::iter::once(0usize).chain(root_starts(rows).into_iter().filter(|&i| i > 0));
+    starts
+        .clone()
+        .skip(1)
+        .chain(std::iter::once(rows.len()))
+        .zip(starts)
+        .map(|(end, start)| (start, end))
+        .collect()
+}
+
+/// The index of every depth-0 row, in display order.
+fn root_starts(rows: &[PickerRowBody]) -> Vec<usize> {
+    rows.iter()
+        .enumerate()
+        .filter_map(|(idx, row)| (row.depth == 0).then_some(idx))
+        .collect()
 }
 
 /// The model picker's rows for a filter, from the shared row builder.
 ///
-/// The same `load_provider_entries` → `sorted_entries` path the terminal's
-/// picker seeds from, so the two lists cannot drift: available models
-/// first, the active one promoted to the top when unfiltered.
+/// The same `load_provider_entries` → `sorted_entries` → `filter_entries`
+/// path the original web UI runs, over the same search text the terminal's
+/// picker matches by — so all three surfaces list the same rows, in the
+/// same score order, for the same filter. An empty filter keeps every row
+/// in the sorted order, the active one promoted to the top.
 pub fn model_rows(out: &OutboundHandle, filter: String) -> Reply {
     // The filter is remembered so a `ModelCacheStored` push — a refresh
     // landing — can answer the view this picker is holding.
@@ -574,29 +615,30 @@ pub(crate) fn model_row_bodies(out: &OutboundHandle, filter: &str) -> Vec<ModelR
     let theme = out.state().read().frontend.theme.clone();
     let model_cache = out.provider_cell().read().model_cache.clone();
 
-    let all = {
+    let sorted = {
         let registry = out.services().provider_registry.read();
         let api_keys = out.services().api_keys.read();
-        jinn_provider_selection_msg::load_provider_entries(
+        let all = jinn_provider_selection_msg::load_provider_entries(
             &registry,
             &api_keys,
             model_cache.as_ref(),
             &theme,
-        )
+        );
+        jinn_provider_selection_msg::sorted_entries(&all, filter, &active)
     };
-    // The terminal's picker matches a row by its search text with the
-    // shared fuzzy matcher and keeps only the rows that score; the sort
-    // helper alone reorders and never narrows, so the filter is applied
-    // here first, the same way, for the same result.
-    let matched = filter_model_rows(&all, filter);
-    jinn_provider_selection_msg::sorted_entries(&matched, filter, &active)
+    jinn_provider_selection_msg::provider_rows::filter_entries(&sorted, filter)
         .into_iter()
-        .map(|entry| ModelRowBody {
-            provider_id: entry.provider_id,
-            model: entry.model,
-            provider_name: entry.provider_name,
-            is_available: entry.is_available,
-            is_active: entry.is_active,
+        .map(|filtered| {
+            let segments = filtered.segments();
+            ModelRowBody {
+                provider_id: filtered.entry.provider_id,
+                model: filtered.entry.model,
+                provider_name: filtered.entry.provider_name,
+                is_available: filtered.entry.is_available,
+                is_active: filtered.entry.is_active,
+                model_runs: segments_to_runs(segments.model, |s| (s.text, s.matched)),
+                provider_runs: segments_to_runs(segments.provider, |s| (s.text, s.matched)),
+            }
         })
         .collect()
 }
@@ -878,10 +920,20 @@ pub(crate) fn skill_row_bodies(
 
 /// The shared filter's text runs, as the wire carries them.
 fn runs(runs: Vec<jinn_selection_widget::TextRun>) -> Vec<TextRunBody> {
-    runs.into_iter()
-        .map(|run| TextRunBody {
-            text: run.text,
-            matched: run.matched,
+    segments_to_runs(runs, |run| (run.text, run.matched))
+}
+
+/// One contract crate's matched/plain segments, as the wire carries them.
+///
+/// The provider and persona filters each carry their own `TextSegment`
+/// type — same shape, different crate — so the caller names how to read
+/// one segment's text and matched flag, and this is the one conversion.
+fn segments_to_runs<S>(segments: Vec<S>, part: impl Fn(S) -> (String, bool)) -> Vec<TextRunBody> {
+    segments
+        .into_iter()
+        .map(|segment| {
+            let (text, matched) = part(segment);
+            TextRunBody { text, matched }
         })
         .collect()
 }
@@ -1247,15 +1299,6 @@ fn persona_row_bodies(
         let personas = out.personas_cell().read();
         jinn_persona_msg::PersonaRow::rows(&personas.entries, active.as_deref())
     };
-    let plain = |segments: Vec<jinn_persona_msg::TextSegment>| -> Vec<TextRunBody> {
-        segments
-            .into_iter()
-            .map(|segment| TextRunBody {
-                text: segment.text,
-                matched: segment.matched,
-            })
-            .collect()
-    };
     jinn_persona_msg::filter_rows(&rows, filter)
         .into_iter()
         .map(|filtered| {
@@ -1264,8 +1307,8 @@ fn persona_row_bodies(
                 name: filtered.row.name,
                 description: filtered.row.description,
                 is_active: filtered.row.is_active,
-                name_runs: plain(segments.name),
-                description_runs: plain(segments.description),
+                name_runs: segments_to_runs(segments.name, |s| (s.text, s.matched)),
+                description_runs: segments_to_runs(segments.description, |s| (s.text, s.matched)),
             }
         })
         .collect()
@@ -1522,6 +1565,59 @@ pub async fn archive_session(out: &OutboundHandle, session_id: SessionId) -> Rep
 /// button busy until that push.
 pub async fn refresh_models(out: &OutboundHandle) -> Reply {
     out.publish(RefreshModels).await;
+    Reply::none()
+}
+
+// ---------------------------------------------------------------------------
+// Pin
+// Parity: the terminal's `p` on the selected entry
+// (`jinn_chat_log_view::chat_entry_selection::intent::handle_pin_selected`)
+// ---------------------------------------------------------------------------
+
+/// Toggles the pin on one entry of the active session.
+///
+/// An unpinned entry is pinned at [`PinPosition::Relative`] — where the
+/// terminal's `p` pins it — and a pinned one is unpinned. The page can
+/// only name an entry it was sent, so the entry is always in memory: an
+/// unknown id is refused and never falls back to the store. One message
+/// is published and nothing is replied; the session actor applies the
+/// pin, marks the session interacted so it persists, and publishes
+/// `ChatEntryPinChanged`, which the outbound actor turns into the upserts
+/// the page sees.
+pub async fn toggle_pin(out: &OutboundHandle, entry_id: ChatEntryId) -> Reply {
+    // Decided under one read guard, which drops before the publish: the
+    // state lock is never held across an await.
+    let decision = {
+        let state = out.state();
+        let guard = state.read();
+        let session_id = guard.session.active_session_id().clone();
+        let Some(session) = guard.session.get(&session_id) else {
+            return refused(&Refusal::NoActiveSession);
+        };
+        let Some(pinned) = session
+            .find_entry_index_by_id(&entry_id)
+            .and_then(|index| session.history().get(index))
+            .map(ChatEntry::is_pinned)
+        else {
+            return refused(&Refusal::UnknownEntry);
+        };
+        (session_id, pinned)
+    };
+    let (session_id, pinned) = decision;
+    if pinned {
+        out.publish(UnpinChatEntry {
+            session_id,
+            entry_id,
+        })
+        .await;
+    } else {
+        out.publish(PinChatEntry {
+            session_id,
+            entry_id,
+            position: PinPosition::Relative,
+        })
+        .await;
+    }
     Reply::none()
 }
 

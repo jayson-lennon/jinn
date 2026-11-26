@@ -13,8 +13,23 @@
 import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientStore } from './store';
+import { Runs } from './pickers';
 import { beginSessionLoad } from './store';
 
+/** How far each tree level indents a stored-session row. */
+const PICKER_INDENT_PX = 14;
+
+/**
+ * A timestamp as the picker's row shows it: `YYYY-MM-DD HH:MM`, in the
+ * browser's own zone. The terminal prints the same shape in UTC; a phone
+ * reads its local time.
+ */
+function formatLocal(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
 export interface RailProps {
   store: ClientStore;
   /** Sends one command; a row click activates, a kebab item sets membership. */
@@ -217,10 +232,19 @@ function SessionPicker(props: { store: ClientStore; send: RailProps['send']; onC
           <For each={props.store.state.pickerRows}>
             {(row) => (
               <li>
-                <button data-testid="picker-row" onClick={() => pick(row)}>
-                  <span class="session-title">{row.title || 'Untitled Session'}</span>
+                <button
+                  class="session-pick"
+                  data-testid="picker-row"
+                  data-depth={row.depth}
+                  data-state={row.state}
+                  style={{ 'padding-left': `${row.depth * PICKER_INDENT_PX}px` }}
+                  onClick={() => pick(row)}
+                >
+                  <span class="session-title">
+                    <Runs runs={row.title.length > 0 ? row.title_runs : [{ text: 'Untitled Session', matched: false }]} />
+                  </span>
                   <span class="session-meta">
-                    {row.state === 'Archived' ? 'archived' : ''}
+                    {formatLocal(row.updated_at)}
                     <Show when={row.project}> · {row.project}</Show>
                   </span>
                 </button>

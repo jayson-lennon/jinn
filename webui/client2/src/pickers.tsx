@@ -69,7 +69,7 @@ export function FilterableModal(props: FilterableModalProps): JSX.Element {
 }
 
 /** A field's text, with the filter's matched runs highlighted. */
-function Runs(props: { runs: readonly TextRun[] }): JSX.Element {
+export function Runs(props: { runs: readonly TextRun[] }): JSX.Element {
   return (
     <For each={props.runs}>
       {(run) => (run.matched ? <mark>{run.text}</mark> : <span>{run.text}</span>)}

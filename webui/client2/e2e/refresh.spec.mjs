@@ -13,18 +13,21 @@ const summaries = (page) =>
   page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY("transient")}`);
 
 /**
- * Waits for the page to be settled: the button idle, and the transcript's
- * summary count unchanged across two reads. The sample provider answers
- * discovery almost at once, so a busy state can be gone before an
- * assertion looks — and a summary can still be arriving after the button
- * re-enables. Anything that measures "how many refreshes ran" waits here
- * first.
+ * Waits for the page to be settled after a refresh press: the button idle
+ * and that press's summary landed. The sample provider answers discovery
+ * almost at once, so a busy state can be gone before an assertion looks —
+ * and a summary can still be arriving after the button re-enables. The
+ * button going idle is not proof the summary landed, so the count is
+ * waited on against the count before the press.
+ *
+ * @param {import('@playwright/test').Page} page the test's own page.
+ * @param {number} before the summary count read before the press.
  */
-async function settled(page) {
+async function settled(page, before) {
   await expect(page.locator(sel.REFRESH_MODELS)).toBeEnabled({ timeout: 15_000 });
   await expect
     .poll(async () => summaries(page).count(), { timeout: 15_000 })
-    .toBe(await summaries(page).count());
+    .toBe(before + 1);
 }
 
 test("the model picker offers a Refresh models button", async ({ page }) => {
@@ -72,8 +75,9 @@ test("the button re-enables once discovery lands", async ({ page }) => {
 test("the button cannot be pressed again while busy", async ({ page }) => {
   // Given a settled page, with its summaries counted.
   await openModelPicker(page);
+  const settled_before = await summaries(page).count();
   await page.locator(sel.REFRESH_MODELS).click();
-  await settled(page);
+  await settled(page, settled_before);
   const before = await summaries(page).count();
 
   // When pressing refresh and, once the busy state has rendered, forcing a
@@ -92,7 +96,7 @@ test("the button cannot be pressed again while busy", async ({ page }) => {
   });
   // The gate held: the second press landed on a disabled button.
   expect(presses).toBe(true);
-  await settled(page);
+  await settled(page, before);
 
   // Then one summary was added for the two presses: the busy button took
   // the first and refused the second.

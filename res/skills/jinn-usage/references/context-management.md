@@ -25,6 +25,10 @@ correction you want enforced for the rest of the session.
 **A pin takes the whole tool loop.** Pinning a tool call pins its matching
 result too, so the pair stays intact in context.
 
+On `/web2`, the same pin is the entry's `⋮` → **Pin** (the item reads
+**Unpin** once pinned); relative position only, with top/bottom left to the
+TUI's Pins sidebar.
+
 ### Choose where the pin sits
 
 Position matters. Entries nearer the end of context carry more weight in the

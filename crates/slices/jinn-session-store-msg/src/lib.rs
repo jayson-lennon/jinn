@@ -9,6 +9,7 @@ pub mod command;
 pub mod event;
 pub mod library_state;
 pub mod projections;
+pub mod session_entries;
 pub mod session_picker_state;
 pub mod session_search;
 pub mod session_state;
@@ -21,6 +22,7 @@ pub use command::{
 pub use event::{SessionLibraryMembershipChanged, SessionLoadCompleted};
 pub use library_state::{LibraryState, library_slot};
 pub use projections::{FrozenTreeNode, SessionSummary};
+pub use session_entries::{session_tree_entries, sort_entries_tree_aware};
 pub use session_search::{
     SearchHit, SearchOutcome, SearchParams, SearchableEntry, SearchableRole, TranscriptEntry,
     TranscriptWindow, entry_ts_key, extract_searchable,
