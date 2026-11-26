@@ -352,28 +352,42 @@ body { background: var(--bg); color: var(--fg); }
 
 /* ---- tools, MCP servers, and persona modals ---- */
 /* Ported from the first web UI's tools, mcp, and persona styles, onto
-   this page's tokens. The tools rows keep their own ✓ / ✗ marks and
-   muted disabled rows; MCP and persona rows use ● / ○. */
+   this page's tokens, and shaped like this page's skills row. The
+   generic `.modal-list button` is a vertical stack, so the row must set
+   `flex-direction: row` back, and the description needs `min-width: 0`
+   or the ellipsis cannot engage inside the flex line. The tools rows
+   keep their own ✓ / ✗ marks and muted disabled rows; MCP and persona
+   rows use ● / ○. */
 .picker-modal { width: min(560px, 92vw); max-height: 70vh; display: flex; flex-direction: column; }
 .picker-rows { max-height: none; overflow-y: auto; padding: 4px 0; }
 .picker-rows .picker-row {
   display: flex;
+  flex-direction: row;
   align-items: baseline;
   gap: 8px;
   width: 100%;
   padding: 7px 12px;
   border: 0;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--fg);
   text-align: left;
   cursor: pointer;
+  font: inherit;
 }
 .picker-rows .picker-row:hover { background: var(--bg-hover); }
 .picker-rows .picker-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.picker-rows .picker-marker { width: 1.2em; flex: none; color: var(--fg-dim); text-align: center; }
-.picker-rows .picker-name { flex: none; font-weight: 400; }
-.picker-rows .picker-sep { flex: none; color: var(--fg-faint); }
-.picker-rows .picker-description { flex: 1; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-marker { width: 1.2em; flex: none; color: var(--fg-dim); text-align: center; }
+.picker-name { flex: none; font-weight: 400; }
+.picker-sep { flex: none; color: var(--fg-faint); }
+.picker-description {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .picker-rows .picker-row mark { background: transparent; color: var(--accent); font-weight: 600; }
 
 /* Tools: ✓ / ✗, a disabled row muted. */
