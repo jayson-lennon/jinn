@@ -294,6 +294,15 @@ mod attachment_route_tests {
         let mcp_runtime_cell = slices
             .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
             .expect("the catalog registers the mcp runtime slot");
+        let applets_catalog_cell = slices
+            .reader::<jinn_applets_msg::AppletsCatalog>(&jinn_applets_msg::applets_catalog_slot())
+            .expect("the catalog registers the applets catalog slot");
+        let applets_picker_cell =
+            slices
+                .reader::<jinn_applets_msg::AppletsPickerState>(
+                    &jinn_applets_msg::applets_picker_slot(),
+                )
+                .expect("the catalog registers the applets picker slot");
         let services = jinn_kernel::TestServices::builder()
             .providers(jinn_provider_config::ProvidersConfig {
                 providers: std::collections::BTreeMap::new(),
@@ -316,6 +325,8 @@ mod attachment_route_tests {
                 provider_cell,
                 personas_cell,
                 mcp_runtime_cell,
+                applets_catalog_cell,
+                applets_picker_cell,
             }),
             version: "test".to_owned(),
         })

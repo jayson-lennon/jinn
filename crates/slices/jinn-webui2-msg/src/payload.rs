@@ -350,6 +350,44 @@ pub struct ToolRowsBody {
     pub rows: Vec<ToolRowBody>,
 }
 
+/// One row of the applets modal.
+///
+/// Everything the browser needs to draw the row and decide what a click
+/// does. `href` is the saved applet's URL on the applets server while it
+/// is serving — `http://<bind>/applets/<id>/`, opening a new tab — and
+/// `None` while the server is offline or the id fails the validity gate,
+/// in which case the row renders disabled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppletRowBody {
+    /// The applet's directory id — its URL path segment.
+    pub id: String,
+    /// The applet's display title.
+    pub title: String,
+    /// The title, split into matched and plain runs for the filter the rows
+    /// answer. One plain run when the filter is empty.
+    pub title_runs: Vec<TextRunBody>,
+    /// Where the row opens, or `None` for a disabled row.
+    pub href: Option<String>,
+}
+
+/// The applets modal's rows for one filter, with the server's serving phase.
+///
+/// The applets catalog is instance-wide, so unlike the other rows bodies
+/// this one names no session: a frame answers whichever page asked, and the
+/// browser matches it to the filter it is holding. `bind` is the resolved
+/// `host:port` while `serving`, and empty while offline.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppletRowsBody {
+    /// The filter the rows answer (empty for the unfiltered list).
+    pub filter: String,
+    /// Whether the applets server is bound and serving.
+    pub serving: bool,
+    /// The resolved bind the applets server accepted; empty while offline.
+    pub bind: String,
+    /// The rows, newest first, filtered by the shared fuzzy filter.
+    pub rows: Vec<AppletRowBody>,
+}
+
 /// The display state of one MCP server row's status badge.
 ///
 /// The shared derivation's four states, as the wire carries them. The

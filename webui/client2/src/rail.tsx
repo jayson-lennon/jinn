@@ -14,6 +14,7 @@ import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientStore } from './store';
 import { Runs } from './pickers';
+import { beginSessionLoad } from './store';
 
 /** How far each tree level indents a stored-session row. */
 const PICKER_INDENT_PX = 14;
@@ -29,7 +30,6 @@ function formatLocal(iso: string): string {
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
-
 export interface RailProps {
   store: ClientStore;
   /** Sends one command; a row click activates, a kebab item sets membership. */
@@ -46,6 +46,9 @@ export function SessionRail(props: RailProps): JSX.Element {
   const [menuFor, setMenuFor] = createSignal<string | null>(null);
 
   const activate = (id: string): void => {
+    // The overlay goes up before the request leaves, so it is raised in the
+    // same tick as the click and a reply that lands at once still finds it up.
+    beginSessionLoad(props.store, id);
     props.send({ type: 'activate_session', session_id: id });
     // Picking a row is the drawer's last act: a phone user tapped it to
     // go there, and the drawer in front of the transcript is now in the way.
@@ -196,6 +199,9 @@ function SessionPicker(props: { store: ClientStore; send: RailProps['send']; onC
     timer = window.setTimeout(() => props.send({ type: 'picker_rows', filter: value }), 150);
   };
   const pick = (row: import('./protocol').PickerRow): void => {
+    // An archived session is read from disk here, so the wait is the longest
+    // one the page has: the overlay goes up first, exactly as a row click's.
+    beginSessionLoad(props.store, row.session_id);
     props.send({ type: 'activate_session', session_id: row.session_id });
     props.onClose();
   };

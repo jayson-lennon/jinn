@@ -126,6 +126,13 @@ highlights:
   switches the session's persona and **closes the modal**. A persona
   without a `<compaction>` handoff block pushes an error entry into the
   transcript, the same warning the TUI shows.
+- **Applets, in `/web2`**: the menu button's **Applets** item (at every
+  time — it depends on no session) opens the saved applets, newest first,
+  with a status line naming the applets server's bind and the filter bar
+  narrowing by title and highlighting the matches. Each row is a link that
+  opens the applet in a new tab while the server is serving, and a
+  disabled line while it is offline. Rename, delete, and kiosk are the
+  TUI's — `/web2` opens, nothing more.
 - **MCP server**: `<Tab>` stages enable/disable. `<enter>` applies the staged
   toggles (enabling spawns the server, disabling kills it); `<esc>` reverts
   to how the picker opened. `<c-r>` restarts, `<c-t>` flips the preview pane

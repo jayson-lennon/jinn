@@ -26,10 +26,11 @@ use jinn_session_store_msg::{
     PersistSession, SessionLoadRequested, SessionTreeEntry, SetSessionLibrary,
 };
 use jinn_webui2_msg::{
-    EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody,
-    McpRowBody, McpRowsBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody,
-    PersonaRowsBody, PickerRowBody, PickerRowsBody, ServerMsg, SkillRowBody, SkillRowsBody,
-    TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
+    AppletRowBody, AppletRowsBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
+    LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelRowBody, ModelRowsBody,
+    NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PickerRowBody, PickerRowsBody,
+    ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
+    ToolRowsBody,
 };
 
 use crate::{
@@ -1331,6 +1332,129 @@ fn tool_row_bodies(
             }
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Applet rows
+// Parity: the original web UI's `regions/applets.rs` pull, and the TUI
+// `<leader>sa` picker's opener, which publishes the same rescan/wake pair
+// ---------------------------------------------------------------------------
+
+/// The applets modal's rows for a filter, with the applets server's serving
+/// phase.
+///
+/// Publishes the rescan and the wake the TUI's picker opener publishes — in
+/// that order — then answers from the two applets cells as they stand. The
+/// reply is deliberately not waited on: the store actor's rescan lands
+/// strictly after it, and the outbound actor pushes the fresh catalog to the
+/// open modal when it does. The filter is remembered so that push answers in
+/// the view the page is holding.
+pub async fn applet_rows(out: &OutboundHandle, filter: String) -> Reply {
+    out.publish(jinn_applets_msg::RescanApplets).await;
+    out.publish(jinn_applets_msg::WakeAppletsServer).await;
+    out.remember_applet_filter(&filter);
+    Reply::one(ServerMsg::AppletRows(applet_rows_body_from_cells(
+        out, &filter,
+    )))
+}
+
+/// The cells as they stand, in the filter asked. Both guards are opened,
+/// cloned, and dropped inside the block — none crosses the caller.
+pub(crate) fn applet_rows_body_from_cells(out: &OutboundHandle, filter: &str) -> AppletRowsBody {
+    let (catalog, (serving, bind)) = {
+        let catalog = out.applets_catalog_cell().read().clone();
+        let serving = {
+            let picker = out.applets_picker_cell().read();
+            picker
+                .serving
+                .as_ref()
+                .map_or((false, String::new()), |address| {
+                    (true, address.bind.clone())
+                })
+        };
+        (catalog, serving)
+    };
+    applet_rows_body(&catalog, serving, &bind, filter)
+}
+
+/// One saved applet as the wire carries it: the title split for the filter,
+/// and the href the row opens.
+///
+/// The href is the applets slice's own URL formula — the resolved bind plus
+/// `/applets/<id>/` with the trailing slash, so relative sibling references
+/// in the artifact resolve — and only while the server is serving **and** the
+/// id passes the validity gate. A hand-edited `applets.json` could carry a
+/// traversal id; a refused id renders the disabled row instead of an href,
+/// which is the modal's one injection surface.
+#[must_use]
+fn applet_row_body(
+    entry: &jinn_applets_msg::AppletEntry,
+    bind: Option<&str>,
+    runs: Vec<TextRunBody>,
+) -> AppletRowBody {
+    let href = bind.and_then(|bind| {
+        jinn_applets_msg::is_valid_app_id(&entry.id)
+            .then(|| format!("http://{bind}/applets/{}/", entry.id))
+    });
+    AppletRowBody {
+        id: entry.id.clone(),
+        title: entry.title.clone(),
+        title_runs: runs,
+        href,
+    }
+}
+
+/// The rows for the catalog under a filter, with the serving phase.
+///
+/// An empty filter keeps the catalog's own order — the store actor has
+/// already sorted it newest first. Otherwise the shared fuzzy filter over the
+/// titles orders by score, exactly the original web UI's pull and the TUI
+/// picker's matcher; the matched runs are cut on grapheme boundaries so a
+/// `<mark>` never splits a cluster.
+pub(crate) fn applet_rows_body(
+    catalog: &jinn_applets_msg::AppletsCatalog,
+    serving: bool,
+    bind: &str,
+    filter: &str,
+) -> AppletRowsBody {
+    let rows: Vec<AppletRowBody> = if filter.is_empty() {
+        catalog
+            .entries
+            .iter()
+            .map(|entry| {
+                let plain = vec![TextRunBody {
+                    text: entry.title.clone(),
+                    matched: false,
+                }];
+                applet_row_body(entry, serving.then_some(bind), plain)
+            })
+            .collect()
+    } else {
+        let titles: Vec<&str> = catalog.entries.iter().map(|e| e.title.as_str()).collect();
+        jinn_selection_widget::fuzzy_filter(&titles, filter)
+            .into_iter()
+            .filter_map(|hit| {
+                let entry = catalog.entries.get(hit.index)?;
+                let segments =
+                    jinn_selection_widget::split_matched_runs(&entry.title, &hit.match_indices);
+                Some(applet_row_body(
+                    entry,
+                    serving.then_some(bind),
+                    runs(segments),
+                ))
+            })
+            .collect()
+    };
+    AppletRowsBody {
+        filter: filter.to_owned(),
+        serving,
+        bind: if serving {
+            bind.to_owned()
+        } else {
+            String::new()
+        },
+        rows,
+    }
 }
 
 // ---------------------------------------------------------------------------

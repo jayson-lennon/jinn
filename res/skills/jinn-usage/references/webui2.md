@@ -37,6 +37,15 @@ but nothing coordinates them.
   session is highlighted and clicking a row activates that session (the
   TUI follows). Each row's `⋮` offers **add to library** or **remove from
   library**, which moves it to the other list.
+- **Session loading** — clicking a session row, or picking one from the
+  **Archive** picker, raises a full-page **Loading session…** overlay at
+  once: a card with a spinner, over everything. It clears when that
+  session's transcript arrives — in a few milliseconds for a session
+  already in memory, longer for one read from disk. It covers the whole
+  page and nothing dismisses it (`Esc` does nothing): a second click
+  cannot fire a second switch under it. If no answer comes within ten
+  seconds the overlay clears and the composer names the timeout; the page
+  stays on the session it never left.
 - **Archive** — the sidebar's **Archive** button opens a picker over every
   stored session, loaded or archived, as a tree: a forked session is
   indented under its parent, and a filter that matches a child keeps its
@@ -79,8 +88,19 @@ but nothing coordinates them.
   since the sidebar is already in place.
   Between them, while a session is active, it lists **Skills**,
   **Persona**, **Tools**, and **MCP servers**, in that order; each opens
-  its picker. With no active session those four are omitted. A scrim
+  its picker. With no active session those four are omitted. **Applets**
+  sits between those four and **Sessions**, at every time — the saved-app
+  catalog depends on no session. A scrim
   click, `Esc`, or picking an item closes it.
+- **Applets** — the menu's **Applets** item (at every time) opens the
+  saved applets, newest first, each a new-tab link to
+  `http://<bind>/applets/<id>/` while the applets server is serving and a
+  disabled line while it is offline. A status line above the list names
+  the serving bind (`serving http://<bind>`) or reads `<server offline>`.
+  A filter bar narrows the list by title as you type, with the matches
+  highlighted. An empty catalog says **No applets saved yet**. The modal
+  refreshes itself when an applet is saved or the server's serving phase
+  changes.
 - **Color mode** — the menu's **Light | Dark | System** group. The choice
   is saved (`state.toml`) and survives a reload and a restart; **System**
   follows the browser. It is applied before the transcript's first paint.
@@ -149,7 +169,7 @@ There are no keybinds beyond these:
 | `Enter` in the composer | Sends the message. |
 | `Shift+Enter` in the composer | Inserts a newline. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
-| `Esc` | Closes the top overlay: the menu, any of the four picker modals (Skills, Persona, Tools, MCP servers), the New session modal, another picker, the title editor, or the phone drawer. |
+| `Esc` | Closes the top overlay: the menu, any of the five picker modals (Skills, Persona, Tools, MCP servers, Applets), the New session modal, another picker, the title editor, or the phone drawer. It does **not** close the **Loading session…** overlay — that ends only when the load ends. |
 
 The composer's buttons follow the session's phase:
 
@@ -169,10 +189,10 @@ input box as an editable draft — not into the web composer.
 
 ## Reconnecting
 
-If the connection drops, a `disconnected — reconnecting…` overlay covers
-the page and it retries on its own; the overlay clears when it is back.
-An unsent draft survives the reconnect. A restarted jinn is a normal
-event — the page comes back with the whole transcript.
+If the connection drops, a `disconnected — reconnecting…` overlay with a
+spinner covers the page and it retries on its own; the overlay clears when
+it is back. An unsent draft survives the reconnect. A restarted jinn is a
+normal event — the page comes back with the whole transcript.
 
 ## What `/web2` does not do
 
@@ -182,8 +202,9 @@ that has it.
 
 - Forking, archiving, or tearing down sessions. `/web2` can *create* and
   *open* sessions, but has no fork, archive, or teardown gesture.
-- Applets — the applets picker; every other menu picker exists on
-  `/web2`.
+- Renaming, deleting, or opening an applet in kiosk mode. The `/web2`
+  applets picker opens one in a new tab; those three gestures are the
+  TUI's.
 - Pinning, exclusion, isolate, and the per-entry audit popup.
 - Steer mode. A message sent while working is queued; to steer, cancel
   and send.

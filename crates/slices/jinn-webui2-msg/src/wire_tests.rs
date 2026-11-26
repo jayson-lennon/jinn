@@ -15,11 +15,11 @@ use jinn_slices::PhaseView;
 use rstest::rstest;
 
 use crate::payload::{
-    DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
-    LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelBody, ModelRowBody,
-    ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PhaseBody,
-    PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody, SkillRowBody, SkillRowsBody,
-    SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
+    AppletRowBody, AppletRowsBody, DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody,
+    ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody,
+    ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody,
+    PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody, SkillRowBody,
+    SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION};
 
@@ -146,6 +146,17 @@ fn persona_row(name: &str) -> PersonaRowBody {
         is_active: true,
         name_runs: matched_name_runs(name),
         description_runs: plain_runs("does a thing"),
+    }
+}
+
+/// Builds one applets row: the title as one plain run, linked when `href`
+/// is `Some` and disabled when `None`.
+fn applet_row(id: &str, title: &str, href: Option<&str>) -> AppletRowBody {
+    AppletRowBody {
+        id: id.to_owned(),
+        title: title.to_owned(),
+        title_runs: plain_runs(title),
+        href: href.map(str::to_owned),
     }
 }
 
@@ -789,6 +800,45 @@ fn server_persona_rows_round_trips() {
 
 #[rstest]
 #[test]
+fn client_applet_rows_round_trips() {
+    // Given a rows ask under a filter.
+    let msg = ClientMsg::AppletRows {
+        filter: "qui".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn server_applet_rows_round_trips() {
+    // Given serving rows answering a filter: one linked, one disabled.
+    let msg = ServerMsg::AppletRows(AppletRowsBody {
+        filter: String::new(),
+        serving: true,
+        bind: "127.0.0.1:41234".to_owned(),
+        rows: vec![
+            applet_row("quiz", "Quiz", Some("http://127.0.0.1:41234/applets/quiz/")),
+            applet_row("escape", "Escape", None),
+        ],
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then it is unchanged — the linked row keeps its href, the disabled
+    // row keeps its explicit null, and no session rides on the frame.
+    assert_eq!(json_of(&back), json_of(&msg));
+    let json = json_of(&back);
+    assert!(json.get("session_id").is_none(), "{json}");
+}
+
+#[rstest]
+#[test]
 fn mcp_badge_serializes_as_its_lowercase_word() {
     // Given one row carrying each badge state.
     let badges = [
@@ -958,6 +1008,15 @@ fn server_variant_carries_its_snake_case_tag() {
             "persona_rows",
         ),
         (
+            ServerMsg::AppletRows(AppletRowsBody {
+                filter: String::new(),
+                serving: false,
+                bind: String::new(),
+                rows: Vec::new(),
+            }),
+            "applet_rows",
+        ),
+        (
             ServerMsg::NewSessionOptions(NewSessionOptionsBody {
                 projects: Vec::new(),
                 lifecycles: Vec::new(),
@@ -1097,6 +1156,12 @@ fn client_variant_carries_its_snake_case_tag() {
                 persona: String::new(),
             },
             "switch_persona",
+        ),
+        (
+            ClientMsg::AppletRows {
+                filter: String::new(),
+            },
+            "applet_rows",
         ),
         (ClientMsg::RefreshModels, "refresh_models"),
         (
