@@ -164,6 +164,7 @@ export type ClientMsg =
   | { type: 'toggle_mcp'; server: string }
   | { type: 'persona_rows'; filter: string }
   | { type: 'switch_persona'; persona: string }
+  | { type: 'toggle_pin'; entry_id: string }
   | { type: 'refresh_models' }
   | { type: 'set_theme'; theme: Theme }
   | { type: 'set_library'; session_id: string; in_library: boolean }

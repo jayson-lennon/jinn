@@ -9,13 +9,128 @@
 // that is a name, an id, or an argument is escaped and shown verbatim — it
 // is data, not prose.
 
-import { For, Show } from '@solidjs/web';
+import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { EntryEnvelope, EntryKind } from './protocol';
+import type { ClientMsg, EntryEnvelope, EntryKind } from './protocol';
 import { renderMarkdown, safeHref } from './markdown';
+import { isOptimistic } from './store';
 
 /** The route prefix an attachment's `<img>` is served from. */
 const ATTACHMENT_PREFIX = '/web2/attachment/';
+
+/** What an entry's `⋮` needs to open its menu and act on the entry. */
+export interface EntryMenuProps {
+  /** The id of the entry whose menu is open, or null when none is. */
+  openFor: () => string | null;
+  /** Opens the named entry's menu, or closes it when it is already open. */
+  toggle: (id: string) => void;
+  /** Sends one command. */
+  send: (msg: ClientMsg) => void;
+}
+
+/**
+ * Registers the two listeners that close an open entry menu: Escape, and
+ * any click outside one. The transcript owns them so the whole list shares
+ * one open menu; the popup and its button stop their own clicks, so a
+ * click that reaches the document is outside. Escape is stopped when it
+ * closes a menu, so it does not also dismiss an overlay underneath.
+ */
+export function useEntryMenuDismiss(openFor: () => string | null, close: () => void): void {
+  const onKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || openFor() === null) return;
+    close();
+    event.stopPropagation();
+  };
+  document.addEventListener('keydown', onKeydown);
+  const onClick = (): void => {
+    if (openFor() !== null) close();
+  };
+  document.addEventListener('click', onClick);
+  onCleanup(() => {
+    document.removeEventListener('keydown', onKeydown);
+    document.removeEventListener('click', onClick);
+  });
+}
+
+/** A pinned entry carries a pin position; the server omits it otherwise. */
+function isPinned(envelope: EntryEnvelope): boolean {
+  return envelope.entry.pin_position != null;
+}
+
+/**
+ * Turns a freshly opened popup upward when opening it downward would leave
+ * the transcript's scroll box. The kebab is at the entry's bottom-right, so
+ * for the last entry — the one most often acted on — a downward popup
+ * would open into the composer and be cut off.
+ */
+function fitPopup(node: HTMLElement): void {
+  const scroller = node.closest('.transcript');
+  if (scroller === null) return;
+  const limit = scroller.getBoundingClientRect().bottom;
+  if (node.getBoundingClientRect().bottom > limit) node.classList.add('up');
+}
+
+export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: string | null; menu: EntryMenuProps }): JSX.Element {
+  const kind = (): EntryKind => props.envelope.kind;
+  const id = (): string => props.envelope.entry.id;
+  const pinned = (): boolean => isPinned(props.envelope);
+  const open = (): boolean => props.menu.openFor() === id();
+  // A just-sent message is shown before the server names it; its id is the
+  // page's own, so it can carry no menu until the real entry replaces it.
+  const real = (): boolean => !isOptimistic(id());
+  return (
+    <article
+      class={`entry entry-${kind()}${pinned() ? ' pinned' : ''}`}
+      data-entry-id={id()}
+    >
+      <span class="pin-mark" aria-hidden="true">📌</span>
+      <Switch kind={kind()} envelope={props.envelope} sessionId={props.sessionId} />
+      <Show when={real()}>
+        <span class="entry-menu">
+          <button
+            type="button"
+            class="entry-menu-btn"
+            data-testid="entry-menu"
+            aria-label="Entry actions"
+            aria-haspopup="true"
+            aria-expanded={open() ? 'true' : 'false'}
+            onClick={(e) => {
+              // A tool row's summary is a disclosure toggle one sibling
+              // over; neither default nor bubble may reach it.
+              e.preventDefault();
+              e.stopPropagation();
+              props.menu.toggle(id());
+            }}
+          >
+            ⋮
+          </button>
+          <Show when={open()}>
+            <div
+              class="entry-menu-popup"
+              role="menu"
+              data-testid="entry-menu-popup"
+              ref={fitPopup}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                class="entry-menu-item"
+                role="menuitem"
+                data-testid="entry-menu-pin"
+                onClick={() => {
+                  props.menu.send({ type: 'toggle_pin', entry_id: id() });
+                  props.menu.toggle(id());
+                }}
+              >
+                {pinned() ? 'Unpin' : 'Pin'}
+              </button>
+            </div>
+          </Show>
+        </span>
+      </Show>
+    </article>
+  );
+}
 
 /** The persisted map's single value, whatever its tag. */
 function body(envelope: EntryEnvelope): unknown {
@@ -41,15 +156,6 @@ function prettyArgs(raw: string): string {
   } catch {
     return raw;
   }
-}
-
-export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: string | null }): JSX.Element {
-  const kind = (): EntryKind => props.envelope.kind;
-  return (
-    <article class={`entry entry-${kind()}`} data-entry-id={props.envelope.entry.id}>
-      <Switch kind={kind()} envelope={props.envelope} sessionId={props.sessionId} />
-    </article>
-  );
 }
 
 /** One arm per kind. There is no fallback: an unknown kind renders nothing. */

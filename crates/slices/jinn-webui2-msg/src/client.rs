@@ -115,6 +115,14 @@ pub enum ClientMsg {
         /// The persona's name.
         persona: String,
     },
+    /// Pin the entry at its relative position, or unpin it when it is
+    /// already pinned. The entry is in the active session, and a pin
+    /// takes its whole tool loop — the same command the terminal's `p`
+    /// publishes.
+    TogglePin {
+        /// The entry to toggle.
+        entry_id: ChatEntryId,
+    },
     /// Ask the provider registry to rediscover its models.
     RefreshModels,
     /// Set the page's color mode.
@@ -164,6 +172,7 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::ToggleMcp { .. } => "toggle_mcp",
         ClientMsg::PersonaRows { .. } => "persona_rows",
         ClientMsg::SwitchPersona { .. } => "switch_persona",
+        ClientMsg::TogglePin { .. } => "toggle_pin",
         ClientMsg::RefreshModels => "refresh_models",
         ClientMsg::SetTheme { .. } => "set_theme",
         ClientMsg::SetLibrary { .. } => "set_library",

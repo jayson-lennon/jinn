@@ -68,6 +68,15 @@ but nothing coordinates them.
   fresh rows arrive.
 - **Title** — click the title to rename the session in place; `Enter`
   commits and `Esc` cancels.
+- **Entry menu** — every transcript entry has a `⋮` at its bottom-right,
+  always visible at every width. It opens the session row's popup with the
+  things you can do to that one entry.
+  - **Pin / Unpin** — pins the entry at its relative position, the same
+    pin the TUI's `p` sets, and the entry shows a 📌 on its left edge.
+    Pinned, the item reads **Unpin**. A pin takes the whole tool loop:
+    pinning a tool call or result pins its loop, and each member shows the
+    mark. Pins made in the TUI appear on `/web2` at once. Top and bottom
+    positioning stay in the TUI's Pins sidebar.
 - **Menu** — the `☰` at the title bar's left opens a full-height panel
   over a dimmed page. **New session** is its first item and the
   **Light | Dark | System** color mode group its last, at every time.
@@ -179,7 +188,8 @@ that has it.
   *open* sessions, but has no fork, archive, or teardown gesture.
 - Applets — the applets picker; every other menu picker exists on
   `/web2`.
-- Pinning, exclusion, isolate, and the per-entry audit popup.
+- Exclusion, isolate, and the per-entry audit popup. (Pinning is on
+  `/web2`: the entry's `⋮` → **Pin**. Top/bottom pin positioning is not.)
 - Steer mode. A message sent while working is queued; to steer, cancel
   and send.
 - The `#prompt`, `@path`, and `/command` input tokens. Text is sent

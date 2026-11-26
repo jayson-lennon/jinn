@@ -16,11 +16,12 @@
 use std::sync::Arc;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_core_types::{ChatEntry, ChatEntryKind, ModelSelection};
+use jinn_core_types::{ChatEntry, ChatEntryId, ChatEntryKind, ModelSelection, PinPosition};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::State;
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_provider_selection_msg::ProviderSwitch;
+use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, UnpinChatEntry};
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{PersistSession, SessionLoadRequested, SetSessionLibrary};
 use jinn_slices::bus::BusService;
@@ -1783,6 +1784,189 @@ fn an_entry_the_snapshot_delivered_is_not_sent_again() {
     crate::outbound::reconcile(&h.handle, &active_id(&h.state));
 
     // Then the snapshot's entry is not re-sent.
+    assert_eq!(drain(&mut inbox).len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Pin
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_an_unpinned_entry_publishes_a_relative_pin() {
+    // Given a session holding one unpinned user entry.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+
+    // When the page toggles that entry's pin.
+    say(
+        &h,
+        ClientMsg::TogglePin {
+            entry_id: entry_id.clone(),
+        },
+    )
+    .await;
+
+    // Then exactly one pin command is published, at the relative position,
+    // naming the entry.
+    let pins = h.audit.of_type::<PinChatEntry>();
+    assert_eq!(pins.len(), 1);
+    assert_eq!(pins[0].entry_id, entry_id);
+    assert_eq!(pins[0].position, PinPosition::Relative);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_pinned_entry_publishes_an_unpin() {
+    // Given a session holding one entry already pinned to the top.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .pin_entry(&entry_id, PinPosition::Top);
+
+    // When the page toggles that entry's pin.
+    say(
+        &h,
+        ClientMsg::TogglePin {
+            entry_id: entry_id.clone(),
+        },
+    )
+    .await;
+
+    // Then exactly one unpin command is published, naming the entry.
+    let unpins = h.audit.of_type::<UnpinChatEntry>();
+    assert_eq!(unpins.len(), 1);
+    assert_eq!(unpins[0].entry_id, entry_id);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_an_unknown_entry_is_refused_and_publishes_nothing() {
+    // Given a session whose history holds no entry with the id the page names.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+
+    // When the page toggles the pin on an id the session does not hold.
+    let reply = dispatch(
+        ClientMsg::TogglePin {
+            entry_id: ChatEntryId::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_tool_result_pins_the_entry_the_page_named() {
+    // Given a session whose history holds an assistant step with one tool
+    // call and its result — the loop a pin takes whole.
+    let h = harness();
+    push(&h.state, ChatEntry::assistant("checking the worker"));
+    push(
+        &h.state,
+        ChatEntry::tool_call("call-1", "bash", r#"{"command":"ls"}"#),
+    );
+    push(
+        &h.state,
+        ChatEntry::tool_result(
+            "call-1",
+            "bash",
+            "src",
+            jinn_core_types::ToolResultStatus::Success,
+        ),
+    );
+    let result_id = h.state.read().session.active_session().history()[2]
+        .id
+        .clone();
+
+    // When the page toggles the pin on the tool result.
+    say(
+        &h,
+        ClientMsg::TogglePin {
+            entry_id: result_id.clone(),
+        },
+    )
+    .await;
+
+    // Then one pin command is published, naming the tool result itself: the
+    // session actor's own chunk rule then takes the whole loop, exactly as
+    // the terminal's `p` does.
+    let pins = h.audit.of_type::<PinChatEntry>();
+    assert_eq!(pins.len(), 1);
+    assert_eq!(pins[0].entry_id, result_id);
+    assert_eq!(pins[0].position, PinPosition::Relative);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_pin_changed_event_upserts_the_entry_the_page_holds_differently() {
+    // Given a connected page that holds one entry as it stood unpinned.
+    let h = harness();
+    let mut inbox = h.handle.register();
+    push(&h.state, ChatEntry::user("keep me"));
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+
+    // When the entry is pinned — as the terminal's `p` does — and the
+    // pin event reaches the outbound actor.
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .pin_entry(&entry_id, PinPosition::Top);
+    crate::outbound::pin_changed(
+        &h.handle,
+        &ChatEntryPinChanged {
+            session_id: active_id(&h.state),
+        },
+    );
+
+    // Then the page receives exactly one upsert, and it carries the pin.
+    let frames = drain(&mut inbox);
+    assert!(matches!(frames.as_slice(), [ServerMsg::EntryUpsert(_)]));
+    let ServerMsg::EntryUpsert(upsert) = &frames[0] else {
+        unreachable!("matched above");
+    };
+    assert_eq!(upsert.entry.entry.id, entry_id);
+    assert!(upsert.entry.entry.is_pinned());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_pin_changed_event_for_another_session_sends_nothing() {
+    // Given a connected page holding one entry, already delivered.
+    let h = harness();
+    let mut inbox = h.handle.register();
+    push(&h.state, ChatEntry::user("keep me"));
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+
+    // When a pin event names a session the page is not viewing.
+    crate::outbound::pin_changed(
+        &h.handle,
+        &ChatEntryPinChanged {
+            session_id: jinn_core_types::SessionId::new(),
+        },
+    );
+
+    // Then the page receives nothing.
     assert_eq!(drain(&mut inbox).len(), 0);
 }
 
