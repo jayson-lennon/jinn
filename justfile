@@ -707,6 +707,120 @@ webui-e2e-one FILTER Grep="":
         --config webui/client/e2e/playwright.config.mjs --shuffle
     echo '==> webui-e2e-one green'
 
+# Webui2 (the second web UI, /web2) — the one recipe in the repo that
+# generates a committed bundle.
+#
+# The /web2 client is build output of webui/client2, and its compiled
+# bundle is committed under the slice's resources/vendor, pinned by its
+# manifest. Two gates hold it honest, both enforced by the slice's build.rs
+# on every cargo compile:
+#
+#   source_sha256   the hash of the client sources the bundle was built
+#                   from. A source newer than the pin fails the BUILD: a
+#                   stale bundle is a compile error, never a runtime
+#                   surprise. Nothing can run a stale build.
+#   assets[].sha256 each committed file's sha256, verified against disk.
+#
+# The recipe builds with the LOCAL vite (never a package runner that could
+# fetch a different version), gzips the output into resources/vendor, and
+# then asks the build script itself to record the source hash it computes
+# (JINN_WEBUI2_PIN=1) — one implementation both writes and verifies the
+# pin, so the two can never disagree. cargo never runs Node: a build
+# against a current pin needs no Node at all.
+#
+#   webui2-build     — rebuild the client bundle and refresh its pin
+#   webui2-e2e       — full-stack Playwright e2e for /web2 (shuffled)
+#   webui2-e2e-one F [G] — only the spec files matching F, titles matching G
+#   webui2-e2e-clean — kill stray e2e jinn runs
+
+# Rebuild the /web2 client bundle and refresh the manifest's pins.
+webui2-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CLIENT=webui/client2
+    VENDOR=crates/slices/jinn-webui2/resources/vendor
+    if [ ! -d "$CLIENT/node_modules" ] \
+        || [ -n "$(find "$CLIENT/package-lock.json" -newer "$CLIENT/node_modules" -print -quit 2>/dev/null)" ]; then
+        echo '==> npm ci (webui/client2)'
+        npm ci --prefix "$CLIENT" --no-fund --no-audit
+    else
+        echo '==> node_modules current (npm ci skipped)'
+    fi
+    echo '==> tsc --noEmit (webui/client2)'
+    "$CLIENT/node_modules/.bin/tsc" --noEmit -p "$CLIENT/tsconfig.json"
+    echo '==> vite build (webui/client2)'
+    ( cd "$CLIENT" && ./node_modules/.bin/vite build )
+    echo '==> gzip into resources/vendor'
+    for f in "$CLIENT"/dist/*; do
+        gzip -9cn "$f" > "$VENDOR/$(basename "$f").gz"
+    done
+    echo '==> refresh the source pin'
+    # Build the binary with the pin flag set. The slice's build script sees
+    # the flag, records the source hash, and verifies the new bytes in the
+    # same pass — the same command the e2e recipes run, so this is the real
+    # build reaching the real build script, never a side channel.
+    JINN_WEBUI2_PIN=1 cargo build --bin jinn
+    echo '==> webui2-build green'
+
+# Kill stray webui2-e2e jinn runs (each names its own scratch db path).
+webui2-e2e-clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SLUG="$(basename {{justfile_directory()}})"
+    E2E_PAT="--db-path /tmp/jinn-webui2-e2e/${SLUG}/"
+    pkill -TERM -f -- "$E2E_PAT" 2>/dev/null || true
+    sleep 0.5
+    pkill -KILL -f -- "$E2E_PAT" 2>/dev/null || true
+    # Each scratch root is removed by its exact path: only `run-*`
+    # directories directly under this worktree's slug directory.
+    find "/tmp/jinn-webui2-e2e/${SLUG}" -mindepth 1 -maxdepth 1 -type d -name 'run-*' \
+        -exec rm -rf -- {} + 2>/dev/null || true
+    echo '==> webui2-e2e-clean green'
+
+# Build the binary and install the webui2 tier's Node dependencies.
+# Same shape as the original tier's prep: the dependency install is
+# skipped when node_modules is present and newer than the lock file, and
+# Playwright is invoked straight from node_modules/.bin — never a
+# package runner, which would fetch a different version when the
+# install were missing.
+[private]
+webui2-e2e-prep:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just webui2-e2e-clean
+    echo '==> cargo build --bin jinn'
+    cargo build --bin jinn
+    if [ ! -d webui/client2/e2e/node_modules ] \
+        || [ -n "$(find webui/client2/e2e/package-lock.json -newer webui/client2/e2e/node_modules -print -quit 2>/dev/null)" ]; then
+        echo '==> npm ci (webui/client2/e2e)'
+        npm ci --prefix webui/client2/e2e
+    else
+        echo '==> node_modules current (npm ci skipped)'
+    fi
+
+# Run the webui2 e2e suite (shuffled; the runner prints the seed).
+webui2-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just webui2-e2e-prep
+    echo '==> playwright e2e (webui2)'
+    webui/client2/e2e/node_modules/.bin/playwright test \
+        --config webui/client2/e2e/playwright.config.mjs --shuffle
+    echo '==> webui2-e2e green'
+
+# Run only the webui2 e2e tests matching FILTER (a regex over spec
+# paths); GREP, when given, narrows it to the tests whose title matches.
+# Same build, same isolation, same shuffle as the full tier.
+webui2-e2e-one FILTER Grep="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just webui2-e2e-prep
+    grep_args=()
+    if [[ -n '{{Grep}}' ]]; then grep_args=(--grep '{{Grep}}'); fi
+    webui/client2/e2e/node_modules/.bin/playwright test '{{FILTER}}' "${grep_args[@]}" \
+        --config webui/client2/e2e/playwright.config.mjs --shuffle
+    echo '==> webui2-e2e-one green'
+
 # Bump version (major/minor/patch), commit, and tag in git
 bump LEVEL:
     #!/usr/bin/env bash

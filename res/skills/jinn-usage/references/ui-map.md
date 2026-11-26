@@ -10,7 +10,9 @@ This file is **defaults** for the *layout*; the keys shown are the default
 bindings and may be rebound. The which-key popup (`?` in normal-like scopes,
 `<f1>` in input mode) shows the bindings live in the current scope, and the
 live screen is the truth if this file and your build disagree. The
-web UI has no keybinds — it is all clicks (see [Web UI layout](#web-ui-layout)).
+original web UI (`/web`) has no keybinds — it is all clicks (see
+[Web UI layout](#web-ui-layout)); `/web2` has three, all in its composer
+and overlays (see [Web UI 2 layout](#web-ui-2-layout-web2)).
 
 ## Layout
 
@@ -208,6 +210,40 @@ titlebar sits at the top of the main column.
 On a phone (under 768px) the sidebar slides off-canvas and the `#`
 button appears; details are in `webui.md`.
 
+## Web UI 2 layout (`/web2`)
+
+A second, smaller browser page the instance serves beside the TUI and
+the original web UI (what it is and how to open it: `webui2.md`). It
+mirrors the TUI's core loop only:
+
+```text
+┌──────────────┬──────────────────────────────────────────────┐
+│ Switch       │ Session title          [provider/model]      │ ← title bar
+│ session…     ├──────────────────────────────────────────────┤
+│              │                                              │
+│ ▎Session A   │  Transcript                                  │
+│  Session B ● │  (scrolling conversation)                    │
+│              │                                              │
+│              ├──────────────────────────────────────────────┤
+│              │ [Message jinn…                 ]              │
+│              │                           [Queue] [Cancel]   │
+│              │                     or [Send]      ← composer │
+└──────────────┴──────────────────────────────────────────────┘
+  sidebar                   main
+```
+
+| Element | What it is | See |
+| --- | --- | --- |
+| `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui2.md` |
+| A highlighted session row | The active session — the same one the TUI shows. | `webui2.md` |
+| `●` after a session title | That session's turn is running. | `webui2.md` |
+| The session title | Click to rename in place: `Enter` commits, `Esc` cancels. | `webui2.md` |
+| `[provider/model]` | The model chip. Opens the model picker. | `webui2.md` |
+| `[Message jinn…]` | The composer. `Enter` sends; `Shift+Enter` is a newline. | `webui2.md` |
+| `[Queue]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
+| `[Send]` (while idle) | Send the message. | `webui2.md` |
+| `disconnected — reconnecting…` | A full-page overlay while the connection is down. | `webui2.md` |
+
 ## Feature → screen location (reverse lookup)
 
 | If asked about… | It lives in |
@@ -233,3 +269,5 @@ button appears; details are in `webui.md`.
 | The browser page's `☰` / `#` / `[model]` buttons | Web UI titlebar |
 | A blue or yellow session row, a spinning row, `⋮` | Web UI sidebar |
 | The browser page's Send / `Q` / Cancel buttons | Web UI composer |
+| The `/web2` page's Archive button, title, model chip | Web UI 2 (`/web2`) title bar and sidebar |
+| The `/web2` page's Send / Queue / Cancel buttons | Web UI 2 (`/web2`) composer |

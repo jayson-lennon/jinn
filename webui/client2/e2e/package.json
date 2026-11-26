@@ -1,0 +1,12 @@
+{
+  "name": "jinn-webui2-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Playwright e2e tier for the jinn webui2 — one jinn per test, booted and torn down by the fixture",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0"
+  }
+}

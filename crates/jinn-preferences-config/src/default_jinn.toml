@@ -325,6 +325,21 @@ noise_reduction = true
 bind = "127.0.0.1:8387"
 
 # ###########################################################################
+# Second web UI
+# ###########################################################################
+[webui2]
+# > Where the second web UI (`/web2`) binds — the message-driven mirror of
+# > the terminal UI: it shares the instance's active session and streams
+# > the transcript over one WebSocket. Host:port as one value, on its own
+# > port so both web UIs run side by side.
+# >
+# > Same rules as `[webui]`: a fixed port keeps the URL bookmarkable, there
+# > is no authentication (put jinn behind a VPN or SSH tunnel before
+# > exposing it beyond loopback), and the bind is read once at launch — a
+# > live edit applies at the next restart.
+bind = "127.0.0.1:8388"
+
+# ###########################################################################
 # Session lifecycle commands
 # ###########################################################################
 # > Lifecycle commands run at session startup and teardown. They allow you to

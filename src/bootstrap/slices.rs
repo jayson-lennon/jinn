@@ -484,6 +484,61 @@ fn install_maintenance_actors(ctx: &mut Ctx<'_>) {
 /// # Errors
 ///
 /// Returns an error if a fallible auxiliary activation fails.
+/// Binds the loopback control surface at launch.
+///
+/// The registry entry (pid, port, cwd) must exist before any `jinn remote`
+/// client can discover this instance, so the listener comes up eagerly,
+/// not lazily like canvas. Consumes nothing — delivery publishes the
+/// existing chat-input schemas; `/sessions` reads state at request time.
+///
+/// # Errors
+///
+/// Returns an error when the remote slice fails to activate.
+async fn activate_remote(ctx: &mut Ctx<'_>) -> Result<(), ActivateError> {
+    let config_snapshot = ctx.services().config.clone();
+    let bus_snapshot = ctx.services().bus.clone();
+    let state_snapshot = ctx.state().clone();
+    let registry_path = ctx.services().paths.remote_instances_path();
+    jinn_remote::activate(
+        &mut ctx.host(),
+        &config_snapshot,
+        bus_snapshot,
+        state_snapshot,
+        registry_path,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Binds the second web UI (`/web2`).
+///
+/// The same dependencies as the original web UI — the provider cell, the
+/// store, the bus — on its own port and actor, so it activates after the
+/// producers the original waits for. The two web UIs share nothing but the
+/// bus.
+///
+/// # Errors
+///
+/// Returns an error when the `[webui2]` section is unreadable or its bind
+/// is taken.
+async fn activate_webui2(ctx: &mut Ctx<'_>) -> Result<(), ActivateError> {
+    let config_snapshot = ctx.services().config.clone();
+    let bus_snapshot = ctx.services().bus.clone();
+    let state_snapshot = ctx.state().clone();
+    let store_snapshot = ctx.services().session_store.clone();
+    let services_snapshot = ctx.services().clone();
+    jinn_webui2::activate(
+        &mut ctx.host(),
+        &config_snapshot,
+        bus_snapshot,
+        state_snapshot,
+        store_snapshot,
+        &services_snapshot,
+    )
+    .await?;
+    Ok(())
+}
+
 async fn activate_auxiliary_slices(
     ctx: &mut Ctx<'_>,
     boot: jinn_boot::BootHandles,
@@ -529,26 +584,7 @@ async fn activate_auxiliary_slices(
         },
     )?;
 
-    // The remote slice binds the loopback control surface at launch: the
-    // registry entry (pid, port, cwd) must exist before any `jinn remote`
-    // client can discover this instance, so the listener comes up
-    // eagerly, not lazily like canvas. Consumes nothing — delivery
-    // publishes the existing chat-input schemas; /sessions reads State
-    // at request time.
-    {
-        let config_snapshot = ctx.services().config.clone();
-        let bus_snapshot = ctx.services().bus.clone();
-        let state_snapshot = ctx.state().clone();
-        let registry_path = ctx.services().paths.remote_instances_path();
-        jinn_remote::activate(
-            &mut ctx.host(),
-            &config_snapshot,
-            bus_snapshot,
-            state_snapshot,
-            registry_path,
-        )
-        .await?;
-    }
+    activate_remote(ctx).await?;
 
     // The webui slice binds the browser surface at launch, after the
     // session-store's actors (Block 1 — its handlers await the store
@@ -588,6 +624,8 @@ async fn activate_auxiliary_slices(
         )
         .await?;
     }
+
+    activate_webui2(ctx).await?;
 
     // The discord slice resolves `[discord]` (fail-fast on a malformed
     // section) and parks the gateway channels for the frontend spawn.
@@ -717,6 +755,12 @@ pub enum ActivateError {
     /// whole purpose, so launch stops where the cause is visible. The
     /// slice's report rides typed.
     WebUi(error_stack::Report<jinn_webui::WebUiActivationError>),
+    /// The `[webui2]` section failed to read, its bind did not parse, or
+    /// the port was taken. Fatal with the same severity as the original
+    /// web UI: an instance whose second browser surface cannot bind
+    /// defeats that slice's whole purpose. The slice's report rides
+    /// typed.
+    WebUi2(error_stack::Report<jinn_webui2::WebUi2ActivationError>),
     /// The `[applets]` section failed to read or its bind was malformed.
     /// Fatal with the same severity as canvas: every
     /// later picker open would refuse with the same sentence, so launch
@@ -776,6 +820,12 @@ impl From<error_stack::Report<jinn_remote::RemoteActivationError>> for ActivateE
 impl From<error_stack::Report<jinn_webui::WebUiActivationError>> for ActivateError {
     fn from(report: error_stack::Report<jinn_webui::WebUiActivationError>) -> Self {
         Self::WebUi(report)
+    }
+}
+
+impl From<error_stack::Report<jinn_webui2::WebUi2ActivationError>> for ActivateError {
+    fn from(report: error_stack::Report<jinn_webui2::WebUi2ActivationError>) -> Self {
+        Self::WebUi2(report)
     }
 }
 

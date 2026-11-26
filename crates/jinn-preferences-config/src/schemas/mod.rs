@@ -78,6 +78,7 @@ pub mod term;
 pub mod tool_call_watchdog;
 pub mod tools;
 pub mod webui;
+pub mod webui2;
 
 pub use applets::{AppletsBindError, AppletsConfig, DEFAULT_APPLETS_BIND};
 pub use auto_prune::{
@@ -128,3 +129,4 @@ pub use term::{
 pub use tool_call_watchdog::ToolCallWatchdogConfig;
 pub use tools::ToolsConfig;
 pub use webui::{DEFAULT_WEBUI_BIND, WebUiBindError, WebUiConfig};
+pub use webui2::{DEFAULT_WEBUI2_BIND, WebUi2BindError, WebUi2Config};
