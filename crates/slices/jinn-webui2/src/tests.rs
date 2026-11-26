@@ -1210,8 +1210,51 @@ fn summary(title: &str) -> jinn_session_store_msg::SessionSummary {
     }
 }
 
+/// A summary forked from `parent`, so the tree nests it.
+fn child_of(
+    parent: &jinn_core_types::SessionId,
+    title: &str,
+) -> jinn_session_store_msg::SessionSummary {
+    let mut summary = summary(title);
+    summary.parent_session = Some(parent.clone());
+    summary
+}
+
+/// A summary last modified at a given Unix-second offset, so tree order
+/// can be pinned rather than left to equal timestamps.
+/// A summary with a chosen id, so a child's `parent_session` can name a
+/// row that really is in the list.
+fn with_id(id: jinn_core_types::SessionId, title: &str) -> jinn_session_store_msg::SessionSummary {
+    let mut summary = summary(title);
+    summary.session_id = id;
+    summary
+}
+
+fn at(
+    mut summary: jinn_session_store_msg::SessionSummary,
+    secs: i64,
+) -> jinn_session_store_msg::SessionSummary {
+    summary.updated_at = jiff::Timestamp::from_second(secs).expect("a valid second");
+    summary
+}
+
+/// Builds the tree entries the way the picker's handler does, then asks
+/// for the rows a filter yields.
+fn tree_rows(
+    summaries: Vec<jinn_session_store_msg::SessionSummary>,
+    filter: &str,
+) -> Vec<jinn_webui2_msg::PickerRowBody> {
+    let entries =
+        jinn_session_store_msg::session_tree_entries(summaries, &jinn_theme::default_theme());
+    crate::actions::session_tree_rows(entries, filter)
+}
+
 fn titles(rows: &[jinn_webui2_msg::PickerRowBody]) -> Vec<&str> {
     rows.iter().map(|row| row.title.as_str()).collect()
+}
+
+fn depths(rows: &[jinn_webui2_msg::PickerRowBody]) -> Vec<usize> {
+    rows.iter().map(|row| row.depth).collect()
 }
 
 #[rstest::rstest]
@@ -1225,9 +1268,9 @@ fn picker_filter_keeps_only_titles_that_match() {
     ];
 
     // When the picker is filtered to "jinn".
-    let rows = crate::actions::match_titles(stored, "jinn");
+    let rows = tree_rows(stored, "jinn");
 
-    // Then only the jinn titles remain.
+    // Then only the jinn titles remain, strongest match first.
     assert_eq!(titles(&rows), ["jinn work", "jinn plans"]);
 }
 
@@ -1238,10 +1281,27 @@ fn picker_ranks_the_closer_title_match_first() {
     let stored = vec![summary("my jinn notes"), summary("jinn work")];
 
     // When the picker is filtered to "jinn".
-    let rows = crate::actions::match_titles(stored, "jinn");
+    let rows = tree_rows(stored, "jinn");
 
     // Then the prefix match ranks first.
     assert_eq!(titles(&rows), ["jinn work", "my jinn notes"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_filter_with_a_space_ands_each_term() {
+    // Given three sessions, only one of which holds both words.
+    let stored = vec![
+        summary("jinn work"),
+        summary("jinn plans"),
+        summary("garden work"),
+    ];
+
+    // When the picker is filtered to "jinn work".
+    let rows = tree_rows(stored, "jinn work");
+
+    // Then only the session holding both terms is listed.
+    assert_eq!(titles(&rows), ["jinn work"]);
 }
 
 #[rstest::rstest]
@@ -1251,7 +1311,7 @@ fn picker_with_an_empty_filter_keeps_every_session() {
     let stored = vec![summary("one"), summary("two"), summary("three")];
 
     // When the picker is unfiltered.
-    let rows = crate::actions::match_titles(stored, "");
+    let rows = tree_rows(stored, "");
 
     // Then all three are listed.
     assert_eq!(rows.len(), 3);
@@ -1261,20 +1321,176 @@ fn picker_with_an_empty_filter_keeps_every_session() {
 #[test]
 fn picker_row_carries_the_stored_state_and_parent() {
     // Given an archived session forked from another.
-    let mut archived = summary("child");
-    archived.session_state = jinn_session_store_msg::SessionState::Archived;
     let parent = jinn_core_types::SessionId::new();
-    archived.parent_session = Some(parent.clone());
+    let mut archived = child_of(&parent, "child");
+    archived.session_state = jinn_session_store_msg::SessionState::Archived;
 
     // When the picker lists it.
-    let rows = crate::actions::match_titles(vec![archived], "");
+    let rows = tree_rows(vec![summary("parent"), archived], "");
 
     // Then the row says so.
     assert!(matches!(
         rows.as_slice(),
-        [jinn_webui2_msg::PickerRowBody { state, parent_id: Some(p), .. }]
+        [_, jinn_webui2_msg::PickerRowBody { state, parent_id: Some(p), .. }]
             if *state == jinn_session_store_msg::SessionState::Archived && *p == parent
     ));
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_nests_a_forked_session_under_its_parent() {
+    // Given a session forked from another.
+    let parent = jinn_core_types::SessionId::new();
+    let child = child_of(&parent, "the child");
+
+    // When the picker is unfiltered.
+    let rows = tree_rows(vec![child, with_id(parent, "the parent")], "");
+
+    // Then the child is one level under a root, right after its parent.
+    assert_eq!(titles(&rows), ["the parent", "the child"]);
+    assert_eq!(depths(&rows), [0, 1]);
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_keeps_the_parent_of_a_child_only_match() {
+    // Given a child whose title alone matches the filter, under a parent
+    // whose title does not.
+    let parent = jinn_core_types::SessionId::new();
+    let child = child_of(&parent, "needle in a child");
+    let mut parent_summary = summary("unrelated parent");
+    parent_summary.session_id = parent.clone();
+
+    // When the picker is filtered to the child's word.
+    let rows = tree_rows(vec![parent_summary, child], "needle");
+
+    // Then the parent is listed above its matching child, unhighlighted.
+    assert_eq!(titles(&rows), ["unrelated parent", "needle in a child"]);
+    assert_eq!(depths(&rows), [0, 1]);
+    assert!(rows[0].title_runs.iter().all(|run| !run.matched));
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_marks_the_letters_the_filter_hit_in_the_title() {
+    // Given one stored session.
+    let stored = vec![summary("jinn work")];
+
+    // When the picker is filtered to "work".
+    let rows = tree_rows(stored, "work");
+
+    // Then exactly that word is the matched run.
+    assert_eq!(
+        rows[0]
+            .title_runs
+            .iter()
+            .map(|run| (run.text.as_str(), run.matched))
+            .collect::<Vec<_>>(),
+        [("jinn ", false), ("work", true)]
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_title_runs_cut_on_grapheme_boundaries() {
+    // Given a title with a multi-byte character the filter straddles.
+    let stored = vec![summary("café notes")];
+
+    // When the picker is filtered to "café".
+    let rows = tree_rows(stored, "café");
+
+    // Then the runs reassemble the title byte for byte.
+    let joined: String = rows[0]
+        .title_runs
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(joined, "café notes");
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_ranks_the_tree_with_the_strongest_match_first() {
+    // Given two trees whose best matches differ in strength, the weaker
+    // one modified more recently.
+    let parent_a = jinn_core_types::SessionId::new();
+    let parent_b = jinn_core_types::SessionId::new();
+    let stored = vec![
+        at(with_id(parent_b.clone(), "zzz parent"), 20),
+        at(child_of(&parent_b, "my jinn notes"), 20),
+        at(with_id(parent_a.clone(), "jinn work"), 10),
+        at(child_of(&parent_a, "other"), 10),
+    ];
+
+    // When the picker is filtered to "jinn".
+    let rows = tree_rows(stored, "jinn");
+
+    // Then the tree holding the prefix match ranks first.
+    assert_eq!(titles(&rows), ["jinn work", "zzz parent", "my jinn notes"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_cap_keeps_whole_trees() {
+    // Given more trees than the cap holds rows for: roots alternating with
+    // one child each, so every tree is two rows.
+    let stored: Vec<_> = (0..40)
+        .flat_map(|i| {
+            let parent = jinn_core_types::SessionId::new();
+            let root = at(child_of(&parent, &format!("child {i}")), i + 1);
+            let mut root_summary = at(summary(&format!("root {i}")), i + 1);
+            root_summary.session_id = parent;
+            vec![root_summary, root]
+        })
+        .collect();
+
+    // When the picker is unfiltered.
+    let rows = tree_rows(stored, "");
+
+    // Then the cap lands on a tree boundary: 50 rows, and the last row a
+    // root, never a parent shown without its child.
+    assert_eq!(rows.len(), crate::actions::PICKER_ROW_CAP);
+    // And no tree is cut: every depth-1 row is preceded by a root, so
+    // every child kept has its parent kept too.
+    assert!(
+        rows.windows(2)
+            .all(|pair| pair[1].depth == 0 || pair[0].depth == 0)
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_cap_cuts_a_single_tree_larger_than_the_cap() {
+    // Given one root with more children than the cap holds.
+    let parent = jinn_core_types::SessionId::new();
+    let mut root = summary("the root");
+    root.session_id = parent.clone();
+    let stored: Vec<_> = std::iter::once(root)
+        .chain((0..60).map(|i| at(child_of(&parent, &format!("child {i}")), i + 1)))
+        .collect();
+
+    // When the picker is unfiltered.
+    let rows = tree_rows(stored, "");
+
+    // Then the first cap-many rows of the tree are listed.
+    assert_eq!(rows.len(), crate::actions::PICKER_ROW_CAP);
+    assert_eq!(titles(&rows)[..2], ["the root", "child 59"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn picker_row_carries_the_last_modified_time() {
+    // Given a session modified at a known instant.
+    let stored = vec![at(summary("timed"), 1_700_000_000)];
+
+    // When the picker lists it.
+    let rows = tree_rows(stored, "");
+
+    // Then the row carries the store's own timestamp.
+    assert_eq!(
+        rows[0].updated_at,
+        jiff::Timestamp::from_second(1_700_000_000).expect("a valid second")
+    );
 }
 
 #[rstest::rstest]
@@ -1297,6 +1513,36 @@ async fn picker_rows_on_an_empty_store_answers_no_rows() {
         unreachable!("a picker request answers picker rows");
     };
     assert_eq!(body.rows, Vec::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn picker_rows_list_an_unarchived_session_once() {
+    // Given a store holding one unarchived session — the read that used to
+    // list it twice.
+    let h = harness_with_store();
+    let mut session = jinn_session_state::ChatSessionState::new();
+    session.set_title("only once".to_owned());
+    h.handle
+        .session_store()
+        .save(&session.capture_snapshot())
+        .await
+        .expect("seed the store");
+
+    // When the page asks for the picker's rows.
+    let reply = dispatch(
+        ClientMsg::PickerRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the session appears exactly once.
+    let [ServerMsg::PickerRows(body)] = reply.frames.as_slice() else {
+        unreachable!("a picker request answers picker rows");
+    };
+    assert_eq!(body.rows.len(), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -1378,6 +1624,38 @@ async fn model_rows_with_an_empty_filter_name_every_provider() {
     assert_eq!(names, vec!["aion-alpha", "deepseek-chat"]);
 }
 
+/// The first row's model runs, as (text, matched) pairs.
+fn model_runs(reply: &crate::protocol::Reply) -> Vec<(String, bool)> {
+    let [ServerMsg::ModelRows(body)] = reply.frames.as_slice() else {
+        unreachable!("a model-rows request answers model rows");
+    };
+    body.rows[0]
+        .model_runs
+        .iter()
+        .map(|run| (run.text.clone(), run.matched))
+        .collect()
+}
+
+/// The first row's provider runs, as (text, matched) pairs.
+fn provider_runs(reply: &crate::protocol::Reply) -> Vec<(String, bool)> {
+    let [ServerMsg::ModelRows(body)] = reply.frames.as_slice() else {
+        unreachable!("a model-rows request answers model rows");
+    };
+    body.rows[0]
+        .provider_runs
+        .iter()
+        .map(|run| (run.text.clone(), run.matched))
+        .collect()
+}
+
+/// The text of the matched runs in `runs`, concatenated.
+fn matched_text(runs: &[(String, bool)]) -> String {
+    runs.iter()
+        .filter(|(_, matched)| *matched)
+        .map(|(text, _)| text.as_str())
+        .collect()
+}
+
 #[rstest::rstest]
 #[tokio::test]
 async fn model_rows_filter_keeps_only_the_matching_provider() {
@@ -1414,6 +1692,150 @@ async fn model_rows_filter_matches_the_provider_name_too() {
 
     // Then that provider's model is the one offered.
     assert_eq!(model_names(&reply), vec!["aion-alpha"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_rows_filter_with_a_space_ands_each_term() {
+    // Given two configured providers, one whose model and provider share
+    // no letters with the other's.
+    let h = harness_with_providers(two_providers());
+
+    // When the page filters for a model name and a provider name, separated
+    // by a space — the way the terminal picker reads two terms.
+    let reply = dispatch(
+        ClientMsg::ModelRows {
+            filter: "aion alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the row satisfying both terms is offered.
+    assert_eq!(model_names(&reply), vec!["aion-alpha"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_rows_rank_the_closer_match_first() {
+    // Given a title-shaped pair: one model starting with the filter, one
+    // merely containing it later.
+    let entry = |model: &str| jinn_provider_config::ProviderEntry {
+        backend: "sample".to_owned(),
+        models: vec![model.to_owned()],
+        base_url: None,
+        api_key_env: None,
+        requires_key: false,
+        extra_body: None,
+        context_length: None,
+        model_info: Vec::new(),
+    };
+    let providers = jinn_provider_config::ProvidersConfig {
+        providers: std::collections::BTreeMap::from([
+            ("one".to_owned(), entry("gpt-4-turbo")),
+            ("two".to_owned(), entry("my-gpt-4")),
+        ]),
+        aliases: vec![],
+        default_provider: None,
+        endpoint_defaults: vec![],
+    };
+    let h = harness_with_providers(providers);
+
+    // When the page filters for "gpt 4".
+    let reply = dispatch(
+        ClientMsg::ModelRows {
+            filter: "gpt 4".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then both match, and the prefix match ranks first.
+    assert_eq!(model_names(&reply), vec!["gpt-4-turbo", "my-gpt-4"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_rows_mark_the_letters_the_filter_hit_in_the_model() {
+    // Given two configured providers.
+    let h = harness_with_providers(two_providers());
+
+    // When the page filters by part of a model's name.
+    let reply = dispatch(
+        ClientMsg::ModelRows {
+            filter: "chat".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then exactly those letters are the matched run of the model.
+    assert_eq!(
+        model_runs(&reply),
+        vec![("deepseek-".to_owned(), false), ("chat".to_owned(), true),]
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_rows_mark_the_letters_the_filter_hit_in_the_provider() {
+    // Given one provider whose name shares no letters with its model.
+    let entry = |model: &str| jinn_provider_config::ProviderEntry {
+        backend: "sample".to_owned(),
+        models: vec![model.to_owned()],
+        base_url: None,
+        api_key_env: None,
+        requires_key: false,
+        extra_body: None,
+        context_length: None,
+        model_info: Vec::new(),
+    };
+    let providers = jinn_provider_config::ProvidersConfig {
+        providers: std::collections::BTreeMap::from([("zephyr".to_owned(), entry("gpt-4"))]),
+        aliases: vec![],
+        default_provider: None,
+        endpoint_defaults: vec![],
+    };
+    let h = harness_with_providers(providers);
+
+    // When the page filters by the provider's name.
+    let reply = dispatch(
+        ClientMsg::ModelRows {
+            filter: "zephyr".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the provider's whole name is the matched run, and the model is plain.
+    assert_eq!(provider_runs(&reply), vec![("zephyr".to_owned(), true)]);
+    assert_eq!(matched_text(&model_runs(&reply)), "");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_rows_with_an_empty_filter_carry_plain_runs() {
+    // Given two configured providers.
+    let h = harness_with_providers(two_providers());
+
+    // When the page asks with no filter.
+    let reply = dispatch(
+        ClientMsg::ModelRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then every run is plain.
+    let [ServerMsg::ModelRows(body)] = reply.frames.as_slice() else {
+        unreachable!("a model-rows request answers model rows");
+    };
+    assert!(
+        body.rows
+            .iter()
+            .all(|row| row.model_runs.iter().all(|run| !run.matched))
+    );
 }
 
 // ---------------------------------------------------------------------------
