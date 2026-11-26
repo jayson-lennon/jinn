@@ -36,6 +36,10 @@ export const sel = {
   PICKER_ROW: '[data-testid="picker-row"]',
   SESSION_ROW: '[data-testid="session-row"]',
   ACTIVE_SESSION_ROW: '.session.active[data-testid="session-row"]',
+  MENU_BUTTON: '[data-testid="menu-button"]',
+  MENU_PANEL: '[data-testid="menu-panel"]',
+  MENU_SCRIM: '[data-testid="menu-scrim"]',
+  MENU_ITEM_SKILLS: '[data-testid="menu-item-skills"]',
 };
 
 /** The sample provider's model — the keyless one every scratch boot configures. */
@@ -143,6 +147,15 @@ export function archiveSession(jinn, id) {
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
+}
+
+/**
+ * Opens the hamburger menu through its title-bar button and waits for
+ * the panel to be visible.
+ */
+export async function openMenu(page) {
+  await page.locator(sel.MENU_BUTTON).click();
+  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
 }
 
 /**

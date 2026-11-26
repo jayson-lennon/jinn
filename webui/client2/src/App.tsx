@@ -13,6 +13,7 @@ import type { ClientMsg, ModelRow, PickerRow } from './protocol';
 import { type ClientStore, addOptimistic, apply, isBusy, newestEntryId, createStore } from './store';
 import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry } from './transcript';
+import { Menu, type MenuItem } from './menu';
 
 type Send = (msg: ClientMsg) => void;
 
@@ -33,11 +34,16 @@ export function App(): JSX.Element {
   });
   const send: Send = (msg) => socket.send(msg);
 
+  // The hamburger menu's items, in panel order. An item that has no
+  // destination on this page is not listed, so the panel never offers a
+  // control that leads nowhere.
+  const menuItems = (): MenuItem[] => [];
+
   return (
     <div class={`app${connection() === 'open' ? '' : ' disconnected'}`}>
       <SessionRail store={store} send={send} />
       <main class="main">
-        <TitleBar store={store} send={send} />
+        <TitleBar store={store} send={send} menuItems={menuItems()} />
         <Transcript store={store} />
         <Composer store={store} send={send} />
       </main>
@@ -100,7 +106,7 @@ function textOf(envelope: import('./protocol').EntryEnvelope): string {
 // Title bar: rename in place, model chip
 // ---------------------------------------------------------------------------
 
-function TitleBar(props: { store: ClientStore; send: Send }): JSX.Element {
+function TitleBar(props: { store: ClientStore; send: Send; menuItems: readonly MenuItem[] }): JSX.Element {
   const [editing, setEditing] = createSignal(false);
   const [draft, setDraft] = createSignal('');
   const [picker, setPicker] = createSignal(false);
@@ -118,6 +124,7 @@ function TitleBar(props: { store: ClientStore; send: Send }): JSX.Element {
 
   return (
     <header class="title-bar">
+      <Menu items={props.menuItems} />
       <Switch>
         <Match when={editing()}>
           <input
