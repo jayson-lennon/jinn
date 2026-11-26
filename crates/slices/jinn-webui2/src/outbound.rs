@@ -84,6 +84,10 @@ pub struct OutboundHandle {
     /// the actor (which streams) and the dispatch (which answers a fresh
     /// page with a snapshot), so neither re-sends what the other delivered.
     sent: Arc<Mutex<handlers::SentLengths>>,
+    /// The filter each session's skills modal last asked for, so a
+    /// discovery push can answer with the view the page is holding. The
+    /// dispatch records it; the actor reads it.
+    skill_filters: Arc<Mutex<std::collections::HashMap<SessionId, String>>>,
 }
 
 impl OutboundHandle {
@@ -94,12 +98,30 @@ impl OutboundHandle {
     pub fn revisions(&self) -> &crate::revision::RevisionTracker {
         &self.deps.revisions
     }
+
+    /// Records the filter a session's skills modal last asked for.
+    pub(crate) fn remember_skill_filter(&self, session_id: &SessionId, filter: &str) {
+        self.skill_filters
+            .lock()
+            .insert(session_id.clone(), filter.to_owned());
+    }
+
+    /// The filter a session's skills modal last asked for — the empty
+    /// filter when it never asked.
+    #[must_use]
+    pub(crate) fn last_skill_filter(&self, session_id: &SessionId) -> String {
+        self.skill_filters
+            .lock()
+            .get(session_id)
+            .cloned()
+            .unwrap_or_default()
+    }
 }
 
 mod handlers;
 
 #[cfg(test)]
-pub(crate) use handlers::{flush, reconcile};
+pub(crate) use handlers::{flush, reconcile, skills_loaded};
 
 /// The outbound actor.
 #[derive(Debug)]
@@ -147,6 +169,7 @@ impl OutboundHandle {
         Self {
             deps,
             sent: Arc::new(Mutex::new(handlers::SentLengths::default())),
+            skill_filters: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -246,6 +269,7 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         .handles::<jinn_chat_input_msg::ChatEntrySubmitted>()
         .handles::<jinn_provider_selection_msg::ProviderSwitched>()
         .handles::<jinn_session_store_msg::SessionLoadCompleted>()
+        .handles::<jinn_skills_msg::SkillsLoaded>()
         // Arms the first flush; the chain self-perpetuates from there (the
         // tick's handler schedules the next one). Without this the tick
         // never starts and no delta ever leaves the actor.

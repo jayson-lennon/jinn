@@ -38,6 +38,21 @@ but nothing coordinates them.
   models. Choosing one switches the session's model.
 - **Title** — click the title to rename the session in place; `Enter`
   commits and `Esc` cancels.
+- **Menu** — the `☰` at the title bar's left opens a full-height panel
+  over a dimmed page. **Skills** is its one item today; each item that
+  follows arrives with the picker it opens. A scrim click, `Esc`, or
+  picking an item closes it.
+- **Skills** — the menu's **Skills** item (only while a session is
+  active) opens the session's discovered skills: a `●` / `○` enabled
+  mark, the name and description, a `project` badge on a project-scoped
+  skill, and a `+` on each row. A filter bar narrows the list as you
+  type, with the matches highlighted. The modal refreshes itself when a
+  skill scan lands.
+  - Clicking a row toggles that skill **at once** for the session —
+    there is no staging step. A loaded skill's row is not a toggle.
+  - `+` loads the skill's body into context as a pinned tool result,
+    enabling the skill first if it was off. A skill already in context
+    has its `+` disabled, so nothing is loaded twice.
 
 ## Keys and buttons
 
@@ -48,7 +63,7 @@ There are no keybinds beyond these:
 | `Enter` in the composer | Sends the message. |
 | `Shift+Enter` in the composer | Inserts a newline. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
-| `Esc` | Closes the top overlay: a picker, or the title editor. |
+| `Esc` | Closes the top overlay: the menu, the skills modal, a picker, or the title editor. |
 
 The composer's buttons follow the session's phase:
 
@@ -76,8 +91,8 @@ that has it.
 
 - Creating, forking, archiving, or tearing down sessions. `/web2` can
   *open* an archived session through its picker, but cannot create one.
-- Personas, MCP servers, tools, skills, and applets — any of the menu's
-  pickers.
+- Personas, MCP servers, tools, and applets — every menu picker but
+  Skills.
 - Pinning, exclusion, isolate, and the per-entry audit popup.
 - Steer mode. A message sent while working is queued; to steer, cancel
   and send.
@@ -85,7 +100,7 @@ that has it.
   attachments. Text is sent verbatim.
 - Model alloys, reasoning-effort and endpoint pickers.
 - Unread marks on session rows.
-- A theme switcher, a phone drawer layout, and a menu.
+- A theme switcher and a phone drawer layout.
 
 ## How it works
 

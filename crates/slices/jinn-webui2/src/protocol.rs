@@ -58,5 +58,8 @@ pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
         ClientMsg::Rename { title } => actions::rename(out, title).await,
         ClientMsg::PickerRows { filter } => actions::picker_rows(out, filter).await,
         ClientMsg::ModelRows { filter } => actions::model_rows(out, filter),
+        ClientMsg::SkillRows { filter } => actions::skill_rows(out, filter),
+        ClientMsg::ToggleSkill { skill } => actions::toggle_skill(out, &skill),
+        ClientMsg::LoadSkill { skill } => actions::load_skill(out, &skill).await,
     }
 }

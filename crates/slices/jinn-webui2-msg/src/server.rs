@@ -6,7 +6,7 @@
 
 use crate::payload::{
     EntryDeltaBody, EntryUpsertBody, ErrorBody, ModelBody, ModelRowsBody, PhaseBody,
-    PickerRowsBody, SessionsBody, SnapshotBody, TitleBody,
+    PickerRowsBody, SessionsBody, SkillRowsBody, SnapshotBody, TitleBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +37,8 @@ pub enum ServerMsg {
     PickerRows(PickerRowsBody),
     /// The model picker's rows.
     ModelRows(ModelRowsBody),
+    /// The skills modal's rows for one session.
+    SkillRows(SkillRowsBody),
     /// A request was refused.
     Error(ErrorBody),
     /// A heartbeat: the server is alive and the connection is still open.
@@ -61,6 +63,7 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::Title(_) => "title",
         ServerMsg::PickerRows(_) => "picker_rows",
         ServerMsg::ModelRows(_) => "model_rows",
+        ServerMsg::SkillRows(_) => "skill_rows",
         ServerMsg::Error(_) => "error",
         ServerMsg::Ping => "ping",
     }

@@ -12,7 +12,7 @@
 import { test as base, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { bootJinn, restartJinn, teardownJinn } from "./harness.mjs";
+import { bootJinn, restartJinn, scratchSkill, teardownJinn } from "./harness.mjs";
 
 /** How long a reply from a running jinn may take. */
 const REPLY_TIMEOUT_MS = 15_000;
@@ -34,6 +34,15 @@ export const sel = {
   MODEL_FILTER: '[data-testid="model-filter"]',
   OPEN_PICKER: '[data-testid="open-picker"]',
   PICKER_ROW: '[data-testid="picker-row"]',
+  MENU_BUTTON: '[data-testid="menu-button"]',
+  MENU_PANEL: '[data-testid="menu-panel"]',
+  MENU_SCRIM: '[data-testid="menu-scrim"]',
+  MENU_ITEM_SKILLS: '[data-testid="menu-item-skills"]',
+  SKILLS_MODAL: '[data-testid="skills-modal"]',
+  SKILLS_FILTER: '[data-testid="skills-filter"]',
+  SKILL_ROW: '[data-testid="skill-row"]',
+  /** One skill row, by its skill name (`data-skill`). */
+  SKILL_ROW_NAMED: (name) => `[data-testid="skill-row"][data-skill="${name}"]`,
   SESSION_ROW: '[data-testid="session-row"]',
   ACTIVE_SESSION_ROW: '.session.active[data-testid="session-row"]',
 };
@@ -80,6 +89,11 @@ export async function sendAndWaitForEcho(page, text) {
   ).toBeVisible({ timeout: REPLY_TIMEOUT_MS });
   await expect(page.locator(sel.SEND)).toBeVisible({ timeout: REPLY_TIMEOUT_MS });
 }
+
+/** The staged skill every skills spec pivots on. */
+export const SKILL_NAME = scratchSkill.name;
+/** A filter that matches the staged skill's name and nothing else about it. */
+export const SKILL_FILTER = "e2e-scra";
 
 /** The one prompt the sample model streams slowly. */
 export const SLOW_PROMPT = "!response";
@@ -146,6 +160,25 @@ export function archiveSession(jinn, id) {
 }
 
 /**
+ * Opens the hamburger menu through its title-bar button and waits for
+ * the panel to be visible.
+ */
+export async function openMenu(page) {
+  await page.locator(sel.MENU_BUTTON).click();
+  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+}
+
+/**
+ * Opens the skills modal through the hamburger menu, and waits for its
+ * rows to arrive.
+ */
+export async function openSkills(page) {
+  await openMenu(page);
+  await page.locator(sel.MENU_ITEM_SKILLS).click();
+  await expect(page.locator(sel.SKILLS_MODAL)).toBeVisible();
+}
+
+/**
  * Selects the sample model from the chip, and waits for the chip to
  * name it.
  *
@@ -164,9 +197,11 @@ export async function selectModel(page) {
   await expect(page.locator(sel.MODEL_CHIP)).toHaveText(MODEL_LABEL, { timeout: REPLY_TIMEOUT_MS });
 }
 
-export const test = base.extend({
-  jinn: async ({}, use) => {
-    const run = await bootJinn();
+/** The per-test option channel: which staged resources this test's boot stages. */
+const test = base.extend({
+  stage: [{}, { option: true }],
+  jinn: async ({ stage }, use) => {
+    const run = await bootJinn({ skill: stage.skill === true });
     await use(run);
     await teardownJinn(run);
   },
@@ -180,4 +215,27 @@ export const test = base.extend({
   },
 });
 
-export { expect };
+/**
+ * Declares one test whose boot stages exactly the resources named.
+ * `test.with` is how a test asks for a staged scratch resource:
+ *
+ *     test.with({ skill: true })("…", async ({ page }) => { … })
+ *
+ * Playwright has one per-test option channel — `use` inside a
+ * `describe` — so `with` wraps the single test in a describe whose
+ * title is empty: the test's own title is what every reporter and
+ * `--list` print, unchanged, and the staging is scoped to that test
+ * alone. A test that needs nothing uses `test` itself.
+ */
+const withStage =
+  (stage) =>
+  (title, fn) => {
+    test.describe("", () => {
+      test.use({ stage });
+      test(title, fn);
+    });
+  };
+
+test.with = withStage;
+
+export { test, expect };

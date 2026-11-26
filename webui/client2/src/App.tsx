@@ -13,6 +13,8 @@ import type { ClientMsg, ModelRow, PickerRow } from './protocol';
 import { type ClientStore, addOptimistic, apply, isBusy, newestEntryId, createStore } from './store';
 import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry } from './transcript';
+import { Menu, type MenuItem } from './menu';
+import { SkillsModal } from './skills';
 
 type Send = (msg: ClientMsg) => void;
 
@@ -33,14 +35,49 @@ export function App(): JSX.Element {
   });
   const send: Send = (msg) => socket.send(msg);
 
+  // The hamburger menu's items, in panel order. An item that has no
+  // destination on this page is not listed, so the panel never offers a
+  // control that leads nowhere.
+  //
+  // Skills edits the active session's skill filter, so it is offered
+  // only while a session is active.
+  const [skillsOpen, setSkillsOpen] = createSignal(false);
+  const onSkillFilter = useFilter(store, 'skillFilter', send, (filter) => ({ type: 'skill_rows', filter }));
+  const openSkills = (): void => {
+    store.set((s) => {
+      s.skillFilter = '';
+      s.skillRows = [];
+    });
+    send({ type: 'skill_rows', filter: '' });
+    setSkillsOpen(true);
+  };
+  const menuItems = (): MenuItem[] =>
+    store.state.sessionId === null ? [] : [{ id: 'skills', label: 'Skills', run: openSkills }];
+
   return (
     <div class={`app${connection() === 'open' ? '' : ' disconnected'}`}>
       <SessionRail store={store} send={send} />
       <main class="main">
-        <TitleBar store={store} send={send} />
+        <TitleBar store={store} send={send} menuItems={menuItems()} />
         <Transcript store={store} />
         <Composer store={store} send={send} />
       </main>
+      <Show when={skillsOpen()}>
+        <SkillsModal
+          rows={store.state.skillRows}
+          filter={store.state.skillFilter}
+          onFilter={onSkillFilter}
+          onToggle={(skill) => {
+            send({ type: 'toggle_skill', skill });
+          }}
+          onLoad={(skill) => {
+            send({ type: 'load_skill', skill });
+          }}
+          onClose={() => {
+            setSkillsOpen(false);
+          }}
+        />
+      </Show>
       <Show when={connection() !== 'open'}>
         <div class="overlay" role="status" aria-live="polite" data-testid="overlay">
           {connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}
@@ -100,7 +137,7 @@ function textOf(envelope: import('./protocol').EntryEnvelope): string {
 // Title bar: rename in place, model chip
 // ---------------------------------------------------------------------------
 
-function TitleBar(props: { store: ClientStore; send: Send }): JSX.Element {
+function TitleBar(props: { store: ClientStore; send: Send; menuItems: readonly MenuItem[] }): JSX.Element {
   const [editing, setEditing] = createSignal(false);
   const [draft, setDraft] = createSignal('');
   const [picker, setPicker] = createSignal(false);
@@ -118,6 +155,7 @@ function TitleBar(props: { store: ClientStore; send: Send }): JSX.Element {
 
   return (
     <header class="title-bar">
+      <Menu items={props.menuItems} />
       <Switch>
         <Match when={editing()}>
           <input
@@ -258,7 +296,7 @@ function SessionRail(props: { store: ClientStore; send: Send }): JSX.Element {
 
 /** A debounced filter request; the store holds the filter so a stale
  *  answer (to text the user has typed past) can be recognised and dropped. */
-function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter', send: Send, request: (filter: string) => ClientMsg) {
+function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter' | 'skillFilter', send: Send, request: (filter: string) => ClientMsg) {
   let timer: number | null = null;
   return (value: string): void => {
     store.set((s) => { s[key] = value; });

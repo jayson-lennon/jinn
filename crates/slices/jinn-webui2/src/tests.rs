@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_core_types::{ChatEntry, ModelSelection};
+use jinn_core_types::{ChatEntry, ChatEntryKind, ModelSelection};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::State;
 use jinn_preferences_config::protocol::app_state_command::UpdateAppState;
@@ -1491,4 +1491,610 @@ fn an_entry_the_snapshot_delivered_is_not_sent_again() {
 
     // Then the snapshot's entry is not re-sent.
     assert!(drain(&mut inbox).is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Skills modal: rows
+// ---------------------------------------------------------------------------
+
+/// A discovered global skill named `name`, with a description.
+fn skill(
+    dir: &marked_path::MarkedPathBuf<marked_path::Absolute>,
+    name: &str,
+) -> jinn_skills_msg::Skill {
+    jinn_skills_msg::Skill {
+        name: name.to_owned(),
+        description: format!("{name} description"),
+        body: String::new(),
+        file_path: dir
+            .join_all([name, "SKILL.md"])
+            .expect("typed parent joins bare names"),
+        base_dir: dir.join(name).expect("typed parent joins a bare name"),
+        source: jinn_skills_msg::SkillSource::Global,
+    }
+}
+
+/// Seeds the active session's discovered set with the named skills, in
+/// the order given. The directory outlives the seeded paths.
+fn discover(h: &Harness, names: &[&str]) -> jinn_testutil::JinnTempDir {
+    let dir = jinn_testutil::tempdir();
+    let skills: Vec<_> = names.iter().map(|name| skill(&dir.path, name)).collect();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_discovered_skills(skills);
+    dir
+}
+
+/// Every skill row in a reply's one `SkillRows` frame; fails the test
+/// when the reply is anything else.
+fn skill_rows(reply: &crate::protocol::Reply) -> Vec<jinn_webui2_msg::SkillRowBody> {
+    let [ServerMsg::SkillRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one skill-rows frame expected: {reply:?}");
+    };
+    body.rows.clone()
+}
+
+/// The names of every skill row in a reply, in order.
+fn skill_names(reply: &crate::protocol::Reply) -> Vec<String> {
+    skill_rows(reply).into_iter().map(|row| row.name).collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn skill_rows_list_the_discovered_skills_sorted_by_name() {
+    // Given a session that discovered two skills, in non-sorted order.
+    let h = harness();
+    let _dir = discover(&h, &["zeta", "alpha"]);
+
+    // When the page asks for the rows with no filter.
+    let reply = dispatch(
+        ClientMsg::SkillRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then both are listed, alphabetically.
+    assert_eq!(skill_names(&reply), ["alpha", "zeta"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn skill_rows_match_the_shared_filter() {
+    // Given a session that discovered two skills.
+    let h = harness();
+    let _dir = discover(&h, &["zeta", "alpha"]);
+
+    // When the page asks for the rows with a filter only one name matches.
+    let reply = dispatch(
+        ClientMsg::SkillRows {
+            filter: "zet".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then only that skill is listed, and its name's matched run is marked.
+    let rows = skill_rows(&reply);
+    let [row] = rows.as_slice() else {
+        unreachable!("one row expected: {reply:?}");
+    };
+    assert_eq!(row.name, "zeta");
+    assert!(row.name_runs.iter().any(|run| run.matched));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn skill_rows_carry_each_skills_enablement() {
+    // Given a session that discovered two skills and withholds one.
+    let h = harness();
+    let _dir = discover(&h, &["alpha", "beta"]);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_skill_filter(Some(jinn_core_types::NameFilter::deny(["beta".to_owned()])));
+
+    // When the page asks for the rows.
+    let reply = dispatch(
+        ClientMsg::SkillRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the withheld skill is the one row marked disabled.
+    let enabled: Vec<_> = skill_rows(&reply)
+        .into_iter()
+        .map(|row| (row.name, row.enabled))
+        .collect();
+    assert_eq!(
+        enabled,
+        [("alpha".to_owned(), true), ("beta".to_owned(), false)]
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn skill_rows_mark_a_skill_already_loaded_into_context() {
+    // Given a session that discovered one skill and holds the skill's
+    // pinned body in its history.
+    let h = harness();
+    let _dir = discover(&h, &["alpha"]);
+    let mut pinned = ChatEntry::tool_result(
+        "call-1",
+        "skill",
+        "<skill name=\"alpha\">body</skill>",
+        jinn_core_types::ToolResultStatus::Success,
+    );
+    pinned.pin_position = Some(jinn_core_types::PinPosition::Relative);
+    push(&h.state, pinned);
+
+    // When the page asks for the rows.
+    let reply = dispatch(
+        ClientMsg::SkillRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then that row is flagged loaded.
+    let rows = skill_rows(&reply);
+    let [row] = rows.as_slice() else {
+        unreachable!("one row expected: {reply:?}");
+    };
+    assert!(row.loaded);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_skill_rows_frame_names_the_session_and_echoes_the_filter() {
+    // Given a session that discovered one skill.
+    let h = harness();
+    let _dir = discover(&h, &["alpha"]);
+
+    // When the page asks for the rows with a filter.
+    let reply = dispatch(
+        ClientMsg::SkillRows {
+            filter: "alp".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the one frame names the active session and echoes the filter.
+    let [ServerMsg::SkillRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one skill-rows frame expected: {reply:?}");
+    };
+    assert_eq!(body.session_id, active_id(&h.state));
+    assert_eq!(body.filter, "alp");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_discovery_scan_pushes_rows_for_its_session_in_the_last_asked_filter() {
+    // Given a page connected to a session whose modal asked for a filter,
+    // before the session discovered anything.
+    let h = harness();
+    let mut inbox = h.handle.register();
+    let _ = dispatch(
+        ClientMsg::SkillRows {
+            filter: "alp".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+    let _ = drain(&mut inbox);
+    let _dir = discover(&h, &["alpha", "zeta"]);
+
+    // When a discovery scan lands for that session.
+    skills_loaded(
+        &h,
+        &jinn_skills_msg::SkillsLoaded {
+            session_id: active_id(&h.state),
+            skills: Vec::new(),
+            error: None,
+        },
+    );
+
+    // Then the page receives the fresh rows in the filter it last asked for.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::SkillRows(body)] = frames.as_slice() else {
+        unreachable!("one skill-rows frame expected");
+    };
+    assert_eq!(body.filter, "alp");
+    assert_eq!(body.session_id, active_id(&h.state));
+    let names: Vec<_> = body.rows.iter().map(|row| row.name.as_str()).collect();
+    assert_eq!(names, ["alpha"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_discovery_scan_for_another_session_pushes_nothing_for_this_one() {
+    // Given a page connected to a session that discovered one skill.
+    let h = harness();
+    let mut inbox = h.handle.register();
+    let _dir = discover(&h, &["alpha"]);
+    let _ = drain(&mut inbox);
+
+    // When a discovery scan lands for a different, unknown session.
+    skills_loaded(
+        &h,
+        &jinn_skills_msg::SkillsLoaded {
+            session_id: jinn_core_types::SessionId::new(),
+            skills: Vec::new(),
+            error: None,
+        },
+    );
+
+    // Then the frame it pushes names that other session, so a page
+    // viewing this one leaves its rows alone.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::SkillRows(body)] = frames.as_slice() else {
+        unreachable!("one skill-rows frame expected");
+    };
+    assert_ne!(body.session_id, active_id(&h.state));
+}
+
+/// Drives the actor's `SkillsLoaded` behaviour with nothing spawned, the
+/// way the tick's and the reconcile's tests drive theirs.
+fn skills_loaded(h: &Harness, msg: &jinn_skills_msg::SkillsLoaded) {
+    crate::outbound::skills_loaded(&h.handle, msg);
+}
+
+// ---------------------------------------------------------------------------
+// Skills modal: toggle
+// ---------------------------------------------------------------------------
+
+/// A harness whose active session discovered the named skills; the
+/// returned directory is what their paths name and must outlive the test.
+fn harness_with_skills(names: &[&str]) -> (Harness, jinn_testutil::JinnTempDir) {
+    let h = harness();
+    let dir = discover(&h, names);
+    (h, dir)
+}
+
+/// Pins `name`'s skill body into the active session's history, as the
+/// force-load does: a `skill` tool call followed by a pinned result.
+fn pin_loaded(h: &Harness, name: &str) {
+    let mut call = ChatEntry::tool_call(
+        format!("call-{name}"),
+        "skill",
+        format!("{{\"name\":\"{name}\"}}"),
+    );
+    call.pin_position = Some(jinn_core_types::PinPosition::Relative);
+    push(&h.state, call);
+    let mut result = ChatEntry::tool_result(
+        format!("result-{name}"),
+        "skill",
+        format!("<skill name=\"{name}\">body</skill>"),
+        jinn_core_types::ToolResultStatus::Success,
+    );
+    result.pin_position = Some(jinn_core_types::PinPosition::Relative);
+    push(&h.state, result);
+}
+
+/// Withholds `name` on the active session's filter, as a deny filter.
+fn withhold(h: &Harness, name: &str) {
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_skill_filter(Some(jinn_core_types::NameFilter::deny([name.to_owned()])));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_an_enabled_skill_withholds_it_on_the_session_filter() {
+    // Given a session that discovered one skill and permits it.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page toggles that skill.
+    let reply = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the session's filter withholds it, and the row says so.
+    assert!(
+        !h.state
+            .read()
+            .session
+            .active_session()
+            .is_skill_enabled("alpha")
+    );
+    let enabled: Vec<_> = skill_rows(&reply)
+        .into_iter()
+        .map(|row| (row.name, row.enabled))
+        .collect();
+    assert_eq!(enabled, [("alpha".to_owned(), false)]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_disabled_skill_permits_it_again() {
+    // Given a session that discovered one skill and withholds it.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+    withhold(&h, "alpha");
+
+    // When the page toggles that skill.
+    let _ = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the skill is permitted again.
+    assert!(
+        h.state
+            .read()
+            .session
+            .active_session()
+            .is_skill_enabled("alpha")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_keeps_an_allow_mode_filter_in_allow_mode() {
+    // Given a session whose filter is an allow list naming one of its two
+    // skills.
+    let (h, _dir) = harness_with_skills(&["alpha", "beta"]);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_skill_filter(Some(jinn_core_types::NameFilter {
+            mode: jinn_core_types::FilterMode::Allow,
+            names: ["alpha".to_owned()].into_iter().collect(),
+        }));
+
+    // When the page withholds that skill by toggling it.
+    let _ = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the filter is still an allow list — it was not rewritten as a
+    // blocklist — and the skill is withheld.
+    let state = h.state.read();
+    let filter = state
+        .session
+        .active_session()
+        .skill_filter()
+        .expect("a filter was written");
+    assert_eq!(filter.mode, jinn_core_types::FilterMode::Allow);
+    assert!(!filter.permits("alpha"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_loaded_skill_changes_nothing() {
+    // Given a session that discovered one skill, permits it, and holds
+    // its pinned pair.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+    pin_loaded(&h, "alpha");
+
+    // When the page toggles that skill.
+    let _ = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the session still has no filter at all — nothing was written.
+    assert!(
+        h.state
+            .read()
+            .session
+            .active_session()
+            .skill_filter()
+            .is_none()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_skill_publishes_nothing() {
+    // Given a session that discovered one skill.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page toggles that skill.
+    let _ = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then no bus message was published.
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_an_undiscovered_skill_is_refused() {
+    // Given a session that discovered one skill.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page toggles a skill the session never discovered.
+    let reply = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "phantom".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told so, and the filter is untouched.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        unreachable!("one error frame expected: {reply:?}");
+    };
+    assert_eq!(error.message, "unknown skill");
+    assert!(
+        h.state
+            .read()
+            .session
+            .active_session()
+            .skill_filter()
+            .is_none()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Skills modal: load
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn loading_a_skill_pins_its_body_as_a_tool_call_and_result() {
+    // Given a session that discovered one skill.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page loads that skill.
+    let reply = dispatch(
+        ClientMsg::LoadSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then history ends with a `skill` call and a pinned `skill` result
+    // carrying the body, and the reply upserts both.
+    let state = h.state.read();
+    let history = state.session.active_session().history();
+    let len = history.len();
+    let ChatEntryKind::ToolCall { name, .. } = &history[len - 2].kind else {
+        unreachable!("a tool call was expected: {:?}", history[len - 2].kind);
+    };
+    assert_eq!(name, "skill");
+    let ChatEntryKind::ToolResult { name, content, .. } = &history[len - 1].kind else {
+        unreachable!("a tool result was expected: {:?}", history[len - 1].kind);
+    };
+    assert_eq!(name, "skill");
+    assert!(content.starts_with("<skill name=\"alpha\""));
+    assert!(history[len - 1].is_pinned());
+    drop(state);
+    let upserts: Vec<_> = reply
+        .frames
+        .iter()
+        .filter(|frame| matches!(frame, ServerMsg::EntryUpsert(_)))
+        .collect();
+    assert_eq!(upserts.len(), 2);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn loading_a_disabled_skill_enables_it_first() {
+    // Given a session that discovered one skill and withholds it.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+    withhold(&h, "alpha");
+
+    // When the page loads that skill.
+    let _ = dispatch(
+        ClientMsg::LoadSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the skill is permitted on the session's filter.
+    assert!(
+        h.state
+            .read()
+            .session
+            .active_session()
+            .is_skill_enabled("alpha")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn loading_a_skill_publishes_only_that_the_session_was_interacted_with() {
+    // Given a session that discovered one skill.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page loads that skill.
+    let _ = dispatch(
+        ClientMsg::LoadSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then exactly one message was published, naming that interaction.
+    assert_eq!(h.audit.names(), ["MarkSessionInteracted"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn loading_an_already_loaded_skill_appends_a_notice_and_publishes_nothing() {
+    // Given a session that discovered one skill and already holds its
+    // pinned pair.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+    pin_loaded(&h, "alpha");
+
+    // When the page loads that skill again.
+    let _ = dispatch(
+        ClientMsg::LoadSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then a transient notice was appended, and nothing was published.
+    let state = h.state.read();
+    let history = state.session.active_session().history();
+    let ChatEntryKind::Transient(text) = &history[history.len() - 1].kind else {
+        unreachable!(
+            "a transient was expected: {:?}",
+            history[history.len() - 1].kind
+        );
+    };
+    assert!(text.contains("already loaded"));
+    drop(state);
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn loading_an_undiscovered_skill_is_refused() {
+    // Given a session that discovered one skill.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page loads a skill the session never discovered.
+    let reply = dispatch(
+        ClientMsg::LoadSkill {
+            skill: "phantom".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told so, and nothing was appended or published.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        unreachable!("one error frame expected: {reply:?}");
+    };
+    assert_eq!(error.message, "unknown skill");
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
 }

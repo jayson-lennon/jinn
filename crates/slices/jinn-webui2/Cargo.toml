@@ -26,6 +26,11 @@ jinn-session-msg = { workspace = true }
 jinn-provider-selection-msg = { workspace = true }
 jinn-provider-config = { workspace = true }
 jinn-tools-msg = { workspace = true }
+# The skills modal's rows are filtered by the terminal picker's own matcher,
+# so one filter cannot drift across the three surfaces. A contract crate.
+jinn-skills-msg = { workspace = true }
+# `TextRun` — the matched/plain split the shared skill filter returns.
+jinn-selection-widget = { workspace = true }
 axum = { version = "0.8", features = ["ws"] }
 # The stored-session picker ranks titles with the terminal picker's own matcher.
 fuzzy-matcher = "0.3"

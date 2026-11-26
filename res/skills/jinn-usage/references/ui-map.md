@@ -11,7 +11,7 @@ bindings and may be rebound. The which-key popup (`?` in normal-like scopes,
 `<f1>` in input mode) shows the bindings live in the current scope, and the
 live screen is the truth if this file and your build disagree. The
 original web UI (`/web`) has no keybinds — it is all clicks (see
-[Web UI layout](#web-ui-layout)); `/web2` has three, all in its composer
+[Web UI layout](#web-ui-layout)); `/web2` has a few, all in its composer
 and overlays (see [Web UI 2 layout](#web-ui-2-layout-web2)).
 
 ## Layout
@@ -218,7 +218,7 @@ mirrors the TUI's core loop only:
 
 ```text
 ┌──────────────┬──────────────────────────────────────────────┐
-│ Switch       │ Session title          [provider/model]      │ ← title bar
+│ Switch       │ ☰ Session title        [provider/model]      │ ← title bar
 │ session…     ├──────────────────────────────────────────────┤
 │              │                                              │
 │ ▎Session A   │  Transcript                                  │
@@ -242,6 +242,8 @@ mirrors the TUI's core loop only:
 | `[Message jinn…]` | The composer. `Enter` sends; `Shift+Enter` is a newline. | `webui2.md` |
 | `[Queue]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
 | `[Send]` (while idle) | Send the message. | `webui2.md` |
+| `☰` | The menu button. Opens a full-height slide-in panel over a scrim; **Skills** is its one item, and only while a session is active. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
+| The skills modal | A filter bar and the session's discovered skills — a `●` / `○` mark, name, description, a `project` badge on project skills, and a `+`. A row click toggles at once; `+` loads the body into context. | `webui2.md` |
 | `disconnected — reconnecting…` | A full-page overlay while the connection is down. | `webui2.md` |
 
 ## Feature → screen location (reverse lookup)
@@ -271,3 +273,5 @@ mirrors the TUI's core loop only:
 | The browser page's Send / `Q` / Cancel buttons | Web UI composer |
 | The `/web2` page's Archive button, title, model chip | Web UI 2 (`/web2`) title bar and sidebar |
 | The `/web2` page's Send / Queue / Cancel buttons | Web UI 2 (`/web2`) composer |
+| The `/web2` page's `☰` button and its Skills panel | Web UI 2 (`/web2`) title bar and menu |
+| The `/web2` page's skills list — filter, `●` / `○` marks, `+` | Web UI 2 (`/web2`) skills modal |

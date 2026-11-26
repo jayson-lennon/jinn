@@ -16,7 +16,7 @@ use rstest::rstest;
 use crate::payload::{
     DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ModelBody, ModelRowBody,
     ModelRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
-    SnapshotBody, TitleBody,
+    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, TitleBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION};
 
@@ -58,6 +58,32 @@ fn picker_row(title: &str) -> PickerRowBody {
         state: jinn_session_store_msg::SessionState::Archived,
         parent_id: Some(SessionId::new()),
         project: Some("jinn".to_owned()),
+    }
+}
+
+/// Builds one skills-modal row: one matched run and one plain run in
+/// each field, so a round trip proves the split survives.
+fn skill_row(name: &str) -> SkillRowBody {
+    SkillRowBody {
+        name: name.to_owned(),
+        description: "does a thing".to_owned(),
+        enabled: true,
+        loaded: false,
+        is_project: true,
+        name_runs: vec![
+            TextRunBody {
+                text: "web".to_owned(),
+                matched: true,
+            },
+            TextRunBody {
+                text: "-coder".to_owned(),
+                matched: false,
+            },
+        ],
+        description_runs: vec![TextRunBody {
+            text: "does a thing".to_owned(),
+            matched: false,
+        }],
     }
 }
 
@@ -472,6 +498,68 @@ fn server_model_rows_round_trips() {
 
 #[rstest]
 #[test]
+fn client_skill_rows_round_trips() {
+    // Given a skills-rows request carrying a filter.
+    let msg = ClientMsg::SkillRows {
+        filter: "we".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of_client(&back), json_of_client(&msg));
+}
+
+#[rstest]
+#[test]
+fn client_toggle_skill_round_trips() {
+    // Given a toggle naming one skill.
+    let msg = ClientMsg::ToggleSkill {
+        skill: "web-coder".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of_client(&back), json_of_client(&msg));
+}
+
+#[rstest]
+#[test]
+fn client_load_skill_round_trips() {
+    // Given a load naming one skill.
+    let msg = ClientMsg::LoadSkill {
+        skill: "web-coder".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of_client(&back), json_of_client(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_skill_rows_round_trips() {
+    // Given skill rows answering a filter, with their matched runs.
+    let msg = ServerMsg::SkillRows(SkillRowsBody {
+        session_id: SessionId::new(),
+        filter: "we".to_owned(),
+        rows: vec![skill_row("web-coder")],
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
 fn server_error_round_trips() {
     // Given a refusal.
     let msg = ServerMsg::Error(ErrorBody {
@@ -573,6 +661,14 @@ fn server_variant_carries_its_snake_case_tag() {
             "model_rows",
         ),
         (
+            ServerMsg::SkillRows(SkillRowsBody {
+                session_id: SessionId::new(),
+                filter: String::new(),
+                rows: Vec::new(),
+            }),
+            "skill_rows",
+        ),
+        (
             ServerMsg::Error(ErrorBody {
                 message: String::new(),
             }),
@@ -643,6 +739,24 @@ fn client_variant_carries_its_snake_case_tag() {
                 filter: String::new(),
             },
             "model_rows",
+        ),
+        (
+            ClientMsg::SkillRows {
+                filter: String::new(),
+            },
+            "skill_rows",
+        ),
+        (
+            ClientMsg::ToggleSkill {
+                skill: String::new(),
+            },
+            "toggle_skill",
+        ),
+        (
+            ClientMsg::LoadSkill {
+                skill: String::new(),
+            },
+            "load_skill",
         ),
     ];
 

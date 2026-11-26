@@ -254,6 +254,46 @@ impl OutboundActor {
     }
 }
 
+impl MsgHandler<jinn_skills_msg::SkillsLoaded> for OutboundActor {
+    async fn handle(&mut self, msg: &jinn_skills_msg::SkillsLoaded, _ctx: &mut MsgCtx<'_>) {
+        skills_loaded(&self.handle, msg);
+    }
+}
+
+/// Turns one `SkillsLoaded` event into the frame a page needs.
+///
+/// Discovery wrote the session's discovered set before it published the
+/// event, so rows read now are the fresh ones. An open modal receives
+/// them without asking: discovery lands asynchronously, and can finish
+/// after the modal is already open. The rows answer the filter that
+/// session's modal last asked for, so they replace the view the page is
+/// holding.
+///
+/// A failed scan publishes the same event with an empty set; the frame
+/// then carries no rows, which is a legal render.
+///
+/// A free function over the handle so a test drives the real push, with
+/// nothing spawned.
+pub(crate) fn skills_loaded(handle: &super::OutboundHandle, msg: &jinn_skills_msg::SkillsLoaded) {
+    let filter = handle.last_skill_filter(&msg.session_id);
+    let rows = {
+        let guard = handle.deps.state.read();
+        guard
+            .session
+            .get(&msg.session_id)
+            .map_or_else(Vec::new, |session| {
+                crate::actions::skill_row_bodies(session, &filter)
+            })
+    };
+    handle.broadcast(&jinn_webui2_msg::ServerMsg::SkillRows(
+        jinn_webui2_msg::SkillRowsBody {
+            session_id: msg.session_id.clone(),
+            filter,
+            rows,
+        },
+    ));
+}
+
 /// One flush: reads every streaming field and emits its unsent suffix.
 ///
 /// A free function over the handle so the tick's behaviour is driven
