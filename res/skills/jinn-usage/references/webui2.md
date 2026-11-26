@@ -47,9 +47,12 @@ but nothing coordinates them.
   seconds the overlay clears and the composer names the timeout; the page
   stays on the session it never left.
 - **Archive** — the sidebar's **Archive** button opens a picker over every
-  stored session, loaded or archived, with a title filter. Choosing a row
-  activates it; an archived session is loaded from disk and leaves the
-  archive.
+  stored session, loaded or archived, as a tree: a forked session is
+  indented under its parent, and a filter that matches a child keeps its
+  parent listed above it. Each row shows its title over a smaller, muted
+  `date · project` line (the browser's local time); an archived row is
+  dimmed. Choosing a row activates it; an archived session is loaded from
+  disk and leaves the archive.
 - **New session** — the menu's **New session** item opens a modal with a
   Project select, a Lifecycle select (blank by default), and **Setup
   arguments** when the chosen lifecycle declares any. **Create session**
@@ -152,8 +155,10 @@ but nothing coordinates them.
 
 Every picker modal here covers the full viewport with a backdrop and a
 card: a filter input on top, a scrollable list below. `Esc` or a
-backdrop click closes it. The filter is matched server-side, with the
-matched runs highlighted as you type (debounced).
+backdrop click closes it. The filter is the terminal's own — run on the
+server, with whitespace-separated terms each matched (so `gpt 4` finds
+`gpt-4`), the closest match ranked first, and the matched runs
+highlighted as you type (debounced).
 
 ## Keys and buttons
 

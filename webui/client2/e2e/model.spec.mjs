@@ -44,3 +44,32 @@ test("the model filter matches a provider's name", async ({ page }) => {
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText(OTHER_MODEL_NAME);
 });
+
+test("the model filter reads a space as two terms", async ({ page }) => {
+  // Given the open picker lists both staged models.
+  await page.locator(sel.MODEL_CHIP).click();
+  await expect(page.locator(sel.MODEL_ROW)).toHaveCount(2);
+
+  // When filtering for the second provider's name and its model's first
+  // word, separated by a space — the way the terminal picker reads terms.
+  await page.locator(sel.MODEL_FILTER).fill("second model");
+
+  // Then only that row is listed.
+  const rows = page.locator(sel.MODEL_ROW);
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText(OTHER_MODEL_NAME);
+});
+
+test("the model filter highlights the matched letters", async ({ page }) => {
+  // Given the open picker lists both staged models.
+  await page.locator(sel.MODEL_CHIP).click();
+  await expect(page.locator(sel.MODEL_ROW)).toHaveCount(2);
+
+  // When filtering by the second provider's name.
+  await page.locator(sel.MODEL_FILTER).fill("second");
+
+  // Then the provider line marks exactly that word.
+  const row = page.locator(sel.MODEL_ROW);
+  await expect(row).toHaveCount(1);
+  await expect(row.locator("mark")).toHaveText("second");
+});
