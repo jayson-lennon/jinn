@@ -6,16 +6,20 @@
 // updates when the store does, and every gesture leaves through the one
 // socket.
 
-import { For, Show, Switch, Match, createRenderEffect, createSignal } from 'solid-js';
+import { For, Show, Switch, Match, createEffect, createRenderEffect, createSignal } from 'solid-js';
 import { render } from '@solidjs/web';
 import type { JSX } from '@solidjs/web';
-import type { ClientMsg, ModelRow, PickerRow } from './protocol';
-import { type ClientStore, addOptimistic, apply, isBusy, newestEntryId, createStore } from './store';
+import type { ClientMsg, ModelRow } from './protocol';
+import { type ClientStore, apply, newestEntryId, createStore } from './store';
 import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry } from './transcript';
-import { Menu, type MenuItem } from './menu';
+import { Menu, type MenuItem, type MenuGroup } from './menu';
 import { SkillsModal } from './skills';
 import { McpModal, PersonaModal, ToolsModal } from './pickers';
+import { Composer } from './composer';
+import { SessionRail } from './rail';
+import { NewSessionModal } from './new-session';
+import { applyTheme, mirrorTheme } from './theme';
 
 type Send = (msg: ClientMsg) => void;
 
@@ -86,24 +90,91 @@ export function App(): JSX.Element {
     send({ type: 'persona_rows', filter: '' });
     setPersonaOpen(true);
   };
-  const menuItems = (): MenuItem[] =>
-    store.state.sessionId === null
+  // New session needs no active session: it makes one. The choices are
+  // asked for fresh on every open so the form never lists a project the
+  // config has dropped.
+  const [newSessionOpen, setNewSessionOpen] = createSignal(false);
+  const openNewSession = (): void => {
+    store.set((s) => { s.newSession = null; });
+    send({ type: 'new_session_options' });
+    setNewSessionOpen(true);
+  };
+  // Whether the phone's session drawer is slid in. The page owns it:
+  // both the title bar's `#` and the menu's Sessions item open it, and a
+  // picked row closes it.
+  const [drawerOpen, setDrawerOpen] = createSignal(false);
+  const openDrawer = (): void => {
+    setDrawerOpen(true);
+  };
+
+  // The items are in panel order: New session first, then the pickers
+  // (only while a session is active), then Sessions; the color-mode
+  // group comes after every item, last.
+  const menuItems = (): MenuItem[] => [
+    { id: 'new-session', label: 'New session', run: openNewSession },
+    ...(store.state.sessionId === null
       ? []
       : [
           { id: 'skills', label: 'Skills', run: openSkills },
           { id: 'persona', label: 'Persona', run: openPersona },
           { id: 'tools', label: 'Tools', run: openTools },
           { id: 'mcp', label: 'MCP servers', run: openMcp },
-        ];
+        ]),
+    { id: 'sessions', label: 'Sessions', run: openDrawer },
+  ];
+  const menuGroups = (): MenuGroup[] => [
+    {
+      id: 'theme',
+      label: 'Color mode',
+      testId: 'theme-group',
+      options: [
+        { id: 'light', label: 'Light', active: store.state.theme === 'light' },
+        { id: 'dark', label: 'Dark', active: store.state.theme === 'dark' },
+        { id: 'system', label: 'System', active: store.state.theme === 'system' },
+      ],
+      pick: (id) => send({ type: 'set_theme', theme: id as 'light' | 'dark' | 'system' }),
+    },
+  ];
+
+  // The theme follows the store: the snapshot seeds it and a `theme`
+  // frame moves it. Both the attribute the stylesheet reads and the
+  // pre-paint hint are written here, so the next load starts in mode.
+  createEffect(
+    // Compute (tracked): the store's theme.
+    () => store.state.theme,
+    // Effect (untracked): write it where the stylesheet and the next load
+    // read it.
+    (theme) => {
+      applyTheme(theme);
+      mirrorTheme(theme);
+    },
+  );
 
   return (
     <div class={`app${connection() === 'open' ? '' : ' disconnected'}`}>
-      <SessionRail store={store} send={send} />
+      <SessionRail
+        store={store}
+        send={send}
+        open={drawerOpen}
+        setOpen={(next: boolean): void => {
+          setDrawerOpen(next);
+        }}
+      />
       <main class="main">
-        <TitleBar store={store} send={send} menuItems={menuItems()} />
+        <TitleBar
+          store={store}
+          send={send}
+          menuItems={menuItems()}
+          menuGroups={menuGroups()}
+          openDrawer={openDrawer}
+          drawerOpen={drawerOpen}
+        />
         <Transcript store={store} />
         <Composer store={store} send={send} />
       </main>
+      <Show when={newSessionOpen()}>
+        <NewSessionModal store={store} send={send} onClose={() => setNewSessionOpen(false)} />
+      </Show>
       <Show when={skillsOpen()}>
         <SkillsModal
           rows={store.state.skillRows}
@@ -200,7 +271,14 @@ function Transcript(props: { store: ClientStore }): JSX.Element {
   );
   return (
     <section class="transcript" data-testid="transcript" ref={node}>
-      <For each={props.store.state.entries}>{(envelope) => <TranscriptEntry envelope={envelope} />}</For>
+      {/* Keyed by entry id, not by the envelope object: an upsert replaces
+          the envelope in place, and a reference-keyed list would mount a
+          second row for the same entry — one user entry, two images. */}
+      <For each={props.store.state.entries}>
+        {(envelope) => (
+          <TranscriptEntry envelope={envelope} sessionId={props.store.state.sessionId} />
+        )}
+      </For>
     </section>
   );
 }
@@ -221,7 +299,16 @@ function textOf(envelope: import('./protocol').EntryEnvelope): string {
 // Title bar: rename in place, model chip
 // ---------------------------------------------------------------------------
 
-function TitleBar(props: { store: ClientStore; send: Send; menuItems: readonly MenuItem[] }): JSX.Element {
+function TitleBar(props: {
+  store: ClientStore;
+  send: Send;
+  menuItems: readonly MenuItem[];
+  menuGroups: readonly MenuGroup[];
+  /** Slides in the phone's session drawer. */
+  openDrawer: () => void;
+  /** Whether that drawer is slid in — what the `#` button reports. */
+  drawerOpen: () => boolean;
+}): JSX.Element {
   const [editing, setEditing] = createSignal(false);
   const [draft, setDraft] = createSignal('');
   const [picker, setPicker] = createSignal(false);
@@ -239,7 +326,20 @@ function TitleBar(props: { store: ClientStore; send: Send; menuItems: readonly M
 
   return (
     <header class="title-bar">
-      <Menu items={props.menuItems} />
+      {/* Left of the hamburger, and only at phone widths: there the rail is an
+          off-canvas drawer and this is what opens it. */}
+      <button
+        type="button"
+        class="sessions-button"
+        data-testid="sessions-button"
+        aria-label="Sessions"
+        aria-expanded={props.drawerOpen() ? 'true' : 'false'}
+        aria-controls="session-rail"
+        onClick={props.openDrawer}
+      >
+        #
+      </button>
+      <Menu items={props.menuItems} groups={props.menuGroups} />
       <Switch>
         <Match when={editing()}>
           <input
@@ -275,109 +375,6 @@ function TitleBar(props: { store: ClientStore; send: Send; menuItems: readonly M
   );
 }
 
-// ---------------------------------------------------------------------------
-// Composer
-// ---------------------------------------------------------------------------
-
-function Composer(props: { store: ClientStore; send: Send }): JSX.Element {
-  const [draft, setDraft] = createSignal('');
-  const busy = (): boolean => isBusy(props.store.state.phase);
-  const hasText = (): boolean => draft().trim() !== '';
-
-  const submit = (): void => {
-    const text = draft();
-    if (text.trim() === '') return;
-    // The message appears now; the server's own entry replaces it.
-    addOptimistic(props.store, text);
-    props.store.set((s) => { s.error = null; });
-    setDraft('');
-    props.send({ type: busy() ? 'queue' : 'send', text });
-  };
-
-  return (
-    <footer class="composer">
-      <textarea
-        class="draft"
-        data-testid="draft"
-        placeholder={busy() ? 'Queue a message for after this turn…' : 'Message jinn…'}
-        value={draft()}
-        onInput={(e) => setDraft(e.currentTarget.value)}
-        onKeyDown={(e) => {
-          // Enter sends; Shift+Enter is a newline.
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-      />
-      <div class="composer-actions">
-        <Switch>
-          <Match when={busy()}>
-            <button data-testid="queue" onClick={submit} disabled={!hasText()}>
-              Queue
-            </button>
-            <button class="danger" data-testid="cancel" onClick={() => props.send({ type: 'cancel' })}>
-              Cancel
-            </button>
-          </Match>
-          <Match when={true}>
-            <button class="primary" data-testid="send" onClick={submit} disabled={!hasText()}>
-              Send
-            </button>
-          </Match>
-        </Switch>
-      </div>
-      <Show when={props.store.state.error}>
-        <div class="composer-error" role="alert" data-testid="composer-error">
-          {props.store.state.error}
-        </div>
-      </Show>
-    </footer>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Session rail: loaded sessions + the stored-session picker
-// ---------------------------------------------------------------------------
-
-function SessionRail(props: { store: ClientStore; send: Send }): JSX.Element {
-  const [open, setOpen] = createSignal(false);
-  const showPicker = (): void => {
-    props.store.set((s) => { s.pickerFilter = ''; s.pickerRows = []; });
-    props.send({ type: 'picker_rows', filter: '' });
-    setOpen(true);
-  };
-  return (
-    <nav class="rail">
-      <button class="rail-action" data-testid="open-picker" onClick={showPicker}>
-        Switch session…
-      </button>
-      <ul class="sessions">
-        <For each={props.store.state.sessions}>
-          {(row) => (
-            <li>
-              <button
-                class={`session${row.is_active ? ' active' : ''}`}
-                data-testid="session-row"
-                data-session-id={row.session_id}
-                onClick={() => props.send({ type: 'activate_session', session_id: row.session_id })}
-              >
-                <span class="session-title">{row.title || 'Untitled Session'}</span>
-                <Show when={row.is_busy}>
-                  <span class="session-busy" aria-label="running" />
-                </Show>
-              </button>
-            </li>
-          )}
-        </For>
-      </ul>
-      <Show when={open()}>
-        <SessionPicker store={props.store} send={props.send} onClose={() => setOpen(false)} />
-      </Show>
-    </nav>
-  );
-}
-
 /** A debounced filter request; the store holds the filter so a stale
  *  answer (to text the user has typed past) can be recognised and dropped. */
 function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter' | 'skillFilter' | 'toolFilter' | 'mcpFilter' | 'personaFilter', send: Send, request: (filter: string) => ClientMsg) {
@@ -389,60 +386,43 @@ function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter' | 'sk
   };
 }
 
-function SessionPicker(props: { store: ClientStore; send: Send; onClose: () => void }): JSX.Element {
-  const onFilter = useFilter(props.store, 'pickerFilter', props.send, (filter) => ({ type: 'picker_rows', filter }));
-  const pick = (row: PickerRow): void => {
-    props.send({ type: 'activate_session', session_id: row.session_id });
-    props.onClose();
-  };
-  return (
-    <div class="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) props.onClose(); }}>
-      <div class="modal" role="dialog" aria-label="Switch session">
-        <input
-          class="modal-filter"
-          data-testid="picker-filter"
-          autofocus
-          placeholder="Filter sessions by title…"
-          onInput={(e) => onFilter(e.currentTarget.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape') props.onClose(); }}
-        />
-        <ul class="modal-list">
-          <For each={props.store.state.pickerRows}>
-            {(row) => (
-              <li>
-                <button data-testid="picker-row" onClick={() => pick(row)}>
-                  <span class="session-title">{row.title || 'Untitled Session'}</span>
-                  <span class="session-meta">
-                    {row.state === 'Archived' ? 'archived' : ''}
-                    <Show when={row.project}> · {row.project}</Show>
-                  </span>
-                </button>
-              </li>
-            )}
-          </For>
-        </ul>
-      </div>
-    </div>
-  );
-}
-
 function ModelPicker(props: { store: ClientStore; send: Send; onClose: () => void }): JSX.Element {
   const onFilter = useFilter(props.store, 'modelFilter', props.send, (filter) => ({ type: 'model_rows', filter }));
   const pick = (row: ModelRow): void => {
     props.send({ type: 'switch_model', provider_id: row.provider_id });
     props.onClose();
   };
+  // A refresh asks the registry to rediscover. The button stays busy until
+  // the store's `refreshing` flag clears — which a pushed `model_rows`
+  // frame does when discovery lands.
+  const refresh = (): void => {
+    props.store.set((s) => { s.refreshing = true; });
+    props.send({ type: 'refresh_models' });
+  };
+  const refreshing = (): boolean => props.store.state.refreshing;
   return (
     <div class="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) props.onClose(); }}>
       <div class="modal" role="dialog" aria-label="Switch model">
-        <input
-          class="modal-filter"
-          data-testid="model-filter"
-          autofocus
-          placeholder="Filter models…"
-          onInput={(e) => onFilter(e.currentTarget.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape') props.onClose(); }}
-        />
+        <div class="modal-head">
+          <input
+            class="modal-filter"
+            data-testid="model-filter"
+            autofocus
+            placeholder="Filter models…"
+            onInput={(e) => onFilter(e.currentTarget.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') props.onClose(); }}
+          />
+          <button
+            type="button"
+            class="refresh-models"
+            data-testid="refresh-models"
+            disabled={refreshing()}
+            aria-busy={refreshing() ? 'true' : undefined}
+            onClick={refresh}
+          >
+            Refresh models
+          </button>
+        </div>
         <ul class="modal-list">
           <For each={props.store.state.modelRows}>
             {(row) => (

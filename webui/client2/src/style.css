@@ -1,34 +1,197 @@
-/* The /web2 page. Every colour is a token, so a theme is one place. */
+/* The /web2 page. Every colour is a token, so a theme is one place.
+   The values are the original web UI's: dark lifted from the sonokai
+   terminal theme, light from nord-light, and a system mode that follows
+   the browser. The names are this page's own; the values are not. */
 :root {
-  --bg: #14151a;
-  --bg-raised: #1c1e25;
-  --bg-hover: #262932;
-  --fg: #e6e6e6;
-  --fg-dim: #9a9ca6;
-  --fg-faint: #5d606b;
-  --accent: #7aa2f7;
-  --danger: #f7768e;
-  --border: #2a2d37;
-  --scrim: rgb(0 0 0 / 0.55);
+  /* sonokai gutter_bg */
+  --bg: #25272e;
+  /* one step above --bg on the sonokai neutral ramp */
+  --bg-raised: #2c2e34;
+  /* the code and preformatted surface, a step below --bg */
+  --bg-code: #1e2026;
+  /* sonokai picker_selected_bg — the hover step */
+  --bg-hover: #3b3e47;
+  /* sonokai picker_highlight_bg */
+  --bg-active: #44474e;
+  /* sonokai user_block_bg — a user entry's own surface */
+  --bg-user-entry: #30323a;
+  /* sonokai primary_text */
+  --fg: #e2e2e3;
+  /* sonokai muted_text, lifted to clear 3:1 on the raised surfaces */
+  --fg-dim: #93959b;
+  /* a fainter step of the same ramp, for the least important text */
+  --fg-faint: #636575;
+  /* sonokai border_unfocused */
+  --border: #44474e;
+  /* sonokai focus_accent — the purple */
+  --accent: #c4a7e7;
+  /* sonokai error_text */
+  --danger: #ed8796;
+  /* sonokai success */
+  --ok: #a9d89d;
+  /* the modal/overlay scrim: black at the shipped opacity */
+  --scrim: rgba(0, 0, 0, .55);
+  /* text on an accent or error fill: near-black */
+  --on-fill: #2c2e34;
+  /* the shadow a raised card casts */
+  --shadow: rgba(0, 0, 0, .5);
   --radius: 8px;
   color-scheme: dark;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
-
+:root[data-theme="light"] {
+  /* nord-light gutter_bg (Snow Storm, Nord6) */
+  --bg: #eceff4;
+  /* nord-light infopopup_bg (Nord4) */
+  --bg-raised: #e5e9f0;
+  /* nord-light gutter_context_included, a step below --bg */
+  --bg-code: #e2e6ee;
+  /* nord-light picker_highlight_bg */
+  --bg-hover: #e7edf5;
+  /* nord-light picker_selected_bg */
+  --bg-active: #dce6f2;
+  /* nord-light user_block_bg (Nord4) */
+  --bg-user-entry: #e5e9f0;
+  /* nord-light primary_text (Polar Night, Nord0) */
+  --fg: #2e3440;
+  /* nord-light muted_text, lifted to clear 3:1 */
+  --fg-dim: #67768f;
+  /* a fainter step of the same ramp */
+  --fg-faint: #7b88a1;
+  /* nord-light border_unfocused (Snow Storm, Nord4) */
+  --border: #d8dee9;
+  /* nord-light focus_accent (Frost, Nord10), deepened for the text floor */
+  --accent: #4a6e95;
+  /* nord-light error_text (Aurora red, Nord11), deepened */
+  --danger: #a8404a;
+  /* nord-light success (Aurora green, Nord14), deepened */
+  --ok: #3d6b2a;
+  /* the scrim keeps its dark wash over the pale palette */
+  --scrim: rgba(0, 0, 0, .55);
+  /* on fills: the dark ink */
+  --on-fill: #2e3440;
+  /* the shadow a raised card casts, lighter over a pale page */
+  --shadow: rgba(46, 52, 64, .18);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"], :root:not([data-theme]) {
+    --bg: #eceff4;
+    --bg-raised: #e5e9f0;
+    --bg-code: #e2e6ee;
+    --bg-hover: #e7edf5;
+    --bg-active: #dce6f2;
+    --bg-user-entry: #e5e9f0;
+    --fg: #2e3440;
+    --fg-dim: #67768f;
+    --fg-faint: #7b88a1;
+    --border: #d8dee9;
+    --accent: #4a6e95;
+    --danger: #a8404a;
+    --ok: #3d6b2a;
+    --scrim: rgba(0, 0, 0, .55);
+    --on-fill: #2e3440;
+    --shadow: rgba(46, 52, 64, .18);
+    color-scheme: light;
+  }
+}
 * { box-sizing: border-box; }
 
-html, body { height: 100%; margin: 0; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
 body { background: var(--bg); color: var(--fg); }
 
-#app, .app { height: 100%; }
-.app { display: grid; grid-template-columns: 260px 1fr; }
+#app, .app { height: 100%; min-height: 0; }
+/* Two grid children; each needs `min-width: 0` or its content's minimum
+   widens the column past the track (a long title, a wide table). */
+.app { display: grid; grid-template-columns: 260px minmax(0, 1fr); overflow: hidden; }
 
 /* ---- session rail ---- */
 .rail {
   border-right: 1px solid var(--border);
   background: var(--bg-raised);
   padding: 12px;
+  min-width: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+}
+/* The title bar's `#`: a phone control — the rail is pinned in place at
+   desktop widths and there is nothing to toggle. It takes its size the
+   way its neighbours do, from the same padding and line-height, so it is
+   as tall as the hamburger and the model chip beside it; `flex: none`
+   keeps it from ever stretching across the bar. */
+.sessions-button {
+  display: none;
+  flex: none;
+}
+.drawer-scrim { display: none; }
+/* The two-list control above the rows. */
+.rail-toggle {
+  display: flex;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.rail-tab {
+  flex: 1;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.rail-tab + .rail-tab { border-left: 1px solid var(--border); }
+.rail-tab:hover { color: var(--fg); }
+.rail-tab[aria-selected="true"] { background: var(--bg-active); color: var(--fg); }
+/* A row and its kebab sit on one line; the session button takes the rest. */
+.session-row { display: flex; align-items: center; gap: 2px; }
+.session-row .session { flex: 1 1 0; min-width: 0; }
+.row-menu { position: relative; flex: 0 0 auto; white-space: nowrap; }
+.row-menu-button {
+  background: transparent;
+  color: var(--fg-faint);
+  border: 0;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.row-menu-button:hover { color: var(--fg); background: var(--bg-hover); }
+.row-menu-popup {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+  min-width: 180px;
+  max-width: min(240px, calc(100vw - 24px));
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  box-shadow: 0 6px 24px var(--shadow);
+}
+.row-menu-item {
+  width: 100%;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  border: 0;
+  border-radius: 5px;
+  padding: 7px 10px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.row-menu-item:hover { background: var(--bg-hover); }
+/* The rail's last row: open upward, or the popup is clipped by the rail's
+   own scroll edge. `last-of-type` reaches the final <li> of the list. */
+.sessions > li:last-of-type .row-menu-popup,
+.sessions > li:nth-last-of-type(2) .row-menu-popup {
+  top: auto;
+  bottom: 100%;
 }
 .rail-action {
   width: 100%;
@@ -39,10 +202,20 @@ body { background: var(--bg); color: var(--fg); }
   border: 1px dashed var(--border);
   border-radius: var(--radius);
   cursor: pointer;
-  text-align: left;
+  text-align: center;
 }
 .rail-action:hover { color: var(--fg); border-color: var(--fg-faint); }
-.sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+/* `minmax(0, 1fr)`: an implicit `auto` track sizes to its widest item's
+   content — a `nowrap` title — and widens the list past the rail, so
+   neither the title's ellipsis nor the kebab's position could hold. */
+.sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
 .session {
   width: 100%;
   display: flex;
@@ -58,12 +231,34 @@ body { background: var(--bg); color: var(--fg); }
 }
 .session:hover { background: var(--bg-hover); color: var(--fg); }
 .session.active { background: var(--bg-hover); color: var(--fg); }
+/* Shared by the sidebar's rows and the pickers' rows, which stack the
+   title above its meta line in a column. There a zero flex-basis is a
+   zero HEIGHT — the title collapses and only the meta line shows — so
+   this stays the original `flex: 1` (a percentage basis, which a column
+   resolves to its natural height). The sidebar's own truncation is
+   scoped below, where the row is a single line. */
 .session-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-meta { color: var(--fg-faint); font-size: 12px; }
+/* The sidebar's row is one line, and its title must give way to the
+   kebab rather than widen the rail: a zero basis in a row is a zero
+   width, which is the truncation the ellipsis needs. */
+.session .session-title { flex: 1 1 0; min-width: 0; }
 .session-busy { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 
 /* ---- main column ---- */
-.main { display: grid; grid-template-rows: auto 1fr auto; min-width: 0; height: 100%; }
+.main {
+  display: grid;
+  /* Both tracks clamp to the box. The column is implicit, and an implicit
+     track is `auto` — it sizes to its content's minimum, so a row wider
+     than a phone (the busy composer's two buttons) pushed the column
+     past the viewport and the draft off the left edge. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
 
 .title-bar {
   display: flex;
@@ -150,7 +345,7 @@ body { background: var(--bg); color: var(--fg); }
 .model-chip:hover { color: var(--fg); border-color: var(--fg-faint); }
 
 /* ---- transcript ---- */
-.transcript { overflow-y: auto; padding: 16px 20px; }
+.transcript { min-height: 0; overflow-y: auto; padding: 16px 20px; }
 .entry { margin-bottom: 12px; }
 .entry-role {
   display: inline-block;
@@ -163,7 +358,7 @@ body { background: var(--bg); color: var(--fg); }
 .entry-text { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
 .entry-prose { line-height: 1.55; word-break: break-word; }
 .entry-prose pre, .tool pre {
-  background: var(--bg-raised);
+  background: var(--bg-code);
   padding: 10px 12px;
   border-radius: var(--radius);
   overflow-x: auto;
@@ -189,11 +384,32 @@ body { background: var(--bg); color: var(--fg); }
 .citations a { color: var(--accent); }
 
 /* ---- composer ---- */
-.composer { border-top: 1px solid var(--border); padding: 12px 16px; }
+.composer { border-top: 1px solid var(--border); padding: 12px 18px; }
+/* The chips strip is its own row above the input row, bounded so many
+   attachments never push the composer over the viewport. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; overflow-y: auto; max-height: 132px; min-height: 0; margin-bottom: 10px; }
+.chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+.chip-img { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; display: block; }
+.chip-name { font-size: 12px; color: var(--fg-dim); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-x { background: transparent; color: var(--fg-dim); border: 0; font: inherit; cursor: pointer; padding: 0 2px; line-height: 1; flex: 0 0 auto; }
+.chip-x:hover { color: var(--danger); }
+/* One visual row: the draft, the attach control, and the buttons, all
+   stretched to the draft's height. */
+.composer-row { display: flex; flex-wrap: nowrap; gap: 10px; }
 .draft {
-  width: 100%;
-  min-height: 64px;
-  resize: vertical;
+  flex: 1;
+  min-width: 0;
+  height: 64px;
+  resize: none;
   background: var(--bg-raised);
   color: var(--fg);
   border: 1px solid var(--border);
@@ -202,7 +418,24 @@ body { background: var(--bg); color: var(--fg); }
   font: inherit;
 }
 .draft:focus { outline: none; border-color: var(--accent); }
-.composer-actions { display: flex; gap: 8px; margin-top: 8px; }
+.attach {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.attach:hover { border-color: var(--accent); }
+.attach input[type="file"] { display: none; }
+.composer-actions { display: flex; gap: 8px; }
 .composer-actions button {
   padding: 6px 14px;
   border-radius: var(--radius);
@@ -211,12 +444,81 @@ body { background: var(--bg); color: var(--fg); }
   color: var(--fg);
   cursor: pointer;
   font: inherit;
+  align-self: stretch;
 }
 .composer-actions button:hover:not(:disabled) { background: var(--bg-hover); }
 .composer-actions button:disabled { color: var(--fg-faint); cursor: not-allowed; }
-.composer-actions .primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+.composer-actions .primary { background: var(--accent); color: var(--on-fill); border-color: var(--accent); font-weight: 600; }
 .composer-actions .danger { color: var(--danger); border-color: var(--danger); }
 .composer-error { margin-top: 8px; color: var(--danger); font-size: 13px; }
+
+/* A user entry's images, beneath its text. */
+.entry-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border: 1px solid var(--border); display: block; }
+
+/* The model picker's filter row: the filter, then the refresh button. */
+.modal-head { display: flex; gap: 8px; margin-bottom: 8px; }
+.modal-head .modal-filter { flex: 1; margin-bottom: 0; }
+.refresh-models {
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.refresh-models:hover:not(:disabled) { border-color: var(--accent); }
+.refresh-models:disabled { color: var(--fg-faint); cursor: not-allowed; }
+
+/* The new-session modal's form. */
+.new-session-title { margin: 0 0 12px; font-size: 16px; }
+.new-session-empty { color: var(--fg-dim); margin: 0; }
+.new-session-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.new-session-field label { color: var(--fg-dim); font-size: .85rem; }
+.new-session-field select, .new-session-field input {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font: inherit;
+}
+.new-session-hint { margin: 0; color: var(--fg-faint); font-size: 12px; }
+.new-session-actions { display: flex; justify-content: flex-end; }
+.new-session-submit {
+  background: var(--accent);
+  color: var(--on-fill);
+  border: 0;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The menu's segmented color-mode group. */
+.menu-group {
+  display: flex;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  gap: 4px;
+}
+.menu-group-option {
+  flex: 1;
+  background: transparent;
+  color: var(--fg);
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 7px 4px;
+  font: inherit;
+  cursor: pointer;
+}
+.menu-group-option:hover { background: var(--bg-hover); }
+.menu-group-option.active { background: var(--bg-active); border-color: var(--accent); }
 
 /* ---- modals ---- */
 .modal-backdrop {
@@ -236,7 +538,7 @@ body { background: var(--bg); color: var(--fg); }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.5);
+  box-shadow: 0 12px 40px var(--shadow);
 }
 .modal-filter {
   width: 100%;
@@ -428,9 +730,72 @@ body { background: var(--bg); color: var(--fg); }
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgb(0 0 0 / 0.5);
+  background: var(--scrim);
   color: var(--fg);
   font-size: 15px;
   backdrop-filter: blur(2px);
   z-index: 10;
+}
+
+/* ---- phone: the rail becomes an off-canvas drawer ---- */
+@media (max-width: 767px) {
+  .app { grid-template-columns: 1fr; }
+  .rail {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(300px, 84vw);
+    z-index: 50;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform .25s ease, visibility .25s;
+    box-shadow: none;
+  }
+  .rail.open { transform: translateX(0); visibility: visible; }
+  .drawer-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: var(--scrim);
+    z-index: 40;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .drawer-scrim.open { visibility: visible; pointer-events: auto; }
+  .sessions-button {
+    display: inline-flex;
+    background: var(--bg-raised);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .sessions-button:hover { border-color: var(--accent); }
+  .sessions-button:focus-visible { outline: 1px solid var(--accent); }
+  /* The composer keeps its one row on a phone — the draft, `+` and the
+     buttons on one line, the chips above — at the same height as at
+     desktop. Only the touch sizes change: a 16px draft (no iOS
+     zoom-on-focus) and a 40px floor on every control, below the row's
+     own height. */
+  .composer { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .draft { font-size: 16px; }
+  .composer-actions { flex: none; }
+  .composer-actions button, .attach { min-height: 40px; padding-left: 10px; padding-right: 10px; }
+}
+
+/* The count beside Q: how many messages wait behind the running turn. A
+   queued message is not in the transcript until its turn runs, so this is
+   the only sign it was taken. */
+.queue-depth {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 18px;
 }

@@ -28,9 +28,35 @@ export interface MenuItem {
   readonly run: () => void;
 }
 
+/** One option of a segmented group: what it says and whether it is current. */
+export interface MenuGroupOption {
+  /** A stable id, sent back when picked. */
+  readonly id: string;
+  /** The option's label. */
+  readonly label: string;
+  /** Whether this option is the current one. */
+  readonly active: boolean;
+}
+
+/** A segmented control at the end of the panel — the color-mode group. */
+export interface MenuGroup {
+  /** A stable id for the group's test id. */
+  readonly id: string;
+  /** The group's accessible name. */
+  readonly label: string;
+  /** The test id stem for the group. */
+  readonly testId: string;
+  /** The options, in order. */
+  readonly options: readonly MenuGroupOption[];
+  /** Runs with the picked option's id. The menu stays open. */
+  readonly pick: (id: string) => void;
+}
+
 export interface MenuProps {
   /** The items the panel lists, in order. An empty list renders no item. */
   readonly items: readonly MenuItem[];
+  /** The groups after the items, in order. */
+  readonly groups?: readonly MenuGroup[];
 }
 
 export function Menu(props: MenuProps): JSX.Element {
@@ -96,6 +122,30 @@ export function Menu(props: MenuProps): JSX.Element {
             >
               {item.label}
             </button>
+          )}
+        </For>
+        <For each={props.groups}>
+          {(group) => (
+            <div
+              class="menu-group"
+              role="group"
+              aria-label={group.label}
+              data-testid={group.testId}
+            >
+              <For each={group.options}>
+                {(option) => (
+                  <button
+                    type="button"
+                    class={`menu-group-option${option.active ? ' active' : ''}`}
+                    data-testid={`${group.testId}-${option.id}`}
+                    aria-pressed={option.active ? 'true' : 'false'}
+                    onClick={() => group.pick(option.id)}
+                  >
+                    {option.label}
+                  </button>
+                )}
+              </For>
+            </div>
           )}
         </For>
       </div>

@@ -48,8 +48,8 @@ pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
             last_entry_id,
             revision,
         } => actions::hello(out, last_entry_id.as_ref(), revision),
-        ClientMsg::Send { text } => actions::send(out, text).await,
-        ClientMsg::Queue { text } => actions::queue(out, text).await,
+        ClientMsg::Send { text, images } => actions::send(out, text, images).await,
+        ClientMsg::Queue { text, images } => actions::queue(out, text, images).await,
         ClientMsg::Cancel => actions::cancel(out).await,
         ClientMsg::ActivateSession { session_id } => {
             actions::activate_session(out, session_id).await
@@ -67,5 +67,17 @@ pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
         ClientMsg::ToggleMcp { server } => actions::toggle_mcp(out, &server).await,
         ClientMsg::PersonaRows { filter } => actions::persona_rows(out, filter),
         ClientMsg::SwitchPersona { persona } => actions::switch_persona(out, &persona).await,
+        ClientMsg::RefreshModels => actions::refresh_models(out).await,
+        ClientMsg::SetTheme { theme } => actions::set_theme(out, theme).await,
+        ClientMsg::SetLibrary {
+            session_id,
+            in_library,
+        } => actions::set_library(out, session_id, in_library).await,
+        ClientMsg::NewSessionOptions => actions::new_session_options(out),
+        ClientMsg::CreateSession {
+            project,
+            lifecycle,
+            args,
+        } => actions::create_session(out, project, lifecycle, args).await,
     }
 }

@@ -40,6 +40,17 @@ jinn-mcp-msg = { workspace = true }
 jinn-persona-msg = { workspace = true }
 # `TextRun` — the matched/plain split the shared skill filter returns.
 jinn-selection-widget = { workspace = true }
+# The composer's image attachments ingest through the `read_image` tool's
+# converter, shared as a library crate (sniff, transcode to PNG, cap).
+jinn-llm-support = { workspace = true }
+# The new-session form lists the configured lifecycles and counts the
+# arguments each setup declares. Contract crate only.
+jinn-session-lifecycle-msg = { workspace = true }
+# An image URL in the message text is fetched by the server; base64 decodes
+# the composer's uploads — the same pinned reqwest shape the original web
+# UI uses.
+reqwest = { workspace = true }
+base64 = { workspace = true }
 axum = { version = "0.8", features = ["ws"] }
 # The stored-session picker ranks titles with the terminal picker's own matcher.
 fuzzy-matcher = "0.3"
@@ -71,6 +82,10 @@ jinn-testutil = { workspace = true }
 jinn-cell-catalog = { workspace = true }
 # Test sessions carry the store's own timestamp type.
 jiff = { workspace = true }
+# The queue-depth tests put real items on a session's turn queue, the way
+# the session actor does on a busy-phase enqueue; the item type is this
+# crate's and is not re-exported by anything /web2 depends on in production.
+jinn-turn-dispatch-msg = { workspace = true }
 # The test store implements the store trait's async methods.
 async-trait = { workspace = true }
 

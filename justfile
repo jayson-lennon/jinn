@@ -1086,6 +1086,23 @@ release TAG:
         exit 1
     fi
 
+    # --- Pre-flight: the /web2 bundle must be the one the sources build ---
+    # The binary embeds the committed bundle, and cargo refuses a stale one —
+    # but only against the source hash the manifest already carries. Building
+    # it here is what proves the committed bytes come from the committed
+    # sources. It runs BEFORE the push on purpose: a bundle this rebuilds is
+    # one the commit does not hold, and pushing first would publish source
+    # that does not match the binary the tarballs are about to ship.
+    just webui2-build
+    # `git status` rather than `diff`: a new or deleted vendor file is as much
+    # a mismatch as an edited one.
+    if [ -n "$(git status --porcelain -- crates/slices/jinn-webui2/resources/vendor)" ]; then
+        echo "Error: just webui2-build changed the /web2 bundle." >&2
+        echo "  The committed bundle was not built from the committed sources." >&2
+        echo "  Commit the rebuilt bundle, then run 'just release v${VERSION}' again." >&2
+        exit 1
+    fi
+
     # --- 1. Push main (and tags) to GitHub ---
     just sync-github
 

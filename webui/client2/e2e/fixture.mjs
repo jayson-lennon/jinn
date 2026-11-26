@@ -25,6 +25,7 @@ export const sel = {
   DRAFT: '[data-testid="draft"]',
   SEND: '[data-testid="send"]',
   QUEUE: '[data-testid="queue"]',
+  QUEUE_DEPTH: '[data-testid="queue-depth"]',
   CANCEL: '[data-testid="cancel"]',
   COMPOSER_ERROR: '[data-testid="composer-error"]',
   TITLE: '[data-testid="title"]',
@@ -63,6 +64,37 @@ export const sel = {
   PERSONA_ROW_NAMED: (name) => `[data-testid="persona-row"][data-persona="${name}"]`,
   SESSION_ROW: '[data-testid="session-row"]',
   ACTIVE_SESSION_ROW: '.session.active[data-testid="session-row"]',
+  /** One rail row's wrapper, by session id. The row button inside also
+   *  carries `data-session-id`, so a bare attribute selector matches two
+   *  elements; this one names the wrapper alone. */
+  ROW_WRAP: (id) => `[data-testid="session-row-wrap"][data-session-id="${id}"]`,
+  /** The title bar's `#`, shown only below 768px. */
+  SESSIONS_BUTTON: '[data-testid="sessions-button"]',
+  /** The off-canvas rail's scrim. */
+  DRAWER_SCRIM: '[data-testid="drawer-scrim"]',
+  RAIL: '[data-testid="rail"]',
+  SESSIONS_VIEW: '[data-testid="sessions-view"]',
+  LIBRARY_VIEW: '[data-testid="library-view"]',
+  ROW_MENU: '[data-testid="row-menu"]',
+  ROW_MENU_LIBRARY: '[data-testid="row-menu-library"]',
+  /** The composer's `+`, and the hidden file input behind it. */
+  ATTACH: '[data-testid="attach"]',
+  ATTACH_INPUT: '[data-testid="attach-input"]',
+  CHIP: '[data-testid="chip"]',
+  CHIP_REMOVE: '[data-testid="chip-remove"]',
+  ATTACHMENT: '[data-testid="attachment"]',
+  REFRESH_MODELS: '[data-testid="refresh-models"]',
+  MENU_ITEM_NEW_SESSION: '[data-testid="menu-item-new-session"]',
+  MENU_ITEM_SESSIONS: '[data-testid="menu-item-sessions"]',
+  NEW_SESSION_MODAL: '[data-testid="new-session-modal"]',
+  NEW_SESSION_PROJECT: '[data-testid="new-session-project"]',
+  NEW_SESSION_LIFECYCLE: '[data-testid="new-session-lifecycle"]',
+  NEW_SESSION_ARGS: '[data-testid="new-session-args"]',
+  NEW_SESSION_EMPTY: '[data-testid="new-session-empty"]',
+  CREATE_SESSION: '[data-testid="create-session"]',
+  THEME_LIGHT: '[data-testid="theme-group-light"]',
+  THEME_DARK: '[data-testid="theme-group-dark"]',
+  THEME_SYSTEM: '[data-testid="theme-group-system"]',
 };
 
 /** The sample provider's model — the keyless one every scratch boot configures. */
@@ -132,29 +164,131 @@ export async function startBusyTurn(page) {
 }
 
 /**
- * Creates a second session on the test's instance and returns its id.
+ * Creates a second session on the test's instance through `/web2`'s
+ * own New-session menu item and modal, and returns its id.
  *
- * There is no "new session" message in `/web2`'s first cut, so the
- * session is created the way a user of the original UI creates one: a
- * second page on the same jinn drives its new-session modal, and the
- * id is read from the URL it lands on. The original UI's hooks are its
- * published contract ids.
+ * The id is the `data-session-id` of the row the new session lands on
+ * in the creating page's rail, which is pushed without a reload.
+ *
+ * @param {import('@playwright/test').Page} page the test's own page.
+ * @returns {Promise<string>} the new session's id.
  */
-export async function createSession(jinn, browser) {
-  const page = await browser.newPage();
-  try {
-    await page.goto(`${jinn.legacyUrl}`);
-    await page.locator("#menu-button").click();
-    await page.locator("#menu-item-new-session").click();
-    await expect(page.locator("#session-new-modal")).toBeVisible();
-    await page.locator("#session-new-submit").click();
-    const prefix = "/web/session/";
-    await expect(page).toHaveURL(new RegExp(`${prefix}.+`));
-    const url = page.url();
-    return url.slice(url.indexOf(prefix) + prefix.length).replace(/[?#].*$/, "");
-  } finally {
-    await page.close();
-  }
+export async function createSession(page) {
+  /** The ids the rail lists right now. */
+  const rowIds = () =>
+    page
+      .locator('[data-testid="session-row-wrap"]')
+      .evaluateAll((rows) => rows.map((row) => row.dataset.sessionId));
+  const before = await rowIds();
+  await openNewSession(page);
+  await page.locator(sel.CREATE_SESSION).click();
+  // The modal closes at once; the row lands when the push arrives.
+  await expect(page.locator(sel.CREATE_SESSION)).toHaveCount(0);
+  await expect
+    .poll(async () => (await rowIds()).filter((id) => !before.includes(id)).length, {
+      timeout: 10_000,
+    })
+    .toBe(1);
+  return (await rowIds()).find((id) => !before.includes(id));
+}
+
+/**
+ * Opens the hamburger menu through its title-bar button and waits for
+ * its panel to be visible.
+ */
+export async function openMenu(page) {
+  await page.locator(sel.MENU_BUTTON).click();
+  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+}
+
+/** Picks a color mode from the menu's color-mode group. */
+export async function pickTheme(page, mode) {
+  await openMenu(page);
+  await page.locator(sel[`THEME_${mode.toUpperCase()}`]).click();
+}
+
+/** Opens the New session modal through the menu and waits for its choices. */
+export async function openNewSession(page) {
+  await openMenu(page);
+  await page.locator(sel.MENU_ITEM_NEW_SESSION).click();
+  await expect(page.locator(sel.CREATE_SESSION)).toBeVisible();
+}
+
+/** Opens the rail's Library view. */
+export async function openLibraryView(page) {
+  await page.locator(sel.LIBRARY_VIEW).click();
+}
+
+/**
+ * Adds a session to, or removes it from, the library through its row's `⋮`.
+ *
+ * @param {import('@playwright/test').Page} page the test's own page.
+ * @param {string} sessionId the session whose row holds the `⋮`.
+ */
+export async function toggleLibraryThroughMenu(page, sessionId) {
+  await page.locator(`${sel.ROW_WRAP(sessionId)} ${sel.ROW_MENU}`).click();
+  await page.locator(sel.ROW_MENU_LIBRARY).click();
+}
+
+/** The id of the session the page is viewing, or null when none is. */
+export async function viewedSessionId(page) {
+  return page.locator(sel.ACTIVE_SESSION_ROW).getAttribute("data-session-id");
+}
+
+/**
+ * Attaches an image through the composer's `+` and waits for its chip.
+ *
+ * @param {import('@playwright/test').Page} page the test's own page.
+ * @param {{ name: string, bytes: Buffer, mimeType: string }} image the file to attach.
+ */
+export async function attachImage(page, image) {
+  await page.locator(sel.ATTACH_INPUT).setInputFiles({
+    name: image.name,
+    mimeType: image.mimeType,
+    buffer: image.bytes,
+  });
+  await expect(page.locator(sel.CHIP).filter({ hasText: image.name })).toHaveCount(1);
+}
+
+/** The 1×1 PNG every attachment spec attaches, and its file name. */
+export const TINY_PNG = {
+  name: "dot.png",
+  mimeType: "image/png",
+  bytes: Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+    "base64",
+  ),
+};
+
+/**
+ * Pastes an image into the composer and waits for its chip.
+ *
+ * The bytes cross as a base64 string: a structured clone turns a Node
+ * `Buffer` into a bare `Uint8Array`, whose `toString("base64")` is not
+ * base64 at all. The browser decodes the string and builds the
+ * `DataTransfer` a real clipboard would hand over.
+ */
+export async function pasteImage(page, image) {
+  await page.evaluate(
+    ({ name, mimeType, base64 }) => {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let at = 0; at < binary.length; at += 1) bytes[at] = binary.charCodeAt(at);
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], name, { type: mimeType }));
+      document
+        .querySelector('[data-testid="draft"]')
+        .dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData: transfer,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+    },
+    { name: image.name, mimeType: image.mimeType, base64: image.bytes.toString("base64") },
+  );
+  await expect(page.locator(sel.CHIP).filter({ hasText: image.name })).toHaveCount(1);
 }
 
 /**
@@ -180,15 +314,6 @@ export function archiveSession(jinn, id) {
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
-}
-
-/**
- * Opens the hamburger menu through its title-bar button and waits for
- * the panel to be visible.
- */
-export async function openMenu(page) {
-  await page.locator(sel.MENU_BUTTON).click();
-  await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
 }
 
 /**
@@ -249,6 +374,7 @@ const test = base.extend({
       skill: stage.skill === true,
       persona: stage.persona === true,
       mcp: stage.mcp === true,
+      textOnly: stage.textOnly === true,
     });
     await use(run);
     await teardownJinn(run);

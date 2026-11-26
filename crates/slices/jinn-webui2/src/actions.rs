@@ -19,13 +19,15 @@ use jinn_kernel::common::actor_deps::BusPublish as _;
 use jinn_mcp_msg::McpRowBadge;
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_preferences_config::schemas::mcp::McpServersConfig;
-use jinn_provider_selection_msg::ProviderSwitch;
+use jinn_provider_selection_msg::{ProviderSwitch, RefreshModels};
+use jinn_session_lifecycle_msg::command_template::CommandTemplate;
 use jinn_session_msg::MarkSessionInteracted;
-use jinn_session_store_msg::{PersistSession, SessionLoadRequested};
+use jinn_session_store_msg::{PersistSession, SessionLoadRequested, SetSessionLibrary};
 use jinn_webui2_msg::{
-    EntryEnvelope, EntryUpsertBody, ErrorBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelRowBody,
-    ModelRowsBody, PersonaRowBody, PersonaRowsBody, PickerRowBody, PickerRowsBody, ServerMsg,
-    SkillRowBody, SkillRowsBody, TextRunBody, TitleBody, ToolRowBody, ToolRowsBody,
+    EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody,
+    McpRowBody, McpRowsBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody,
+    PersonaRowsBody, PickerRowBody, PickerRowsBody, ServerMsg, SkillRowBody, SkillRowsBody,
+    TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
 use marked_path::MarkedPathAccess as _;
 
@@ -59,27 +61,74 @@ pub enum Refusal {
     UnknownMcpServer,
     /// The persona catalog has no entry by that name.
     UnknownPersona,
+    /// The theme is not one of the three modes.
+    UnknownTheme(String),
+    /// No live session and nothing in the store carries that id.
+    UnknownLibraryTarget(SessionId),
+    /// The request named no configured `[[project.entry]]`.
+    UnknownProject(String),
+    /// A configured project path is neither `~`-prefixed nor absolute.
+    BadProjectPath(String),
+    /// The lifecycle value is not blank and not a configured script name.
+    UnknownLifecycle(String),
+    /// The args parsed to fewer values than the lifecycle's setup declares.
+    MissingArgs {
+        /// The lifecycle whose minimum was missed.
+        lifecycle: String,
+        /// How many args the request carried.
+        have: usize,
+        /// How many the setup template requires.
+        want: usize,
+    },
 }
 
 impl Refusal {
-    fn message(&self) -> &'static str {
+    /// The sentence the page shows the user.
+    fn sentence(&self) -> String {
         match self {
-            Self::SessionBusy => "session is busy — queue the message instead",
-            Self::EmptyText => "message is empty",
-            Self::UnknownSession => "unknown session",
-            Self::NoActiveSession => "no active session",
-            Self::StoreUnavailable => "session store unavailable",
-            Self::UnknownSkill => "unknown skill",
-            Self::UnknownTool => "unknown tool",
-            Self::UnknownMcpServer => "unknown mcp server",
-            Self::UnknownPersona => "unknown persona",
+            Self::SessionBusy => "session is busy — queue the message instead".to_owned(),
+            Self::EmptyText => "message is empty".to_owned(),
+            Self::UnknownSession => "unknown session".to_owned(),
+            Self::NoActiveSession => "no active session".to_owned(),
+            Self::StoreUnavailable => "session store unavailable".to_owned(),
+            Self::UnknownSkill => "unknown skill".to_owned(),
+            Self::UnknownTool => "unknown tool".to_owned(),
+            Self::UnknownMcpServer => "unknown mcp server".to_owned(),
+            Self::UnknownPersona => "unknown persona".to_owned(),
+            Self::UnknownTheme(theme) => {
+                format!("unknown theme `{theme}` (want light, dark, or system)")
+            }
+            Self::UnknownLibraryTarget(id) => {
+                format!("no session with id {id} is live or stored")
+            }
+            Self::UnknownProject(project) => {
+                format!("project {project:?} is not a configured [[project.entry]]")
+            }
+            Self::BadProjectPath(path) => {
+                format!("configured project path {path:?} is neither ~-prefixed nor absolute")
+            }
+            Self::UnknownLifecycle(name) => {
+                format!("lifecycle {name:?} is not a configured [[session_lifecycle.script]]")
+            }
+            Self::MissingArgs {
+                lifecycle,
+                have,
+                want,
+            } => format!("lifecycle {lifecycle:?} takes {want} argument(s), got {have}"),
         }
     }
 }
 
 fn refused(reason: &Refusal) -> Reply {
+    let message = reason.sentence();
+    Reply::one(ServerMsg::Error(ErrorBody { message }))
+}
+
+/// The reply for a refusal whose text is not one of the fixed vocabulary:
+/// an image ingestion failure, which names the offender it is about.
+fn refused_with(message: impl Into<String>) -> Reply {
     Reply::one(ServerMsg::Error(ErrorBody {
-        message: reason.message().to_owned(),
+        message: message.into(),
     }))
 }
 
@@ -150,11 +199,11 @@ fn entries_after(
         .enumerate()
         .skip(cursor_index + 1)
         .map(|(index, entry)| {
-            ServerMsg::EntryUpsert(EntryUpsertBody {
+            ServerMsg::EntryUpsert(Box::new(EntryUpsertBody {
                 session_id: session_id.clone(),
                 index,
                 entry: EntryEnvelope::new(entry.clone()),
-            })
+            }))
         })
         .collect()
 }
@@ -162,10 +211,10 @@ fn entries_after(
 fn snapshot_reply(out: &OutboundHandle) -> Reply {
     let session_id = out.state().read().session.active_session_id().clone();
     out.mark_delivered(&session_id);
-    Reply::one(ServerMsg::Snapshot(snapshot::snapshot(
+    Reply::one(ServerMsg::Snapshot(Box::new(snapshot::snapshot(
         out.state(),
         out.revisions(),
-    )))
+    ))))
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +227,7 @@ fn snapshot_reply(out: &OutboundHandle) -> Reply {
 /// Mirrors the terminal's submit: `MarkSessionInteracted` first, then
 /// `EnqueueUserMessage`. A busy session is refused — the web has no
 /// steering, so a send while a turn runs would silently become a steer.
-pub async fn send(out: &OutboundHandle, text: String) -> Reply {
+pub async fn send(out: &OutboundHandle, text: String, images: Vec<ImageUploadBody>) -> Reply {
     let busy = out
         .state()
         .read()
@@ -189,19 +238,28 @@ pub async fn send(out: &OutboundHandle, text: String) -> Reply {
     if busy {
         return refused(&Refusal::SessionBusy);
     }
-    enqueue(out, text).await
+    enqueue(out, text, images).await
 }
 
 /// Queues a message for after the running turn.
 ///
 /// The same `EnqueueUserMessage` a send publishes; the turn dispatcher's
 /// existing busy-phase routing queues it. Works whether idle or busy.
-pub async fn queue(out: &OutboundHandle, text: String) -> Reply {
-    enqueue(out, text).await
+pub async fn queue(out: &OutboundHandle, text: String, images: Vec<ImageUploadBody>) -> Reply {
+    enqueue(out, text, images).await
 }
 
-async fn enqueue(out: &OutboundHandle, text: String) -> Reply {
-    if text.trim().is_empty() {
+/// Publishes one message on the idle-or-busy active session, images and all.
+///
+/// Ingestion runs first, before any state is read: every image refusal is
+/// answered before the session lookup matters, and nothing is published
+/// until every image has passed. A send may carry images and no text.
+async fn enqueue(out: &OutboundHandle, text: String, images: Vec<ImageUploadBody>) -> Reply {
+    let attachments = match crate::attachment::ingest_send_images(&text, &images).await {
+        Ok(attachments) => attachments,
+        Err(refusal) => return refused_with(refusal),
+    };
+    if text.trim().is_empty() && attachments.is_empty() {
         return refused(&Refusal::EmptyText);
     }
     let session_id = out.state().read().session.active_session_id().clone();
@@ -213,7 +271,7 @@ async fn enqueue(out: &OutboundHandle, text: String) -> Reply {
     .await;
     out.publish(EnqueueUserMessage {
         session_id,
-        entry: ChatEntry::user(text),
+        entry: ChatEntry::user_with_attachments(text, attachments),
     })
     .await;
     Reply::none()
@@ -300,7 +358,7 @@ const ACTIVATION_POLL: Duration = Duration::from_millis(5);
 ///
 /// The read guard is taken, checked, and dropped before each sleep; it is
 /// never held across the await.
-async fn wait_for_activation(state: &jinn_kernel::State, session_id: &SessionId) {
+pub(crate) async fn wait_for_activation(state: &jinn_kernel::State, session_id: &SessionId) {
     let deadline = tokio::time::Instant::now() + ACTIVATION_BUDGET;
     while *state.read().session.active_session_id() != *session_id {
         let now = tokio::time::Instant::now();
@@ -478,17 +536,33 @@ fn filter_model_rows(
 /// picker seeds from, so the two lists cannot drift: available models
 /// first, the active one promoted to the top when unfiltered.
 pub fn model_rows(out: &OutboundHandle, filter: String) -> Reply {
-    let (active, theme) = {
-        let guard = out.state().read();
-        let active = guard
-            .session
-            .active_session()
-            .profile()
-            .model
-            .display_str()
-            .to_owned();
-        (active, guard.frontend.theme.clone())
-    };
+    // The filter is remembered so a `ModelCacheStored` push — a refresh
+    // landing — can answer the view this picker is holding.
+    let session_id = out.state().read().session.active_session_id().clone();
+    out.remember_filter(&session_id, crate::outbound::RowsKind::Model, &filter);
+    let rows = model_row_bodies(out, &filter);
+    Reply::one(ServerMsg::ModelRows(ModelRowsBody {
+        session_id,
+        filter,
+        rows,
+    }))
+}
+
+/// The model picker's rows for a filter, built from the shared row builder.
+///
+/// A free function over the handle so a push builds the same rows a reply
+/// does — one builder, two callers.
+pub(crate) fn model_row_bodies(out: &OutboundHandle, filter: &str) -> Vec<ModelRowBody> {
+    let active = out
+        .state()
+        .read()
+        .session
+        .active_session()
+        .profile()
+        .model
+        .display_str()
+        .to_owned();
+    let theme = out.state().read().frontend.theme.clone();
     let model_cache = out.provider_cell().read().model_cache.clone();
 
     let all = {
@@ -505,8 +579,8 @@ pub fn model_rows(out: &OutboundHandle, filter: String) -> Reply {
     // shared fuzzy matcher and keeps only the rows that score; the sort
     // helper alone reorders and never narrows, so the filter is applied
     // here first, the same way, for the same result.
-    let matched = filter_model_rows(&all, &filter);
-    let rows = jinn_provider_selection_msg::sorted_entries(&matched, &filter, &active)
+    let matched = filter_model_rows(&all, filter);
+    jinn_provider_selection_msg::sorted_entries(&matched, filter, &active)
         .into_iter()
         .map(|entry| ModelRowBody {
             provider_id: entry.provider_id,
@@ -515,9 +589,7 @@ pub fn model_rows(out: &OutboundHandle, filter: String) -> Reply {
             is_available: entry.is_available,
             is_active: entry.is_active,
         })
-        .collect();
-
-    Reply::one(ServerMsg::ModelRows(ModelRowsBody { filter, rows }))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -1218,4 +1290,263 @@ fn tool_row_bodies(
             }
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Theme / library / model refresh
+// ---------------------------------------------------------------------------
+
+/// The color modes the page accepts.
+const THEMES: [&str; 3] = ["light", "dark", "system"];
+
+/// Sets the page's color mode.
+///
+/// The mode is validated against the three-value vocabulary (an unknown
+/// value was never rendered by the menu — the unrecognized-value refusal is
+/// the answer, never a silent default), then published as
+/// `UpdateAppState(SetWebTheme)` for the app-state actor to persist. The
+/// reply carries the submitted value, not the state cache: the actor
+/// applies the diff asynchronously, so a cache read would race it.
+pub async fn set_theme(out: &OutboundHandle, theme: String) -> Reply {
+    if !THEMES.contains(&theme.as_str()) {
+        return refused(&Refusal::UnknownTheme(theme));
+    }
+    out.publish(UpdateAppState {
+        updates: vec![AppStateUpdate::SetWebTheme(Some(theme.clone()))],
+    })
+    .await;
+    Reply::one(ServerMsg::Theme(ThemeBody { theme }))
+}
+
+/// Adds a session to, or removes it from, the library.
+///
+/// Publishes the existing `SetSessionLibrary` command and nothing else: the
+/// store actor persists the column, mirrors the flag into the in-memory
+/// session, and announces `SessionLibraryMembershipChanged` — which the
+/// outbound actor turns into a fresh sessions frame for every page. `/web2`
+/// writes no membership state of its own; a second writer would race the
+/// store actor's single-writer path.
+///
+/// An id neither live nor stored is refused before the publish.
+pub async fn set_library(out: &OutboundHandle, session_id: SessionId, in_library: bool) -> Reply {
+    let known_live = out.state().read().session.contains(&session_id);
+    if !known_live {
+        match out.session_store().load_session(&session_id).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return refused(&Refusal::UnknownLibraryTarget(session_id)),
+            Err(_) => return refused(&Refusal::StoreUnavailable),
+        }
+    }
+    out.publish(SetSessionLibrary {
+        session_id,
+        in_library,
+    })
+    .await;
+    Reply::none()
+}
+
+/// Asks the provider registry to rediscover its models.
+///
+/// Publishes the existing `RefreshModels` command (one declarant:
+/// `DiscoverActor`, the TUI's own discovery pipeline). It validates nothing
+/// and blocks on nothing: discovery is async, and the rows arrive when the
+/// model cache lands and the outbound actor pushes them. The page keeps its
+/// button busy until that push.
+pub async fn refresh_models(out: &OutboundHandle) -> Reply {
+    out.publish(RefreshModels).await;
+    Reply::none()
+}
+
+// ---------------------------------------------------------------------------
+// New session
+// Parity: the original web UI's `delivery::handle_create`, which is the
+// TUI project/lifecycle pickers' confirm and Discord `/new`
+// ---------------------------------------------------------------------------
+
+/// The new-session form's choices, read from the live configuration.
+///
+/// Projects are listed as their configured path string — the value a
+/// `CreateSession` sends back. Lifecycles are the configured script names
+/// with the argument count each setup declares; a `Builtin` setup carries
+/// no template and so takes none. The blank lifecycle is the form's own
+/// first row and is deliberately not listed.
+pub fn new_session_options(out: &OutboundHandle) -> Reply {
+    let config = out.config();
+    let projects: Vec<String> = config
+        .get_list::<jinn_preferences_config::schemas::ProjectConfig>()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|project| project.path.to_string_lossy().into_owned())
+        .collect();
+    let lifecycles: Vec<LifecycleOptionBody> = config
+        .get_list::<jinn_preferences_config::schemas::SessionLifecycle>()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|lifecycle| LifecycleOptionBody {
+            param_count: match lifecycle.setup.as_ref() {
+                Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(shell)) => {
+                    CommandTemplate::parse(shell).param_count()
+                }
+                Some(jinn_preferences_config::schemas::LifecycleCommand::Builtin(_)) | None => 0,
+            },
+            // The template's own spelling of each argument, not a number the
+            // page would have to invent a label for.
+            params: match lifecycle.setup.as_ref() {
+                Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(shell)) => {
+                    CommandTemplate::parse(shell)
+                        .params()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect()
+                }
+                Some(jinn_preferences_config::schemas::LifecycleCommand::Builtin(_)) | None => {
+                    Vec::new()
+                }
+            },
+            name: lifecycle.name,
+        })
+        .collect();
+    Reply::one(ServerMsg::NewSessionOptions(NewSessionOptionsBody {
+        projects,
+        lifecycles,
+    }))
+}
+
+/// Creates a session through the shared creation path.
+///
+/// The original web UI's `handle_create`, message for message. Validates
+/// against the config layer (the project must name a configured
+/// `[[project.entry]]`; the lifecycle must be blank or a configured
+/// `[[session_lifecycle.script]]`; the args must meet the lifecycle's
+/// parameter minimum), then — under one state write guard — stashes the
+/// `PendingSessionCreation` (the Discord precedent: the stash and the call
+/// are one synchronous unit, so this stash cannot race an abandoned
+/// picker's) and calls `handle_session_lifecycle_setup`, the one function
+/// the TUI pickers and Discord `/new` end in. The returned closures ride
+/// `jinn_kernel::Bridge`, the same drain the TUI's intent handler uses — no
+/// new schema, no typed publish.
+///
+/// The session is created active instance-wide. This handler publishes no
+/// `ActiveSessionChanged` of its own: the shared path's closures announce
+/// the creation, and the store actor publishes the activation fact on the
+/// paths that move the pointer. The outbound actor turns that fact into the
+/// snapshot every page follows; the reply here is the snapshot the asking
+/// page needs so it never waits on the event.
+pub async fn create_session(
+    out: &OutboundHandle,
+    project: String,
+    lifecycle: String,
+    args: String,
+) -> Reply {
+    let created = match create(out, &project, &lifecycle, &args) {
+        Ok(created) => created,
+        Err(refusal) => return refused(&refusal),
+    };
+    wait_for_activation(out.state(), &created).await;
+    snapshot_reply(out)
+}
+
+/// The validated creation: every refusal happens before any state is
+/// written, so a refused request leaves nothing behind.
+fn create(
+    out: &OutboundHandle,
+    project: &str,
+    lifecycle: &str,
+    args: &str,
+) -> Result<SessionId, Refusal> {
+    use jinn_kernel::session_lifecycle::intent::handle_session_lifecycle_setup;
+    use jinn_session_lifecycle_msg::command_template::parse_quoted_args;
+
+    let config = out.config();
+    let arg_values = parse_quoted_args(args);
+
+    let project_dir = resolve_project(config, project)?;
+    validate_lifecycle(config, lifecycle, &arg_values)?;
+
+    // One synchronous unit: stash the project, run the shared creation,
+    // collect the closures — the guard drops when the block ends, before
+    // any publish (guard discipline, and the reason the stash cannot go
+    // stale).
+    let closures = {
+        let mut guard = out.state().write();
+        guard.frontend.pending_creation = Some(jinn_kernel::PendingSessionCreation {
+            project_dir: project_dir.clone(),
+            starting_cwd: project_dir,
+        });
+        handle_session_lifecycle_setup(&mut guard, lifecycle, &arg_values, None, config).messages
+    };
+
+    // The created session is the one the shared path made active.
+    let created = out.state().read().session.active_session_id().clone();
+
+    let bridge = jinn_kernel::Bridge::new(out.bus().clone());
+    for closure in closures {
+        // A closed bridge is the process shutting down; the TUI's own
+        // drain ignores the error the same way.
+        let _ = bridge.send(closure);
+    }
+    Ok(created)
+}
+
+/// The configured project's directory, or the refusal.
+fn resolve_project(
+    config: &jinn_config::ConfigLayer,
+    project: &str,
+) -> Result<marked_path::MarkedPathBuf<marked_path::Absolute>, Refusal> {
+    let chosen = config
+        .get_list::<jinn_preferences_config::schemas::ProjectConfig>()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|entry| entry.path.to_string_lossy() == project)
+        .ok_or_else(|| Refusal::UnknownProject(project.to_owned()))?;
+
+    // `~` expansion — the Discord handler's exact form.
+    match chosen.path.strip_prefix("~") {
+        Ok(rest) => jinn_chat_input_msg::home_dir()
+            .join(rest)
+            .map_err(|_path_error| {
+                Refusal::BadProjectPath(chosen.path.to_string_lossy().into_owned())
+            }),
+        Err(_) => marked_path::MarkedPathBuf::<marked_path::Absolute>::new(chosen.path.clone())
+            .map_err(|_path_error| {
+                Refusal::BadProjectPath(chosen.path.to_string_lossy().into_owned())
+            }),
+    }
+}
+
+/// The lifecycle must be blank or exactly a configured name —
+/// `find_lifecycle` silently falls back to blank for an unknown name, so
+/// it is refused here or a bogus name would stamp a session that runs no
+/// script. The arg minimum is the setup template's parameter count; `$@`
+/// splat templates add none.
+fn validate_lifecycle(
+    config: &jinn_config::ConfigLayer,
+    lifecycle: &str,
+    args: &[String],
+) -> Result<(), Refusal> {
+    let lifecycles: Vec<jinn_preferences_config::schemas::SessionLifecycle> =
+        config.get_list().unwrap_or_default();
+    let chosen = lifecycles
+        .iter()
+        .find(|candidate| candidate.name == lifecycle);
+    match chosen {
+        None if !lifecycle.is_empty() => Err(Refusal::UnknownLifecycle(lifecycle.to_owned())),
+        None => Ok(()),
+        Some(chosen) => {
+            let param_count = match chosen.setup.as_ref() {
+                Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(raw)) => {
+                    CommandTemplate::parse(raw).param_count()
+                }
+                Some(jinn_preferences_config::schemas::LifecycleCommand::Builtin(_)) | None => 0,
+            };
+            if args.len() < param_count {
+                return Err(Refusal::MissingArgs {
+                    lifecycle: lifecycle.to_owned(),
+                    have: args.len(),
+                    want: param_count,
+                });
+            }
+            Ok(())
+        }
+    }
 }

@@ -107,8 +107,21 @@ export function probePort() {
   });
 }
 
-/** The scratch providers.toml — sample-only, keyless, network-free. */
-const PROVIDERS_TOML = `version = 1
+/**
+ * The scratch providers.toml — sample-only, keyless, network-free.
+ *
+ * @param {boolean} textOnly
+ *   write the sample model's capability marker as text-only, so an image
+ *   send is blocked by the vision gate instead of going through.
+ */
+function providersTomlFor(textOnly) {
+  // The attachments spec sends images; the sample model is not in the
+  // models.dev reference data, so the vision gate needs the explicit
+  // capability marker on the model's own row (the lever the gate's error
+  // entry names). The original UI's harness carries the same block. A
+  // text-only row is the gate's blocked path: the error it names.
+  const modalities = textOnly ? '["text"]' : '["text", "image"]';
+  return `version = 1
 
 default_provider = "sample"
 
@@ -117,6 +130,14 @@ backend = "sample"
 requires_key = false
 models = ["sample"]
 
+# The attachments spec sends images; the sample model is not in the
+# models.dev reference data, so the vision gate needs the explicit
+# capability marker on the model's own row (the lever the gate's error
+# entry names). The original UI's harness carries the same block.
+[[providers.sample.model_info]]
+id = "sample"
+input_modalities = ${modalities}
+
 # A second, selectable, keyless provider: the model-picker spec needs a
 # row that is not the current one to switch to.
 [providers.second]
@@ -124,17 +145,19 @@ backend = "sample"
 requires_key = false
 models = ["second-model"]
 `;
+}
 
 /**
  * The scratch jinn.toml body. Both browser surfaces bind a probed
  * port; the original UI is fail-fast on a taken port and every jinn
  * boots it.
  *
- * The project entry and the lifecycle script exist for one spec: a
- * session-activation test needs a second session in the store, `/web2`
- * has no new-session message, and the original UI's new-session modal
- * creates one — but only against a configured project, offering no
- * submit control without it.
+ * The project entry and the lifecycle script exist for the new-session
+ * specs: `/web2`'s modal creates a session only against a configured
+ * project, and offers no submit control without one. The lifecycle's
+ * setup takes a NAMED argument so one spec can assert the page shows the
+ * template's own spelling of it rather than a label made up from its
+ * position.
  *
  * With `mcp` staged, an `[mcp.e2e-echo]` entry points at the repo's
  * debug binary serving the scratch echo tool over stdio (`jinn luau
@@ -162,7 +185,7 @@ path = "~/e2e-scratch"
 
 [[session_lifecycle.script]]
 name = "echo-setup"
-setup_command = "echo $1"
+setup_command = "echo <greeting>"
 ${mcpEntry}`;
 }
 
@@ -170,7 +193,10 @@ ${mcpEntry}`;
 function writeConfig(root, port, webui2Port, stage) {
   const configDir = path.join(root, "config", "jinn");
   fs.mkdirSync(configDir, { recursive: true });
-  fs.writeFileSync(path.join(configDir, "providers.toml"), PROVIDERS_TOML);
+  fs.writeFileSync(
+    path.join(configDir, "providers.toml"),
+    providersTomlFor(stage.textOnly === true),
+  );
   fs.writeFileSync(path.join(configDir, "jinn.toml"), jinnTomlFor(port, webui2Port, stage.mcp));
   if (stage.persona) {
     // Personas are discovered from the config dir's `personas/` child —
@@ -363,9 +389,11 @@ async function killTree(root) {
  * Boots one scratch-isolated, hermetically-launched jinn and returns
  * its run coordinates.
  *
- * @param {{ skill?: boolean, persona?: boolean, mcp?: boolean }} [options]
+ * @param {{ skill?: boolean, persona?: boolean, mcp?: boolean, textOnly?: boolean }} [options]
  *   stage the scratch skill when `skill` is set, the block-less persona
  *   when `persona` is set, and the echo MCP server when `mcp` is set.
+ *   With `textOnly`, the sample model's row declares text only, so an
+ *   image send hits the vision gate's blocked path.
  */
 export async function bootJinn(options = {}) {
   if (!fs.existsSync(BIN_PATH)) {
@@ -381,6 +409,7 @@ export async function bootJinn(options = {}) {
     skill: options.skill === true,
     persona: options.persona === true,
     mcp: options.mcp === true,
+    textOnly: options.textOnly === true,
   });
   const run = {
     port,

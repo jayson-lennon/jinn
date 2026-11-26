@@ -16,29 +16,29 @@ use jinn_webui2_msg::{
 
 /// The frame for a phase change.
 #[must_use]
-pub fn phase(session_id: &SessionId, phase: jinn_slices::PhaseView) -> ServerMsg {
+pub fn phase(session_id: &SessionId, phase: jinn_slices::PhaseView, queue_len: usize) -> ServerMsg {
     ServerMsg::Phase(PhaseBody {
         session_id: session_id.clone(),
         phase,
+        queue_len,
     })
 }
 
-/// The session-list frame, re-read from state.
+/// The session-list frame, re-read from state: both sidebar lists.
 #[must_use]
 pub fn sessions(state: &State) -> ServerMsg {
-    ServerMsg::Sessions(jinn_webui2_msg::SessionsBody {
-        rows: crate::snapshot::session_rows(state),
-    })
+    let (rows, library) = crate::snapshot::session_rows(state);
+    ServerMsg::Sessions(jinn_webui2_msg::SessionsBody { rows, library })
 }
 
 /// The upsert for the entry at a history position.
 #[must_use]
 pub fn upsert_at(session_id: &SessionId, index: usize, entry: &ChatEntry) -> ServerMsg {
-    ServerMsg::EntryUpsert(EntryUpsertBody {
+    ServerMsg::EntryUpsert(Box::new(EntryUpsertBody {
         session_id: session_id.clone(),
         index,
         entry: EntryEnvelope::new(entry.clone()),
-    })
+    }))
 }
 
 /// The upsert for the entry with this id, wherever it now sits in history.
@@ -56,6 +56,13 @@ pub fn upsert_by_id(
     let index = session.find_entry_index_by_id(entry_id)?;
     let entry = session.history().get(index)?;
     Some(upsert_at(session_id, index, entry))
+}
+
+/// The whole-state frame for a page that must switch sessions: a
+/// snapshot of the active session, replacing its view wholesale.
+#[must_use]
+pub fn snapshot(state: &State, revisions: &crate::revision::RevisionTracker) -> ServerMsg {
+    ServerMsg::Snapshot(Box::new(crate::snapshot::snapshot(state, revisions)))
 }
 
 /// One session's whole history, as (index, entry) pairs.

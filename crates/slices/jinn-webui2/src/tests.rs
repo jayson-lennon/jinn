@@ -1,8 +1,9 @@
 #![allow(
     clippy::expect_used,
     clippy::indexing_slicing,
+    clippy::panic,
     clippy::unreachable,
-    reason = "test assertions need expect, indexed access to a recorded audit, and a let-else on a known variant"
+    reason = "test assertions need expect, indexed access to a recorded audit, a let-else on a known variant is unreachable by construction, and a let-else that does fall through reports with panic"
 )]
 
 //! Behaviour of the inbound dispatch: one test, one observable result.
@@ -18,10 +19,10 @@ use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::{ChatEntry, ChatEntryKind, ModelSelection};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::State;
-use jinn_preferences_config::protocol::app_state_command::UpdateAppState;
+use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_provider_selection_msg::ProviderSwitch;
 use jinn_session_msg::MarkSessionInteracted;
-use jinn_session_store_msg::{PersistSession, SessionLoadRequested};
+use jinn_session_store_msg::{PersistSession, SessionLoadRequested, SetSessionLibrary};
 use jinn_slices::bus::BusService;
 use jinn_webui2_msg::{ClientMsg, ServerMsg};
 
@@ -54,6 +55,11 @@ fn harness_with_store() -> Harness {
 #[derive(Debug, Default)]
 struct KeepingSessionStore {
     saved: std::sync::Mutex<Vec<jinn_session_state::SessionSnapshot>>,
+    /// The library membership each stored session carries. A no-op
+    /// `set_in_library` and empty summaries would let a library test pass
+    /// without proving anything, so the store records the flag and reports
+    /// it back, the way the real one does.
+    library: std::sync::Mutex<std::collections::HashMap<jinn_core_types::SessionId, bool>>,
 }
 
 impl KeepingSessionStore {
@@ -78,15 +84,30 @@ impl jinn_session_state::SessionStore for KeepingSessionStore {
         Ok(())
     }
 
-    /// No summaries: a stored snapshot's metadata is not a summary, and
-    /// no test reads picker rows from this store.
+    /// One summary per stored session, carrying the library flag the
+    /// store holds for it — so `library_members()` filters real rows.
     async fn load_summaries(
         &self,
     ) -> Result<
         Vec<jinn_session_store_msg::SessionSummary>,
         error_stack::Report<jinn_session_state::SessionStoreError>,
     > {
-        Ok(Vec::new())
+        let library = self.library.lock().expect("library lock");
+        Ok(self
+            .snapshots()
+            .into_iter()
+            .map(|snapshot| jinn_session_store_msg::SessionSummary {
+                session_id: snapshot.metadata.session_id.clone(),
+                title: snapshot.metadata.title.clone().unwrap_or_default(),
+                updated_at: snapshot.metadata.updated_at,
+                created_at: snapshot.metadata.created_at,
+                session_state: jinn_session_store_msg::SessionState::Loaded,
+                in_library: *library.get(&snapshot.metadata.session_id).unwrap_or(&false),
+                is_bot: false,
+                parent_session: None,
+                project: None,
+            })
+            .collect())
     }
 
     async fn load_session(
@@ -138,9 +159,13 @@ impl jinn_session_state::SessionStore for KeepingSessionStore {
 
     async fn set_in_library(
         &self,
-        _session_id: &jinn_core_types::SessionId,
-        _in_library: bool,
+        session_id: &jinn_core_types::SessionId,
+        in_library: bool,
     ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        self.library
+            .lock()
+            .expect("library lock")
+            .insert(session_id.clone(), in_library);
         Ok(())
     }
 
@@ -257,6 +282,10 @@ struct Seed {
     mcp_servers: Vec<(&'static str, &'static str)>,
     /// Tools placed in the global tool registry, as `(name, description)`.
     tools: Vec<(&'static str, &'static str)>,
+    /// Projects placed in `[[project.entry]]`.
+    projects: Vec<jinn_preferences_config::schemas::ProjectConfig>,
+    /// Lifecycles placed in `[[session_lifecycle.script]]`.
+    lifecycles: Vec<jinn_preferences_config::schemas::SessionLifecycle>,
 }
 
 /// A harness over a registry, a session store, and a pre-seeded set of
@@ -304,6 +333,18 @@ fn harness_seeded(
         .providers(providers)
         .build();
     seed_mcp_servers(&services.config, &seed.mcp_servers);
+    if !seed.projects.is_empty() {
+        services
+            .config
+            .put_list::<jinn_preferences_config::schemas::ProjectConfig>(&seed.projects)
+            .expect("the test config accepts the project list");
+    }
+    if !seed.lifecycles.is_empty() {
+        services
+            .config
+            .put_list::<jinn_preferences_config::schemas::SessionLifecycle>(&seed.lifecycles)
+            .expect("the test config accepts the lifecycle list");
+    }
 
     let handle = OutboundHandle::new(crate::outbound::OutboundActorDeps {
         state: state.clone(),
@@ -442,6 +483,7 @@ async fn send_publishes_mark_interacted_before_enqueue() {
         &h,
         ClientMsg::Send {
             text: "hello".to_owned(),
+            images: Vec::new(),
         },
     )
     .await;
@@ -464,6 +506,7 @@ async fn send_enqueues_the_text_as_a_user_entry() {
         &h,
         ClientMsg::Send {
             text: "hello".to_owned(),
+            images: Vec::new(),
         },
     )
     .await;
@@ -486,6 +529,7 @@ async fn send_enqueues_on_the_active_session() {
         &h,
         ClientMsg::Send {
             text: "hello".to_owned(),
+            images: Vec::new(),
         },
     )
     .await;
@@ -521,6 +565,7 @@ async fn send_while_busy_is_refused_with_an_error() {
     let reply = dispatch(
         ClientMsg::Send {
             text: "hello".to_owned(),
+            images: Vec::new(),
         },
         &h.handle,
     )
@@ -546,6 +591,7 @@ async fn send_while_busy_publishes_nothing() {
     let reply = dispatch(
         ClientMsg::Send {
             text: "hello".to_owned(),
+            images: Vec::new(),
         },
         &h.handle,
     )
@@ -567,6 +613,7 @@ async fn send_of_blank_text_is_refused() {
     let reply = dispatch(
         ClientMsg::Send {
             text: "   ".to_owned(),
+            images: Vec::new(),
         },
         &h.handle,
     )
@@ -596,6 +643,7 @@ async fn queue_while_busy_still_enqueues() {
         &h,
         ClientMsg::Queue {
             text: "next".to_owned(),
+            images: Vec::new(),
         },
     )
     .await;
@@ -1431,6 +1479,113 @@ fn a_lazily_created_entry_reaches_the_page_before_its_first_delta() {
 
 #[rstest::rstest]
 #[test]
+fn a_refresh_summary_written_without_a_history_event_reaches_the_page() {
+    // Given a connected page, shown a session with nothing pending, and then
+    // the provider actor writing a refresh summary into history on its own —
+    // no history event, the way a real refresh lands.
+    let mut page = connected_page();
+    let _ = flush_frames(&mut page);
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .push_entry(jinn_core_types::ChatEntry::transient("| ollama | 3 | ✅ |"));
+
+    // When the model cache lands.
+    crate::outbound::model_cache_stored(&page.handle);
+
+    // Then the page is sent the summary it was never told about.
+    let frames = drain(&mut page.inbox);
+    let [ServerMsg::EntryUpsert(upsert)] = frames.as_slice() else {
+        panic!("expected one upsert, got {frames:?}");
+    };
+    // `upsert.entry` is the wire envelope; the persisted entry is inside it.
+    let jinn_core_types::ChatEntryKind::Transient(text) = &upsert.entry.entry.kind else {
+        panic!(
+            "expected a transient entry, got {:?}",
+            upsert.entry.entry.kind
+        );
+    };
+    assert!(text.contains("ollama"), "summary missing: {text}");
+}
+
+/// Puts `count` messages behind the running turn, as the session actor does
+/// when it receives an enqueue while busy.
+fn queue_messages(page: &Page, texts: &[&str]) {
+    let mut guard = page.state.write();
+    let session = guard.session.active_session_mut();
+    for text in texts {
+        session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+            jinn_core_types::ChatEntry::user(*text),
+        )));
+    }
+}
+
+#[rstest::rstest]
+#[test]
+fn a_queued_message_reaches_the_page_as_the_queue_depth_on_the_next_tick() {
+    // Given a streaming session with an empty queue, already flushed once.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    let _ = flush_frames(&mut page);
+
+    // When a message is queued behind the running turn.
+    queue_messages(&page, &["behind the turn"]);
+    let frames = flush_frames(&mut page);
+
+    // Then the page is told the depth is one.
+    let [ServerMsg::Phase(phase)] = frames.as_slice() else {
+        panic!("expected one phase frame, got {frames:?}");
+    };
+    assert_eq!(phase.queue_len, 1);
+}
+
+#[rstest::rstest]
+#[test]
+fn two_queued_messages_report_a_depth_of_two() {
+    // Given a streaming session with an empty queue, already flushed once.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    let _ = flush_frames(&mut page);
+
+    // When two messages are queued behind the running turn.
+    queue_messages(&page, &["first", "second"]);
+    let frames = flush_frames(&mut page);
+
+    // Then the page is told the depth is two.
+    let depth = frames
+        .iter()
+        .find_map(|frame| match frame {
+            ServerMsg::Phase(phase) => Some(phase.queue_len),
+            _ => None,
+        })
+        .expect("a phase frame");
+    assert_eq!(depth, 2);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_tick_with_an_unchanged_queue_sends_no_phase_frame() {
+    // Given a streaming session with one queued message, already told to the page.
+    let mut page = connected_page();
+    begin_streaming(&page);
+    queue_messages(&page, &["waiting"]);
+    let _ = flush_frames(&mut page);
+
+    // When the tick runs again and nothing about the queue changed.
+    let frames = flush_frames(&mut page);
+
+    // Then no phase frame repeats the depth the page already holds.
+    assert!(
+        frames
+            .iter()
+            .all(|frame| !matches!(frame, ServerMsg::Phase(_))),
+        "unexpected phase frame in {frames:?}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
 fn a_flush_with_no_new_text_sends_nothing() {
     // Given a streaming session whose text was already flushed once.
     let mut page = connected_page();
@@ -1442,7 +1597,7 @@ fn a_flush_with_no_new_text_sends_nothing() {
     let frames = flush_frames(&mut page);
 
     // Then the page receives no frame.
-    assert!(frames.is_empty());
+    assert_eq!(frames.len(), 0);
 }
 
 #[rstest::rstest]
@@ -1582,7 +1737,7 @@ fn a_settled_turn_that_changed_nothing_sends_no_frame() {
     crate::outbound::reconcile(&h.handle, &active_id(&h.state));
 
     // Then the page receives nothing.
-    assert!(drain(&mut inbox).is_empty());
+    assert_eq!(drain(&mut inbox).len(), 0);
 }
 
 #[rstest::rstest]
@@ -1628,7 +1783,7 @@ fn an_entry_the_snapshot_delivered_is_not_sent_again() {
     crate::outbound::reconcile(&h.handle, &active_id(&h.state));
 
     // Then the snapshot's entry is not re-sent.
-    assert!(drain(&mut inbox).is_empty());
+    assert_eq!(drain(&mut inbox).len(), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -2918,7 +3073,7 @@ async fn a_runtime_store_for_a_session_with_no_mcp_modal_pushes_nothing() {
     crate::outbound::mcp_runtime_stored(&h.handle);
 
     // Then nothing was pushed.
-    assert!(drain(&mut inbox).is_empty());
+    assert_eq!(drain(&mut inbox).len(), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -3086,8 +3241,8 @@ async fn switching_persona_with_a_handoff_block_appends_no_entry() {
     .await;
 
     // Then nothing was appended, and the reply carries no upsert.
-    assert!(h.state.read().session.active_session().history().is_empty());
-    assert!(reply.frames.is_empty());
+    assert_eq!(h.state.read().session.active_session().history().len(), 0);
+    assert_eq!(reply.frames.len(), 0);
 }
 
 #[rstest::rstest]
@@ -3165,8 +3320,735 @@ async fn switching_to_an_unknown_persona_is_refused() {
         unreachable!("one error frame expected: {reply:?}");
     };
     assert_eq!(error.message, "unknown persona");
-    assert!(h.state.read().session.active_session().history().is_empty());
+    assert_eq!(h.state.read().session.active_session().history().len(), 0);
     assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+// ---------------------------------------------------------------------------
+// Images
+// ---------------------------------------------------------------------------
+
+/// A 1×1 PNG, as the wire carries it.
+const TINY_PNG: &str =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+
+fn upload(name: &str, data_base64: &str) -> jinn_webui2_msg::ImageUploadBody {
+    jinn_webui2_msg::ImageUploadBody {
+        name: name.to_owned(),
+        data_base64: data_base64.to_owned(),
+    }
+}
+
+/// How many image attachments the last `EnqueueUserMessage` carried.
+fn last_enqueued_attachment_count(h: &Harness) -> usize {
+    let published = h.audit.of_type::<EnqueueUserMessage>();
+    match &published[published.len() - 1].entry.kind {
+        ChatEntryKind::User { attachments, .. } => attachments.len(),
+        _ => 0,
+    }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn send_with_an_image_enqueues_a_user_entry_carrying_it() {
+    // Given an idle session.
+    let h = harness();
+
+    // When the page sends a message with one image.
+    say(
+        &h,
+        ClientMsg::Send {
+            text: "look".to_owned(),
+            images: vec![upload("dot.png", TINY_PNG)],
+        },
+    )
+    .await;
+
+    // Then the enqueued user entry carries one image attachment.
+    assert_eq!(last_enqueued_attachment_count(&h), 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn send_with_an_image_and_no_text_is_accepted() {
+    // Given an idle session.
+    let h = harness();
+
+    // When the page sends nothing but an image.
+    say(
+        &h,
+        ClientMsg::Send {
+            text: String::new(),
+            images: vec![upload("dot.png", TINY_PNG)],
+        },
+    )
+    .await;
+
+    // Then the message is enqueued rather than refused as empty.
+    assert_eq!(h.audit.of_type::<EnqueueUserMessage>().len(), 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn send_of_a_non_image_is_refused_naming_its_position() {
+    // Given an idle session.
+    let h = harness();
+
+    // When the page sends bytes that are not an image.
+    let reply = dispatch(
+        ClientMsg::Send {
+            text: "look".to_owned(),
+            images: vec![upload("notes.txt", "aGVsbG8=")],
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the refusal names the offender's position.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        panic!("expected one error frame, got {reply:?}");
+    };
+    assert!(
+        error
+            .message
+            .contains("image 0 is not a recognized image format")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_refused_image_send_publishes_nothing() {
+    // Given an idle session.
+    let h = harness();
+
+    // When the page sends bytes that are not an image.
+    let _ = dispatch(
+        ClientMsg::Send {
+            text: "look".to_owned(),
+            images: vec![upload("notes.txt", "aGVsbG8=")],
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then nothing reached the bus.
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn send_with_an_oversize_image_is_refused_naming_its_size() {
+    // Given an idle session.
+    let h = harness();
+    // One byte over the cap: 5 MB + 1 of zeroes, base64-encoded.
+    let oversize = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD
+            .encode(vec![0u8; crate::attachment::MAX_IMAGE_BYTES + 1])
+    };
+
+    // When the page sends it.
+    let reply = dispatch(
+        ClientMsg::Send {
+            text: "look".to_owned(),
+            images: vec![upload("big.bin", &oversize)],
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the refusal names the size, the cap, and the way out.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        panic!("expected one error frame, got {reply:?}");
+    };
+    assert!(
+        error
+            .message
+            .contains("the limit is 5242880 — resize it first"),
+        "{}",
+        error.message
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn queue_with_an_image_still_enqueues() {
+    // Given a session running a turn.
+    let h = harness();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
+
+    // When the page queues a message with one image.
+    say(
+        &h,
+        ClientMsg::Queue {
+            text: "after".to_owned(),
+            images: vec![upload("dot.png", TINY_PNG)],
+        },
+    )
+    .await;
+
+    // Then the enqueued user entry carries one image attachment.
+    assert_eq!(last_enqueued_attachment_count(&h), 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn send_with_an_image_while_busy_is_refused_before_ingestion() {
+    // Given a session running a turn.
+    let h = harness();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
+
+    // When the page sends an image to the busy session.
+    let reply = dispatch(
+        ClientMsg::Send {
+            text: "look".to_owned(),
+            images: vec![upload("dot.png", TINY_PNG)],
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the busy refusal is the answer, and nothing reached the bus.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    // And the session was never marked interacted.
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Theme
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn set_theme_publishes_the_app_state_update() {
+    // Given a page.
+    let h = harness();
+
+    // When the page picks dark.
+    say(
+        &h,
+        ClientMsg::SetTheme {
+            theme: "dark".to_owned(),
+        },
+    )
+    .await;
+
+    // Then the app-state actor is asked to persist it.
+    let updates = h.audit.of_type::<UpdateAppState>();
+    assert_eq!(updates.len(), 1);
+    assert!(matches!(
+        updates[0].updates.as_slice(),
+        [AppStateUpdate::SetWebTheme(Some(theme))] if theme == "dark"
+    ));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn set_theme_replies_with_the_chosen_mode() {
+    // Given a page.
+    let h = harness();
+
+    // When the page picks light.
+    let reply = dispatch(
+        ClientMsg::SetTheme {
+            theme: "light".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the reply carries the mode the page picked.
+    assert!(matches!(
+        reply.frames.as_slice(),
+        [ServerMsg::Theme(theme)] if theme.theme == "light"
+    ));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn set_theme_of_an_unknown_mode_is_refused() {
+    // Given a page.
+    let h = harness();
+
+    // When the page picks a mode outside the vocabulary.
+    let reply = dispatch(
+        ClientMsg::SetTheme {
+            theme: "sepia".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the refusal names the mode and publishes nothing.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Library
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn set_library_publishes_the_store_command() {
+    // Given a page with one live session.
+    let h = harness();
+    let id = active_id(&h.state);
+
+    // When the page adds the session to the library.
+    say(
+        &h,
+        ClientMsg::SetLibrary {
+            session_id: id.clone(),
+            in_library: true,
+        },
+    )
+    .await;
+
+    // Then the store's command is published, with the flag.
+    let commands = h.audit.of_type::<SetSessionLibrary>();
+    assert_eq!(commands.len(), 1);
+    assert!(commands[0].in_library);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn set_library_of_an_unknown_session_is_refused() {
+    // Given a page with an empty store.
+    let h = harness_with_store();
+
+    // When the page names a session nothing knows.
+    let reply = dispatch(
+        ClientMsg::SetLibrary {
+            session_id: jinn_core_types::SessionId::new(),
+            in_library: true,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the request is refused and the store is not asked.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Model refresh
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn refresh_models_publishes_the_discovery_command() {
+    // Given a page.
+    let h = harness();
+
+    // When the page asks for a refresh.
+    say(&h, ClientMsg::RefreshModels).await;
+
+    // Then discovery is asked to run.
+    assert_eq!(h.audit.names(), ["RefreshModels"]);
+}
+
+// ---------------------------------------------------------------------------
+// New session
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// New session
+// ---------------------------------------------------------------------------
+
+/// One `[[project.entry]]` pointing at a scratch directory.
+fn demo_project() -> jinn_preferences_config::schemas::ProjectConfig {
+    jinn_preferences_config::schemas::ProjectConfig {
+        // Built through the marked type so no raw owning path is spelled;
+        // the config schema's field is the plain path, taken back out.
+        path: marked_path::MarkedPathBuf::<marked_path::Absolute>::new("/tmp/demo-project")
+            .expect("an absolute scratch path")
+            .into_inner(),
+    }
+}
+
+/// A lifecycle whose setup takes two positional arguments.
+fn two_arg_lifecycle() -> jinn_preferences_config::schemas::SessionLifecycle {
+    jinn_preferences_config::schemas::SessionLifecycle {
+        name: "kickoff".to_owned(),
+        description: None,
+        setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+            "echo $1 $2".to_owned(),
+        )),
+        teardown: None,
+    }
+}
+
+/// A harness with one project and one two-argument lifecycle configured.
+fn harness_with_project_and_lifecycle() -> Harness {
+    harness_seeded(
+        empty_providers(),
+        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
+        &Seed {
+            projects: vec![demo_project()],
+            lifecycles: vec![two_arg_lifecycle()],
+            ..Seed::default()
+        },
+    )
+}
+
+#[rstest::rstest]
+#[test]
+fn new_session_options_list_the_configured_projects_and_lifecycles() {
+    // Given a config with one project and one script lifecycle.
+    let h = harness_with_project_and_lifecycle();
+
+    // When the page asks for the form's choices.
+    let reply = actions::new_session_options(&h.handle);
+
+    // Then the project and the lifecycle are listed, with how many arguments
+    // its setup takes and the template's own spelling of each.
+    let [ServerMsg::NewSessionOptions(options)] = reply.frames.as_slice() else {
+        panic!("expected options, got {reply:?}");
+    };
+    assert_eq!(options.projects, ["/tmp/demo-project"]);
+    assert_eq!(options.lifecycles[0].name, "kickoff");
+    assert_eq!(options.lifecycles[0].param_count, 2);
+    assert_eq!(options.lifecycles[0].params, ["$1", "$2"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn new_session_options_name_a_named_placeholder_as_the_template_spells_it() {
+    // Given a lifecycle whose setup takes a named argument.
+    let h = harness_seeded(
+        empty_providers(),
+        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
+        &Seed {
+            projects: vec![demo_project()],
+            lifecycles: vec![jinn_preferences_config::schemas::SessionLifecycle {
+                name: "kickoff".to_owned(),
+                description: None,
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "deploy.sh <branch>".to_owned(),
+                )),
+                teardown: None,
+            }],
+            ..Seed::default()
+        },
+    );
+
+    // When the page asks for the form's choices.
+    let reply = actions::new_session_options(&h.handle);
+
+    // Then the argument is named as the template spells it.
+    let [ServerMsg::NewSessionOptions(options)] = reply.frames.as_slice() else {
+        panic!("expected options, got {reply:?}");
+    };
+    assert_eq!(options.lifecycles[0].params, ["<branch>"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn new_session_options_with_no_projects_list_none() {
+    // Given a config with no `[[project.entry]]`.
+    let h = harness();
+
+    // When the page asks for the form's choices.
+    let reply = actions::new_session_options(&h.handle);
+
+    // Then the project list is empty, which the modal reads as its refusal.
+    let [ServerMsg::NewSessionOptions(options)] = reply.frames.as_slice() else {
+        panic!("expected options, got {reply:?}");
+    };
+    assert_eq!(options.projects.len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn create_session_of_an_unconfigured_project_is_refused() {
+    // Given a config with one project.
+    let h = harness_with_project_and_lifecycle();
+
+    // When the page names a project the config does not list.
+    let reply = dispatch(
+        ClientMsg::CreateSession {
+            project: "/tmp/not-configured".to_owned(),
+            lifecycle: String::new(),
+            args: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the request is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn create_session_of_an_unknown_lifecycle_is_refused() {
+    // Given a config with one lifecycle named kickoff.
+    let h = harness_with_project_and_lifecycle();
+
+    // When the page names a lifecycle the config does not list.
+    let reply = dispatch(
+        ClientMsg::CreateSession {
+            project: "/tmp/demo-project".to_owned(),
+            lifecycle: "nope".to_owned(),
+            args: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the request is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn create_session_with_too_few_args_is_refused() {
+    // Given a config with a lifecycle that takes two arguments.
+    let h = harness_with_project_and_lifecycle();
+
+    // When the page sends one.
+    let reply = dispatch(
+        ClientMsg::CreateSession {
+            project: "/tmp/demo-project".to_owned(),
+            lifecycle: "kickoff".to_owned(),
+            args: "only-one".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the refusal names the minimum it missed.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        panic!("expected one error frame, got {reply:?}");
+    };
+    assert!(
+        error.message.contains("takes 2 argument(s), got 1"),
+        "{}",
+        error.message
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn create_session_with_the_blank_lifecycle_makes_the_new_session_active() {
+    // Given a config with one project.
+    let h = harness_with_project_and_lifecycle();
+    let before = active_id(&h.state);
+
+    // When the page creates a session with no lifecycle.
+    let reply = dispatch(
+        ClientMsg::CreateSession {
+            project: "/tmp/demo-project".to_owned(),
+            lifecycle: String::new(),
+            args: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the instance's active session is a new one.
+    assert_ne!(active_id(&h.state), before);
+    // And the page is answered with a snapshot of it.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
+}
+
+// ---------------------------------------------------------------------------
+// Outbound pushes: model refresh, library, follow
+// ---------------------------------------------------------------------------
+
+/// Drives the actor's `ModelCacheStored` behaviour with nothing spawned.
+fn model_cache_stored(h: &Harness) {
+    crate::outbound::model_cache_stored(&h.handle);
+}
+
+/// A harness with one provider model the picker can list.
+fn harness_with_a_model() -> Harness {
+    harness_with_providers(two_providers())
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_cache_stored_pushes_fresh_rows_to_an_open_model_picker() {
+    // Given a page whose model picker asked for rows.
+    let h = harness_with_a_model();
+    let mut inbox = h.handle.register();
+    let _ = dispatch(
+        ClientMsg::ModelRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // When a discovery scan lands.
+    model_cache_stored(&h);
+
+    // Then the page receives one model-rows frame in the filter it asked for.
+    let frames = drain(&mut inbox);
+    assert!(matches!(
+        frames.as_slice(),
+        [ServerMsg::ModelRows(body)] if body.filter.is_empty()
+    ));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_cache_stored_pushes_nothing_when_no_picker_asked() {
+    // Given a page that never opened the model picker.
+    let h = harness_with_a_model();
+    let mut inbox = h.handle.register();
+
+    // When a discovery scan lands.
+    model_cache_stored(&h);
+
+    // Then the page receives nothing.
+    assert_eq!(drain(&mut inbox).len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_cache_stored_pushes_rows_naming_the_askers_session() {
+    // Given a page whose model picker asked for rows.
+    let h = harness_with_a_model();
+    let mut inbox = h.handle.register();
+    let _ = dispatch(
+        ClientMsg::ModelRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // When a discovery scan lands.
+    model_cache_stored(&h);
+
+    // Then the frame names the session the picker belongs to.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::ModelRows(body)] = frames.as_slice() else {
+        panic!("one model-rows frame expected, got {frames:?}");
+    };
+    assert_eq!(body.session_id, active_id(&h.state));
+}
+
+#[rstest::rstest]
+#[test]
+fn a_library_member_is_listed_under_library_and_not_sessions() {
+    // Given a page with one loaded session marked as a library member.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_in_library(true);
+
+    // When the sidebar's rows are built.
+    let (sessions, library) = crate::snapshot::session_rows(&h.state);
+
+    // Then the session is in the library list and not the sessions list.
+    assert_eq!(library[0].session_id, id);
+    assert_eq!(sessions.len(), 0);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_non_member_is_listed_under_sessions_and_not_library() {
+    // Given a page with one loaded session that is not a member.
+    let h = harness();
+
+    // When the sidebar's rows are built.
+    let (sessions, library) = crate::snapshot::session_rows(&h.state);
+
+    // Then the session is in the sessions list and the library list is empty.
+    assert_eq!(sessions[0].session_id, active_id(&h.state));
+    assert_eq!(library.len(), 0);
+}
+
+#[rstest::rstest]
+#[test]
+fn membership_changed_pushes_a_sessions_frame() {
+    // Given a page.
+    let h = harness();
+    let mut inbox = h.handle.register();
+
+    // When the store actor announces a membership change.
+    crate::outbound::library_membership_changed(&h.handle);
+
+    // Then the page receives one sessions frame.
+    let frames = drain(&mut inbox);
+    assert!(matches!(frames.as_slice(), [ServerMsg::Sessions(_)]));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn active_session_changed_pushes_one_snapshot() {
+    // Given a page.
+    let h = harness();
+    let mut inbox = h.handle.register();
+
+    // When the instance's active session moves.
+    crate::outbound::follow_active_session(
+        &h.handle,
+        &jinn_kernel::protocol::system::ActiveSessionChanged {
+            session_id: active_id(&h.state),
+        },
+    )
+    .await;
+
+    // Then the page receives exactly one snapshot, of that session.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::Snapshot(body)] = frames.as_slice() else {
+        panic!("one snapshot expected, got {frames:?}");
+    };
+    assert_eq!(body.session_id, Some(active_id(&h.state)));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn follow_snapshot_marks_the_new_sessions_history_delivered() {
+    // Given a page whose active session has one entry.
+    let h = harness();
+    let mut inbox = h.handle.register();
+    push(&h.state, ChatEntry::user("already here"));
+
+    // When the instance's active session moves to it.
+    crate::outbound::follow_active_session(
+        &h.handle,
+        &jinn_kernel::protocol::system::ActiveSessionChanged {
+            session_id: active_id(&h.state),
+        },
+    )
+    .await;
+
+    // Then a later flush streams nothing: the snapshot already carried it.
+    let _ = drain(&mut inbox);
+    let frames = flush_frames_h(&h, &mut inbox);
+    assert_eq!(frames.len(), 0);
+}
+
+/// Runs one flush for a harness and returns every frame its page received.
+fn flush_frames_h(
+    h: &Harness,
+    inbox: &mut tokio::sync::mpsc::UnboundedReceiver<ServerMsg>,
+) -> Vec<ServerMsg> {
+    crate::outbound::flush(&h.handle);
+    let mut frames = Vec::new();
+    while let Ok(frame) = inbox.try_recv() {
+        frames.push(frame);
+    }
+    frames
 }
 
 /// Spawns the listener on a real trouper bus over an OS-assigned port,

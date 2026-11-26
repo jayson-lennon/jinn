@@ -4,6 +4,19 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>jinn</title>
+    <script>
+      // The color mode, before the stylesheet loads. The store's theme is
+      // the truth and overwrites this once connected; this hint only
+      // stops a light-mode user seeing a dark flash on every load.
+      (function () {
+        try {
+          var theme = window.localStorage.getItem("jinn.web2.theme");
+          if (theme === "light" || theme === "dark" || theme === "system") {
+            document.documentElement.dataset.theme = theme;
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="stylesheet" href="/vendor2/client2.css" />
     <script type="module" src="/vendor2/client2.js"></script>
   </head>

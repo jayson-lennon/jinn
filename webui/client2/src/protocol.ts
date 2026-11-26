@@ -45,6 +45,26 @@ export interface SessionRow {
   title: string;
   is_active: boolean;
   is_busy: boolean;
+  /** Whether the session is a library member (listed under Library). */
+  in_library: boolean;
+}
+
+/** The page's color mode. */
+export type Theme = 'light' | 'dark' | 'system';
+
+/** One pending composer image, as base64 bytes. */
+export interface ImageUpload {
+  name: string;
+  data_base64: string;
+}
+
+/** One lifecycle the new-session form can list. */
+export interface LifecycleOption {
+  name: string;
+  /** How many arguments its setup requires; 0 hides the arguments field. */
+  param_count: number;
+  /** Each argument as the setup's template spells it, in order. */
+  params: string[];
 }
 
 export interface PickerRow {
@@ -127,8 +147,8 @@ export type DeltaField = 'text' | 'thinking' | 'args' | 'output';
 /** Browser -> server. Exactly one object per user gesture or connect. */
 export type ClientMsg =
   | { type: 'hello'; last_entry_id: string | null; revision: number | null }
-  | { type: 'send'; text: string }
-  | { type: 'queue'; text: string }
+  | { type: 'send'; text: string; images: ImageUpload[] }
+  | { type: 'queue'; text: string; images: ImageUpload[] }
   | { type: 'cancel' }
   | { type: 'activate_session'; session_id: string }
   | { type: 'switch_model'; provider_id: string }
@@ -143,7 +163,17 @@ export type ClientMsg =
   | { type: 'mcp_rows'; filter: string }
   | { type: 'toggle_mcp'; server: string }
   | { type: 'persona_rows'; filter: string }
-  | { type: 'switch_persona'; persona: string };
+  | { type: 'switch_persona'; persona: string }
+  | { type: 'refresh_models' }
+  | { type: 'set_theme'; theme: Theme }
+  | { type: 'set_library'; session_id: string; in_library: boolean }
+  | { type: 'new_session_options' }
+  | {
+      type: 'create_session';
+      project: string;
+      lifecycle: string;
+      args: string;
+    };
 
 /** Server -> browser. Exactly one fact per frame. */
 export type ServerMsg =
@@ -151,24 +181,28 @@ export type ServerMsg =
       type: 'snapshot';
       protocol: number;
       session_id: string | null;
-      phase: { session_id: string; phase: Phase };
+      phase: { session_id: string; phase: Phase; queue_len: number };
       model_label: string;
       title: string;
       revision: number;
       entries: EntryEnvelope[];
       sessions: SessionRow[];
+      library: SessionRow[];
+      theme: Theme;
     }
   | { type: 'entry_upsert'; session_id: string; index: number; entry: EntryEnvelope }
   | { type: 'entry_delta'; session_id: string; entry_id: string; field: DeltaField; chunk: string }
-  | { type: 'phase'; session_id: string; phase: Phase }
-  | { type: 'sessions'; rows: SessionRow[] }
+  | { type: 'phase'; session_id: string; phase: Phase; queue_len: number }
+  | { type: 'sessions'; rows: SessionRow[]; library: SessionRow[] }
   | { type: 'model'; session_id: string; label: string }
   | { type: 'title'; session_id: string; title: string }
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }
-  | { type: 'model_rows'; filter: string; rows: ModelRow[] }
+  | { type: 'model_rows'; session_id: string; filter: string; rows: ModelRow[] }
   | { type: 'skill_rows'; session_id: string; filter: string; rows: SkillRow[] }
   | { type: 'tool_rows'; session_id: string; filter: string; rows: ToolRow[] }
   | { type: 'mcp_rows'; session_id: string; filter: string; rows: McpRow[] }
   | { type: 'persona_rows'; session_id: string; filter: string; rows: PersonaRow[] }
+  | { type: 'new_session_options'; projects: string[]; lifecycles: LifecycleOption[] }
+  | { type: 'theme'; theme: Theme }
   | { type: 'error'; message: string }
   | { type: 'ping' };

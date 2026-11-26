@@ -23,19 +23,40 @@ import type {
   ServerMsg,
   SessionRow,
   SkillRow,
+  Theme,
   ToolRow,
+  ImageUpload,
+  LifecycleOption,
 } from './protocol';
 
 export interface ViewState {
   /** The instance's active session, or null before the first snapshot. */
   sessionId: string | null;
   phase: Phase;
+  /** How many messages wait behind the running turn. */
+  queueLen: number;
   modelLabel: string;
   title: string;
   /** The history revision the page last saw, echoed back on reconnect. */
   revision: number;
   entries: EntryEnvelope[];
   sessions: SessionRow[];
+  /** The library members the sidebar's Library view lists. */
+  library: SessionRow[];
+  /** Which sidebar list is showing. */
+  railView: 'sessions' | 'library';
+  /** The persisted color mode, as the server last reported it. */
+  theme: Theme;
+  /** The composer's draft. In the store, not the component, so a snapshot
+   *  for another session can leave it alone: a session switch never costs
+   *  the user their unsent text. */
+  draft: string;
+  /** The composer's pending images, in chip order. */
+  chips: ImageUpload[];
+  /** True while the model picker is waiting for a refresh to land. */
+  refreshing: boolean;
+  /** The new-session form's choices, once asked for. */
+  newSession: { projects: string[]; lifecycles: LifecycleOption[] } | null;
   pickerRows: PickerRow[];
   pickerFilter: string;
   modelRows: ModelRow[];
@@ -61,11 +82,19 @@ export interface ViewState {
 const INITIAL_STATE: ViewState = {
   sessionId: null,
   phase: 'Idle',
+  queueLen: 0,
   modelLabel: '',
   title: '',
   revision: 0,
   entries: [],
   sessions: [],
+  library: [],
+  railView: 'sessions',
+  theme: 'system',
+  draft: '',
+  chips: [],
+  refreshing: false,
+  newSession: null,
   pickerRows: [],
   pickerFilter: '',
   modelRows: [],
@@ -121,6 +150,11 @@ let optimisticCounter = 0;
  * Applies one frame: the browser's single dispatch. Every `ServerMsg`
  * variant has exactly one arm and there is no fallback, so a new frame
  * kind is a type error until it is handled here.
+ *
+ * A snapshot is always applied. It replaces which session the page views
+ * and that session's transcript; the draft and pending images are not
+ * the transcript's and are left as they are, so following a switch made
+ * elsewhere never discards what the user is typing.
  */
 export function apply(store: ClientStore, msg: ServerMsg): void {
   switch (msg.type) {
@@ -128,12 +162,17 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       store.set((s) => {
         s.sessionId = msg.session_id;
         s.phase = msg.phase.phase;
+        s.queueLen = msg.phase.queue_len;
         s.modelLabel = msg.model_label;
         s.title = msg.title;
         s.revision = msg.revision;
         s.entries = msg.entries;
         s.sessions = msg.sessions;
+        s.library = msg.library;
+        s.theme = msg.theme;
         s.synced = true;
+        // Not the draft or the chips: they belong to the user, not to the
+        // session, and a switch must not take unsent text with it.
         // A different session's picker rows are not the ones the page was
         // looking at; an open modal re-asks for its own rows on open.
         s.skillRows = [];
@@ -152,6 +191,18 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       reindex(msg.entries);
       return;
     }
+    case 'theme': {
+      store.set((s) => {
+        s.theme = msg.theme;
+      });
+      return;
+    }
+    case 'new_session_options': {
+      store.set((s) => {
+        s.newSession = { projects: msg.projects, lifecycles: msg.lifecycles };
+      });
+      return;
+    }
     case 'entry_upsert': {
       if (!belongsToViewedSession(store, msg.session_id)) return;
       upsert(store, msg.index, msg.entry);
@@ -166,12 +217,14 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       if (!belongsToViewedSession(store, msg.session_id)) return;
       store.set((s) => {
         s.phase = msg.phase;
+        s.queueLen = msg.queue_len;
       });
       return;
     }
     case 'sessions': {
       store.set((s) => {
         s.sessions = msg.rows;
+        s.library = msg.library;
       });
       return;
     }
@@ -203,9 +256,14 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
     case 'model_rows': {
+      // A push for a session the page has left, or for text the user has
+      // typed past, is not the view the page is holding.
+      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
       if (msg.filter !== store.state.modelFilter) return;
       store.set((s) => {
         s.modelRows = msg.rows;
+        // A push is how the page learns its refresh finished.
+        s.refreshing = false;
       });
       return;
     }
@@ -270,24 +328,29 @@ function belongsToViewedSession(store: ClientStore, sessionId: string): boolean 
 }
 
 function upsert(store: ClientStore, index: number, envelope: EntryEnvelope): void {
+  // The array that is installed, so the index below is rebuilt from the
+  // very array the transcript now holds and not from a read-back of the
+  // store, which can lag the write by one frame.
+  let installed: EntryEnvelope[] = [];
   store.set((s) => {
     // A real user entry is the server catching up with a sent message:
     // that is the moment every optimistic placeholder is superseded.
     const base = envelope.kind === 'user' ? dropOptimistic(s.entries) : s.entries;
     const next = [...base];
 
-    // The entry may already be known (an in-place rewrite) or relocated (a
-    // compaction reordered the history); either way it ends up exactly
-    // once, where the server says it sits.
-    const known = positions.get(envelope.entry.id);
-    if (known !== undefined) {
-      const at = next.findIndex((e) => e.entry.id === envelope.entry.id);
-      if (at !== -1) next.splice(at, 1);
-    }
+    // An entry is in the transcript exactly once, at the index the server
+    // names. A same-id copy is removed by search rather than through the
+    // index: the first real upsert drops the optimistic placeholder, and a
+    // second upsert for the same entry can arrive before the index
+    // catches up — gated on the index, it skipped the removal and appended
+    // a second copy, so one user entry with an image showed twice.
+    const at = next.findIndex((e) => e.entry.id === envelope.entry.id);
+    if (at !== -1) next.splice(at, 1);
     next.splice(clamp(index, next.length), 0, envelope);
     s.entries = next;
+    installed = next;
   });
-  reindex(store.state.entries);
+  reindex(installed);
 }
 
 /** A copy of the transcript without optimistic placeholders. */
@@ -341,6 +404,35 @@ const GROWING_FIELD: Record<string, string> = {
   ToolResult: 'content',
 };
 
+/** Replaces the composer's draft. */
+export function setDraft(store: ClientStore, text: string): void {
+  store.set((s) => {
+    s.draft = text;
+  });
+}
+
+/** Adds pending images to the composer, in the order given. */
+export function addChips(store: ClientStore, images: ImageUpload[]): void {
+  store.set((s) => {
+    s.chips = [...s.chips, ...images];
+  });
+}
+
+/** Removes one pending image, by its position in chip order. */
+export function removeChip(store: ClientStore, index: number): void {
+  store.set((s) => {
+    s.chips = s.chips.filter((_, at) => at !== index);
+  });
+}
+
+/** Clears the draft and every pending image — what a successful send does. */
+export function clearComposer(store: ClientStore): void {
+  store.set((s) => {
+    s.draft = '';
+    s.chips = [];
+  });
+}
+
 /**
  * Adds an optimistic user entry so a message appears the instant it is
  * sent. It has no real id; the server's own entry replaces it.
@@ -355,10 +447,12 @@ export function addOptimistic(store: ClientStore, text: string): void {
       context_history: [],
     },
   };
+  let installed: EntryEnvelope[] = [];
   store.set((s) => {
     s.entries = [...s.entries, envelope];
+    installed = s.entries;
   });
-  reindex(store.state.entries);
+  reindex(installed);
 }
 
 /** The text a user entry displays. */

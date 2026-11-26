@@ -20,6 +20,7 @@ use trouper::actor::MsgHandler;
 use trouper::context::MsgCtx;
 
 use super::OutboundActor;
+use jinn_kernel::State;
 
 /// What each entry looked like when it was last sent to pages.
 ///
@@ -106,7 +107,12 @@ impl OutboundActor {
         if msg.new_phase == jinn_slices::PhaseView::Idle {
             self.reconcile(&msg.session_id);
         }
-        self.push(&crate::frames::phase(&msg.session_id, msg.new_phase));
+        let queue_len = live_queue_len(&self.handle.deps.state, &msg.session_id);
+        self.push(&crate::frames::phase(
+            &msg.session_id,
+            msg.new_phase,
+            queue_len,
+        ));
         self.push(&crate::frames::sessions(&self.handle.deps.state));
     }
 
@@ -184,8 +190,20 @@ impl MsgHandler<jinn_session_history_msg::HistoryAppended> for OutboundActor {
 }
 
 impl OutboundActor {
+    /// On any history append, sends every entry the page does not hold.
+    ///
+    /// `HistoryAppended` is the one event every committed entry gets, from
+    /// fourteen sites. Most of them are followed by another event that
+    /// carries the entry itself — a dispatch's `ChatEntrySubmitted`, a
+    /// phase change — but a few commit and stop: the attachment gate
+    /// blocks with a user entry and an error and never dispatches, a
+    /// provider error settles the turn without one. Without this the page
+    /// holds those entries only after the next unrelated send, and the
+    /// error a user should see now shows up a message late. An entry the
+    /// page already holds costs one serialization and no frame.
     fn on_history_appended(&mut self, msg: &jinn_session_history_msg::HistoryAppended) {
         self.handle.bump(&msg.session_id);
+        self.reconcile(&msg.session_id);
         self.push(&crate::frames::sessions(&self.handle.deps.state));
     }
 }
@@ -294,6 +312,111 @@ pub(crate) fn skills_loaded(handle: &super::OutboundHandle, msg: &jinn_skills_ms
     ));
 }
 
+impl MsgHandler<jinn_provider_selection_msg::ModelCacheStored> for OutboundActor {
+    async fn handle(
+        &mut self,
+        _msg: &jinn_provider_selection_msg::ModelCacheStored,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        model_cache_stored(&self.handle);
+    }
+}
+
+/// Turns one `ModelCacheStored` into the frames the page needs.
+///
+/// The event carries no session and no rows — it is only the "the cache was
+/// written" fact, emitted strictly after the write. Two things follow it:
+///
+/// - Every session whose model picker last asked for rows gets a fresh
+///   frame, built from the cell now, in the filter that picker is holding.
+///   The frame is what tells the page its refresh is done.
+/// - Every loaded session is reconciled. The provider actor writes the
+///   refresh's summary table into history as a transient entry and publishes
+///   no history event for it — the terminal re-reads history on every tick,
+///   so it shows; a page only shows what it is told. Without this the table
+///   the TUI shows would never reach `/web2`.
+pub(crate) fn model_cache_stored(handle: &super::OutboundHandle) {
+    for (session_id, filter) in handle.filters_for_kind(super::RowsKind::Model) {
+        handle.broadcast(&jinn_webui2_msg::ServerMsg::ModelRows(
+            jinn_webui2_msg::ModelRowsBody {
+                session_id,
+                rows: crate::actions::model_row_bodies(handle, &filter),
+                filter,
+            },
+        ));
+    }
+    for session_id in loaded_session_ids(&handle.deps.state) {
+        reconcile(handle, &session_id);
+    }
+}
+
+/// Every session currently in memory, in the map's order.
+fn loaded_session_ids(state: &State) -> Vec<SessionId> {
+    state
+        .read()
+        .session
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect()
+}
+
+impl MsgHandler<jinn_session_store_msg::SessionLibraryMembershipChanged> for OutboundActor {
+    async fn handle(
+        &mut self,
+        _msg: &jinn_session_store_msg::SessionLibraryMembershipChanged,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        library_membership_changed(&self.handle);
+    }
+}
+
+/// Turns one `SessionLibraryMembershipChanged` into the frame both sidebar
+/// lists need: the loaded non-members and the loaded members, re-read from
+/// live state now that the store actor has mirrored the flag into the
+/// in-memory session.
+pub(crate) fn library_membership_changed(handle: &super::OutboundHandle) {
+    handle.broadcast(&crate::frames::sessions(&handle.deps.state));
+}
+
+impl MsgHandler<jinn_kernel::protocol::system::ActiveSessionChanged> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        follow_active_session(&self.handle, msg).await;
+    }
+}
+
+/// Turns one `ActiveSessionChanged` into the frame every page needs to
+/// follow the instance's active session: a whole snapshot of that session.
+///
+/// The snapshot replaces a page's view wholesale — which session it views,
+/// its title, model, phase, and transcript from the start — in the one arm
+/// that already applies one. It is recorded as delivered exactly as the
+/// dispatch's snapshot reply is, so the streaming flush does not re-send
+/// what it carried. A page holding an unsent draft declines the frame on
+/// its side; the server does not know which pages those are and sends to
+/// all.
+///
+/// The activation may still be crossing the store actor's own turn for a
+/// session read from disk, so the pointer is waited for (bounded) first —
+/// the same wait a row click's reply takes.
+///
+/// A free function over the handle so a test drives the real push, with
+/// nothing spawned.
+pub(crate) async fn follow_active_session(
+    handle: &super::OutboundHandle,
+    msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
+) {
+    crate::actions::wait_for_activation(&handle.deps.state, &msg.session_id).await;
+    handle.mark_delivered(&msg.session_id);
+    handle.broadcast(&crate::frames::snapshot(
+        &handle.deps.state,
+        &handle.deps.revisions,
+    ));
+}
+
 impl MsgHandler<jinn_mcp_msg::McpRuntimeStored> for OutboundActor {
     async fn handle(&mut self, _msg: &jinn_mcp_msg::McpRuntimeStored, _ctx: &mut MsgCtx<'_>) {
         mcp_runtime_stored(&self.handle);
@@ -332,6 +455,7 @@ pub(crate) fn flush(handle: &super::OutboundHandle) {
     if handle.no_connections() {
         return;
     }
+    push_drifted_queue_depths(handle);
     let growing = growing_fields(handle);
     let mut sent = handle.sent.lock();
     for (session_id, index, entry, field, current) in growing {
@@ -344,6 +468,52 @@ pub(crate) fn flush(handle: &super::OutboundHandle) {
             field,
             &current,
         );
+    }
+}
+
+/// The depth of `session_id`'s turn queue, read from committed state.
+fn live_queue_len(state: &State, session_id: &SessionId) -> usize {
+    state
+        .read()
+        .session
+        .get(session_id)
+        .map_or(0, jinn_kernel::ChatSessionState::queue_len)
+}
+
+/// Pushes a phase frame for every session whose queue depth pages were
+/// last told no longer matches its queue.
+///
+/// A message queued behind a running turn publishes nothing — not a
+/// history event (the entry is not in the transcript yet) and not a phase
+/// change — so without this a page would not learn its queue had grown
+/// until the turn ended. The tick reads the committed depth, so the value
+/// is never the pre-enqueue one a reply racing the session actor would read.
+fn push_drifted_queue_depths(handle: &super::OutboundHandle) {
+    let depths = {
+        let guard = handle.deps.state.read();
+        guard
+            .session
+            .iter()
+            .map(|(session_id, session)| (session_id.clone(), session.phase(), session.queue_len()))
+            .collect::<Vec<_>>()
+    };
+    let mut told = handle.told_queue_lens.lock();
+    for (session_id, phase, queue_len) in depths {
+        match told.get(&session_id) {
+            // Unchanged: the page already holds this depth.
+            Some(known) if *known == queue_len => continue,
+            // The first tick for a session only records its baseline. A
+            // page that connects late is sent its snapshot, and a depth
+            // frame racing ahead of it would describe a session the page
+            // has not been shown yet; the depth rides the snapshot anyway.
+            None => {
+                told.insert(session_id, queue_len);
+                continue;
+            }
+            Some(_) => {}
+        }
+        told.insert(session_id.clone(), queue_len);
+        handle.broadcast(&crate::frames::phase(&session_id, phase, queue_len));
     }
 }
 
