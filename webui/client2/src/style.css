@@ -149,15 +149,25 @@ body { background: var(--bg); color: var(--fg); }
 }
 .rail-tab + .rail-tab { border-left: 1px solid var(--border); }
 .rail-tab:hover { color: var(--fg); }
+/* Selection is the same shape whatever the tab's fill: a thick accent
+   underline, on the selected tab and only there. It reads over the plain
+   fill, the selection fill, and the unread mark alike, so which list is
+   showing never depends on telling two similar fills apart. */
 .rail-tab[aria-selected="true"] { background: var(--bg-active); color: var(--fg); }
+.rail-tab[aria-selected="true"]::after {
+  content: "";
+  display: block;
+  height: 3px;
+  margin: 4px -8px -6px;
+  background: var(--accent);
+  border-radius: 2px;
+}
 /* An unread row under a tab marks the tab, so a `#` count always points
    at a marked row in the drawer. After the selected rule, and wins over
-   it: the tab being looked at is usually the selected one, and a
-   selection fill must not hide the mark. The selected tab then wears an
-   inset ring in the mark's ink, so which tab is selected stays legible
-   when both carry a mark. */
+   its fill: the tab being looked at is usually the selected one, and a
+   selection fill must not hide the mark. The underline above still names
+   the selected tab. */
 .rail-tab.unread { background: var(--mark); color: var(--on-fill); font-weight: 700; }
-.rail-tab.unread[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--on-fill); }
 /* A row and its kebab sit on one line; the session button takes the rest. */
 .session-row { display: flex; align-items: center; gap: 2px; }
 .session-row .session { flex: 1 1 0; min-width: 0; }

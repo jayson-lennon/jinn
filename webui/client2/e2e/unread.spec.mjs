@@ -39,6 +39,22 @@ async function markColour(page) {
   });
 }
 
+/** The page's `--accent` token, in the same resolved form. */
+async function accentColour(page) {
+  return page.evaluate(() => {
+    const token = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+    const n = parseInt(token.slice(1), 16);
+    return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+  });
+}
+
+/** A tab's selection underline: its `::after`'s resolved background, or null when it has none. */
+const underlineOf = (locator) =>
+  locator.evaluate((node) => {
+    const style = getComputedStyle(node, "::after");
+    return style.content === "none" ? null : style.backgroundColor;
+  });
+
 /** What only the first session holds, to find its row by. */
 const MARKER = "only the first session holds this";
 
@@ -136,7 +152,7 @@ test("at phone width the sessions button is marked and shows the count", async (
   // session.
   const mark = await markColour(page);
   await expect(page.locator(sel.SESSIONS_BUTTON)).toHaveClass(/unread/);
-  await expect(backgroundOf(page.locator(sel.SESSIONS_BUTTON))).resolves.toBe(mark);
+  expect(await backgroundOf(page.locator(sel.SESSIONS_BUTTON))).toBe(mark);
   await expect(page.locator(sel.SESSIONS_BUTTON_COUNT)).toHaveText("1");
 });
 
@@ -165,9 +181,9 @@ test("the tab holding the unread row is marked", async ({ page, jinn }) => {
   // colour, and the Library tab is not.
   const mark = await markColour(page);
   await expect(page.locator(sel.SESSIONS_VIEW)).toHaveClass(/unread/);
-  await expect(backgroundOf(page.locator(sel.SESSIONS_VIEW))).resolves.toBe(mark);
+  expect(await backgroundOf(page.locator(sel.SESSIONS_VIEW))).toBe(mark);
   await expect(page.locator(sel.LIBRARY_VIEW)).not.toHaveClass(/unread/);
-  await expect(backgroundOf(page.locator(sel.LIBRARY_VIEW))).resolves.not.toBe(mark);
+  expect(await backgroundOf(page.locator(sel.LIBRARY_VIEW))).not.toBe(mark);
 });
 
 test("an unread library member marks the Library tab and still counts", async ({
@@ -188,6 +204,25 @@ test("an unread library member marks the Library tab and still counts", async ({
   await expect(page.locator(sel.LIBRARY_VIEW)).toHaveClass(/unread/);
   await expect(page.locator(sel.SESSIONS_VIEW)).not.toHaveClass(/unread/);
   await expect(page.locator(sel.SESSIONS_BUTTON_COUNT)).toHaveText("1");
+});
+
+test("the selected tab wears the accent underline, marked or not", async ({ page, jinn }) => {
+  // Given two sessions, the Sessions tab selected and nothing unread.
+  const { secondId } = await arrangeBackgroundSession(page);
+  const accent = await accentColour(page);
+
+  // Then the selected tab has the underline and the other does not.
+  expect(await underlineOf(page.locator(sel.SESSIONS_VIEW))).toBe(accent);
+  expect(await underlineOf(page.locator(sel.LIBRARY_VIEW))).toBeNull();
+
+  // When a session in the selected list settles, turning that tab gold.
+  await startBackgroundTurn(jinn, secondId);
+  await expect(rowOf(page, secondId)).toHaveClass(/unread/, { timeout: 10_000 });
+  const mark = await markColour(page);
+  expect(await backgroundOf(page.locator(sel.SESSIONS_VIEW))).toBe(mark);
+
+  // Then the underline is still there over the mark.
+  expect(await underlineOf(page.locator(sel.SESSIONS_VIEW))).toBe(accent);
 });
 
 test("following a switch from another page clears the mark", async ({ page, browser, jinn }) => {
