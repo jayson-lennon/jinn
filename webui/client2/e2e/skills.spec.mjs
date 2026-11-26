@@ -158,8 +158,8 @@ test.with({ skill: true })("clicking an enabled skill disables it", async ({ pag
   await expect(row).toBeVisible({ timeout: 15_000 });
   await expect(row).toHaveAttribute("data-enabled", "true");
 
-  // When clicking the row.
-  await row.click();
+  // When clicking the row's toggle.
+  await row.locator("[data-testid=\"skill-toggle\"]").click();
 
   // Then it is marked disabled, and the modal stays open.
   await expect(row).toHaveAttribute("data-enabled", "false");
@@ -171,12 +171,66 @@ test.with({ skill: true })("clicking a disabled skill enables it again", async (
   await openSkills(page);
   const row = page.locator(sel.SKILL_ROW_NAMED(SKILL_NAME));
   await expect(row).toBeVisible({ timeout: 15_000 });
-  await row.click();
+  await row.locator("[data-testid=\"skill-toggle\"]").click();
   await expect(row).toHaveAttribute("data-enabled", "false");
 
-  // When clicking the row again.
-  await row.click();
+  // When clicking the row's toggle again.
+  await row.locator("[data-testid=\"skill-toggle\"]").click();
 
   // Then it is marked enabled again.
   await expect(row).toHaveAttribute("data-enabled", "true");
+});
+
+test.with({ skill: true })("the + button loads the skill into the transcript", async ({
+  page,
+}) => {
+  // Given the open skills modal listing the staged skill, with an empty
+  // transcript.
+  await openSkills(page);
+  const row = page.locator(sel.SKILL_ROW_NAMED(SKILL_NAME));
+  await expect(row).toBeVisible({ timeout: 15_000 });
+
+  // When clicking the row's + button.
+  await row.locator("[data-testid=\"skill-load\"]").click();
+
+  // Then the transcript shows the skill's call and its result, and the
+  // modal stays open with the row now marked loaded.
+  const result = page
+    .locator(`${sel.TRANSCRIPT} ${sel.ENTRY("tool_result")}`)
+    .filter({ hasText: SKILL_NAME });
+  await expect(result).toBeVisible();
+  await expect(result.locator("summary")).toContainText("success");
+  await expect(page.locator(sel.SKILLS_MODAL)).toBeVisible();
+  await expect(row).toHaveAttribute("data-loaded", "true");
+});
+
+test.with({ skill: true })("a loaded skill's toggle is disabled, so it cannot be switched off", async ({
+  page,
+}) => {
+  // Given the staged skill loaded into the session.
+  await openSkills(page);
+  const row = page.locator(sel.SKILL_ROW_NAMED(SKILL_NAME));
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.locator("[data-testid=\"skill-load\"]").click();
+  await expect(row).toHaveAttribute("data-loaded", "true");
+
+  // Then the toggle is disabled — a loaded skill's body stays pinned in
+  // history, so switching it off would promise an unload that never
+  // happens.
+  await expect(row.locator("[data-testid=\"skill-toggle\"]")).toBeDisabled();
+});
+
+test.with({ skill: true })("a loaded skill's + button is disabled, so it cannot be loaded twice", async ({
+  page,
+}) => {
+  // Given the staged skill loaded into the session.
+  await openSkills(page);
+  const row = page.locator(sel.SKILL_ROW_NAMED(SKILL_NAME));
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.locator("[data-testid=\"skill-load\"]").click();
+  await expect(row).toHaveAttribute("data-loaded", "true");
+
+  // Then the + button is disabled — the page offers no way to pin the
+  // same body twice. The server still guards a repeat frame on its own.
+  await expect(row.locator("[data-testid=\"skill-load\"]")).toBeDisabled();
 });

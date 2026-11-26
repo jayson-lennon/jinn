@@ -581,6 +581,145 @@ enum Toggle {
     Unknown,
 }
 
+/// Loads one skill's body into the active session's context and answers
+/// with the pair it pinned.
+///
+/// Mirrors the terminal picker's force-load. The body rides a `skill`
+/// tool call followed by a pinned result, so it stays in context until
+/// it is unpinned and pruned. A disabled skill is permitted durably
+/// first — the load would be useless otherwise — and an already-loaded
+/// skill gets a transient notice instead of a second pair. One message
+/// is published: the session was interacted with, so a store flush is
+/// due.
+///
+/// The pair reaches the page in this reply. Appending to history
+/// publishes nothing on its own — the turn machinery publishes
+/// `HistoryAppended` for its own appends — so a handler that appends
+/// and stays silent would leave the transcript one reconcile behind.
+pub async fn load_skill(out: &OutboundHandle, skill: &str) -> Reply {
+    let state = out.state();
+    let session_id = state.read().session.active_session_id().clone();
+    let filter = out.last_skill_filter(&session_id);
+
+    // The load's three outcomes, decided and written under one guard; the
+    // guard drops before the publish below, so no lock is held across
+    // its await.
+    let outcome = {
+        let mut guard = state.write();
+        let Some(session) = guard.session.get_mut(&session_id) else {
+            return refused(&Refusal::NoActiveSession);
+        };
+        let Some(found) = session
+            .discovered_skills()
+            .iter()
+            .find(|s| s.name == skill)
+            .cloned()
+        else {
+            return refused(&Refusal::UnknownSkill);
+        };
+        if session.loaded_skills().contains(skill) {
+            session.push_entry(ChatEntry::transient(format!(
+                "Skill '{skill}' is already loaded"
+            )));
+            Load::AlreadyLoaded
+        } else {
+            // A disabled skill is permitted durably first: a load that
+            // left it withheld would pin a body the prompt never sees.
+            if !session.is_skill_enabled(skill) {
+                let mut filter = session
+                    .skill_filter()
+                    .cloned()
+                    .unwrap_or_else(NameFilter::inherited);
+                filter.permit(skill);
+                session.set_skill_filter(Some(filter));
+            }
+            let tool_call_id = ChatEntryId::new().to_string();
+            let location = found.file_path.to_string();
+            let xml = format!(
+                "<skill name=\"{skill}\" location=\"{location}\">\n{}\n</skill>",
+                found.body
+            );
+            let arguments = serde_json::json!({ "name": skill }).to_string();
+            session.push_entry(ChatEntry::tool_call(
+                tool_call_id.clone(),
+                "skill",
+                arguments,
+            ));
+            let mut result = ChatEntry::tool_result(
+                tool_call_id,
+                "skill",
+                xml,
+                jinn_core_types::ToolResultStatus::Success,
+            );
+            result.pin_position = Some(jinn_core_types::PinPosition::Relative);
+            session.push_entry(result);
+            Load::Loaded
+        }
+    };
+
+    // The notice, or the pair, reaches the page through this reply;
+    // history appends publish nothing by themselves.
+    let pushed = match outcome {
+        Load::AlreadyLoaded => 1,
+        Load::Loaded => 2,
+    };
+    let mut reply = Reply::none();
+    reply
+        .frames
+        .extend(last_n_upserts(state, &session_id, pushed));
+    if outcome == Load::Loaded {
+        out.publish(MarkSessionInteracted {
+            session_id: session_id.clone(),
+        })
+        .await;
+    }
+    reply
+        .frames
+        .push(skill_rows_frame(state, &session_id, &filter));
+    reply
+}
+
+/// What a load did: pinned a fresh pair, or found the skill already in
+/// context and said so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Load {
+    Loaded,
+    AlreadyLoaded,
+}
+
+/// The upserts for a session's newest `n` entries, read after a write so
+/// each carries the index it now sits at.
+fn last_n_upserts(state: &jinn_kernel::State, session_id: &SessionId, n: usize) -> Vec<ServerMsg> {
+    let guard = state.read();
+    let Some(session) = guard.session.get(session_id) else {
+        return Vec::new();
+    };
+    let history = session.history();
+    let start = history.len().saturating_sub(n);
+    history
+        .iter()
+        .skip(start)
+        .enumerate()
+        .map(|(offset, entry)| crate::frames::upsert_at(session_id, start + offset, entry))
+        .collect()
+}
+
+/// The fresh skill-rows frame, in the filter the session last asked for.
+fn skill_rows_frame(state: &jinn_kernel::State, session_id: &SessionId, filter: &str) -> ServerMsg {
+    let rows = {
+        let guard = state.read();
+        guard
+            .session
+            .get(session_id)
+            .map_or_else(Vec::new, |session| skill_row_bodies(session, filter))
+    };
+    ServerMsg::SkillRows(SkillRowsBody {
+        session_id: session_id.clone(),
+        filter: filter.to_owned(),
+        rows,
+    })
+}
+
 /// Flips one skill's enablement on a session's filter. A skill loaded
 /// into context is left alone and reported as such — the caller answers
 /// with rows either way, so the page never shows an error for a click

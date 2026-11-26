@@ -70,6 +70,9 @@ export function App(): JSX.Element {
           onToggle={(skill) => {
             send({ type: 'toggle_skill', skill });
           }}
+          onLoad={(skill) => {
+            send({ type: 'load_skill', skill });
+          }}
           onClose={() => {
             setSkillsOpen(false);
           }}

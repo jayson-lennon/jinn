@@ -99,7 +99,8 @@ export type ClientMsg =
   | { type: 'picker_rows'; filter: string }
   | { type: 'model_rows'; filter: string }
   | { type: 'skill_rows'; filter: string }
-  | { type: 'toggle_skill'; skill: string };
+  | { type: 'toggle_skill'; skill: string }
+  | { type: 'load_skill'; skill: string };
 
 /** Server -> browser. Exactly one fact per frame. */
 export type ServerMsg =

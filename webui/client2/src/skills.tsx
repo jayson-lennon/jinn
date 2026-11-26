@@ -18,6 +18,8 @@ export interface SkillsModalProps {
   readonly onFilter: (value: string) => void;
   /** Toggles one skill's enablement, by name. */
   readonly onToggle: (skill: string) => void;
+  /** Loads one skill's body into the session's context, by name. */
+  readonly onLoad: (skill: string) => void;
   /** Closes the modal. */
   readonly onClose: () => void;
 }
@@ -55,7 +57,9 @@ export function SkillsModal(props: SkillsModalProps): JSX.Element {
         />
         <ul class="modal-list skills-rows" data-testid="skills-rows">
           <For each={props.rows}>
-            {(row) => <SkillRowView row={row} onToggle={props.onToggle} />}
+            {(row) => (
+              <SkillRowView row={row} onToggle={props.onToggle} onLoad={props.onLoad} />
+            )}
           </For>
         </ul>
       </div>
@@ -63,7 +67,11 @@ export function SkillsModal(props: SkillsModalProps): JSX.Element {
   );
 }
 
-function SkillRowView(props: { row: SkillRow; onToggle: (skill: string) => void }): JSX.Element {
+function SkillRowView(props: {
+  row: SkillRow;
+  onToggle: (skill: string) => void;
+  onLoad: (skill: string) => void;
+}): JSX.Element {
   const row = (): SkillRow => props.row;
   return (
     <li>
@@ -73,24 +81,44 @@ function SkillRowView(props: { row: SkillRow; onToggle: (skill: string) => void 
         data-skill={row().name}
         data-enabled={row().enabled ? 'true' : 'false'}
         data-loaded={row().loaded ? 'true' : 'false'}
-        onClick={() => {
-          // A loaded skill cannot be disabled — its body stays pinned in
-          // history — so the row is not a toggle for it.
-          if (!row().loaded) props.onToggle(row().name);
-        }}
       >
-        <span class="skill-row-marker" aria-hidden="true">
-          {row().enabled ? '\u25CF' : '\u25CB'}
-        </span>
-        <span class="skill-row-name">
-          <Runs runs={row().name_runs} />
-        </span>
-        <span class="skill-row-description">
-          <Runs runs={row().description_runs} />
-        </span>
-        <Show when={row().is_project}>
-          <span class="skill-row-source">project</span>
-        </Show>
+        {/* The toggle target is its own button, disjoint from the load
+            button beside it, so a click can never mean both. A loaded
+            skill cannot be disabled — its body stays pinned in history —
+            so the toggle is disabled for it. */}
+        <button
+          type="button"
+          class="skill-toggle"
+          data-testid="skill-toggle"
+          aria-pressed={row().enabled ? 'true' : 'false'}
+          aria-label={`${row().enabled ? 'Disable' : 'Enable'} ${row().name}`}
+          disabled={row().loaded}
+          onClick={() => props.onToggle(row().name)}
+        >
+          <span class="skill-row-marker" aria-hidden="true">
+            {row().enabled ? '\u25CF' : '\u25CB'}
+          </span>
+          <span class="skill-row-name">
+            <Runs runs={row().name_runs} />
+          </span>
+          <span class="skill-row-description">
+            <Runs runs={row().description_runs} />
+          </span>
+          <Show when={row().is_project}>
+            <span class="skill-row-source">project</span>
+          </Show>
+        </button>
+        <button
+          type="button"
+          class="skill-load"
+          data-testid="skill-load"
+          aria-label={`Load ${row().name} into context`}
+          title="Load into context"
+          onClick={() => props.onLoad(row().name)}
+          disabled={row().loaded}
+        >
+          +
+        </button>
       </div>
     </li>
   );

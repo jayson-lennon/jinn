@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_core_types::{ChatEntry, ModelSelection};
+use jinn_core_types::{ChatEntry, ChatEntryKind, ModelSelection};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::State;
 use jinn_preferences_config::protocol::app_state_command::UpdateAppState;
@@ -1955,4 +1955,146 @@ async fn toggling_an_undiscovered_skill_is_refused() {
             .skill_filter()
             .is_none()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Skills modal: load
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn loading_a_skill_pins_its_body_as_a_tool_call_and_result() {
+    // Given a session that discovered one skill.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page loads that skill.
+    let reply = dispatch(
+        ClientMsg::LoadSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then history ends with a `skill` call and a pinned `skill` result
+    // carrying the body, and the reply upserts both.
+    let state = h.state.read();
+    let history = state.session.active_session().history();
+    let len = history.len();
+    let ChatEntryKind::ToolCall { name, .. } = &history[len - 2].kind else {
+        unreachable!("a tool call was expected: {:?}", history[len - 2].kind);
+    };
+    assert_eq!(name, "skill");
+    let ChatEntryKind::ToolResult { name, content, .. } = &history[len - 1].kind else {
+        unreachable!("a tool result was expected: {:?}", history[len - 1].kind);
+    };
+    assert_eq!(name, "skill");
+    assert!(content.starts_with("<skill name=\"alpha\""));
+    assert!(history[len - 1].is_pinned());
+    drop(state);
+    let upserts: Vec<_> = reply
+        .frames
+        .iter()
+        .filter(|frame| matches!(frame, ServerMsg::EntryUpsert(_)))
+        .collect();
+    assert_eq!(upserts.len(), 2);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn loading_a_disabled_skill_enables_it_first() {
+    // Given a session that discovered one skill and withholds it.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+    withhold(&h, "alpha");
+
+    // When the page loads that skill.
+    let _ = dispatch(
+        ClientMsg::LoadSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the skill is permitted on the session's filter.
+    assert!(
+        h.state
+            .read()
+            .session
+            .active_session()
+            .is_skill_enabled("alpha")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn loading_a_skill_publishes_only_that_the_session_was_interacted_with() {
+    // Given a session that discovered one skill.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page loads that skill.
+    let _ = dispatch(
+        ClientMsg::LoadSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then exactly one message was published, naming that interaction.
+    assert_eq!(h.audit.names(), ["MarkSessionInteracted"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn loading_an_already_loaded_skill_appends_a_notice_and_publishes_nothing() {
+    // Given a session that discovered one skill and already holds its
+    // pinned pair.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+    pin_loaded(&h, "alpha");
+
+    // When the page loads that skill again.
+    let _ = dispatch(
+        ClientMsg::LoadSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then a transient notice was appended, and nothing was published.
+    let state = h.state.read();
+    let history = state.session.active_session().history();
+    let ChatEntryKind::Transient(text) = &history[history.len() - 1].kind else {
+        unreachable!(
+            "a transient was expected: {:?}",
+            history[history.len() - 1].kind
+        );
+    };
+    assert!(text.contains("already loaded"));
+    drop(state);
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn loading_an_undiscovered_skill_is_refused() {
+    // Given a session that discovered one skill.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page loads a skill the session never discovered.
+    let reply = dispatch(
+        ClientMsg::LoadSkill {
+            skill: "phantom".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told so, and nothing was appended or published.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        unreachable!("one error frame expected: {reply:?}");
+    };
+    assert_eq!(error.message, "unknown skill");
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
 }
