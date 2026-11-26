@@ -272,11 +272,37 @@ Cover both the precise and the loose. "Read `/path/to/other-repo` for the `Actor
 
 A reference must be resolvable from the working environment. An absolute path on another machine is not a reference. It is a broken promise. If the user names something unreachable, say so and ask what to do instead.
 
+## If you do not know what the task is, ask first
+
+You may not be able to tell what the task is asking for. A short task name, a term you cannot find in the code, or a request that could mean two different things.
+
+**Do not guess, and do not search for the answer first.** Reading the code cannot tell you what the user meant. A question about the wrong task wastes a whole round, and the user has to cancel you to stop it.
+
+- **Ask at once.** Skip the grounding. Round 1 is one question: what does the task mean?
+- **Give what you found.** One or two sentences: what you looked for and did not find. Name the words from the task that you could not place.
+- **Offer your best readings as options.** Each option is one line. Mark the one you think most likely. Always include an option that says "none of these", so the user can answer in their own words.
+- **Ask only what you need to start.** Do not stack four more questions on top. Later questions depend on this answer.
+- **Past sessions and notes are not a source for what the task means.** Do not search the user's session history for it. Ask.
+
+Once the task is clear, go back to the normal rounds: ground them, then ask the questions that shape the design.
+
+### An example of asking first
+
+<example>
+I could not place "count dependencies". Nothing in the repo is named that, and the task could mean two very different things.
+
+1. **What should exist when this is done?**
+   - **A (recommended):** a command that prints how many crates depend on each crate. You run it when you want the numbers.
+   - **B:** a test that fails when a dependency count changes. It guards the number instead of reporting it.
+   - **C:** a one-time answer in chat. No code.
+   - **D:** none of these. I will explain.
+</example>
+
 ## Keep it short
 
 The user has not seen the code, and they read fast so they can answer quickly. Give them only what they need to answer.
 
-- **Ground them first.** Before the first round, say what the code does now and why it works that way. Name the files and functions. Keep it to roughly 200 words. No code blocks.
+- **Ground them first.** Before the first round, say what the code does now and why it works that way. Name the files and functions. Keep it to roughly 200 words. No code blocks. If you do not know what the task is, skip this and ask first (see above).
 - **Ask in rounds.** At most 5 questions in one round. If more are open, they wait for the next round. Several short rounds are fine, and often better: the answers change what the next questions should be.
 - **Keep a round to roughly 300 words.**
 - **One line per option:** what it does, and its main consequence.
@@ -354,7 +380,7 @@ A question is **open** until the user answers it, and **closed** the moment they
      - What are you willing to trade away to get there?
      - **How should the work be driven?** What gets checked and how often, what makes a commit unit, how autonomous is the run? For a large or disruptive change this changes the shape of the work, so it is a real question, not a formality.
      - **Do you have reference material** I should have, or places I should look: paths, documents, prior versions, or a topic to research?
-   - **The user has not seen the code.** "This changes `foo()`" says nothing. Say what `foo()` does now and what it would need to become. Read the code before you explain it. **Always** ground the user in the current behavior and why it works that way, then give the options.
+   - **The user has not seen the code.** "This changes `foo()`" says nothing. Say what `foo()` does now and what it would need to become. Read the code before you explain it. **Always** ground the user in the current behavior and why it works that way, then give the options. The one exception is a task you cannot make sense of: then ask what it means before you read anything (see "If you do not know what the task is, ask first").
    - **Number the questions.** The user answers by number.
 2. **Read the code before you assert.** Use tools to verify the current state: sizes, counts, import graphs, whether code is actually referenced, whether a file is actually compiled. Do not guess. Traps and inventory entries are measured, not estimated. The exploration that feeds "Traps" is the same exploration. It must land in the contract, not evaporate.
 3. **Propose a brief first.** When you have enough information, give the user a "CONTRACT BRIEF" in chat: PROBLEM, END STATE, FINAL INVENTORY, and DONE WHEN. These are abbreviated for approval, before the full contract.
