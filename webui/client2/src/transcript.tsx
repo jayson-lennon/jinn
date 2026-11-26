@@ -14,6 +14,9 @@ import type { JSX } from '@solidjs/web';
 import type { EntryEnvelope, EntryKind } from './protocol';
 import { renderMarkdown, safeHref } from './markdown';
 
+/** The route prefix an attachment's `<img>` is served from. */
+const ATTACHMENT_PREFIX = '/web2/attachment/';
+
 /** The persisted map's single value, whatever its tag. */
 function body(envelope: EntryEnvelope): unknown {
   const inner = envelope.entry.kind as Record<string, unknown>;
@@ -40,20 +43,20 @@ function prettyArgs(raw: string): string {
   }
 }
 
-export function TranscriptEntry(props: { envelope: EntryEnvelope }): JSX.Element {
+export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: string | null }): JSX.Element {
   const kind = (): EntryKind => props.envelope.kind;
   return (
     <article class={`entry entry-${kind()}`} data-entry-id={props.envelope.entry.id}>
-      <Switch kind={kind()} envelope={props.envelope} />
+      <Switch kind={kind()} envelope={props.envelope} sessionId={props.sessionId} />
     </article>
   );
 }
 
 /** One arm per kind. There is no fallback: an unknown kind renders nothing. */
-function Switch(props: { kind: EntryKind; envelope: EntryEnvelope }): JSX.Element {
+function Switch(props: { kind: EntryKind; envelope: EntryEnvelope; sessionId: string | null }): JSX.Element {
   switch (props.kind) {
     case 'user':
-      return <UserView value={body(props.envelope)} />;
+      return <UserView envelope={props.envelope} sessionId={props.sessionId} />;
     case 'system':
     case 'error':
     case 'transient':
@@ -78,17 +81,50 @@ function Switch(props: { kind: EntryKind; envelope: EntryEnvelope }): JSX.Elemen
   }
 }
 
-function UserView(props: { value: unknown }): JSX.Element {
-  const data = () => props.value as { display?: string; expanded?: string } | undefined;
+function UserView(props: { envelope: EntryEnvelope; sessionId: string | null }): JSX.Element {
+  const data = () =>
+    body(props.envelope) as {
+      display?: string;
+      expanded?: string;
+      attachments?: unknown[];
+    };
+  // The attachments already rode the socket inside the entry. The page
+  // reads only how many there are; the bytes come from the attachment
+  // route, because an `<img>` needs an address and a data URL built from
+  // the socket's array would double the cost of every image.
+  const attachments = (): unknown[] => {
+    const list = data()?.attachments;
+    return Array.isArray(list) ? list : [];
+  };
   return (
     <div class="entry-body">
       <span class="entry-role">you</span>
-      <pre class="entry-text">{data()?.display ?? ''}</pre>
+      <Show when={(data()?.display ?? '') !== ''}>
+        <pre class="entry-text">{data()?.display}</pre>
+      </Show>
       <Show when={(data()?.expanded ?? '') !== (data()?.display ?? '')}>
         <details>
           <summary>expanded</summary>
           <pre class="entry-text">{data()?.expanded}</pre>
         </details>
+      </Show>
+      {/* Rendered as plain elements beside the markdown pipeline, never
+          through it: the sanitizer allows only http(s) image sources and
+          would strip the route's relative address. */}
+      <Show when={attachments().length > 0}>
+        <div class="entry-attachments" data-testid="entry-attachments">
+          <For each={attachments()}>
+            {(_attachment, index) => (
+              <img
+                class="attachment"
+                data-testid="attachment"
+                src={`${ATTACHMENT_PREFIX}${props.sessionId ?? ''}/${props.envelope.entry.id}/${index()}`}
+                alt="attached image"
+                loading="lazy"
+              />
+            )}
+          </For>
+        </div>
       </Show>
     </div>
   );

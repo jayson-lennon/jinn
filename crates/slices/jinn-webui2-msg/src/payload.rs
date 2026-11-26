@@ -39,6 +39,9 @@ pub struct SessionRowBody {
     pub is_active: bool,
     /// Whether a turn is running (any phase other than idle).
     pub is_busy: bool,
+    /// Whether the session is a library member. A member is listed under
+    /// the Library view and hidden from the Sessions view.
+    pub in_library: bool,
 }
 
 /// The whole state a page needs on a fresh connect: the active session,
@@ -63,6 +66,11 @@ pub struct SnapshotBody {
     pub entries: Vec<EntryEnvelope>,
     /// The loaded sessions the sidebar shows.
     pub sessions: Vec<SessionRowBody>,
+    /// The library members the sidebar's Library view shows.
+    pub library: Vec<SessionRowBody>,
+    /// The persisted color mode — `light`, `dark`, or `system` — applied
+    /// before the transcript's first paint.
+    pub theme: String,
 }
 
 /// One transcript entry on the wire.
@@ -179,6 +187,10 @@ pub struct PickerRowsBody {
 /// The rows the model picker shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelRowsBody {
+    /// The session whose models these are. An open picker drops rows for
+    /// a session the page has left — the same reason [`SkillRowsBody`]
+    /// carries one.
+    pub session_id: SessionId,
     /// The filter the rows answer.
     pub filter: String,
     /// The rows, available first, the active model first among them.
@@ -193,8 +205,10 @@ pub struct ModelRowsBody {
 /// payload is a sequence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionsBody {
-    /// The rows, in the sidebar's order.
+    /// The rows, in the sidebar's order. Library members are excluded.
     pub rows: Vec<SessionRowBody>,
+    /// The library members, in the Library view's order.
+    pub library: Vec<SessionRowBody>,
 }
 
 /// A refused request, with the reason the browser shows the user.
@@ -400,4 +414,52 @@ pub struct PersonaRowsBody {
     /// The rows, in the personas' own (name-sorted) order, filtered by the
     /// shared filter.
     pub rows: Vec<PersonaRowBody>,
+}
+
+/// The page's color mode after a theme change lands.
+///
+/// Carries no session: the mode is the instance's, not one session's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThemeBody {
+    /// The mode — `light`, `dark`, or `system`.
+    pub theme: String,
+}
+
+/// One pending composer image on the wire, from a paste, a picked file,
+/// or a scanned URL.
+///
+/// Deliberately one shape for all three: the browser holds every pending
+/// image as base64 bytes and a name, and the server ingests them the same
+/// way whatever their source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageUploadBody {
+    /// A display name for the chip (the picked file's name, or
+    /// "pasted image" for a paste).
+    pub name: String,
+    /// The base64-encoded image bytes, with no data-URL prefix.
+    pub data_base64: String,
+}
+
+/// The new-session form's choices, read from the live configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewSessionOptionsBody {
+    /// The configured `[[project.entry]]` paths, as the form shows them.
+    /// An empty list renders the "no projects configured" refusal.
+    pub projects: Vec<String>,
+    /// The configured lifecycle names, each paired with the argument
+    /// count its setup declares (0 for a lifecycle that takes none).
+    /// The blank lifecycle is the form's own first row and is not listed.
+    pub lifecycles: Vec<LifecycleOptionBody>,
+}
+
+/// One project or lifecycle option the new-session form lists.
+///
+/// A named struct: a tuple has no field names on the wire, and the
+/// browser reads `name` and `param_count` by name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleOptionBody {
+    /// The lifecycle's name — what a `CreateSession` sends back.
+    pub name: String,
+    /// How many arguments its setup requires. 0 hides the arguments field.
+    pub param_count: usize,
 }

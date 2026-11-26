@@ -117,6 +117,14 @@ backend = "sample"
 requires_key = false
 models = ["sample"]
 
+# The attachments spec sends images; the sample model is not in the
+# models.dev reference data, so the vision gate needs the explicit
+# capability marker on the model's own row (the lever the gate's error
+# entry names). The original UI's harness carries the same block.
+[[providers.sample.model_info]]
+id = "sample"
+input_modalities = ["text", "image"]
+
 # A second, selectable, keyless provider: the model-picker spec needs a
 # row that is not the current one to switch to.
 [providers.second]

@@ -34,7 +34,7 @@ const ARCHIVED_TITLE = "the archived one";
  *
  * Returns the archived session's picker row.
  */
-async function arrangeArchivedSession(page, browser, jinn) {
+async function arrangeArchivedSession(page, jinn) {
   await sendAndWaitForEcho(page, MARKER);
   await page.locator(sel.TITLE).click();
   await page.locator(sel.TITLE_EDIT).fill(ARCHIVED_TITLE);
@@ -43,7 +43,7 @@ async function arrangeArchivedSession(page, browser, jinn) {
   const archivedId = await page
     .locator(sel.ACTIVE_SESSION_ROW)
     .getAttribute("data-session-id");
-  await createSession(jinn, browser);
+  await createSession(page);
   await page.reload();
   await expect(page.locator(sel.SESSION_ROW)).toHaveCount(2);
   await archiveSession(jinn, archivedId);
@@ -55,12 +55,11 @@ async function arrangeArchivedSession(page, browser, jinn) {
 }
 
 test("an archived session is not in the sidebar after a restart", async ({
-  browser,
   jinn,
   page,
 }) => {
   // Given a session that was archived before the instance restarted.
-  await arrangeArchivedSession(page, browser, jinn);
+  await arrangeArchivedSession(page, jinn);
   await page.keyboard.press("Escape");
 
   // Then its row is gone from the sidebar, which lists only loaded sessions.
@@ -69,13 +68,12 @@ test("an archived session is not in the sidebar after a restart", async ({
 });
 
 test("choosing an archived session loads its history", async ({
-  browser,
   jinn,
   page,
 }) => {
   // Given the archived session's row in the Archive picker, while the
   // page shows a session that does not hold the marker.
-  const row = await arrangeArchivedSession(page, browser, jinn);
+  const row = await arrangeArchivedSession(page, jinn);
   await expect(page.locator(sel.TRANSCRIPT)).not.toContainText(MARKER);
 
   // When choosing it.
@@ -88,12 +86,11 @@ test("choosing an archived session loads its history", async ({
 });
 
 test("a loaded archived session returns to the sidebar", async ({
-  browser,
   jinn,
   page,
 }) => {
   // Given the archived session's row in the Archive picker.
-  const row = await arrangeArchivedSession(page, browser, jinn);
+  const row = await arrangeArchivedSession(page, jinn);
 
   // When choosing it.
   await row.click();

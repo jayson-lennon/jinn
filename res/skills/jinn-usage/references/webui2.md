@@ -6,8 +6,9 @@ sessions, the same transcript, the same single active session, and every
 action publishes the same message the TUI's keybind does.
 
 The original web UI is unchanged and still served. `/web2` is the newer
-surface; it covers the core loop only (see [What `/web2` does not
-do](#what-web2-does-not-do)).
+surface; it covers the core loop — sessions and the library, images,
+themes, model refresh, and creating a session — and leaves out what
+[What `/web2` does not do](#what-web2-does-not-do) lists.
 
 Like `/web`, it is a **single-user, unauthenticated** surface — reach it
 over loopback or a VPN you secure.
@@ -23,26 +24,55 @@ but nothing coordinates them.
 
 ## What it does
 
-- **Sessions** — the sidebar lists the loaded sessions; the active one is
-  highlighted. Clicking a row activates that session (the TUI follows).
+- **Sessions | Library** — the sidebar's two-segment control chooses which
+  list it shows: the loaded sessions that are not library members, or the
+  library members. Exactly one shows at a time. In either list the active
+  session is highlighted and clicking a row activates that session (the
+  TUI follows). Each row's `⋮` offers **add to library** or **remove from
+  library**, which moves it to the other list.
 - **Archive** — the sidebar's **Archive** button opens a picker over every
   stored session, loaded or archived, with a title filter. Choosing a row
   activates it; an archived session is loaded from disk and leaves the
   archive.
+- **New session** — the menu's **New session** item opens a modal with a
+  Project select, a Lifecycle select (blank by default), and **Setup
+  arguments** when the chosen lifecycle declares any. **Create session**
+  makes the new session active and the page moves to it. With no
+  `[[project.entry]]` configured the modal says so instead of showing a
+  form.
+- **Follows the active session** — when the active session changes
+  anywhere (another `/web2` page, `/web`, the TUI), every `/web2` page
+  switches to it, unless it holds an unsent draft or a pending image.
 - **Transcript** — the full history, streamed live: markdown, thinking,
   tool calls and results, errors, and system messages all render as they
   arrive.
-- **Composer** — sends a message, queues one while a turn is running, or
-  cancels the running turn.
+- **Composer** — one row: the draft, a `+` to attach an image, and the
+  buttons, all on the same line. Sends a message, queues one while a turn
+  is running, or cancels the running turn. An image can arrive three
+  ways — pasted into the draft, picked through the `+`, or named by an
+  `https://` image URL in the text — and each one shows as a chip above
+  the draft, with an `✕` to remove it, until the message is sent. A sent
+  image renders on its message.
 - **Model** — the titlebar's model chip opens a picker of the available
-  models. Choosing one switches the session's model.
+  models. Choosing one switches the session's model. **Refresh models**
+  asks the registry to rediscover them; it is disabled and busy until the
+  fresh rows arrive.
 - **Title** — click the title to rename the session in place; `Enter`
   commits and `Esc` cancels.
 - **Menu** — the `☰` at the title bar's left opens a full-height panel
-  over a dimmed page. While a session is active it lists **Skills**,
+  over a dimmed page. **New session** is its first item and the
+  **Light | Dark | System** color mode group its last, at every time.
+  Between them, while a session is active, it lists **Skills**,
   **Persona**, **Tools**, and **MCP servers**, in that order; each opens
-  its picker. With no active session it lists none of them. A scrim
+  its picker. With no active session those four are omitted. A scrim
   click, `Esc`, or picking an item closes it.
+- **Color mode** — the menu's **Light | Dark | System** group. The choice
+  is saved (`state.toml`) and survives a reload and a restart; **System**
+  follows the browser. It is applied before the transcript's first paint.
+- **Phone layout** — below 768px the sidebar becomes an off-canvas drawer
+  opened by a `#` button at the title bar's left. A scrim tap, `Esc`, or
+  picking a row closes it. At wider widths the `#` is not shown and the
+  sidebar is a fixed column.
 - **Skills** — the menu's **Skills** item (only while a session is
   active) opens the session's discovered skills: a `●` / `○` enabled
   mark, the name and description, a `project` badge on a project-scoped
@@ -101,15 +131,17 @@ There are no keybinds beyond these:
 | `Enter` in the composer | Sends the message. |
 | `Shift+Enter` in the composer | Inserts a newline. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
-| `Esc` | Closes the top overlay: the menu, any of the four picker modals (Skills, Persona, Tools, MCP servers), another picker, or the title editor. |
+| `Esc` | Closes the top overlay: the menu, any of the four picker modals (Skills, Persona, Tools, MCP servers), the New session modal, another picker, the title editor, or the phone drawer. |
 
 The composer's buttons follow the session's phase:
 
 - **Idle** — **Send** only.
-- **Working** — **Queue** and **Cancel**; there is no Send.
+- **Working** — **Q** and **Cancel**; there is no Send. `Q` queues.
 
 `Enter` follows the same rule: idle it sends, working it queues. An
-empty draft does nothing either way.
+empty draft with no image does nothing either way; an image with no text
+sends. Images are limited to 5 MB each, and a refused one is named in a
+message under the composer while the draft and every chip stay put.
 
 **Cancel** stops the running turn. Queued work is dumped into the TUI's
 input box as an editable draft — not into the web composer.
@@ -127,18 +159,19 @@ Everything below exists on the TUI, and most of it on `/web` too. When a
 user asks for one of these on `/web2`, say so and point at the surface
 that has it.
 
-- Creating, forking, archiving, or tearing down sessions. `/web2` can
-  *open* an archived session through its picker, but cannot create one.
+- Forking, archiving, or tearing down sessions. `/web2` can *create* and
+  *open* sessions, but has no fork, archive, or teardown gesture.
 - Applets — the applets picker; every other menu picker exists on
   `/web2`.
 - Pinning, exclusion, isolate, and the per-entry audit popup.
 - Steer mode. A message sent while working is queued; to steer, cancel
   and send.
-- The `#prompt`, `@attachment`, and `/command` input tokens, and image
-  attachments. Text is sent verbatim.
+- The `#prompt`, `@path`, and `/command` input tokens. Text is sent
+  verbatim; `@path` is the TUI's way to attach a file, and `/web2` has the
+  `+` instead.
 - Model alloys, reasoning-effort and endpoint pickers.
-- Unread marks on session rows.
-- A theme switcher and a phone drawer layout.
+- Unread marks on session rows, and an unread badge on the phone
+  drawer's `#` button.
 
 ## How it works
 

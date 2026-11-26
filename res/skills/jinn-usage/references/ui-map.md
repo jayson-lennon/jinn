@@ -212,37 +212,47 @@ button appears; details are in `webui.md`.
 
 ## Web UI 2 layout (`/web2`)
 
-A second, smaller browser page the instance serves beside the TUI and
-the original web UI (what it is and how to open it: `webui2.md`). It
-mirrors the TUI's core loop only:
+A second browser page the instance serves beside the TUI and the original
+web UI (what it is and how to open it: `webui2.md`). Below 768px the
+sidebar is an off-canvas drawer behind a `#` button; at wider widths it
+is the fixed column drawn here, and the `#` is not shown.
 
 ```text
 ┌──────────────┬──────────────────────────────────────────────┐
-│ Switch       │ ☰ Session title        [provider/model]      │ ← title bar
-│ session…     ├──────────────────────────────────────────────┤
-│              │                                              │
-│ ▎Session A   │  Transcript                                  │
-│  Session B ● │  (scrolling conversation)                    │
-│              │                                              │
+│Sessions│Libra│ ☰ Session title        [provider/model]      │ ← title bar
+│ ▎Session A   ├──────────────────────────────────────────────┤
+│  Session B ● │  Transcript                                  │
+│        ⋮     │  (scrolling conversation)                    │
+│              │  a user message with an attached image:      │
+│  Archive     │    you  look at this                         │
+│              │    [img]                                     │
 │              ├──────────────────────────────────────────────┤
-│              │ [Message jinn…                 ]              │
-│              │                           [Queue] [Cancel]   │
-│              │                     or [Send]      ← composer │
+│              │ [chip: dot.png ✕]                            │ ← chips
+│              │ [Message jinn…      ] [+]        [Send]      │ ← composer
+│              │ [Message jinn…      ] [+]     [Q] [Cancel]   │
 └──────────────┴──────────────────────────────────────────────┘
   sidebar                   main
 ```
 
 | Element | What it is | See |
 | --- | --- | --- |
+| `Sessions` / `Library` | The sidebar's two-segment control. Chooses which list it shows: the loaded sessions that are not library members, or the library members. Exactly one shows at a time. | `webui2.md` |
+| `⋮` on a session row | The row's menu. One item — **add to library** or **remove from library** — which moves the session to the other list. | `webui2.md` |
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui2.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui2.md` |
 | `●` after a session title | That session's turn is running. | `webui2.md` |
 | The session title | Click to rename in place: `Enter` commits, `Esc` cancels. | `webui2.md` |
-| `[provider/model]` | The model chip. Opens the model picker. | `webui2.md` |
-| `[Message jinn…]` | The composer. `Enter` sends; `Shift+Enter` is a newline. | `webui2.md` |
-| `[Queue]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
+| `[provider/model]` | The model chip. Opens the model picker; its **Refresh models** button asks the registry to rediscover and stays busy until the fresh rows land. | `webui2.md` |
+| `[chip: … ✕]` | A pending image, one per chip, above the composer. Arrives from a paste, the `+`, or an `https://` image URL already sent. `✕` removes it. | `webui2.md` |
+| `[img]` on a user message | An image the message carried. | `webui2.md` |
+| `[Message jinn…]` | The composer's draft. `Enter` sends; `Shift+Enter` is a newline. An image with no text sends. | `webui2.md` |
+| `[+]` | Attach an image. Opens the file picker. | `webui2.md` |
+| `[Q]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
 | `[Send]` (while idle) | Send the message. | `webui2.md` |
-| `☰` | The menu button. Opens a full-height slide-in panel over a scrim; while a session is active its items are **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — each opens its picker modal. With no active session it lists none of them. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
+| `☰` | The menu button. Opens a full-height slide-in panel over a scrim. **New session** is its first item and the **Light | Dark | System** color mode group its last, at every time; between them, while a session is active, **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — each opens its picker modal. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
+| **New session** (menu) | A modal with a Project select, a Lifecycle select, **Setup arguments** when the lifecycle declares any, and **Create session**. The new session becomes active and the page moves to it. | `webui2.md` |
+| **Light | Dark | System** (menu) | The color mode. Saved to `state.toml`; **System** follows the browser. | `webui2.md` |
+| `#` (phone only) | Below 768px, at the title bar's left. Opens the sidebar as an off-canvas drawer; a scrim tap, `Esc`, or picking a row closes it. | `webui2.md` |
 | The skills modal | A filter bar and the session's discovered skills — a `●` / `○` mark, name, description, a `project` badge on project skills, and a `+`. A row click toggles at once; `+` loads the body into context. | `webui2.md` |
 | The tools modal | A filter bar and one row per tool the session's registry offers — a `✓` (enabled) / `✗` (disabled) mark, the name, the description's first sentence. A row click commits at once and the modal stays open; dismissing does not revert. | `webui2.md` |
 | The MCP servers modal | A filter bar and one row per `[mcp.<name>]` in `jinn.toml` — a `●` (enabled) / `○` (disabled) mark, the name, the launch summary, and a status badge: `off`, `starting`, `running`, `dead`. A row click toggles at once; the badge updates live. | `webui2.md` |

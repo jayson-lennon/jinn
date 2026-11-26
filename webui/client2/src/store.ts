@@ -23,7 +23,10 @@ import type {
   ServerMsg,
   SessionRow,
   SkillRow,
+  Theme,
   ToolRow,
+  ImageUpload,
+  LifecycleOption,
 } from './protocol';
 
 export interface ViewState {
@@ -36,6 +39,22 @@ export interface ViewState {
   revision: number;
   entries: EntryEnvelope[];
   sessions: SessionRow[];
+  /** The library members the sidebar's Library view lists. */
+  library: SessionRow[];
+  /** Which sidebar list is showing. */
+  railView: 'sessions' | 'library';
+  /** The persisted color mode, as the server last reported it. */
+  theme: Theme;
+  /** The composer's draft. In the store so a snapshot can be declined
+   *  while the user has unsent text — a component-local draft is invisible
+   *  to `apply()`. */
+  draft: string;
+  /** The composer's pending images, in chip order. */
+  chips: ImageUpload[];
+  /** True while the model picker is waiting for a refresh to land. */
+  refreshing: boolean;
+  /** The new-session form's choices, once asked for. */
+  newSession: { projects: string[]; lifecycles: LifecycleOption[] } | null;
   pickerRows: PickerRow[];
   pickerFilter: string;
   modelRows: ModelRow[];
@@ -66,6 +85,13 @@ const INITIAL_STATE: ViewState = {
   revision: 0,
   entries: [],
   sessions: [],
+  library: [],
+  railView: 'sessions',
+  theme: 'system',
+  draft: '',
+  chips: [],
+  refreshing: false,
+  newSession: null,
   pickerRows: [],
   pickerFilter: '',
   modelRows: [],
@@ -122,9 +148,25 @@ let optimisticCounter = 0;
  * variant has exactly one arm and there is no fallback, so a new frame
  * kind is a type error until it is handled here.
  */
-export function apply(store: ClientStore, msg: ServerMsg): void {
+/** Whether the page holds unsent work: a draft, or a pending image. */
+export function hasUnsent(state: ViewState): boolean {
+  return state.draft.trim() !== '' || state.chips.length > 0;
+}
+
+/**
+ * Applies one frame: the browser's single dispatch. Every `ServerMsg`
+ * variant has exactly one arm and there is no fallback, so a new frame
+ * kind is a type error until it is handled here.
+ *
+ * `requested` marks a frame the page itself asked for — a row click's
+ * reply, a creation's reply. A pushed snapshot that moves the page to
+ * another session is declined while the user holds unsent text; a
+ * requested one is never declined, because the user just asked for it.
+ */
+export function apply(store: ClientStore, msg: ServerMsg, requested = false): void {
   switch (msg.type) {
     case 'snapshot': {
+      if (!requested && !follows(msg, store.state)) return;
       store.set((s) => {
         s.sessionId = msg.session_id;
         s.phase = msg.phase.phase;
@@ -133,6 +175,8 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         s.revision = msg.revision;
         s.entries = msg.entries;
         s.sessions = msg.sessions;
+        s.library = msg.library;
+        s.theme = msg.theme;
         s.synced = true;
         // A different session's picker rows are not the ones the page was
         // looking at; an open modal re-asks for its own rows on open.
@@ -150,6 +194,18 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       // so an upsert for the new session was appended instead of
       // replacing its copy from the snapshot, and the entry showed twice.
       reindex(msg.entries);
+      return;
+    }
+    case 'theme': {
+      store.set((s) => {
+        s.theme = msg.theme;
+      });
+      return;
+    }
+    case 'new_session_options': {
+      store.set((s) => {
+        s.newSession = { projects: msg.projects, lifecycles: msg.lifecycles };
+      });
       return;
     }
     case 'entry_upsert': {
@@ -172,6 +228,7 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
     case 'sessions': {
       store.set((s) => {
         s.sessions = msg.rows;
+        s.library = msg.library;
       });
       return;
     }
@@ -203,9 +260,14 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
     case 'model_rows': {
+      // A push for a session the page has left, or for text the user has
+      // typed past, is not the view the page is holding.
+      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
       if (msg.filter !== store.state.modelFilter) return;
       store.set((s) => {
         s.modelRows = msg.rows;
+        // A push is how the page learns its refresh finished.
+        s.refreshing = false;
       });
       return;
     }
@@ -340,6 +402,44 @@ const GROWING_FIELD: Record<string, string> = {
   ToolCall: 'arguments',
   ToolResult: 'content',
 };
+
+/**
+ * Whether a pushed snapshot moves the page to a session it is not already
+ * showing. A snapshot for the session already in view is always applied —
+ * it cannot lose anything, and a reconnect's handshake arrives as one.
+ */
+function follows(msg: Extract<ServerMsg, { type: 'snapshot' }>, state: ViewState): boolean {
+  return msg.session_id === state.sessionId || !hasUnsent(state);
+}
+
+/** Replaces the composer's draft. */
+export function setDraft(store: ClientStore, text: string): void {
+  store.set((s) => {
+    s.draft = text;
+  });
+}
+
+/** Adds pending images to the composer, in the order given. */
+export function addChips(store: ClientStore, images: ImageUpload[]): void {
+  store.set((s) => {
+    s.chips = [...s.chips, ...images];
+  });
+}
+
+/** Removes one pending image, by its position in chip order. */
+export function removeChip(store: ClientStore, index: number): void {
+  store.set((s) => {
+    s.chips = s.chips.filter((_, at) => at !== index);
+  });
+}
+
+/** Clears the draft and every pending image — what a successful send does. */
+export function clearComposer(store: ClientStore): void {
+  store.set((s) => {
+    s.draft = '';
+    s.chips = [];
+  });
+}
 
 /**
  * Adds an optimistic user entry so a message appears the instant it is

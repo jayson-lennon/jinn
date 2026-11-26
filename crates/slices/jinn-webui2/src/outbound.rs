@@ -89,6 +89,7 @@ pub(crate) enum RowsKind {
     Tools,
     Mcp,
     Persona,
+    Model,
 }
 
 /// What the actor, the protocol dispatch and the listener share.
@@ -153,7 +154,10 @@ impl OutboundHandle {
 mod handlers;
 
 #[cfg(test)]
-pub(crate) use handlers::{flush, mcp_runtime_stored, reconcile, skills_loaded};
+pub(crate) use handlers::{
+    flush, follow_active_session, library_membership_changed, mcp_runtime_stored,
+    model_cache_stored, reconcile, skills_loaded,
+};
 
 /// The outbound actor.
 #[derive(Debug)]
@@ -325,6 +329,16 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         // transition. Never the raw `McpServerStatus` facts: those have
         // two publishers and can land before the write.
         .handles::<jinn_mcp_msg::McpRuntimeStored>()
+        // The merged model cache landed after a refresh: an open model
+        // picker receives fresh rows. Read the cell, never the event.
+        .handles::<jinn_provider_selection_msg::ModelCacheStored>()
+        // The store actor wrote a membership: both sidebar lists re-read.
+        .handles::<jinn_session_store_msg::SessionLibraryMembershipChanged>()
+        // The instance's active session moved — from this page, another
+        // page, the TUI, or a subagent. Every page follows with a
+        // snapshot. Never `SessionCreated`: that has several publishers,
+        // and a bot session's creation must not move the page.
+        .handles::<jinn_kernel::protocol::system::ActiveSessionChanged>()
         // Arms the first flush; the chain self-perpetuates from there (the
         // tick's handler schedules the next one). Without this the tick
         // never starts and no delta ever leaves the actor.

@@ -6,24 +6,29 @@
 
 use crate::payload::{
     EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody, ModelBody, ModelRowsBody,
-    PersonaRowsBody, PhaseBody, PickerRowsBody, SessionsBody, SkillRowsBody, SnapshotBody,
-    TitleBody, ToolRowsBody,
+    NewSessionOptionsBody, PersonaRowsBody, PhaseBody, PickerRowsBody, SessionsBody, SkillRowsBody,
+    SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
 /// A message from the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "Snapshot carries a whole transcript by design; boxing would add a heap hop to every frame, and the enum is matched by value on both dispatch paths"
-)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMsg {
     /// The whole state, on a fresh connect or whenever the server cannot
     /// determine what to send incrementally.
-    Snapshot(SnapshotBody),
+    ///
+    /// Boxed, like `EntryUpsert`: this is one of the two heaviest frames,
+    /// and every broadcast clones the enum at the size of its largest
+    /// variant. Boxing keeps a one-entry delta as cheap to send as it
+    /// looks. Serde is transparent over the `Box`, so the wire is
+    /// unchanged.
+    Snapshot(Box<SnapshotBody>),
     /// A whole entry, added or rewritten.
-    EntryUpsert(EntryUpsertBody),
+    ///
+    /// Boxed: a `ChatEntry` is large on its own, and this is the heaviest
+    /// frame on the wire (see `Snapshot` for why that matters).
+    EntryUpsert(Box<EntryUpsertBody>),
     /// A text chunk extending one streamed field.
     EntryDelta(EntryDeltaBody),
     /// The session's phase changed.
@@ -46,6 +51,10 @@ pub enum ServerMsg {
     McpRows(McpRowsBody),
     /// The persona modal's rows for one session.
     PersonaRows(PersonaRowsBody),
+    /// The new-session form's choices.
+    NewSessionOptions(NewSessionOptionsBody),
+    /// The page's color mode changed.
+    Theme(ThemeBody),
     /// A request was refused.
     Error(ErrorBody),
     /// A heartbeat: the server is alive and the connection is still open.
@@ -74,6 +83,8 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::ToolRows(_) => "tool_rows",
         ServerMsg::McpRows(_) => "mcp_rows",
         ServerMsg::PersonaRows(_) => "persona_rows",
+        ServerMsg::NewSessionOptions(_) => "new_session_options",
+        ServerMsg::Theme(_) => "theme",
         ServerMsg::Error(_) => "error",
         ServerMsg::Ping => "ping",
     }

@@ -21,6 +21,7 @@ use jinn_slices::{SliceHost, bus::BusService};
 pub use jinn_webui2_msg::WEBUI2_PROTOCOL_VERSION;
 
 mod actions;
+mod attachment;
 mod connections;
 mod frames;
 mod listener;

@@ -294,6 +294,93 @@ pub(crate) fn skills_loaded(handle: &super::OutboundHandle, msg: &jinn_skills_ms
     ));
 }
 
+impl MsgHandler<jinn_provider_selection_msg::ModelCacheStored> for OutboundActor {
+    async fn handle(
+        &mut self,
+        _msg: &jinn_provider_selection_msg::ModelCacheStored,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        model_cache_stored(&self.handle);
+    }
+}
+
+/// Turns one `ModelCacheStored` into the frames an open model picker needs.
+///
+/// The event carries no session and no rows — it is only the "the cache was
+/// written" fact, emitted strictly after the write. Every session whose
+/// model picker last asked for rows gets a fresh frame, built from the cell
+/// now, in the filter that picker is holding — so the rows follow the
+/// discovery without the page asking. The frame is what tells the page its
+/// refresh is done.
+pub(crate) fn model_cache_stored(handle: &super::OutboundHandle) {
+    for (session_id, filter) in handle.filters_for_kind(super::RowsKind::Model) {
+        handle.broadcast(&jinn_webui2_msg::ServerMsg::ModelRows(
+            jinn_webui2_msg::ModelRowsBody {
+                session_id,
+                rows: crate::actions::model_row_bodies(handle, &filter),
+                filter,
+            },
+        ));
+    }
+}
+
+impl MsgHandler<jinn_session_store_msg::SessionLibraryMembershipChanged> for OutboundActor {
+    async fn handle(
+        &mut self,
+        _msg: &jinn_session_store_msg::SessionLibraryMembershipChanged,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        library_membership_changed(&self.handle);
+    }
+}
+
+/// Turns one `SessionLibraryMembershipChanged` into the frame both sidebar
+/// lists need: the loaded non-members and the loaded members, re-read from
+/// live state now that the store actor has mirrored the flag into the
+/// in-memory session.
+pub(crate) fn library_membership_changed(handle: &super::OutboundHandle) {
+    handle.broadcast(&crate::frames::sessions(&handle.deps.state));
+}
+
+impl MsgHandler<jinn_kernel::protocol::system::ActiveSessionChanged> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        follow_active_session(&self.handle, msg).await;
+    }
+}
+
+/// Turns one `ActiveSessionChanged` into the frame every page needs to
+/// follow the instance's active session: a whole snapshot of that session.
+///
+/// The snapshot replaces a page's view wholesale — which session it views,
+/// its title, model, phase, and transcript from the start — in the one arm
+/// that already applies one. It is recorded as delivered exactly as the
+/// dispatch's snapshot reply is, so the streaming flush does not re-send
+/// what it carried. A page holding an unsent draft declines the frame on
+/// its side; the server does not know which pages those are and sends to
+/// all.
+///
+/// The activation may still be crossing the store actor's own turn for a
+/// session read from disk, so the pointer is waited for (bounded) first —
+/// the same wait a row click's reply takes.
+///
+/// A free function over the handle so a test drives the real push, with
+/// nothing spawned.
+pub(crate) async fn follow_active_session(
+    handle: &super::OutboundHandle,
+    msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
+) {
+    crate::actions::wait_for_activation(&handle.deps.state, &msg.session_id).await;
+    handle.mark_delivered(&msg.session_id);
+    handle.broadcast(&crate::frames::snapshot(
+        &handle.deps.state,
+        &handle.deps.revisions,
+    ));
+}
+
 impl MsgHandler<jinn_mcp_msg::McpRuntimeStored> for OutboundActor {
     async fn handle(&mut self, _msg: &jinn_mcp_msg::McpRuntimeStored, _ctx: &mut MsgCtx<'_>) {
         mcp_runtime_stored(&self.handle);

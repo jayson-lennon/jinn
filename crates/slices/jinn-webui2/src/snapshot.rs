@@ -2,8 +2,9 @@
 //!
 //! Built on demand from `State` — the active session, its phase, model
 //! label, title and transcript, plus the loaded-session rows the sidebar
-//! shows. Nothing is cached; a snapshot is always a read of the current
-//! state, so a reconnect can never resume onto stale data.
+//! shows and the library members its Library view shows. Nothing is cached;
+//! a snapshot is always a read of the current state, so a reconnect can
+//! never resume onto stale data.
 
 use crate::revision::RevisionTracker;
 use jinn_core_types::SessionId;
@@ -21,8 +22,9 @@ pub fn snapshot(state: &State, revisions: &RevisionTracker) -> SnapshotBody {
     let guard = state.read();
     let active_id = guard.session.active_session_id().clone();
     let active = guard.session.get(&active_id);
-    let sessions = rows_from(&guard, &active_id);
+    let (sessions, library) = rows_from(&guard, &active_id);
     let revision = revisions.current(&active_id);
+    let theme = persisted_theme(&guard);
 
     let Some(active) = active else {
         return SnapshotBody {
@@ -37,6 +39,8 @@ pub fn snapshot(state: &State, revisions: &RevisionTracker) -> SnapshotBody {
             revision,
             entries: Vec::new(),
             sessions,
+            library,
+            theme,
         };
     };
 
@@ -57,26 +61,49 @@ pub fn snapshot(state: &State, revisions: &RevisionTracker) -> SnapshotBody {
             .map(EntryEnvelope::new)
             .collect(),
         sessions,
+        library,
+        theme,
     }
 }
 
-/// Builds the sidebar rows, one per loaded session.
-fn rows_from(guard: &StateReadGuard<'_>, active_id: &SessionId) -> Vec<SessionRowBody> {
-    guard
-        .session
-        .iter()
-        .map(|(id, session)| SessionRowBody {
+/// Builds both sidebar lists from live state: the loaded sessions that are
+/// not library members, and the loaded library members.
+fn rows_from(
+    guard: &StateReadGuard<'_>,
+    active_id: &SessionId,
+) -> (Vec<SessionRowBody>, Vec<SessionRowBody>) {
+    let mut sessions = Vec::new();
+    let mut library = Vec::new();
+    for (id, session) in guard.session.iter() {
+        let row = SessionRowBody {
             session_id: id.clone(),
             title: session.title().unwrap_or(UNTITLED).to_owned(),
             is_active: id == active_id,
             is_busy: session.phase().is_working(),
-        })
-        .collect()
+            in_library: session.in_library(),
+        };
+        if session.in_library() {
+            library.push(row);
+        } else {
+            sessions.push(row);
+        }
+    }
+    (sessions, library)
+}
+
+/// The persisted color mode: `light`, `dark`, or `system`. An unset or
+/// unrecognized value reads as `system`, the stylesheet's default.
+#[must_use]
+pub fn persisted_theme(guard: &StateReadGuard<'_>) -> String {
+    match guard.frontend.app_state.web_theme.as_deref() {
+        Some(mode @ ("light" | "dark" | "system")) => mode.to_owned(),
+        _ => "system".to_owned(),
+    }
 }
 
 /// Reads the loaded-session rows on their own (for a `Sessions` push).
 #[must_use]
-pub fn session_rows(state: &State) -> Vec<SessionRowBody> {
+pub fn session_rows(state: &State) -> (Vec<SessionRowBody>, Vec<SessionRowBody>) {
     let guard = state.read();
     let active_id = guard.session.active_session_id().clone();
     rows_from(&guard, &active_id)

@@ -19,9 +19,9 @@ const MARKER = "a message only the first session holds";
  * Returns the two rows, found by title: the first session is auto-titled
  * with its message, and the new one reads "Untitled Session".
  */
-async function arrangeTwoSessions(page, browser, jinn) {
+async function arrangeTwoSessions(page, jinn) {
   await sendAndWaitForEcho(page, MARKER);
-  await createSession(jinn, browser);
+  await createSession(page);
   await page.reload();
   const first = page.locator(sel.SESSION_ROW).filter({ hasText: MARKER });
   const second = page.locator(sel.SESSION_ROW).filter({ hasText: "Untitled Session" });
@@ -31,12 +31,11 @@ async function arrangeTwoSessions(page, browser, jinn) {
 }
 
 test("clicking a session row moves the highlight to that row", async ({
-  browser,
   jinn,
   page,
 }) => {
   // Given the new session is in view, so the first row is not highlighted.
-  const { first } = await arrangeTwoSessions(page, browser, jinn);
+  const { first } = await arrangeTwoSessions(page, jinn);
   await expect(first).not.toHaveClass(/active/);
 
   // When clicking the first session's row.
@@ -48,12 +47,11 @@ test("clicking a session row moves the highlight to that row", async ({
 });
 
 test("clicking a session row brings that session's history into view", async ({
-  browser,
   jinn,
   page,
 }) => {
   // Given the new session is in view, which does not hold the marker.
-  const { first } = await arrangeTwoSessions(page, browser, jinn);
+  const { first } = await arrangeTwoSessions(page, jinn);
   await expect(page.locator(sel.TRANSCRIPT)).not.toContainText(MARKER);
 
   // When clicking the first session's row.
@@ -64,12 +62,11 @@ test("clicking a session row brings that session's history into view", async ({
 });
 
 test("clicking a session row swaps the title to that session's", async ({
-  browser,
   jinn,
   page,
 }) => {
   // Given the new session is in view.
-  const { first } = await arrangeTwoSessions(page, browser, jinn);
+  const { first } = await arrangeTwoSessions(page, jinn);
   await expect(page.locator(sel.TITLE)).toHaveText("Untitled Session");
 
   // When clicking the first session's row.
@@ -80,12 +77,11 @@ test("clicking a session row swaps the title to that session's", async ({
 });
 
 test("clicking away from a session clears its history from view", async ({
-  browser,
   jinn,
   page,
 }) => {
   // Given the first session, with its marker, is in view.
-  const { first, second } = await arrangeTwoSessions(page, browser, jinn);
+  const { first, second } = await arrangeTwoSessions(page, jinn);
   await first.click();
   await expect(page.locator(sel.TRANSCRIPT)).toContainText(MARKER);
 

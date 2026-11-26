@@ -5,6 +5,8 @@
 //! so a new variant is a compile error until it has a handler.
 
 use jinn_core_types::{ChatEntryId, SessionId};
+
+use crate::payload::ImageUploadBody;
 use serde::{Deserialize, Serialize};
 
 /// A message from the browser.
@@ -26,11 +28,16 @@ pub enum ClientMsg {
     Send {
         /// The message text.
         text: String,
+        /// The pending images, in chip order. A send may carry images and
+        /// no text.
+        images: Vec<ImageUploadBody>,
     },
     /// Queue a message behind the running turn.
     Queue {
         /// The message text.
         text: String,
+        /// The pending images, in chip order.
+        images: Vec<ImageUploadBody>,
     },
     /// Cancel the running turn.
     Cancel,
@@ -108,6 +115,31 @@ pub enum ClientMsg {
         /// The persona's name.
         persona: String,
     },
+    /// Ask the provider registry to rediscover its models.
+    RefreshModels,
+    /// Set the page's color mode.
+    SetTheme {
+        /// The mode: `light`, `dark`, or `system`.
+        theme: String,
+    },
+    /// Add a session to, or remove it from, the library.
+    SetLibrary {
+        /// The session.
+        session_id: SessionId,
+        /// The membership to write.
+        in_library: bool,
+    },
+    /// Ask for the new-session form's choices.
+    NewSessionOptions,
+    /// Create a session through the shared creation path.
+    CreateSession {
+        /// The chosen project entry's configured path string.
+        project: String,
+        /// The lifecycle name, or empty for the blank lifecycle.
+        lifecycle: String,
+        /// The raw args text; empty for none.
+        args: String,
+    },
 }
 
 #[must_use]
@@ -132,5 +164,10 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::ToggleMcp { .. } => "toggle_mcp",
         ClientMsg::PersonaRows { .. } => "persona_rows",
         ClientMsg::SwitchPersona { .. } => "switch_persona",
+        ClientMsg::RefreshModels => "refresh_models",
+        ClientMsg::SetTheme { .. } => "set_theme",
+        ClientMsg::SetLibrary { .. } => "set_library",
+        ClientMsg::NewSessionOptions => "new_session_options",
+        ClientMsg::CreateSession { .. } => "create_session",
     }
 }

@@ -4,8 +4,9 @@
 
 #![allow(
     clippy::expect_used,
+    clippy::indexing_slicing,
     clippy::unreachable,
-    reason = "test assertions need expect, and a let-else on a known variant is unreachable by construction"
+    reason = "test assertions need expect, an index into the decoded JSON is itself the claim that the field is there, and a let-else on a known variant is unreachable by construction"
 )]
 
 use jinn_core_types::chat_entry::ChatEntryKind;
@@ -14,10 +15,11 @@ use jinn_slices::PhaseView;
 use rstest::rstest;
 
 use crate::payload::{
-    DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, McpBadgeBody,
-    McpRowBody, McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, PersonaRowBody,
-    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
-    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, TitleBody, ToolRowBody, ToolRowsBody,
+    DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
+    LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelBody, ModelRowBody,
+    ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PhaseBody,
+    PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody, SkillRowBody, SkillRowsBody,
+    SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION};
 
@@ -48,6 +50,7 @@ fn row(title: &str) -> SessionRowBody {
         title: title.to_owned(),
         is_active: false,
         is_busy: false,
+        in_library: false,
     }
 }
 
@@ -233,6 +236,7 @@ fn client_send_round_trips() {
     // Given a send.
     let msg = ClientMsg::Send {
         text: "hello".to_owned(),
+        images: Vec::new(),
     };
 
     // When it round-trips.
@@ -248,6 +252,7 @@ fn client_queue_round_trips() {
     // Given a queue.
     let msg = ClientMsg::Queue {
         text: "later".to_owned(),
+        images: Vec::new(),
     };
 
     // When it round-trips.
@@ -350,7 +355,7 @@ fn client_model_rows_round_trips() {
 fn server_snapshot_round_trips() {
     // Given a snapshot with one session and two entries.
     let session = SessionId::new();
-    let msg = ServerMsg::Snapshot(SnapshotBody {
+    let msg = ServerMsg::Snapshot(Box::new(SnapshotBody {
         protocol: WEBUI2_PROTOCOL_VERSION,
         session_id: Some(session.clone()),
         phase: PhaseBody {
@@ -364,7 +369,9 @@ fn server_snapshot_round_trips() {
             .map(EntryEnvelope::new)
             .to_vec(),
         sessions: vec![row("a"), row("b")],
-    });
+        library: Vec::new(),
+        theme: String::new(),
+    }));
 
     // When it round-trips.
     let back = roundtrip_server(&msg);
@@ -378,7 +385,7 @@ fn server_snapshot_round_trips() {
 fn server_snapshot_without_active_session_round_trips() {
     // Given a snapshot for an instance with no active session.
     let session = SessionId::new();
-    let msg = ServerMsg::Snapshot(SnapshotBody {
+    let msg = ServerMsg::Snapshot(Box::new(SnapshotBody {
         protocol: WEBUI2_PROTOCOL_VERSION,
         session_id: None,
         phase: PhaseBody {
@@ -390,7 +397,9 @@ fn server_snapshot_without_active_session_round_trips() {
         revision: 0,
         entries: Vec::new(),
         sessions: Vec::new(),
-    });
+        library: Vec::new(),
+        theme: String::new(),
+    }));
 
     // When it round-trips.
     let back = roundtrip_server(&msg);
@@ -403,7 +412,7 @@ fn server_snapshot_without_active_session_round_trips() {
 #[test]
 fn server_entry_upsert_round_trips() {
     // Given an upsert of a tool result.
-    let msg = ServerMsg::EntryUpsert(EntryUpsertBody {
+    let msg = ServerMsg::EntryUpsert(Box::new(EntryUpsertBody {
         session_id: SessionId::new(),
         index: 7,
         entry: EntryEnvelope::new(ChatEntry::tool_result(
@@ -412,7 +421,7 @@ fn server_entry_upsert_round_trips() {
             "out",
             ToolResultStatus::Pending,
         )),
-    });
+    }));
 
     // When it round-trips.
     let back = roundtrip_server(&msg);
@@ -462,6 +471,7 @@ fn server_sessions_round_trips() {
     // Given a session list.
     let msg = ServerMsg::Sessions(SessionsBody {
         rows: vec![row("one"), row("two")],
+        library: vec![row("kept")],
     });
 
     // When it round-trips.
@@ -524,6 +534,7 @@ fn server_picker_rows_round_trips() {
 fn server_model_rows_round_trips() {
     // Given model rows answering a filter.
     let msg = ServerMsg::ModelRows(ModelRowsBody {
+        session_id: SessionId::new(),
         filter: "ll".to_owned(),
         rows: vec![ModelRowBody {
             provider_id: "ollama/llama3".to_owned(),
@@ -813,7 +824,7 @@ fn server_variant_carries_its_snake_case_tag() {
     };
     let messages = [
         (
-            ServerMsg::Snapshot(SnapshotBody {
+            ServerMsg::Snapshot(Box::new(SnapshotBody {
                 protocol: WEBUI2_PROTOCOL_VERSION,
                 session_id: None,
                 phase: phase.clone(),
@@ -822,15 +833,17 @@ fn server_variant_carries_its_snake_case_tag() {
                 revision: 0,
                 entries: Vec::new(),
                 sessions: Vec::new(),
-            }),
+                library: Vec::new(),
+                theme: String::new(),
+            })),
             "snapshot",
         ),
         (
-            ServerMsg::EntryUpsert(EntryUpsertBody {
+            ServerMsg::EntryUpsert(Box::new(EntryUpsertBody {
                 session_id: SessionId::new(),
                 index: 0,
                 entry: EntryEnvelope::new(ChatEntry::user("hi")),
-            }),
+            })),
             "entry_upsert",
         ),
         (
@@ -844,7 +857,10 @@ fn server_variant_carries_its_snake_case_tag() {
         ),
         (ServerMsg::Phase(phase.clone()), "phase"),
         (
-            ServerMsg::Sessions(SessionsBody { rows: Vec::new() }),
+            ServerMsg::Sessions(SessionsBody {
+                rows: Vec::new(),
+                library: Vec::new(),
+            }),
             "sessions",
         ),
         (
@@ -870,6 +886,7 @@ fn server_variant_carries_its_snake_case_tag() {
         ),
         (
             ServerMsg::ModelRows(ModelRowsBody {
+                session_id: SessionId::new(),
                 filter: String::new(),
                 rows: Vec::new(),
             }),
@@ -908,6 +925,19 @@ fn server_variant_carries_its_snake_case_tag() {
             "persona_rows",
         ),
         (
+            ServerMsg::NewSessionOptions(NewSessionOptionsBody {
+                projects: Vec::new(),
+                lifecycles: Vec::new(),
+            }),
+            "new_session_options",
+        ),
+        (
+            ServerMsg::Theme(ThemeBody {
+                theme: String::new(),
+            }),
+            "theme",
+        ),
+        (
             ServerMsg::Error(ErrorBody {
                 message: String::new(),
             }),
@@ -939,12 +969,14 @@ fn client_variant_carries_its_snake_case_tag() {
         (
             ClientMsg::Send {
                 text: String::new(),
+                images: Vec::new(),
             },
             "send",
         ),
         (
             ClientMsg::Queue {
                 text: String::new(),
+                images: Vec::new(),
             },
             "queue",
         ),
@@ -1033,6 +1065,29 @@ fn client_variant_carries_its_snake_case_tag() {
             },
             "switch_persona",
         ),
+        (ClientMsg::RefreshModels, "refresh_models"),
+        (
+            ClientMsg::SetTheme {
+                theme: String::new(),
+            },
+            "set_theme",
+        ),
+        (
+            ClientMsg::SetLibrary {
+                session_id: SessionId::new(),
+                in_library: true,
+            },
+            "set_library",
+        ),
+        (ClientMsg::NewSessionOptions, "new_session_options"),
+        (
+            ClientMsg::CreateSession {
+                project: String::new(),
+                lifecycle: String::new(),
+                args: String::new(),
+            },
+            "create_session",
+        ),
     ];
 
     // Then every variant's wire tag matches its snake_case name.
@@ -1049,7 +1104,7 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
     // Given a snapshot carrying all thirteen entry kinds.
     let session = SessionId::new();
     let sent = every_kind();
-    let msg = ServerMsg::Snapshot(SnapshotBody {
+    let msg = ServerMsg::Snapshot(Box::new(SnapshotBody {
         protocol: WEBUI2_PROTOCOL_VERSION,
         session_id: Some(session.clone()),
         phase: PhaseBody {
@@ -1061,7 +1116,9 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
         revision: 0,
         entries: sent.clone(),
         sessions: Vec::new(),
-    });
+        library: Vec::new(),
+        theme: String::new(),
+    }));
 
     // When it round-trips.
     let back = roundtrip_server(&msg);
@@ -1178,11 +1235,11 @@ fn entry_envelope_names_every_kind_in_snake_case() {
 fn a_transient_entry_keeps_its_kind_name_through_the_wire() {
     // Given a transient entry — the one kind the core's persisted
     // deserializer deliberately has no arm for.
-    let msg = ServerMsg::EntryUpsert(EntryUpsertBody {
+    let msg = ServerMsg::EntryUpsert(Box::new(EntryUpsertBody {
         session_id: SessionId::new(),
         index: 0,
         entry: EntryEnvelope::new(ChatEntry::transient("welcome")),
-    });
+    }));
 
     // When it round-trips.
     let back = roundtrip_server(&msg);
@@ -1259,4 +1316,197 @@ fn phase_serializes_in_snake_case() {
             serde_json::json!("Cancelling"),
         ]
     );
+}
+
+#[rstest]
+#[test]
+fn client_send_carries_its_images() {
+    // Given a send with one pasted image.
+    let msg = ClientMsg::Send {
+        text: String::new(),
+        images: vec![ImageUploadBody {
+            name: "pasted image".to_owned(),
+            data_base64: "aGVsbG8=".to_owned(),
+        }],
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the image survives the trip.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_queue_carries_its_images() {
+    // Given a queue with one picked file.
+    let msg = ClientMsg::Queue {
+        text: "later".to_owned(),
+        images: vec![ImageUploadBody {
+            name: "photo.png".to_owned(),
+            data_base64: "aGVsbG8=".to_owned(),
+        }],
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the image survives the trip.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_refresh_models_round_trips() {
+    // Given a refresh request.
+    let msg = ClientMsg::RefreshModels;
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_set_theme_round_trips() {
+    // Given a theme change to light.
+    let msg = ClientMsg::SetTheme {
+        theme: "light".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the mode is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_set_library_round_trips() {
+    // Given a library toggle.
+    let msg = ClientMsg::SetLibrary {
+        session_id: SessionId::new(),
+        in_library: true,
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_new_session_options_round_trips() {
+    // Given a request for the form's choices.
+    let msg = ClientMsg::NewSessionOptions;
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_create_session_round_trips() {
+    // Given a creation naming a project, a lifecycle, and args.
+    let msg = ClientMsg::CreateSession {
+        project: "~/proj".to_owned(),
+        lifecycle: "setup".to_owned(),
+        args: "a b".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn server_new_session_options_round_trips() {
+    // Given the form's choices: two projects and a lifecycle taking one arg.
+    let msg = ServerMsg::NewSessionOptions(NewSessionOptionsBody {
+        projects: vec!["~/a".to_owned(), "~/b".to_owned()],
+        lifecycles: vec![LifecycleOptionBody {
+            name: "setup".to_owned(),
+            param_count: 1,
+        }],
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then the choices are unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_theme_round_trips() {
+    // Given a theme change to system.
+    let msg = ServerMsg::Theme(ThemeBody {
+        theme: "system".to_owned(),
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then the mode is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn snapshot_carries_its_library_rows_and_theme() {
+    // Given a snapshot with one library row and the dark theme.
+    let session = SessionId::new();
+    let msg = ServerMsg::Snapshot(Box::new(SnapshotBody {
+        protocol: WEBUI2_PROTOCOL_VERSION,
+        session_id: Some(session.clone()),
+        phase: PhaseBody {
+            session_id: session,
+            phase: PhaseView::Idle,
+        },
+        model_label: String::new(),
+        title: String::new(),
+        revision: 0,
+        entries: Vec::new(),
+        sessions: Vec::new(),
+        library: vec![row("kept")],
+        theme: "dark".to_owned(),
+    }));
+
+    // When it round-trips.
+    let json = json_of(&roundtrip_server(&msg));
+
+    // Then the library row and the theme are on the wire.
+    assert_eq!(json["library"][0]["title"], "kept");
+    assert_eq!(json["theme"], "dark");
+}
+
+#[rstest]
+#[test]
+fn sessions_frame_carries_its_library_rows() {
+    // Given a sessions frame with a member.
+    let mut member = row("kept");
+    member.in_library = true;
+    let msg = ServerMsg::Sessions(SessionsBody {
+        rows: Vec::new(),
+        library: vec![member],
+    });
+
+    // When it round-trips.
+    let json = json_of(&roundtrip_server(&msg));
+
+    // Then the member row carries its flag.
+    assert_eq!(json["library"][0]["in_library"], true);
 }
