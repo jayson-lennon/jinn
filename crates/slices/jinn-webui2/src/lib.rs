@@ -4,7 +4,8 @@
 //! `[webui2]` config section, that mirrors the terminal: it shares the
 //! instance's single active session, streams the transcript, and sends,
 //! queues, cancels, switches sessions and models, and renames — each by
-//! publishing the same bus messages the terminal publishes.
+//! publishing the same bus messages the terminal publishes. The address
+//! the page is served on is noted on the slice's dashboard row.
 //!
 //! The design invariant: **the browser owns all view state.** The server
 //! renders no HTML fragments and reads no client state back; it answers
@@ -143,6 +144,6 @@ pub async fn activate(
     .await
     .map_err(|report| report.change_context(WebUi2ActivationError::Bind))?;
 
-    tracing::info!(url = %bound.to_url_base(), "second web UI listening");
+    tracing::info!(url = %bound.connection_note(), "second web UI listening");
     Ok(())
 }
