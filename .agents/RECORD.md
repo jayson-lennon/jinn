@@ -2,7 +2,7 @@
 
 A curated list of factual, scoped statements asserting the application's **current** state. Authoritative for the present, never the future.
 
-This file is consulted before proposing work on a task. If a task **contradicts** an entry here, the contradiction is surfaced before work proceeds. If a task **establishes** a new high-level fact, a verbatim entry is proposed for human approval as part of that proposal. You may edit the RECORD, but only after presenting the changes to a human and getting human approval.
+This file is consulted before proposing work on a task. If a task **contradicts** an entry here, the contradiction is surfaced before work proceeds. If a task **establishes** a new high-level fact, a verbatim entry is proposed for human approval as part of that proposal. You may edit the RECORD, but only after presenting the changes to a human and getting human approval. A contract or brief or plan that was approved by a human containing record entries implicitly also approves the record updates.
 
 ## Why This File Exists
 
