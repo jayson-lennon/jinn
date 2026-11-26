@@ -29,6 +29,11 @@
   --danger: #ed8796;
   /* sonokai success */
   --ok: #a9d89d;
+  /* warning text and its block tint: Nord13 yellow for the text, a
+     low-alpha wash of it for the block */
+  --warn: #ebcb8b;
+  --warn-bg: rgba(235, 203, 139, .10);
+  --warn-border: rgba(235, 203, 139, .45);
   /* the modal/overlay scrim: black at the shipped opacity */
   --scrim: rgba(0, 0, 0, .55);
   /* text on an accent or error fill: near-black */
@@ -68,6 +73,11 @@
   --danger: #a8404a;
   /* nord-light success (Aurora green, Nord14), deepened */
   --ok: #3d6b2a;
+  /* warning text and its block tint: Nord13 yellow, deepened to hold on
+     a pale page */
+  --warn: #8a6d1f;
+  --warn-bg: rgba(235, 203, 139, .22);
+  --warn-border: rgba(138, 109, 31, .45);
   /* the scrim keeps its dark wash over the pale palette */
   --scrim: rgba(0, 0, 0, .55);
   /* on fills: the dark ink */
@@ -93,6 +103,9 @@
     --accent: #4a6e95;
     --danger: #a8404a;
     --ok: #3d6b2a;
+    --warn: #8a6d1f;
+    --warn-bg: rgba(235, 203, 139, .22);
+    --warn-border: rgba(138, 109, 31, .45);
     --scrim: rgba(0, 0, 0, .55);
     --on-fill: #2e3440;
     --mark: #ebcb8b;
@@ -438,13 +451,54 @@ body { background: var(--bg); color: var(--fg); }
 
 .tool summary { cursor: pointer; color: var(--fg-dim); }
 .tool summary:hover { color: var(--fg); }
+
+/* ---- rule interrupts ---- */
+/* Guidance the harness injected mid-turn: a warning-tinted block with a
+   yellow left edge, so it never reads as something the user or the model
+   wrote. Collapsed to its header until the reader opens it. */
+.rule-interrupt {
+  background: var(--warn-bg);
+  border-left: 3px solid var(--warn-border);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 6px 10px;
+}
+.rule-interrupt summary { cursor: pointer; color: var(--warn); }
+.rule-interrupt summary:hover { filter: brightness(1.15); }
+.interrupt-reason { color: var(--fg-faint); font-size: 12px; }
+.rule-interrupt .entry-prose { margin-top: 6px; }
 .tool[open] > summary { margin-bottom: 6px; }
 .tool code { color: var(--accent); }
 .entry-status { margin-left: 8px; font-size: 11px; color: var(--fg-faint); }
 .result-failure .entry-status { color: var(--danger); }
 .entry-note { color: var(--fg-faint); font-size: 12px; }
-.citations { margin: 0; padding-left: 18px; font-size: 13px; }
-.citations a { color: var(--accent); }
+
+/* ---- the Sources disclosure ---- */
+/* A web-search entry's citations, collapsed to their count like a tool
+   block. Each row is a linked title with its address beside it in muted
+   text, so a reader can see where a claim came from without opening it. */
+.sources summary { cursor: pointer; color: var(--fg-dim); }
+.sources summary:hover { color: var(--fg); }
+.citation { margin: 4px 0 0; font-size: 13px; }
+.citation-title { color: var(--accent); }
+.citation-url { color: var(--fg-faint); margin-left: 6px; word-break: break-all; }
+
+/* ---- footnotes ---- */
+/* The `[^n]` references a web-search model writes. A reference is a small
+   accent-coloured marker; the notes themselves sit in a muted block under
+   the prose, each with a back-link to its reference. */
+.footnote-ref a { color: var(--accent); text-decoration: none; }
+.footnotes { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 0.92em; }
+.footnotes-list { margin: 0; padding-left: 20px; }
+.footnote-item { margin: 2px 0; }
+.footnote-backref { color: var(--fg-faint); text-decoration: none; margin-left: 4px; }
+
+/* ---- task lists ---- */
+/* The `- [ ]` checkboxes the task-list plugin emits. They are disabled:
+   a transcript is a record of what a model planned, not a to-do the reader
+   edits. */
+.contains-task-list { list-style: none; padding-left: 0; }
+.task-list-item { display: flex; align-items: baseline; gap: 8px; }
+.task-list-item-checkbox { margin: 0; accent-color: var(--accent); }
 
 /* ---- the entry menu and the pin mark ---- */
 /* A `⋮` at every entry's bottom-right, always visible: it overlaps only

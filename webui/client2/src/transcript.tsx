@@ -165,11 +165,12 @@ function Switch(props: { kind: EntryKind; envelope: EntryEnvelope; sessionId: st
       return <UserView envelope={props.envelope} sessionId={props.sessionId} />;
     case 'system':
     case 'error':
-    case 'transient':
-      return <NoticeView kind={props.kind} text={str(body(props.envelope))} />;
-    case 'assistant':
     case 'thinking':
-      return <ProseView kind={props.kind} text={str(body(props.envelope))} />;
+      return <NoticeView kind={props.kind} text={str(body(props.envelope))} />;
+    case 'transient':
+      return <TransientView envelope={props.envelope} />;
+    case 'assistant':
+      return <ProseView kind={props.kind} envelope={props.envelope} />;
     case 'actor':
       return <ActorView value={body(props.envelope)} />;
     case 'tool_call':
@@ -177,13 +178,13 @@ function Switch(props: { kind: EntryKind; envelope: EntryEnvelope; sessionId: st
     case 'tool_result':
       return <ToolResultView value={body(props.envelope)} />;
     case 'compaction':
-      return <CompactionView value={body(props.envelope)} />;
+      return <CompactionView value={body(props.envelope)} entryId={props.envelope.entry.id} />;
     case 'annotation':
-      return <AnnotationView value={body(props.envelope)} />;
+      return <AnnotationView envelope={props.envelope} />;
     case 'rule_interrupt':
-      return <RuleInterruptView value={body(props.envelope)} />;
+      return <RuleInterruptView value={body(props.envelope)} entryId={props.envelope.entry.id} />;
     case 'intersession':
-      return <IntersessionView value={body(props.envelope)} />;
+      return <IntersessionView value={body(props.envelope)} entryId={props.envelope.entry.id} />;
   }
 }
 
@@ -205,9 +206,15 @@ function UserView(props: { envelope: EntryEnvelope; sessionId: string | null }):
   return (
     <div class="entry-body">
       <span class="entry-role">you</span>
+      {/* A user's own text is rendered as markdown, the same as an
+          assistant's: a pasted address becomes a link, a pasted table a
+          table. It passes through the same two barriers as model output,
+          because pasted text is no more trusted than generated text. */}
       <Show when={(data()?.display ?? '') !== ''}>
-        <pre class="entry-text">{data()?.display}</pre>
+        <div class="entry-prose" innerHTML={renderMarkdown(data()?.display ?? '', props.envelope.entry.id)} />
       </Show>
+      {/* The expanded prompt is the literal text sent to the model, kept as
+          the user wrote it so `@path` tokens and whitespace read exactly. */}
       <Show when={(data()?.expanded ?? '') !== (data()?.display ?? '')}>
         <details>
           <summary>expanded</summary>
@@ -245,12 +252,29 @@ function NoticeView(props: { kind: EntryKind; text: string }): JSX.Element {
   );
 }
 
-function ProseView(props: { kind: EntryKind; text: string }): JSX.Element {
-  // Markdown needs a real element to hold its sanitized HTML.
-  const html = (): string => renderMarkdown(props.text);
+function ProseView(props: { kind: EntryKind; envelope: EntryEnvelope }): JSX.Element {
+  // Markdown needs a real element to hold its sanitized HTML. The entry id
+  // rides along so each entry's footnote anchors are its own.
+  const html = (): string => renderMarkdown(str(body(props.envelope)), props.envelope.entry.id);
   return (
     <div class="entry-body">
-      <span class="entry-role">{props.kind === 'thinking' ? 'thinking' : 'assistant'}</span>
+      <span class="entry-role">{props.kind}</span>
+      <div class="entry-prose" innerHTML={html()} />
+    </div>
+  );
+}
+
+/**
+ * A transient notice, such as the models-refresh summary, which arrives as a
+ * markdown table: rendered as prose rather than plain text so its table and
+ * links are real. It is never persisted, so it carries no footnote anchors
+ * and needs no entry id for them.
+ */
+function TransientView(props: { envelope: EntryEnvelope }): JSX.Element {
+  const html = (): string => renderMarkdown(str(body(props.envelope)));
+  return (
+    <div class="entry-body">
+      <span class="entry-role">transient</span>
       <div class="entry-prose" innerHTML={html()} />
     </div>
   );
@@ -308,7 +332,7 @@ function ToolResultView(props: { value: unknown }): JSX.Element {
   );
 }
 
-function CompactionView(props: { value: unknown }): JSX.Element {
+function CompactionView(props: { value: unknown; entryId: string }): JSX.Element {
   const data = () =>
     props.value as {
       summary?: string;
@@ -323,52 +347,99 @@ function CompactionView(props: { value: unknown }): JSX.Element {
         <span class="entry-role">compaction</span> {data()?.entries_compacted} entries ·{' '}
         {data()?.tokens_before} → {data()?.tokens_after} tokens
       </summary>
-      <div class="entry-prose" innerHTML={renderMarkdown(data()?.summary ?? '')} />
+      <div class="entry-prose" innerHTML={renderMarkdown(data()?.summary ?? '', props.entryId)} />
     </details>
   );
 }
 
-function AnnotationView(props: { value: unknown }): JSX.Element {
+/**
+ * The sources a web-search model cited: a disclosure collapsed to its count,
+ * as in the terminal, so the "where did this come from" record is one line
+ * until the reader asks for it. Each row names the source and shows its
+ * address beside it in muted text.
+ */
+function AnnotationView(props: { envelope: EntryEnvelope }): JSX.Element {
   const citations = () =>
-    (Array.isArray(props.value) ? props.value : []) as { url?: string; title?: string }[];
+    (Array.isArray(body(props.envelope)) ? body(props.envelope) : []) as { url?: string; title?: string }[];
   return (
-    <ul class="entry-body citations">
+    <details class="entry-body sources">
+      <summary>
+        <span class="entry-role">sources</span> Sources ({citations().length})
+      </summary>
       <For each={citations()}>
         {(citation) => (
-          <li>
+          <div class="citation">
             {/* A citation's URL is model output: it obeys the same link rule as
-                markdown, so a `javascript:` citation is never clickable. */}
-            <Show when={safeHref(citation.url ?? null)} fallback={<span>{citation.title || citation.url}</span>}>
+                markdown, so a `javascript:` citation is never clickable and
+                keeps its address as plain text. */}
+            <Show when={safeHref(citation.url ?? null)} fallback={<span class="citation-title">{citationTitle(citation)}</span>}>
               {(href) => (
-                <a href={href()} target="_blank" rel="noopener noreferrer">
-                  {citation.title || citation.url}
+                <a class="citation-title" href={href()} target="_blank" rel="noopener noreferrer">
+                  {citationTitle(citation)}
                 </a>
               )}
             </Show>
-          </li>
+            <span class="citation-url">{citation.url}</span>
+          </div>
         )}
       </For>
-    </ul>
+    </details>
   );
 }
 
-function RuleInterruptView(props: { value: unknown }): JSX.Element {
+/** A citation's name, or `(untitled)` when the model gave it none. */
+function citationTitle(citation: { url?: string; title?: string }): string {
+  return citation.title || '(untitled)';
+}
+
+/**
+ * The interrupt body with its prompt wrapper taken off.
+ *
+ * A rule interrupt's body is the text the model reads, wrapped in a
+ * `<system-interrupt>` tag whose attributes name the reason and the rule.
+ * The wrapper is prompt machinery: the page shows the rule as the block's
+ * header and the reason as a label, so neither is left in the prose. A body
+ * without the wrapper is returned as it is, with no reason.
+ */
+export function parseInterruptBody(body: string): { text: string; reason: string | null } {
+  const match = /^\s*<system-interrupt\b([^>]*)>([\s\S]*?)<\/system-interrupt>\s*$/i.exec(body);
+  if (match === null) return { text: body, reason: null };
+  const attrs = match[1] ?? '';
+  const reason = /\breason="([^"]*)"/i.exec(attrs)?.[1] ?? null;
+  return { text: (match[2] ?? '').trim(), reason };
+}
+
+/**
+ * Guidance the harness injected mid-turn, as a warning-tinted block.
+ *
+ * Collapsed to its header by default: an interrupt explains why a turn
+ * changed course, which is worth a line in the transcript but not the whole
+ * message until the reader asks for it. The header names the rule that
+ * fired, the label gives the reason, and the body is the guidance itself.
+ */
+function RuleInterruptView(props: { value: unknown; entryId: string }): JSX.Element {
   const data = () => props.value as { rule?: string; body?: string } | undefined;
+  const parsed = () => parseInterruptBody(data()?.body ?? '');
   return (
-    <div class="entry-body">
-      <span class="entry-role">rule · {data()?.rule}</span>
-      <div class="entry-prose" innerHTML={renderMarkdown(data()?.body ?? '')} />
-    </div>
+    <details class="entry-body rule-interrupt">
+      <summary>
+        <span class="interrupt-rule">⚡ Rule fired: {data()?.rule}</span>
+        <Show when={parsed().reason !== null}>
+          <span class="interrupt-reason"> · {parsed().reason}</span>
+        </Show>
+      </summary>
+      <div class="entry-prose" innerHTML={renderMarkdown(parsed().text, props.entryId)} />
+    </details>
   );
 }
 
-function IntersessionView(props: { value: unknown }): JSX.Element {
+function IntersessionView(props: { value: unknown; entryId: string }): JSX.Element {
   const data = () =>
     props.value as { source_name?: string | null; source_session?: string; text?: string } | undefined;
   return (
     <div class="entry-body">
       <span class="entry-role">from {data()?.source_name ?? data()?.source_session ?? 'session'}</span>
-      <div class="entry-prose" innerHTML={renderMarkdown(data()?.text ?? '')} />
+      <div class="entry-prose" innerHTML={renderMarkdown(data()?.text ?? '', props.entryId)} />
     </div>
   );
 }
