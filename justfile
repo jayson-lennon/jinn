@@ -707,60 +707,20 @@ webui-e2e-one FILTER Grep="":
         --config webui/client/e2e/playwright.config.mjs --shuffle
     echo '==> webui-e2e-one green'
 
-# Webui2 (the second web UI, /web2) — the one recipe in the repo that
-# generates a committed bundle.
+# Webui2 (the second web UI, /web2).
 #
-# The /web2 client is build output of webui/client2, and its compiled
-# bundle is committed under the slice's resources/vendor, pinned by its
-# manifest. Two gates hold it honest, both enforced by the slice's build.rs
-# on every cargo compile:
+# The /web2 client is build output of webui/client2, and nothing of it is
+# committed: the slice's build.rs runs the client build itself on every cargo
+# compile (npm ci when the lock file is newer than node_modules, tsc, vite
+# build) and embeds the gzipped result from OUT_DIR. The bundle therefore
+# cannot be stale — it is always built from the sources being compiled — and
+# there is no committed artifact to pin or to conflict on a merge.
 #
-#   source_sha256   the hash of the client sources the bundle was built
-#                   from. A source newer than the pin fails the BUILD: a
-#                   stale bundle is a compile error, never a runtime
-#                   surprise. Nothing can run a stale build.
-#   assets[].sha256 each committed file's sha256, verified against disk.
+# Node and npm are build prerequisites of the jinn-webui2 crate.
 #
-# The recipe builds with the LOCAL vite (never a package runner that could
-# fetch a different version), gzips the output into resources/vendor, and
-# then asks the build script itself to record the source hash it computes
-# (JINN_WEBUI2_PIN=1) — one implementation both writes and verifies the
-# pin, so the two can never disagree. cargo never runs Node: a build
-# against a current pin needs no Node at all.
-#
-#   webui2-build     — rebuild the client bundle and refresh its pin
 #   webui2-e2e       — full-stack Playwright e2e for /web2 (shuffled)
 #   webui2-e2e-one F [G] — only the spec files matching F, titles matching G
 #   webui2-e2e-clean — kill stray e2e jinn runs
-
-# Rebuild the /web2 client bundle and refresh the manifest's pins.
-webui2-build:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    CLIENT=webui/client2
-    VENDOR=crates/slices/jinn-webui2/resources/vendor
-    if [ ! -d "$CLIENT/node_modules" ] \
-        || [ -n "$(find "$CLIENT/package-lock.json" -newer "$CLIENT/node_modules" -print -quit 2>/dev/null)" ]; then
-        echo '==> npm ci (webui/client2)'
-        npm ci --prefix "$CLIENT" --no-fund --no-audit
-    else
-        echo '==> node_modules current (npm ci skipped)'
-    fi
-    echo '==> tsc --noEmit (webui/client2)'
-    "$CLIENT/node_modules/.bin/tsc" --noEmit -p "$CLIENT/tsconfig.json"
-    echo '==> vite build (webui/client2)'
-    ( cd "$CLIENT" && ./node_modules/.bin/vite build )
-    echo '==> gzip into resources/vendor'
-    for f in "$CLIENT"/dist/*; do
-        gzip -9cn "$f" > "$VENDOR/$(basename "$f").gz"
-    done
-    echo '==> refresh the source pin'
-    # Build the binary with the pin flag set. The slice's build script sees
-    # the flag, records the source hash, and verifies the new bytes in the
-    # same pass — the same command the e2e recipes run, so this is the real
-    # build reaching the real build script, never a side channel.
-    JINN_WEBUI2_PIN=1 cargo build --bin jinn
-    echo '==> webui2-build green'
 
 # Kill stray webui2-e2e jinn runs (each names its own scratch db path).
 webui2-e2e-clean:
@@ -1086,22 +1046,13 @@ release TAG:
         exit 1
     fi
 
-    # --- Pre-flight: the /web2 bundle must be the one the sources build ---
-    # The binary embeds the committed bundle, and cargo refuses a stale one —
-    # but only against the source hash the manifest already carries. Building
-    # it here is what proves the committed bytes come from the committed
-    # sources. It runs BEFORE the push on purpose: a bundle this rebuilds is
-    # one the commit does not hold, and pushing first would publish source
-    # that does not match the binary the tarballs are about to ship.
-    just webui2-build
-    # `git status` rather than `diff`: a new or deleted vendor file is as much
-    # a mismatch as an edited one.
-    if [ -n "$(git status --porcelain -- crates/slices/jinn-webui2/resources/vendor)" ]; then
-        echo "Error: just webui2-build changed the /web2 bundle." >&2
-        echo "  The committed bundle was not built from the committed sources." >&2
-        echo "  Commit the rebuilt bundle, then run 'just release v${VERSION}' again." >&2
-        exit 1
-    fi
+    # --- Pre-flight: the /web2 client must build from the committed sources ---
+    # Nothing of the client is committed: the slice's build.rs builds it on
+    # every cargo compile, so a binary is always built from the sources beside
+    # it. Building it here, BEFORE the push, proves the committed sources
+    # compile — a type error or a broken build must fail here rather than in
+    # the tarball build after the push has already published it.
+    cargo build --bin jinn
 
     # --- 1. Push main (and tags) to GitHub ---
     just sync-github

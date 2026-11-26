@@ -223,10 +223,11 @@ fixed column drawn here, and the `#` is not shown.
 │Sessions│Libra│ ☰ Session title        [provider/model]      │ ← title bar
 │ ▎Session A   ├──────────────────────────────────────────────┤
 │  Session B ● │  Transcript                                  │
-│        ⋮     │  (scrolling conversation)                    │
+│        ⋮     │  (scrolling conversation)              [⇱]   │ ← jump to start (top-right, when off the top)
 │              │  a user message with an attached image:      │
 │  Archive     │    you  look at this                         │
 │              │    [img]                                     │
+│              │                                        [⇲]   │ ← jump to end (bottom-right, when off the end)
 │              ├──────────────────────────────────────────────┤
 │              │ [chip: dot.png ✕]                            │ ← chips
 │              │ [Message jinn…      ] [+]        [Send]      │ ← composer
@@ -247,6 +248,8 @@ fixed column drawn here, and the `#` is not shown.
 | `[provider/model]` | The model chip. Opens the model picker; its **Refresh models** button asks the registry to rediscover and stays busy until the fresh rows land. | `webui2.md` |
 | `[chip: … ✕]` | A pending image, one per chip, above the composer. Arrives from a paste, the `+`, or an `https://` image URL already sent. `✕` removes it. | `webui2.md` |
 | `[img]` on a user message | An image the message carried. | `webui2.md` |
+| `[⇱]` top-right of the transcript | **Jump to start** — an up arrow against a bar above it. Shown only while scrolled away from the top; click to land on the first entry. | `webui2.md` |
+| `[⇲]` bottom-right of the transcript | **Jump to end** — a down arrow against a bar below it. Shown only while scrolled away from the end; click to land on the newest entry and follow the stream again. | `webui2.md` |
 | `⋮` at an entry's bottom-right | Every transcript entry's menu, always visible at every width. **Pin** pins the entry at its relative position and it shows a 📌; pinned, the item reads **Unpin**. `Esc`, an outside click, or picking an item closes it. | `webui2.md` |
 | 📌 at an entry's left edge | A pinned entry — always in context, and pinned at its relative position. | `webui2.md` |
 | `[Message jinn…]` | The composer's draft. `Enter` sends; `Shift+Enter` is a newline. An image with no text sends. | `webui2.md` |

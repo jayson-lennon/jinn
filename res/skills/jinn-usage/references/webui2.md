@@ -67,7 +67,12 @@ but nothing coordinates them.
   session, and are still there after the switch.
 - **Transcript** — the full history, streamed live: markdown, thinking,
   tool calls and results, errors, and system messages all render as they
-  arrive.
+  arrive. Two floating buttons sit at the transcript's right edge, each
+  shown only while you are away from that end: an up-arrow-to-line button
+  in the top-right corner jumps to the start, a down-arrow-to-line button
+  in the bottom-right corner jumps to the end. At the end, the transcript
+  follows a live stream on its own; scroll up and it holds still until you
+  jump back.
 - **Composer** — one row: the draft, a `+` to attach an image, and the
   buttons, all on the same line. Sends a message, queues one while a turn
   is running, or cancels the running turn. An image can arrive three
