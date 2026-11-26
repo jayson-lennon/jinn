@@ -1201,8 +1201,9 @@ fn tool_row_bodies(
         guard
             .session
             .get(session_id)
-            .map(|session| seed_rows(guard.tool_registry(), session, session_id))
-            .unwrap_or_default()
+            .map_or_else(Vec::new, |session| {
+                seed_rows(guard.tool_registry(), session, session_id)
+            })
     };
     jinn_tools_msg::filter_rows(&rows, filter)
         .into_iter()

@@ -239,7 +239,7 @@ fn harness_with(
     providers: jinn_provider_config::ProvidersConfig,
     store: Arc<dyn jinn_session_state::SessionStore>,
 ) -> Harness {
-    harness_seeded(providers, store, Seed::default())
+    harness_seeded(providers, store, &Seed::default())
 }
 
 /// What a harness pre-loads into the cells the picker rows read.
@@ -264,7 +264,7 @@ struct Seed {
 fn harness_seeded(
     providers: jinn_provider_config::ProvidersConfig,
     store: Arc<dyn jinn_session_state::SessionStore>,
-    seed: Seed,
+    seed: &Seed,
 ) -> Harness {
     let (bus, audit) = BusService::new_recording();
     // One `Slices`, registered with the catalog once, is both the registry
@@ -336,9 +336,10 @@ fn seed_personas(
     cell.update(|catalog| catalog.replace_entries(seeded));
 }
 
-/// The seeded personas as catalog entries.
+/// The seeded personas as catalog entries, name-sorted — the order the
+/// real scan produces, so a seeded catalog reads like a scanned one.
 fn personas_entries(entries: &[(&str, &str, bool)]) -> Vec<jinn_slices::Persona> {
-    entries
+    let mut personas: Vec<jinn_slices::Persona> = entries
         .iter()
         .map(|(name, description, has_block)| jinn_slices::Persona {
             name: (*name).to_owned(),
@@ -351,7 +352,9 @@ fn personas_entries(entries: &[(&str, &str, bool)]) -> Vec<jinn_slices::Persona>
             }
             .to_owned(),
         })
-        .collect()
+        .collect();
+    personas.sort_by(|a, b| a.name.cmp(&b.name));
+    personas
 }
 
 /// Seeds the global tool registry with the given tools.
@@ -2243,7 +2246,7 @@ fn harness_with_tools(tools: &[(&'static str, &'static str)]) -> Harness {
     harness_seeded(
         empty_providers(),
         Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
-        Seed {
+        &Seed {
             tools: tools.to_vec(),
             ..Seed::default()
         },
@@ -2324,7 +2327,7 @@ async fn tool_rows_with_no_registry_answer_no_rows() {
     .await;
 
     // Then the frame carries no rows and is not a refusal.
-    assert!(tool_names(&reply).is_empty());
+    assert_eq!(tool_names(&reply), [] as [String; 0]);
 }
 
 #[rstest::rstest]
@@ -2523,7 +2526,7 @@ fn harness_with_mcp(servers: &[(&'static str, &'static str)]) -> Harness {
     harness_seeded(
         empty_providers(),
         Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
-        Seed {
+        &Seed {
             mcp_servers: servers.to_vec(),
             ..Seed::default()
         },
@@ -2598,7 +2601,7 @@ async fn mcp_rows_with_no_configured_servers_answer_no_rows() {
     .await;
 
     // Then the frame carries no rows and is not a refusal.
-    assert!(mcp_names(&reply).is_empty());
+    assert_eq!(mcp_names(&reply), [] as [String; 0]);
 }
 
 #[rstest::rstest]
@@ -2635,7 +2638,7 @@ async fn mcp_rows_mark_a_disabled_server_off_whatever_the_cell_reports() {
             &session_id,
             "echo",
             jinn_mcp_msg::McpConnectionStatus::Running,
-        )
+        );
     });
 
     // When the page asks for the MCP modal's rows.
@@ -2671,7 +2674,7 @@ async fn mcp_rows_mark_an_enabled_server_running_when_the_cell_says_so() {
             &session_id,
             "echo",
             jinn_mcp_msg::McpConnectionStatus::Running,
-        )
+        );
     });
 
     // When the page asks for the MCP modal's rows.
@@ -2702,7 +2705,7 @@ async fn mcp_rows_read_a_singletons_status_for_any_session() {
         .active_session_mut()
         .set_enabled_mcp_servers(std::collections::BTreeSet::from(["echo".to_owned()]));
     h.handle.mcp_runtime_cell().update(|runtime| {
-        runtime.set_singleton_status("echo", jinn_mcp_msg::McpConnectionStatus::Running)
+        runtime.set_singleton_status("echo", jinn_mcp_msg::McpConnectionStatus::Running);
     });
 
     // When the page asks for the MCP modal's rows.
@@ -2873,7 +2876,7 @@ async fn a_runtime_store_pushes_rows_in_the_last_asked_filter() {
         .active_session_mut()
         .set_enabled_mcp_servers(std::collections::BTreeSet::from(["echo".to_owned()]));
     let mut inbox = h.handle.register();
-    dispatch(
+    let _ = dispatch(
         ClientMsg::McpRows {
             filter: "ec".to_owned(),
         },
@@ -2890,7 +2893,7 @@ async fn a_runtime_store_pushes_rows_in_the_last_asked_filter() {
             &session_id,
             "echo",
             jinn_mcp_msg::McpConnectionStatus::Running,
-        )
+        );
     });
     crate::outbound::mcp_runtime_stored(&h.handle);
 
@@ -2927,7 +2930,7 @@ fn harness_with_personas(personas: &[(&'static str, &'static str, bool)]) -> Har
     harness_seeded(
         empty_providers(),
         Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
-        Seed {
+        &Seed {
             personas: personas.to_vec(),
             ..Seed::default()
         },
