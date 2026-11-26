@@ -1,29 +1,33 @@
 # The Record
 
-A curated list of factual, scoped statements asserting the application's **current** state. Authoritative for the present, never the future.
+A short list of facts about how the application works **right now**. Each line is true of the present, never of the future.
 
-This file is consulted before proposing work on a task. If a task **contradicts** an entry here, the contradiction is surfaced before work proceeds. If a task **establishes** a new high-level fact, a verbatim entry is proposed for human approval as part of that proposal. You may edit the RECORD, but only after presenting the changes to a human and getting human approval. A contract or brief or plan that was approved by a human containing record entries implicitly also approves the record updates.
+Read this file before you propose work on a task.
+
+- **A contradiction stops the work.** If the task would change, break, or replace something a line here says, raise it as a question before you go on. Do not work around it.
+- **A new fact goes in the plan.** If the task establishes a new fact about the application, propose the exact line in your plan or contract, under "Record Updates", for the human to approve.
+- **Any other edit needs a yes.** To add or change a line outside an approved plan or contract, show the change to a human first and get their approval.
+
+**An approved plan's record edits are already approved.** A human who approves a plan or contract that lists record entries has approved those entries. When the work is done, write them. Do not ask again. Asking again is not caution; it is an unmet instruction.
 
 ## Why This File Exists
 
 **IMPORTANT**:
 
-- Its common for behaviors in code to span multiple lines or modules. For example, emitting a message in module `Foo` may be listened to by module `Bar` which then performs side-effect `Baz`. This behavior requires 3 hops to discover, so is _expensive to derive_. The RECORD.md file encodes this entire behavior in a **single line**, providing the context needed for the agent to easily learn how the application works.
-
-If a reader could recover the fact from one grep or one file read, it does not belong here. Most things do not belong here. The list is expected to be short, and adding an entry is a claim that the fact is not already obvious from the code.
-
-Deleting an entry is always safe; a reader that needs it will find it. A record that grows to mirror the codebase costs every future reader and goes stale within weeks.
+- It is common for a behavior to span several lines and modules. A message sent in module `Foo` may be received in module `Bar`, which then performs a side effect in `Baz`. That takes three hops to find, so it is expensive to work out. This file puts the whole behavior on **one line**, so an agent can learn how the application works without the hunt.
+- If a reader can recover a fact with one grep or one file read, it does not belong here. Most things do not belong here. Keep the list short. Adding a line is a claim that the fact is not already obvious from the code.
+- Deleting a line is always safe. A reader who needs it will find it. A record that grows to mirror the codebase costs every future reader and goes stale within weeks.
 
 ## Format Rules
 
-- **Factual.** Assert how things are _now_. Never future intent ("we will...", "should..."). Each entry is the _current state_ of the application.
-- **Durable.** Every entry must survive a routine change. Apply the **rename test**: if the codebase renamed this thing tomorrow — a config key, a crate, a type, an actor, an event, a schema version — would the entry be false? If yes, it is not a fact about the application; it is a fact about today's source tree. Delete it.
-- **Scoped.** Name what each entry applies to — repo, app, frontend, or a named subsystem. An unscoped fact (e.g. "uses Fossil") is ambiguous: is that the repo, or the app's supported VCS list? Always disambiguate.
-- **High-level.** One-liners (a few sentences at most). Capture decisions and facts a reader needs, not implementation minutiae.
-- **Single tag.** Each entry carries exactly one subsystem tag as a `(tag)` prefix: `- (tools) The bash tool runs...`. One entry, one tag — this keeps tag usage a meaningful coverage metric (a tag growing large signals over-specification or a tag that should split). If you cannot decide between two tags for an entry, that is a signal to **re-evaluate the entry itself**, not to assign both. Use `(tag)` rather than `[tag]` to avoid colliding with markdown task-list (checkbox) syntax.
-- **Tag subsystem scope.** It's not always obvious what tag to use for a given record entry. Pick based on existing tags or somewhat related subsystem. As particular tags start to become numerous, evaluate whether a new tag (subsystem) should be created based on the content of the tags. It's normal for subsystems to form after-the-fact so feel free to propose re-tagging of existing records.
-- **Singular concept.** Each entry should be a single sentence and only concerned with a single concept. Prefer multiple entries versus combining many things into one.
-- **Because.** Every entry ends with `BECAUSE: <one sentence>` — why the fact holds, from the dialogue that established it. Not history. The clause is exempt from the singular-concept budget; the fact before it is not.
+- **Factual.** Say how things are _now_. Never future intent ("we will...", "should..."). Each line is the _current state_ of the application.
+- **Durable.** Every line must survive a routine change. Apply the **rename test**: if the codebase renamed this thing tomorrow (a config key, a crate, a type, an actor, an event, a schema version), would the line be false? If yes, it describes today's source tree, not the application. Delete it.
+- **Scoped.** Name what each line applies to: the repo, the app, the frontend, or a named subsystem. An unscoped fact ("uses Fossil") is ambiguous. Is that the repo, or the app's supported VCS list? Always disambiguate.
+- **High-level.** One or two sentences at most. Capture the decisions and facts a reader needs, not implementation details.
+- **Single tag.** Each line starts with exactly one subsystem tag: `- (tools) The bash tool runs...`. One line, one tag. This keeps the tag count meaningful: a tag that grows large is over-specified, or should be split. If you cannot decide between two tags, that is a signal to **re-evaluate the line**, not to assign both. Use `(tag)` rather than `[tag]` so the line does not read as a task checkbox.
+- **Tag subsystem scope.** The right tag is not always obvious. Pick from the existing tags, or from a related subsystem. When a tag grows large, decide from its content whether it should be a new subsystem. Subsystems often form after the fact, so re-tagging existing lines is fine.
+- **Singular concept.** One line, one sentence, one concept. Prefer more lines over one crowded line.
+- **Because.** Every line ends with `BECAUSE: <one sentence>`: why the fact holds, from the dialogue that established it. Not history. The because clause is exempt from the one-sentence budget. The fact before it is not.
 
 ## Templates
 
@@ -36,11 +40,11 @@ Deleting an entry is always safe; a reader that needs it will find it. A record 
 
 ## Absence
 
-A missing record, or an un-recorded area, simply means the list has no entry there yet. Absence is not a constraint — it is an open question, and a task that fills a gap may establish the first entry for that area (proposed for human approval as part of the proposal).
+A missing record, or an area with no line, means the list has nothing there yet. Absence is not a constraint. It is an open question, and a task that fills the gap may establish the first line for that area. Propose it for human approval as part of the plan or contract.
 
 ## Editing
 
-Entries are added or amended **only with human approval**.
+Entries are added or amended **only with human approval**, and a plan or contract that a human approved, and that lists them, is that approval. Write them when the work is done.
 
 ---
 
