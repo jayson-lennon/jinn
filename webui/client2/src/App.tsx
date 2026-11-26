@@ -6,11 +6,11 @@
 // updates when the store does, and every gesture leaves through the one
 // socket.
 
-import { For, Show, Switch, Match, createEffect, createRenderEffect, createSignal, onSettled } from 'solid-js';
+import { For, Show, Switch, Match, createEffect, createRenderEffect, createSignal, onCleanup, onSettled } from 'solid-js';
 import { render } from '@solidjs/web';
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg, ModelRow } from './protocol';
-import { type ClientStore, apply, newestEntryId, createStore } from './store';
+import { type ClientStore, apply, clearSessionLoad, newestEntryId, createStore } from './store';
 import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry } from './transcript';
 import { Menu, type MenuItem, type MenuGroup } from './menu';
@@ -26,6 +26,18 @@ type Send = (msg: ClientMsg) => void;
 
 /** Debounce for filter keystrokes, so typing does not request per key. */
 const FILTER_DEBOUNCE_MS = 150;
+
+/**
+ * How long a requested session load may go unanswered before the page gives
+ * up on it: the overlay clears and the stall is named. An in-memory switch
+ * answers in milliseconds; a disk read takes longer; and a request that never
+ * answers means the socket is dead or the server is wedged — an overlay that
+ * can never clear is the one outcome the timeout exists to rule out.
+ */
+const SESSION_LOAD_STALL_MS = 10_000;
+
+/** What the composer shows when a session load times out. */
+const SESSION_LOAD_STALL_MESSAGE = 'Session switch timed out. The session did not load.';
 
 export function App(): JSX.Element {
   const store = createStore();
@@ -168,6 +180,35 @@ export function App(): JSX.Element {
     },
   );
 
+  // The session-load stall timeout. The store's loading id is the cause of
+  // the overlay, and this effect watches it: a non-null id arms one timer
+  // for the wait, and any later run — the id cleared by a snapshot or a
+  // refusal, or replaced by a newer request — clears the timer first, so a
+  // timer never fires for a load that already ended.
+  let stallTimer: number | null = null;
+  createEffect(
+    // Compute (tracked): which session the page is waiting on.
+    () => store.state.loadingSessionId,
+    // Effect (untracked): arm or clear the timer.
+    (loadingId) => {
+      if (stallTimer !== null) {
+        window.clearTimeout(stallTimer);
+        stallTimer = null;
+      }
+      if (loadingId === null) return;
+      stallTimer = window.setTimeout(() => {
+        stallTimer = null;
+        clearSessionLoad(store);
+        store.set((s) => {
+          s.error = SESSION_LOAD_STALL_MESSAGE;
+        });
+      }, SESSION_LOAD_STALL_MS);
+    },
+  );
+  onCleanup(() => {
+    if (stallTimer !== null) window.clearTimeout(stallTimer);
+  });
+
   return (
     <div class={`app${connection() === 'open' ? '' : ' disconnected'}`}>
       <SessionRail
@@ -263,9 +304,21 @@ export function App(): JSX.Element {
           }}
         />
       </Show>
+      {/* Raised by the page when it asks for a session. Nothing dismisses it
+          — no click handler, no key handler: it ends when the load ends, by
+          the requested session's snapshot, a refusal, or the stall timeout. */}
+      <Show when={store.state.loadingSessionId !== null}>
+        <div class="session-load-overlay" role="status" aria-live="polite" data-testid="session-load-overlay">
+          <div class="session-load-card">
+            <span class="spinner" aria-hidden="true" />
+            <span class="session-load-label">Loading session…</span>
+          </div>
+        </div>
+      </Show>
       <Show when={connection() !== 'open'}>
         <div class="overlay" role="status" aria-live="polite" data-testid="overlay">
-          {connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}
+          <span class="spinner" aria-hidden="true" />
+          <span>{connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}</span>
         </div>
       </Show>
     </div>
