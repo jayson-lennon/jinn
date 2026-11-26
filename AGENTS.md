@@ -16,6 +16,7 @@ The full workspace suite takes minutes. Treat suite executions as expensive:
 2. Get failure details from the capture with `just test-failures` — instant, no rebuild. Or grep the log manually as needed.
 3. Iterate cheaply while fixing: `just test-one <test_name_filter>` runs only matching tests across the workspace.
 4. Before committing, confirm with one final `just test`.
+5. **DO NOT USE node/harness.mjs UNLESS SPECIFICALLY WORKING ON THE WEB UI.** A plain Rust test is the default way to verify a change. Booting the real binary for a check — through the e2e harness or a hand-rolled script — requires the user's explicit ask.
 
 ## 1. Overview
 

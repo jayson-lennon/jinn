@@ -419,7 +419,8 @@ bind = "127.0.0.1:8388"   # default: loopback, fixed port, one above /web
 
 Read once at launch; an edit applies at the next restart. The two web
 UIs bind separately and run together — a taken port on either one stops
-the launch.
+the launch. Port `0` picks a fresh port each launch; the resolved URL is
+on the Dashboard tab's **webui2** row.
 
 **Watchdogs** (turn health; these cancel a turn that has gone bad):
 
