@@ -15,6 +15,7 @@ import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry } from './transcript';
 import { Menu, type MenuItem, type MenuGroup } from './menu';
 import { SkillsModal } from './skills';
+import { AppletsModal } from './applets';
 import { McpModal, PersonaModal, ToolsModal } from './pickers';
 import { Composer } from './composer';
 import { SessionRail } from './rail';
@@ -99,6 +100,20 @@ export function App(): JSX.Element {
     send({ type: 'new_session_options' });
     setNewSessionOpen(true);
   };
+  // The applets modal opens like the pickers: drop any rows a previous
+  // opening left behind, ask for the unfiltered rows, and mount. The ask
+  // also asks the applets slice to rescan and to wake its server, so the
+  // first rows may be stale and the fresh catalog arrives as a push.
+  const [appletsOpen, setAppletsOpen] = createSignal(false);
+  const onAppletFilter = useFilter(store, 'appletFilter', send, (filter) => ({ type: 'applet_rows', filter }));
+  const openApplets = (): void => {
+    store.set((s) => {
+      s.appletFilter = '';
+      s.appletRows = [];
+    });
+    send({ type: 'applet_rows', filter: '' });
+    setAppletsOpen(true);
+  };
   // Whether the phone's session drawer is slid in. The page owns it:
   // both the title bar's `#` and the menu's Sessions item open it, and a
   // picked row closes it.
@@ -108,8 +123,10 @@ export function App(): JSX.Element {
   };
 
   // The items are in panel order: New session first, then the pickers
-  // (only while a session is active), then Sessions; the color-mode
-  // group comes after every item, last.
+  // (only while a session is active), then Applets, then Sessions; the
+  // color-mode group comes after every item, last. Applets sits outside
+  // the session gate because the saved-app catalog is instance-wide: it
+  // has nothing to do with the session, so it is listed on every page.
   const menuItems = (): MenuItem[] => [
     { id: 'new-session', label: 'New session', run: openNewSession },
     ...(store.state.sessionId === null
@@ -120,6 +137,7 @@ export function App(): JSX.Element {
           { id: 'tools', label: 'Tools', run: openTools },
           { id: 'mcp', label: 'MCP servers', run: openMcp },
         ]),
+    { id: 'applets', label: 'Applets', run: openApplets },
     { id: 'sessions', label: 'Sessions', run: openDrawer },
   ];
   const menuGroups = (): MenuGroup[] => [
@@ -230,6 +248,18 @@ export function App(): JSX.Element {
           }}
           onClose={() => {
             setPersonaOpen(false);
+          }}
+        />
+      </Show>
+      <Show when={appletsOpen()}>
+        <AppletsModal
+          rows={store.state.appletRows}
+          filter={store.state.appletFilter}
+          serving={store.state.appletServing.serving}
+          bind={store.state.appletServing.bind}
+          onFilter={onAppletFilter}
+          onClose={() => {
+            setAppletsOpen(false);
           }}
         />
       </Show>
@@ -377,7 +407,7 @@ function TitleBar(props: {
 
 /** A debounced filter request; the store holds the filter so a stale
  *  answer (to text the user has typed past) can be recognised and dropped. */
-function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter' | 'skillFilter' | 'toolFilter' | 'mcpFilter' | 'personaFilter', send: Send, request: (filter: string) => ClientMsg) {
+function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter' | 'skillFilter' | 'toolFilter' | 'mcpFilter' | 'personaFilter' | 'appletFilter', send: Send, request: (filter: string) => ClientMsg) {
   let timer: number | null = null;
   return (value: string): void => {
     store.set((s) => { s[key] = value; });
