@@ -786,21 +786,97 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
 .persona-row[data-active='true'] .picker-marker { color: var(--accent); }
 .persona-row[data-active='true'] .picker-name { font-weight: 600; }
 
+/* ---- applets modal ---- */
+/* The same one-line row as the pickers above, carried by an <a> (or a
+   disabled <span>) instead of a button. The generic `.modal-list button`
+   rules do not reach an anchor, so `.picker-row` carries the row shape and
+   the anchor supplies no underline of its own. The status line is the one
+   thing the other pickers do not have: where the applets server is. */
+.applet-status {
+  margin: 0;
+  padding: 4px 12px 8px;
+  color: var(--fg-dim);
+  font-size: .9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.applet-status[data-serving='true'] { color: var(--ok); }
+.applet-rows .applet-row { text-decoration: none; }
+.applet-rows .applet-row .picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.applet-rows .applet-row-disabled { color: var(--fg-faint); cursor: default; }
+.applet-rows .applet-row-disabled:hover { background: transparent; }
+.applet-empty { padding: 12px; color: var(--fg-dim); }
+
 @media (max-width: 767px) {
   .picker-rows .picker-row { min-height: 40px; align-items: center; }
 }
 
 /* ---- reconnect overlay ---- */
+/* A row, so the spinner sits beside the text. */
 .overlay {
   position: fixed;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   background: var(--scrim);
   color: var(--fg);
   font-size: 15px;
   backdrop-filter: blur(2px);
   z-index: 10;
+}
+
+/* ---- spinner ---- */
+/* One spinner for both overlays: the reconnect banner and the session-load card. */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+/* ---- session-load overlay ---- */
+/* Raised by the page itself when it asks for a session, and cleared only by
+   that session's snapshot, a refusal, or the stall timeout. It covers every
+   surface — modals (80), the menu panel (70), the rail (50), the drawer
+   scrim (40) — and swallows the pointer, so a second activation cannot fire
+   under it. Nothing dismisses it: it ends when the load ends. */
+.session-load-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim);
+}
+.session-load-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 26px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px var(--shadow);
+}
+.session-load-label {
+  color: var(--fg);
+  font-size: 14px;
 }
 
 /* ---- phone: the rail becomes an off-canvas drawer ---- */

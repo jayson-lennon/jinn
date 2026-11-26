@@ -13,6 +13,7 @@
 import { createStore as createStoreValue } from 'solid-js';
 import type { Store, StoreSetter } from 'solid-js';
 import type {
+  AppletRow,
   DeltaField,
   EntryEnvelope,
   McpRow,
@@ -73,8 +74,16 @@ export interface ViewState {
   /** The persona modal's rows, for the filter the page last asked for. */
   personaRows: PersonaRow[];
   personaFilter: string;
+  /** The applets modal's rows, for the filter the page last asked for. */
+  appletRows: AppletRow[];
+  appletFilter: string;
+  /** The applets server's serving phase, as the last rows frame carried it. */
+  appletServing: { serving: boolean; bind: string };
   /** The most recent refusal, if any. */
   error: string | null;
+  /** The session the page asked to activate and is still waiting on — the
+   *  loading overlay's cause. Null when nothing is being waited for. */
+  loadingSessionId: string | null;
   /** True once a snapshot or a resume has landed on this connection. */
   synced: boolean;
 }
@@ -107,7 +116,11 @@ const INITIAL_STATE: ViewState = {
   mcpFilter: '',
   personaRows: [],
   personaFilter: '',
+  appletRows: [],
+  appletFilter: '',
+  appletServing: { serving: false, bind: '' },
   error: null,
+  loadingSessionId: null,
   synced: false,
 };
 
@@ -164,6 +177,9 @@ let optimisticCounter = 0;
 export function apply(store: ClientStore, msg: ServerMsg): void {
   switch (msg.type) {
     case 'snapshot': {
+      // Read before the setter: whether this snapshot is the one the page
+      // is waiting on, and so must end the loading overlay.
+      const loadingId = store.state.loadingSessionId;
       store.set((s) => {
         s.sessionId = msg.session_id;
         s.phase = msg.phase.phase;
@@ -188,6 +204,13 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         s.mcpFilter = '';
         s.personaRows = [];
         s.personaFilter = '';
+        // Only the snapshot the page is waiting for ends the wait. One
+        // naming another session — the old session's, answered when a disk
+        // load outlived the handler's own wait — leaves the overlay up until
+        // the real one lands.
+        if (loadingId !== null && msg.session_id === loadingId) {
+          s.loadingSessionId = null;
+        }
       });
       // Indexed from the frame's own array, not the store's. Reading the
       // store's array here left the index naming the session just left,
@@ -308,9 +331,24 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       });
       return;
     }
+    case 'applet_rows': {
+      // The saved-app catalog is instance-wide, so there is no session to
+      // match; the filter alone says whether this is the view the page is
+      // holding. A push from an open modal re-asks in the same filter, so
+      // it is never dropped by this guard.
+      if (msg.filter !== store.state.appletFilter) return;
+      store.set((s) => {
+        s.appletRows = msg.rows;
+        s.appletServing = { serving: msg.serving, bind: msg.bind };
+      });
+      return;
+    }
     case 'error': {
       store.set((s) => {
         s.error = msg.message;
+        // A refusal ends any wait: the request it answers will never bring
+        // a snapshot, and the overlay must not outlive the answer.
+        s.loadingSessionId = null;
       });
       return;
     }
@@ -435,6 +473,20 @@ export function clearComposer(store: ClientStore): void {
   store.set((s) => {
     s.draft = '';
     s.chips = [];
+  });
+}
+
+/** Marks `id` as the session the page is waiting on — the loading overlay's cause. */
+export function beginSessionLoad(store: ClientStore, id: string): void {
+  store.set((s) => {
+    s.loadingSessionId = id;
+  });
+}
+
+/** Ends the wait, whatever ended it. */
+export function clearSessionLoad(store: ClientStore): void {
+  store.set((s) => {
+    s.loadingSessionId = null;
   });
 }
 

@@ -12,7 +12,7 @@
 import { test as base, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { bootJinn, restartJinn, scratchSkill, teardownJinn } from "./harness.mjs";
+import { bootJinn, restartJinn, scratchApplet, scratchSkill, teardownJinn } from "./harness.mjs";
 
 /** How long a reply from a running jinn may take. */
 const REPLY_TIMEOUT_MS = 15_000;
@@ -20,6 +20,8 @@ const REPLY_TIMEOUT_MS = 15_000;
 /** The selectors every spec shares. */
 export const sel = {
   OVERLAY: '[data-testid="overlay"]',
+  /** The "Loading session…" overlay a row click or an Archive pick raises. */
+  SESSION_LOAD: '[data-testid="session-load-overlay"]',
   TRANSCRIPT: '[data-testid="transcript"]',
   ENTRY: (kind) => `.entry-${kind}`,
   DRAFT: '[data-testid="draft"]',
@@ -62,6 +64,13 @@ export const sel = {
   PERSONA_ROW: '[data-testid="persona-row"]',
   /** One persona row, by its persona name (`data-persona`). */
   PERSONA_ROW_NAMED: (name) => `[data-testid="persona-row"][data-persona="${name}"]`,
+  MENU_ITEM_APPLETS: '[data-testid="menu-item-applets"]',
+  APPLETS_MODAL: '[data-testid="applets-modal"]',
+  APPLETS_FILTER: '[data-testid="applets-filter"]',
+  APPLET_ROW: '[data-testid="applet-row"]',
+  /** One applet row, by its id (`data-applet`). */
+  APPLET_ROW_NAMED: (id) => `[data-testid="applet-row"][data-applet="${id}"]`,
+  APPLET_STATUS: '[data-testid="applet-status"]',
   SESSION_ROW: '[data-testid="session-row"]',
   ACTIVE_SESSION_ROW: '.session.active[data-testid="session-row"]',
   /** One rail row's wrapper, by session id. The row button inside also
@@ -161,6 +170,10 @@ export const SKILL_FILTER = "e2e-scra";
 export const MCP_SERVER = "e2e-echo";
 /** The staged block-less persona the persona spec pivots on. */
 export const BLOCKLESS_PERSONA = "blockless-e2e";
+
+/** The staged applet the applets spec pivots on. */
+export const APPLET_ID = scratchApplet.id;
+export const APPLET_TITLE = scratchApplet.title;
 
 /** The one prompt the sample model streams slowly. */
 export const SLOW_PROMPT = "!response";
@@ -360,6 +373,19 @@ export async function openPersona(page) {
 }
 
 /**
+ * Opens the applets modal through the hamburger menu, and waits for the
+ * staged applet's row to arrive.
+ */
+export async function openApplets(page) {
+  await openMenu(page);
+  await page.locator(sel.MENU_ITEM_APPLETS).click();
+  await expect(page.locator(sel.APPLETS_MODAL)).toBeVisible();
+  await expect(page.locator(sel.APPLET_ROW_NAMED(APPLET_ID))).toBeVisible({
+    timeout: REPLY_TIMEOUT_MS,
+  });
+}
+
+/**
  * Selects the sample model from the chip, and waits for the chip to
  * name it.
  *
@@ -387,6 +413,7 @@ const test = base.extend({
       persona: stage.persona === true,
       mcp: stage.mcp === true,
       textOnly: stage.textOnly === true,
+      applet: stage.applet === true,
     });
     await use(run);
     await teardownJinn(run);
