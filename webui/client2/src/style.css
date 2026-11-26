@@ -165,6 +165,10 @@ body { background: var(--bg); color: var(--fg); }
   right: 0;
   top: 100%;
   z-index: 20;
+  /* A column of entries: without this the buttons flow inline and the
+     second one lands beside the first, overflowing the popup. */
+  display: flex;
+  flex-direction: column;
   min-width: 180px;
   max-width: min(240px, calc(100vw - 24px));
   background: var(--bg-raised);
@@ -516,7 +520,6 @@ body { background: var(--bg); color: var(--fg); }
 .composer-actions button:disabled { color: var(--fg-faint); cursor: not-allowed; }
 .composer-actions .primary { background: var(--accent); color: var(--on-fill); border-color: var(--accent); font-weight: 600; }
 .composer-actions .danger { color: var(--danger); border-color: var(--danger); }
-.composer-error { margin-top: 8px; color: var(--danger); font-size: 13px; }
 
 /* A user entry's images, beneath its text. */
 .entry-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
@@ -841,6 +844,35 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   font-size: 15px;
   backdrop-filter: blur(2px);
   z-index: 10;
+}
+
+/* ---- toasts: every refusal and failure, bottom-right ---- */
+
+/* Above the menu panel (70), every modal (80), and the session-load
+   overlay (90): a refusal is what clears that overlay, and a toast raised
+   while one is still up must still be seen. */
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 32px));
+  z-index: 91;
+}
+.toast {
+  padding: 10px 14px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px var(--shadow);
+  cursor: pointer;
 }
 
 /* ---- spinner ---- */

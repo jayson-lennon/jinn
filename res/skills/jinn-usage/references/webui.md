@@ -68,7 +68,8 @@ these, say so rather than describing a control that is not there.
   sent verbatim.
 - Forking, resuming (`c`), lifecycle setup (`s`), archiving, closing,
   and tearing down sessions. (The web can *open* an archived session
-  through its **Archive** picker, but cannot archive one.)
+  through its **Archive** picker; archiving one is on `/web2` — its
+  menu's **Archive session** item or a row's `⋮`.)
 - Model alloys and multi-select, reasoning-effort and endpoint pickers.
 - Staged toggling in the tool and MCP pickers (the web commits per
   click), the MCP inspector, and the pickers' context-cost footers.

@@ -43,7 +43,8 @@ but nothing coordinates them.
   library members. Exactly one shows at a time. In either list the active
   session is highlighted and clicking a row activates that session (the
   TUI follows). Each row's `⋮` offers **add to library** or **remove from
-  library**, which moves it to the other list.
+  library**, which moves it to the other list, and **archive**, which
+  archives that session without running its teardown lifecycle.
 - **Session loading** — clicking a session row, or picking one from the
   **Archive** picker, raises a full-page **Loading session…** overlay at
   once: a card with a spinner, over everything. It clears when that
@@ -111,10 +112,12 @@ but nothing coordinates them.
   Just above the group, at every time, is **Sessions**, which opens
   the session list — on a phone the drawer, at wider widths nothing,
   since the sidebar is already in place.
-  Between them, while a session is active, it lists **Skills**,
-  **Persona**, **Tools**, and **MCP servers**, in that order; each opens
-  its picker. With no active session those four are omitted. **Applets**
-  sits between those four and **Sessions**, at every time — the saved-app
+  Between them, while a session is active, it lists **Archive session**,
+  **Skills**, **Persona**, **Tools**, and **MCP servers**, in that order.
+  **Archive session** archives the session in view; a session running a
+  turn is refused with a toast. Each of the four pickers opens
+  its picker. With no active session those five are omitted. **Applets**
+  sits between those five and **Sessions**, at every time — the saved-app
   catalog depends on no session. A scrim
   click, `Esc`, or picking an item closes it.
 - **Applets** — the menu's **Applets** item (at every time) opens the
@@ -129,6 +132,10 @@ but nothing coordinates them.
 - **Color mode** — the menu's **Light | Dark | System** group. The choice
   is saved (`state.toml`) and survives a reload and a restart; **System**
   follows the browser. It is applied before the transcript's first paint.
+- **Notices** — every refusal and failure the server reports is a toast at
+  the bottom right: a busy archive, a refused image, an unknown skill. It
+  dismisses itself after a few seconds, and a tap dismisses it at once.
+  There is no message under the composer; the toast is the one surface.
 - **Phone layout** — below 768px the sidebar becomes an off-canvas drawer
   opened by the small `#` button left of the `☰` in the title bar, or by
   the menu's **Sessions** item. A scrim tap, `Esc`, or
@@ -207,7 +214,7 @@ The composer's buttons follow the session's phase:
 `Enter` follows the same rule: idle it sends, working it queues. An
 empty draft with no image does nothing either way; an image with no text
 sends. Images are limited to 5 MB each, and a refused one is named in a
-message under the composer while the draft and every chip stay put.
+toast while the draft and every chip stay put.
 
 **Cancel** stops the running turn. Queued work is dumped into the TUI's
 input box as an editable draft — not into the web composer.
@@ -231,8 +238,9 @@ Everything below exists on the TUI, and most of it on `/web` too. When a
 user asks for one of these on `/web2`, say so and point at the surface
 that has it.
 
-- Forking, archiving, or tearing down sessions. `/web2` can *create* and
-  *open* sessions, but has no fork, archive, or teardown gesture.
+- Forking, closing, or tearing down sessions, and archiving a whole
+  subtree. `/web2` can *create*, *open*, and *archive* single sessions,
+  but has no fork, close, teardown, or archive-tree gesture.
 - Renaming, deleting, or opening an applet in kiosk mode. The `/web2`
   applets picker opens one in a new tab; those three gestures are the
   TUI's.

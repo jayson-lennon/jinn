@@ -23,7 +23,9 @@ use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, Updat
 use jinn_provider_selection_msg::ProviderSwitch;
 use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, UnpinChatEntry};
 use jinn_session_msg::MarkSessionInteracted;
-use jinn_session_store_msg::{PersistSession, SessionLoadRequested, SetSessionLibrary};
+use jinn_session_store_msg::{
+    ArchiveSession, PersistSession, SessionLoadRequested, SetSessionLibrary,
+};
 use jinn_slices::bus::BusService;
 use jinn_webui2_msg::{ClientMsg, EntryEnvelope, ServerMsg};
 
@@ -4844,6 +4846,130 @@ async fn set_library_of_an_unknown_session_is_refused() {
 }
 
 // ---------------------------------------------------------------------------
+// Archive session
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_session_publishes_the_store_command() {
+    // Given a page with one live, idle session.
+    let h = harness();
+    let id = active_id(&h.state);
+
+    // When the page archives it.
+    say(
+        &h,
+        ClientMsg::ArchiveSession {
+            session_id: id.clone(),
+        },
+    )
+    .await;
+
+    // Then the store's command is published, naming the session.
+    let commands = h.audit.of_type::<ArchiveSession>();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].session_id, id);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_of_a_busy_session_is_refused_and_publishes_nothing() {
+    // Given a session running a turn.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
+
+    // When the page archives it.
+    let reply = dispatch(
+        ClientMsg::ArchiveSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told the session is busy and nothing was published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_of_a_busy_session_names_the_busy_reason() {
+    // Given a session running a turn.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
+
+    // When the page archives it.
+    let reply = dispatch(
+        ClientMsg::ArchiveSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the refusal tells the user to cancel the turn first.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        panic!("expected one error frame, got {:?}", reply.frames);
+    };
+    assert_eq!(error.message, "session is busy — cancel the turn first");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_of_an_unknown_session_is_refused() {
+    // Given a page with an empty store.
+    let h = harness_with_store();
+
+    // When the page names a session nothing knows.
+    let reply = dispatch(
+        ClientMsg::ArchiveSession {
+            session_id: jinn_core_types::SessionId::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the request is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_of_a_stored_only_session_is_refused_as_already_archived() {
+    // Given a session that is on disk and not in memory — an archived one.
+    let h = harness_with_store();
+    let id = store_only_session(&h, "already archived").await;
+
+    // When the page archives it again.
+    let reply = dispatch(
+        ClientMsg::ArchiveSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told it is already archived and nothing is published.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        panic!("expected one error frame, got {:?}", reply.frames);
+    };
+    assert_eq!(error.message, format!("session {id} is already archived"));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+// ---------------------------------------------------------------------------
 // Model refresh
 // ---------------------------------------------------------------------------
 
@@ -5192,6 +5318,45 @@ fn membership_changed_pushes_a_sessions_frame() {
     // Then the page receives one sessions frame.
     let frames = drain(&mut inbox);
     assert!(matches!(frames.as_slice(), [ServerMsg::Sessions(_)]));
+}
+
+#[rstest::rstest]
+#[test]
+fn an_archived_session_pushes_one_sessions_frame() {
+    // Given a page.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the store actor announces an archive.
+    crate::outbound::sessions_changed(&h.handle);
+
+    // Then the page receives one sessions frame.
+    let frames = drain(&mut inbox);
+    assert!(matches!(frames.as_slice(), [ServerMsg::Sessions(_)]));
+}
+
+#[rstest::rstest]
+#[test]
+fn a_failed_archive_pushes_one_error_frame() {
+    // Given a page.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the store actor announces a failed archive.
+    crate::outbound::archive_failed(
+        &h.handle,
+        &jinn_session_msg::SessionArchiveFailed {
+            session_id: jinn_core_types::SessionId::new(),
+            error: "archiving the session write failed".to_owned(),
+        },
+    );
+
+    // Then the page receives one error frame naming the reason.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::Error(error)] = frames.as_slice() else {
+        panic!("expected one error frame, got {frames:?}");
+    };
+    assert!(error.message.contains("archiving the session write failed"));
 }
 
 #[rstest::rstest]

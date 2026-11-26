@@ -1182,6 +1182,12 @@ fn client_variant_carries_its_snake_case_tag() {
             },
             "set_library",
         ),
+        (
+            ClientMsg::ArchiveSession {
+                session_id: SessionId::new(),
+            },
+            "archive_session",
+        ),
         (ClientMsg::NewSessionOptions, "new_session_options"),
         (
             ClientMsg::CreateSession {
@@ -1490,6 +1496,21 @@ fn client_set_library_round_trips() {
     let msg = ClientMsg::SetLibrary {
         session_id: SessionId::new(),
         in_library: true,
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_archive_session_round_trips() {
+    // Given an archive request.
+    let msg = ClientMsg::ArchiveSession {
+        session_id: SessionId::new(),
     };
 
     // When it round-trips.

@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use jinn_core_types::SessionId;
 use jinn_core_types::SessionProfile;
 use jinn_kernel::common::actor_deps::BusPublish;
+use jinn_kernel::protocol::system::ActiveSessionChanged;
+use jinn_session_list::SessionTreeNode;
 use jinn_session_state::{ChatSessionState, SessionSnapshot, snapshot_frozen_node};
 use jinn_session_store_msg::SessionState;
 use jinn_session_store_msg::{ArchiveSession, ArchiveSessionTree};
@@ -159,10 +161,10 @@ impl SessionStoreActor {
                 continue;
             }
             self.snapshot_before_removal(session_id);
-            // Read before the removal: `remove_and_replace` points the active
-            // id at whichever session `HashMap` iteration yields first, so
-            // after it there is no way back to whether this was the session the
-            // user was reading.
+            // Read before the removal: whether this was the session the user
+            // was reading decides both what the removal announces and where
+            // the active pointer lands, and after it the pointer already
+            // names the successor.
             let was_active = self.state.read().session.active_session_id() == session_id;
             let (removed_parent, mcp_enablement) = self.remove_and_replace(session_id);
             // Between this member's removal and its announcements: the
@@ -184,6 +186,18 @@ impl SessionStoreActor {
                 session_id: session_id.clone(),
             })
             .await;
+            // The removal moved the active pointer to a deliberate successor
+            // (or the repair above made a fresh session active). Announced
+            // only when this was the session the user was reading: an
+            // archive of any other session moves nothing. Every page and
+            // surface that follows the active session keys off this event.
+            if was_active {
+                let now_active = self.state.read().session.active_session_id().clone();
+                self.publish(ActiveSessionChanged {
+                    session_id: now_active,
+                })
+                .await;
+            }
             if let Some(enablement) = mcp_enablement {
                 self.publish(enablement).await;
             }
@@ -304,8 +318,25 @@ impl SessionStoreActor {
         }
     }
 
-    /// Removes a session, creates a seeded replacement, and returns the
-    /// removed session's persisted parent plus any replacement MCP notice.
+    /// Removes a session and lands the active pointer on a deliberate
+    /// successor when the removed one was the session the user was reading.
+    ///
+    /// Returns the removed session's persisted parent plus any replacement
+    /// MCP notice. The removal and the re-point share one write lock: a
+    /// reader never observes the removed session gone with the pointer still
+    /// naming it, or a pointer naming a session that is about to move again.
+    ///
+    /// The successor is whichever session the sidebar draws at the row its
+    /// cursor last occupied — clamped to the shortened list — or the first
+    /// visible row when no row was ever captured. That is the row the TUI's
+    /// own removal repair lands on, so the TUI's later reconcile computes the
+    /// same answer and every surface (the TUI, both web UIs, Discord) ends up
+    /// on the same session after one archive. It is always a listed session,
+    /// never a library member or a hidden resident.
+    ///
+    /// When no listed session survives, the pointer is left alone: the
+    /// caller's [`Self::repair_empty_sessions_list`] inserts a fresh listed
+    /// session and makes it active.
     fn remove_and_replace(
         &self,
         session_id: &SessionId,
@@ -321,10 +352,14 @@ impl SessionStoreActor {
             .session
             .get(session_id)
             .and_then(|session| session.parent_session().clone());
-        self.state.with_session(|view| {
+        self.state.with_session_sidebar(|view| {
+            let was_active = view.session.map().active_session_id() == session_id;
             view.session
                 .map()
                 .remove_and_replace(session_id, fresh_session);
+            if was_active {
+                retarget_to_successor(view);
+            }
         });
         (removed_parent, enablement)
     }
@@ -365,9 +400,9 @@ impl SessionStoreActor {
     /// remaining residents may all be Library members. The map's own guard
     /// only fires on an empty map, so this caller-side check is what keeps
     /// the sidebar's Sessions list non-empty. The inserted session becomes
-    /// active explicitly — the map's retarget for the removal is left to
-    /// whichever resident `HashMap` iteration yields, and landing the user
-    /// on an invisible member is exactly what this repair exists to prevent.
+    /// active explicitly — the removal left no listed session for its
+    /// successor step to land on, and landing the user on an invisible member
+    /// is exactly what this repair exists to prevent.
     ///
     /// The insert is in-memory only: no persistence write and no
     /// `SessionCreated` publish, matching the map-empty replacement path —
@@ -391,5 +426,44 @@ impl SessionStoreActor {
             view.session.map().set_active(fresh_id);
         });
         enablement
+    }
+}
+
+/// Points the active session at the row the sidebar's cursor last occupied.
+///
+/// Runs after a removal that took the active session, inside the same write
+/// lock, over the map as it stands without the removed session. The row is
+/// the sidebar's own visible-tree row: the same listed sessions, in the same
+/// order, the sidebar's repair after a removal lands its cursor on. With no
+/// row ever captured it is the first row — the newest listed root. A row past
+/// the end of the shortened list clamps to its last row.
+///
+/// Does nothing when no listed session remains: the caller's repair inserts
+/// a fresh one and makes it active.
+fn retarget_to_successor(
+    view: &mut jinn_kernel::common::session_projection::SessionSidebarView<'_>,
+) {
+    let nodes: Vec<SessionTreeNode> = view
+        .session
+        .map()
+        .iter()
+        .filter(|(_, session)| session.is_listed())
+        .map(|(id, session)| SessionTreeNode {
+            id: id.clone(),
+            created_at: *session.created_at(),
+            parent_id: session.parent_session().clone(),
+        })
+        .collect();
+    let visual_parents = view.frontend.with_sections(
+        |sections| sections.sessions.visual_parents.clone(),
+        HashMap::new,
+    );
+    let row = view
+        .frontend
+        .with_sections(|sections| sections.sessions.last_cursor_row, || None)
+        .unwrap_or(0)
+        .min(nodes.len().saturating_sub(1));
+    if let Some(successor) = jinn_session_list::visible_session_at(nodes, &visual_parents, row) {
+        view.session.map().set_active(successor);
     }
 }

@@ -76,6 +76,7 @@ pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
             session_id,
             in_library,
         } => actions::set_library(out, session_id, in_library).await,
+        ClientMsg::ArchiveSession { session_id } => actions::archive_session(out, session_id).await,
         ClientMsg::NewSessionOptions => actions::new_session_options(out),
         ClientMsg::CreateSession {
             project,

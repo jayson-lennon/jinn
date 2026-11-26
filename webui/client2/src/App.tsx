@@ -10,7 +10,7 @@ import { For, Show, Switch, Match, createEffect, createRenderEffect, createSigna
 import { render } from '@solidjs/web';
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg, ModelRow } from './protocol';
-import { type ClientStore, apply, clearSessionLoad, newestEntryId, createStore } from './store';
+import { type ClientStore, apply, clearSessionLoad, newestEntryId, createStore, pushToast } from './store';
 import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry, useEntryMenuDismiss } from './transcript';
 import { Menu, type MenuItem, type MenuGroup } from './menu';
@@ -20,6 +20,7 @@ import { McpModal, PersonaModal, Runs, ToolsModal } from './pickers';
 import { Composer } from './composer';
 import { SessionRail } from './rail';
 import { NewSessionModal } from './new-session';
+import { Toasts } from './toast';
 import { applyTheme, mirrorTheme } from './theme';
 
 type Send = (msg: ClientMsg) => void;
@@ -134,16 +135,22 @@ export function App(): JSX.Element {
     setDrawerOpen(true);
   };
 
-  // The items are in panel order: New session first, then the pickers
-  // (only while a session is active), then Applets, then Sessions; the
-  // color-mode group comes after every item, last. Applets sits outside
-  // the session gate because the saved-app catalog is instance-wide: it
-  // has nothing to do with the session, so it is listed on every page.
+  // The items are in panel order: New session first, then Archive session
+  // and the pickers (only while a session is active), then Applets, then
+  // Sessions; the color-mode group comes after every item, last. Applets
+  // sits outside the session gate because the saved-app catalog is
+  // instance-wide: it has nothing to do with the session, so it is listed
+  // on every page.
+  const archiveSession = (): void => {
+    const id = store.state.sessionId;
+    if (id !== null) send({ type: 'archive_session', session_id: id });
+  };
   const menuItems = (): MenuItem[] => [
     { id: 'new-session', label: 'New session', run: openNewSession },
     ...(store.state.sessionId === null
       ? []
       : [
+          { id: 'archive', label: 'Archive session', run: archiveSession },
           { id: 'skills', label: 'Skills', run: openSkills },
           { id: 'persona', label: 'Persona', run: openPersona },
           { id: 'tools', label: 'Tools', run: openTools },
@@ -199,9 +206,7 @@ export function App(): JSX.Element {
       stallTimer = window.setTimeout(() => {
         stallTimer = null;
         clearSessionLoad(store);
-        store.set((s) => {
-          s.error = SESSION_LOAD_STALL_MESSAGE;
-        });
+        pushToast(store, SESSION_LOAD_STALL_MESSAGE);
       }, SESSION_LOAD_STALL_MS);
     },
   );
@@ -321,6 +326,7 @@ export function App(): JSX.Element {
           <span>{connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}</span>
         </div>
       </Show>
+      <Toasts store={store} />
     </div>
   );
 }

@@ -86,13 +86,20 @@ export interface ViewState {
   appletFilter: string;
   /** The applets server's serving phase, as the last rows frame carried it. */
   appletServing: { serving: boolean; bind: string };
-  /** The most recent refusal, if any. */
-  error: string | null;
+  /** Transient notices, newest last. A toast dismisses itself, and a tap
+   *  dismisses it at once. Not the session's: a snapshot leaves them. */
+  toasts: Toast[];
   /** The session the page asked to activate and is still waiting on — the
    *  loading overlay's cause. Null when nothing is being waited for. */
   loadingSessionId: string | null;
   /** True once a snapshot or a resume has landed on this connection. */
   synced: boolean;
+}
+
+/** One transient notice the page shows until it is dismissed. */
+export interface Toast {
+  readonly id: number;
+  readonly message: string;
 }
 
 const INITIAL_STATE: ViewState = {
@@ -128,7 +135,7 @@ const INITIAL_STATE: ViewState = {
   appletRows: [],
   appletFilter: '',
   appletServing: { serving: false, bind: '' },
-  error: null,
+  toasts: [],
   loadingSessionId: null,
   synced: false,
 };
@@ -360,10 +367,11 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
     case 'error': {
+      // Every refusal and every failure the server reports is one notice,
+      // and it ends any wait: the request it answers will never bring a
+      // snapshot, and the overlay must not outlive the answer.
+      pushToast(store, msg.message);
       store.set((s) => {
-        s.error = msg.message;
-        // A refusal ends any wait: the request it answers will never bring
-        // a snapshot, and the overlay must not outlive the answer.
         s.loadingSessionId = null;
       });
       return;
@@ -509,6 +517,23 @@ export function clearComposer(store: ClientStore): void {
   store.set((s) => {
     s.draft = '';
     s.chips = [];
+  });
+}
+
+let toastCounter = 0;
+
+/** Stacks one notice. The toast component owns its lifetime. */
+export function pushToast(store: ClientStore, message: string): void {
+  const id = toastCounter++;
+  store.set((s) => {
+    s.toasts = [...s.toasts, { id, message }];
+  });
+}
+
+/** Removes one notice, by id. */
+export function dismissToast(store: ClientStore, id: number): void {
+  store.set((s) => {
+    s.toasts = s.toasts.filter((t) => t.id !== id);
   });
 }
 

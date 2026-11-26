@@ -196,6 +196,7 @@ export type ClientMsg =
   | { type: 'refresh_models' }
   | { type: 'set_theme'; theme: Theme }
   | { type: 'set_library'; session_id: string; in_library: boolean }
+  | { type: 'archive_session'; session_id: string }
   | { type: 'new_session_options' }
   | {
       type: 'create_session';
