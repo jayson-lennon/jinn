@@ -241,6 +241,7 @@ fixed column drawn here, and the `#` is not shown.
 | `⋮` on a session row | The row's menu. One item — **add to library** or **remove from library** — which moves the session to the other list. | `webui2.md` |
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui2.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui2.md` |
+| **Loading session…** card | A full-page overlay with a spinner, raised the instant a session row or an Archive row is picked and cleared when that session arrives. Covers everything; `Esc` does not close it. | `webui2.md` |
 | `●` after a session title | That session's turn is running. | `webui2.md` |
 | The session title | Click to rename in place: `Enter` commits, `Esc` cancels. | `webui2.md` |
 | `[provider/model]` | The model chip. Opens the model picker; its **Refresh models** button asks the registry to rediscover and stays busy until the fresh rows land. | `webui2.md` |
