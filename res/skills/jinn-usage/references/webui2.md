@@ -19,6 +19,13 @@ Point a browser at `http://127.0.0.1:8388/web2` (or the `[webui2]` bind
 you configured — see the **Web UI 2** entry under
 [Common asks → settings](configuration.md#common-asks--settings)).
 
+The TUI's Dashboard tab names the address the server is actually running
+on, on its **webui2** row — the line to copy when the bind is not the
+default or uses port `0`. A wildcard bind (`0.0.0.0` / `::`) has no
+single address, so that row reads `serving on port <port> on all
+interfaces (http://<your-ip>:<port>/web2)` and you substitute your
+machine's IP.
+
 One browser tab is the supported model. Two tabs on `/web2` both work,
 but nothing coordinates them.
 

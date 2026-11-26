@@ -4050,3 +4050,89 @@ fn flush_frames_h(
     }
     frames
 }
+
+/// Spawns the listener on a real trouper bus over an OS-assigned port,
+/// with a recorder for the dashboard note registered first, and returns
+/// every note the launch published together with the bound address.
+///
+/// The listener must publish through a real bus: the recording bus
+/// captures a `publish` call without broadcasting it, and the dashboard
+/// consumes the broadcast.
+async fn spawn_listener_and_collect_notes() -> (Vec<jinn_slices::ServiceStatusUpdate>, String) {
+    let fabric = jinn_testutil::bus_harness::TestHarness::new().await;
+    let notes = fabric
+        .spawn_recorder::<jinn_slices::ServiceStatusUpdate>()
+        .await;
+
+    // The handle the listener's shared state is built over. Its bus is
+    // not the one the note rides; nothing in these tests dispatches.
+    let h = harness();
+    let deps = crate::listener::ListenerDeps {
+        bind: "127.0.0.1:0".to_owned(),
+        shared: Arc::new(crate::server::ServerShared {
+            outbound: h.handle.clone(),
+            version: "test".to_owned(),
+        }),
+        bus: fabric.bus(),
+    };
+    let (bound, _outbound) = crate::listener::spawn(fabric.system(), &deps)
+        .await
+        .expect("the listener binds an OS-assigned port");
+
+    let notes =
+        jinn_testutil::bus_harness::await_recorded(&notes, 1, std::time::Duration::from_secs(2))
+            .await;
+    (notes, bound.connection_note())
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_bound_listener_publishes_one_launch_note_on_its_own_row() {
+    // Given a recorder for the dashboard note, registered before the bind.
+    // When the listener binds.
+    let (notes, _note) = spawn_listener_and_collect_notes().await;
+
+    // Then exactly one note was published, addressed to the listener's row.
+    assert_eq!(notes.len(), 1, "one bind publishes one note: {notes:?}");
+    assert_eq!(
+        notes[0].name,
+        crate::listener::WEBUI2_ACTOR_NAME,
+        "the note must land on the row the census created"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_launch_note_names_the_port_that_was_actually_bound() {
+    // Given a listener bound to an OS-assigned port, so only the bound
+    // address can know the port.
+    // When it publishes its note.
+    let (notes, note) = spawn_listener_and_collect_notes().await;
+
+    // Then the note is the bound address's page URL, the same string the
+    // caller logs.
+    assert_eq!(
+        notes[0].status_message.as_deref(),
+        Some(note.as_str()),
+        "the row and the log read one string"
+    );
+    assert!(
+        note.starts_with("serving on http://127.0.0.1:") && note.ends_with("/web2"),
+        "a specific loopback bind names its own address and the page path: {note}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_launch_note_describes_the_row() {
+    // Given a recorder for the dashboard note.
+    // When the listener binds.
+    let (notes, _note) = spawn_listener_and_collect_notes().await;
+
+    // Then the note carries the row's description.
+    assert_eq!(
+        notes[0].description.as_deref(),
+        Some("Web UI 2 (browser transcript, send, cancel)"),
+        "the row is told what the slice is"
+    );
+}

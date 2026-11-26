@@ -2,7 +2,7 @@
 
 A curated list of factual, scoped statements asserting the application's **current** state. Authoritative for the present, never the future.
 
-This file is consulted before proposing work on a task. If a task **contradicts** an entry here, the contradiction is surfaced before work proceeds. If a task **establishes** a new high-level fact, a verbatim entry is proposed for human approval as part of that proposal. You may edit the RECORD, but only after presenting the changes to a human and getting human approval.
+This file is consulted before proposing work on a task. If a task **contradicts** an entry here, the contradiction is surfaced before work proceeds. If a task **establishes** a new high-level fact, a verbatim entry is proposed for human approval as part of that proposal. You may edit the RECORD, but only after presenting the changes to a human and getting human approval. A contract or brief or plan that was approved by a human containing record entries implicitly also approves the record updates.
 
 ## Why This File Exists
 
@@ -883,3 +883,4 @@ Entries are added or amended **only with human approval**.
 - (webui2) The `/web2` model picker has a Refresh models button that publishes the existing `RefreshModels` command and stays busy until `ModelCacheStored` lands, when an open picker receives fresh rows in its last-asked filter. BECAUSE: the original web UI's picker has the same button, and discovery's completion is already announced by that event.
 - (webui2) A `/web2` user entry renders its image attachments through a route under `/web2` that resolves the bytes from live state, bounded, then the session store. BECAUSE: the bytes already ride the entry over the socket, so the route exists only for the browser's `<img>` fetch and must tolerate a just-sent entry still crossing the bus.
 - (webui2) The `/web2` sidebar shows one session list at a time, chosen by a Sessions|Library segmented control, and each row's `⋮` menu adds or removes it from the library by publishing the store's `SetSessionLibrary`. BECAUSE: the original web UI has the same control and gesture, and the store actor is the only writer of the membership flag.
+- (webui2) The `/web2` dashboard row's Notes column carries how to reach the running server — `serving on http://<host>:<port>/web2` for a specific bind, and `serving on port <port> on all interfaces (http://<your-ip>:<port>/web2)` for a wildcard bind — published once at bind through a `ServiceStatusUpdate` named for the listener's actor. BECAUSE: the bind is frozen for the process lifetime and a wildcard address is not a destination, so the row gives the user the port and path without inventing an address the machine may not have.

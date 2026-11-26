@@ -82,7 +82,7 @@ state, treating its entries as true of the present and never as future intent.
   `BECAUSE: <one sentence>` — the reason from the dialogue that settled the fact.
   Amending an entry replaces the whole line, because included.
 - **Absence is not a constraint.** It means nothing is recorded there yet.
-- **The record is not yours to edit.** Proposed entries take effect at the end of
+- **The record is not yours to edit.** Proposed entries are applied at the end of
   implementation, never at contract approval.
 
 Proposed entries obey this floor:
@@ -129,7 +129,7 @@ proposed entries as markdown list lines.
 
 A curated list of factual, scoped statements asserting the application's **current** state. Authoritative for the present, never the future.
 
-This file is consulted before proposing work on a task. If a task **contradicts** an entry here, the contradiction is surfaced before work proceeds. If a task **establishes** a new high-level fact, a verbatim entry is proposed for human approval as part of that proposal. You may edit the RECORD, but only after presenting the changes to a human and getting human approval.
+This file is consulted before proposing work on a task. If a task **contradicts** an entry here, the contradiction is surfaced before work proceeds. If a task **establishes** a new high-level fact, a verbatim entry is proposed for human approval as part of that proposal. You may edit the RECORD, but only after presenting the changes to a human and getting human approval. A contract or brief or plan that was approved by a human containing record entries implicitly also approves the record updates.
 
 ## Why This File Exists
 

@@ -282,6 +282,7 @@ fixed column drawn here, and the `#` is not shown.
 | Persona in use | Persona sidebar section |
 | Every `<leader>s*` chooser | Pickers (see `pickers-and-search.md`) |
 | The web UI's address | Dashboard tab, **webui** row |
+| The second web UI's (`/web2`) address | Dashboard tab, **webui2** row |
 | The browser page's `☰` / `#` / `[model]` buttons | Web UI titlebar |
 | A blue or yellow session row, a spinning row, `⋮` | Web UI sidebar |
 | The browser page's Send / `Q` / Cancel buttons | Web UI composer |
