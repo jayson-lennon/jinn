@@ -105,6 +105,27 @@ highlights:
   toggle and its `+` is disabled. The modal refreshes itself when a
   skill scan lands. The markdown preview and the context-cost footer
   are TUI-only.
+- **Tool, in `/web2`**: the menu button's **Tools** item (while a
+  session is active) opens the active session's tools — a `✓` / `✗`
+  enabled mark, the name, the description's first sentence — with the
+  filter bar narrowing it and highlighting the matches. Clicking a row
+  commits at once, the TUI `<Tab>` + `<enter>` result with no staging,
+  and the modal stays open. Dismissing with `Esc` or a backdrop click
+  only closes it — unlike `/web`, there is **no revert**; undo a
+  mis-click by clicking the row again.
+- **MCP servers, in `/web2`**: the menu button's **MCP servers** item
+  (while a session is active) opens one row per `[mcp.<name>]` in
+  `jinn.toml` — a `●` / `○` enabled mark, the name, the launch summary,
+  and a status badge (`off` / `starting` / `running` / `dead`). Clicking
+  a row toggles that server for the session at once and the modal stays
+  open; the badge updates live on its own. No stderr/log pane and no
+  tool list — those are TUI-only.
+- **Persona, in `/web2`**: the menu button's **Persona** item (while a
+  session is active) opens the personas in their own name-sorted order
+  — a `●` / `○` mark, the name, the description. Clicking a row
+  switches the session's persona and **closes the modal**. A persona
+  without a `<compaction>` handoff block pushes an error entry into the
+  transcript, the same warning the TUI shows.
 - **MCP server**: `<Tab>` stages enable/disable. `<enter>` applies the staged
   toggles (enabling spawns the server, disabling kills it); `<esc>` reverts
   to how the picker opened. `<c-r>` restarts, `<c-t>` flips the preview pane

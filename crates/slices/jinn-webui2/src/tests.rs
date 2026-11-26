@@ -239,32 +239,170 @@ fn harness_with(
     providers: jinn_provider_config::ProvidersConfig,
     store: Arc<dyn jinn_session_state::SessionStore>,
 ) -> Harness {
+    harness_seeded(providers, store, &Seed::default())
+}
+
+/// What a harness pre-loads into the cells the picker rows read.
+///
+/// Every field is opt-in: a test that does not need personas or a
+/// configured MCP server pays nothing for them, and a test that does
+/// names exactly what it needs.
+#[derive(Debug, Default, Clone)]
+struct Seed {
+    /// Personas placed in the persona catalog, as `(name, description,
+    /// has_handoff_block)`.
+    personas: Vec<(&'static str, &'static str, bool)>,
+    /// MCP servers placed in the `[mcp]` config section, as `(name,
+    /// command)`.
+    mcp_servers: Vec<(&'static str, &'static str)>,
+    /// Tools placed in the global tool registry, as `(name, description)`.
+    tools: Vec<(&'static str, &'static str)>,
+}
+
+/// A harness over a registry, a session store, and a pre-seeded set of
+/// cells.
+fn harness_seeded(
+    providers: jinn_provider_config::ProvidersConfig,
+    store: Arc<dyn jinn_session_state::SessionStore>,
+    seed: &Seed,
+) -> Harness {
     let (bus, audit) = BusService::new_recording();
-    let state = State::new(jinn_kernel::AppState::default());
+    // One `Slices`, registered with the catalog once, is both the registry
+    // the cells are resolved from and the one the state carries: the
+    // frontend and the session map each attach it, so `tool_registry()` on
+    // the state resolves the very cell the seed writes. A bare
+    // `State::new(AppState::default())` reads `None`, and every tool row
+    // test would pass vacuously with no rows.
     let slices = jinn_slices::Slices::new();
     jinn_cell_catalog::register_all_cells(&slices);
+    let app_state = jinn_kernel::AppState::default();
+    app_state.frontend.attach_slices(slices.clone());
+    app_state.session.attach_slices(slices.clone());
+    let state = State::new(app_state);
+
     let provider_cell = slices
         .reader::<jinn_provider_selection_msg::ProviderCell>(
             &jinn_provider_selection_msg::provider_state_slot(),
         )
         .expect("the catalog registers the provider slot");
+    let personas_cell = slices
+        .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+        .expect("the catalog registers the persona slot");
+    let mcp_runtime_cell = slices
+        .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
+        .expect("the catalog registers the MCP runtime slot");
+    let registry_cell = slices
+        .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
+        .expect("the catalog registers the tool registry slot");
+
+    seed_personas(&personas_cell, &seed.personas);
+    seed_tools(&registry_cell, &seed.tools);
+    // One services: the config the seed writes is the config the handle
+    // reads. A second `TestServices` would hand the handle a different
+    // layer and every MCP row would read as unconfigured.
     let services = jinn_kernel::TestServices::builder()
         .providers(providers)
         .build();
+    seed_mcp_servers(&services.config, &seed.mcp_servers);
+
     let handle = OutboundHandle::new(crate::outbound::OutboundActorDeps {
         state: state.clone(),
         bus,
         connections: ConnectionRegistry::default(),
         revisions: RevisionTracker::default(),
         session_store: jinn_session_state::SessionStoreService::new(store),
+        config: services.config.clone(),
         services,
         provider_cell,
+        personas_cell,
+        mcp_runtime_cell,
     });
     Harness {
         handle,
         audit,
         state,
     }
+}
+
+/// Seeds the persona catalog with the given personas.
+fn seed_personas(
+    cell: &jinn_slices::TypedCell<jinn_persona_msg::Personas>,
+    entries: &[(&str, &str, bool)],
+) {
+    if entries.is_empty() {
+        return;
+    }
+    let seeded = personas_entries(entries);
+    cell.update(|catalog| catalog.replace_entries(seeded));
+}
+
+/// The seeded personas as catalog entries, name-sorted — the order the
+/// real scan produces, so a seeded catalog reads like a scanned one.
+fn personas_entries(entries: &[(&str, &str, bool)]) -> Vec<jinn_slices::Persona> {
+    let mut personas: Vec<jinn_slices::Persona> = entries
+        .iter()
+        .map(|(name, description, has_block)| jinn_slices::Persona {
+            name: (*name).to_owned(),
+            description: (*description).to_owned(),
+            body: format!("You are {name}."),
+            handoff_prompt: if *has_block {
+                "<compaction>x</compaction>"
+            } else {
+                ""
+            }
+            .to_owned(),
+        })
+        .collect();
+    personas.sort_by(|a, b| a.name.cmp(&b.name));
+    personas
+}
+
+/// Seeds the global tool registry with the given tools.
+fn seed_tools(cell: &jinn_slices::TypedCell<jinn_tools_msg::ToolRegistry>, tools: &[(&str, &str)]) {
+    if tools.is_empty() {
+        return;
+    }
+    cell.update(|registry| {
+        registry
+            .global
+            .extend(tools.iter().map(|(name, description)| {
+                (
+                    (*name).to_owned(),
+                    jinn_core_types::ToolDefinition {
+                        name: (*name).to_owned(),
+                        description: (*description).to_owned(),
+                        parameters: serde_json::json!({ "type": "object" }),
+                        prompt_snippet: None,
+                        prompt_guidelines: Vec::new(),
+                        server_tool_type: None,
+                    },
+                )
+            }));
+    });
+}
+
+/// Seeds the `[mcp]` config section with the given servers.
+fn seed_mcp_servers(config: &jinn_config::ConfigLayer, servers: &[(&str, &str)]) {
+    if servers.is_empty() {
+        return;
+    }
+    let configured = jinn_preferences_config::schemas::mcp::McpServersConfig(
+        servers
+            .iter()
+            .map(|(name, command)| {
+                (
+                    (*name).to_owned(),
+                    jinn_preferences_config::schemas::mcp::McpServerConfig {
+                        command: Some((*command).to_owned()),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect(),
+    );
+    config
+        .put::<jinn_preferences_config::schemas::mcp::McpServersConfig>(&configured)
+        .expect("the test config accepts the mcp section");
 }
 
 fn active_id(state: &State) -> jinn_core_types::SessionId {
@@ -2096,5 +2234,937 @@ async fn loading_an_undiscovered_skill_is_refused() {
         unreachable!("one error frame expected: {reply:?}");
     };
     assert_eq!(error.message, "unknown skill");
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+// ---------------------------------------------------------------------------
+// Tool rows / toggle
+// ---------------------------------------------------------------------------
+
+/// A harness with the given tools in the registry.
+fn harness_with_tools(tools: &[(&'static str, &'static str)]) -> Harness {
+    harness_seeded(
+        empty_providers(),
+        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
+        &Seed {
+            tools: tools.to_vec(),
+            ..Seed::default()
+        },
+    )
+}
+
+/// The tool names one rows reply carries, in order.
+fn tool_names(reply: &crate::protocol::Reply) -> Vec<String> {
+    let [ServerMsg::ToolRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one tool_rows frame expected: {reply:?}");
+    };
+    body.rows.iter().map(|row| row.name.clone()).collect()
+}
+
+/// Whether the session's filter permits `tool`.
+fn tool_permits(state: &State, tool: &str) -> bool {
+    let guard = state.read();
+    let session = guard.session.active_session();
+    session
+        .tool_filter()
+        .is_none_or(|filter| filter.permits(tool))
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn tool_rows_list_the_registry_tools_sorted_case_insensitively() {
+    // Given a registry holding two tools whose names differ in case.
+    let h = harness_with_tools(&[("get_time", "Tells the time."), ("Bash", "Runs a command.")]);
+
+    // When the page asks for the tools modal's rows.
+    let reply = dispatch(
+        ClientMsg::ToolRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then both are listed, case-insensitively sorted by name.
+    assert_eq!(tool_names(&reply), ["Bash", "get_time"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn tool_rows_carry_the_descriptions_first_sentence() {
+    // Given a registry tool whose description has two sentences.
+    let h = harness_with_tools(&[("get_time", "Tells the time. Also the date.")]);
+
+    // When the page asks for the tools modal's rows.
+    let reply = dispatch(
+        ClientMsg::ToolRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the row's description is the first sentence alone.
+    let [ServerMsg::ToolRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one tool_rows frame expected: {reply:?}");
+    };
+    assert_eq!(body.rows[0].description, "Tells the time.");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn tool_rows_with_no_registry_answer_no_rows() {
+    // Given a state whose registry holds nothing.
+    let h = harness();
+
+    // When the page asks for the tools modal's rows.
+    let reply = dispatch(
+        ClientMsg::ToolRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the frame carries no rows and is not a refusal.
+    assert_eq!(tool_names(&reply), [] as [String; 0]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn tool_rows_match_the_shared_filter() {
+    // Given a registry holding two tools.
+    let h = harness_with_tools(&[("get_time", "Tells the time."), ("bash", "Runs a command.")]);
+
+    // When the page asks for the rows under a filter only one matches.
+    let reply = dispatch(
+        ClientMsg::ToolRows {
+            filter: "time".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then only the matching tool is listed.
+    assert_eq!(tool_names(&reply), ["get_time"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn tool_rows_split_the_matched_run_for_the_filter() {
+    // Given a registry holding one tool.
+    let h = harness_with_tools(&[("get_time", "Tells the time.")]);
+
+    // When the page asks for the rows under a filter the row matches.
+    let reply = dispatch(
+        ClientMsg::ToolRows {
+            filter: "time".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the row's text is split into runs, at least one of them marked
+    // matched — the matcher places its hits wherever they score best
+    // across `{name} {description}`, so the field is not pinned here, only
+    // that the browser has a stretch to highlight.
+    let [ServerMsg::ToolRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one tool_rows frame expected: {reply:?}");
+    };
+    let all_runs = body.rows[0]
+        .name_runs
+        .iter()
+        .chain(body.rows[0].description_runs.iter());
+    assert!(
+        all_runs
+            .clone()
+            .any(|run| run.matched && !run.text.is_empty())
+    );
+    // And the runs still reconstruct the row's two fields.
+    let name: String = body.rows[0]
+        .name_runs
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(name, "get_time");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_an_enabled_tool_withholds_it_in_a_deny_filter() {
+    // Given a registry holding two tools, both permitted.
+    let h = harness_with_tools(&[("get_time", "Tells the time."), ("bash", "Runs a command.")]);
+    let tool = "get_time";
+
+    // When the page toggles one.
+    say(
+        &h,
+        ClientMsg::ToggleTool {
+            tool: tool.to_owned(),
+        },
+    )
+    .await;
+
+    // Then the session's filter is a deny filter naming that tool alone.
+    let guard = h.state.read();
+    let filter = guard
+        .session
+        .active_session()
+        .tool_filter()
+        .expect("a filter");
+    assert_eq!(filter.mode, jinn_core_types::FilterMode::Deny);
+    assert!(!filter.permits(tool));
+    assert!(filter.permits("bash"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_disabled_tool_permits_it_again() {
+    // Given a registry holding two tools, one already withheld.
+    let h = harness_with_tools(&[("get_time", "Tells the time."), ("bash", "Runs a command.")]);
+    let tool = "get_time";
+    say(
+        &h,
+        ClientMsg::ToggleTool {
+            tool: tool.to_owned(),
+        },
+    )
+    .await;
+    assert!(!tool_permits(&h.state, tool));
+
+    // When the page toggles it again.
+    say(
+        &h,
+        ClientMsg::ToggleTool {
+            tool: tool.to_owned(),
+        },
+    )
+    .await;
+
+    // Then it is permitted again, and the other still is.
+    assert!(tool_permits(&h.state, tool));
+    assert!(tool_permits(&h.state, "bash"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_tool_replies_with_rows_marking_it_disabled() {
+    // Given a registry holding one permitted tool.
+    let h = harness_with_tools(&[("get_time", "Tells the time.")]);
+
+    // When the page toggles it.
+    let reply = dispatch(
+        ClientMsg::ToggleTool {
+            tool: "get_time".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the reply's rows mark it disabled.
+    let [ServerMsg::ToolRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one tool_rows frame expected: {reply:?}");
+    };
+    assert!(!body.rows[0].enabled);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_tool_publishes_nothing() {
+    // Given a registry holding one tool.
+    let h = harness_with_tools(&[("get_time", "Tells the time.")]);
+
+    // When the page toggles it.
+    say(
+        &h,
+        ClientMsg::ToggleTool {
+            tool: "get_time".to_owned(),
+        },
+    )
+    .await;
+
+    // Then nothing was published.
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_an_unknown_tool_is_refused() {
+    // Given a registry holding one tool.
+    let h = harness_with_tools(&[("get_time", "Tells the time.")]);
+
+    // When the page toggles a tool the registry does not offer.
+    let reply = dispatch(
+        ClientMsg::ToggleTool {
+            tool: "phantom".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told so, and the session holds no filter.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        unreachable!("one error frame expected: {reply:?}");
+    };
+    assert_eq!(error.message, "unknown tool");
+    assert!(
+        h.state
+            .read()
+            .session
+            .active_session()
+            .tool_filter()
+            .is_none()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// MCP rows / toggle
+// ---------------------------------------------------------------------------
+
+/// A harness with the given servers in the `[mcp]` config section.
+fn harness_with_mcp(servers: &[(&'static str, &'static str)]) -> Harness {
+    harness_seeded(
+        empty_providers(),
+        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
+        &Seed {
+            mcp_servers: servers.to_vec(),
+            ..Seed::default()
+        },
+    )
+}
+
+/// The MCP names one rows reply carries, in order.
+fn mcp_names(reply: &crate::protocol::Reply) -> Vec<String> {
+    let [ServerMsg::McpRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one mcp_rows frame expected: {reply:?}");
+    };
+    body.rows.iter().map(|row| row.name.clone()).collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn mcp_rows_list_the_configured_servers_sorted_case_insensitively() {
+    // Given a config holding two servers whose names differ in case.
+    let h = harness_with_mcp(&[
+        ("echo", "jinn luau serve a.lua"),
+        ("Browser", "jinn mcp browser"),
+    ]);
+
+    // When the page asks for the MCP modal's rows.
+    let reply = dispatch(
+        ClientMsg::McpRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then both are listed, case-insensitively sorted by name.
+    assert_eq!(mcp_names(&reply), ["Browser", "echo"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn mcp_rows_carry_the_launch_summary_as_the_description() {
+    // Given a config holding one server.
+    let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
+
+    // When the page asks for the MCP modal's rows.
+    let reply = dispatch(
+        ClientMsg::McpRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the row's description is the launch summary.
+    let [ServerMsg::McpRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one mcp_rows frame expected: {reply:?}");
+    };
+    assert_eq!(body.rows[0].description, "jinn luau serve a.lua");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn mcp_rows_with_no_configured_servers_answer_no_rows() {
+    // Given a config holding no servers.
+    let h = harness();
+
+    // When the page asks for the MCP modal's rows.
+    let reply = dispatch(
+        ClientMsg::McpRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the frame carries no rows and is not a refusal.
+    assert_eq!(mcp_names(&reply), [] as [String; 0]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn mcp_rows_match_the_shared_filter() {
+    // Given a config holding two servers.
+    let h = harness_with_mcp(&[
+        ("echo", "jinn luau serve a.lua"),
+        ("weather", "weather-server"),
+    ]);
+
+    // When the page asks for the rows under a filter only one matches.
+    let reply = dispatch(
+        ClientMsg::McpRows {
+            filter: "wea".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then only the matching server is listed.
+    assert_eq!(mcp_names(&reply), ["weather"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn mcp_rows_mark_a_disabled_server_off_whatever_the_cell_reports() {
+    // Given a config holding one server the session has not enabled, whose
+    // runtime cell reports a connection still running.
+    let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
+    let session_id = active_id(&h.state);
+    h.handle.mcp_runtime_cell().update(|runtime| {
+        runtime.set_status(
+            &session_id,
+            "echo",
+            jinn_mcp_msg::McpConnectionStatus::Running,
+        );
+    });
+
+    // When the page asks for the MCP modal's rows.
+    let reply = dispatch(
+        ClientMsg::McpRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the badge reads `off` — the stale report does not surface.
+    let [ServerMsg::McpRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one mcp_rows frame expected: {reply:?}");
+    };
+    assert_eq!(body.rows[0].badge, jinn_webui2_msg::McpBadgeBody::Off);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn mcp_rows_mark_an_enabled_server_running_when_the_cell_says_so() {
+    // Given a config holding one server the session enabled, whose runtime
+    // cell reports the connection running.
+    let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
+    let session_id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_enabled_mcp_servers(std::collections::BTreeSet::from(["echo".to_owned()]));
+    h.handle.mcp_runtime_cell().update(|runtime| {
+        runtime.set_status(
+            &session_id,
+            "echo",
+            jinn_mcp_msg::McpConnectionStatus::Running,
+        );
+    });
+
+    // When the page asks for the MCP modal's rows.
+    let reply = dispatch(
+        ClientMsg::McpRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the badge reads `running`.
+    let [ServerMsg::McpRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one mcp_rows frame expected: {reply:?}");
+    };
+    assert_eq!(body.rows[0].badge, jinn_webui2_msg::McpBadgeBody::Running);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn mcp_rows_read_a_singletons_status_for_any_session() {
+    // Given a config holding one singleton-like server the session enabled,
+    // whose runtime cell reports it running under the singleton bucket.
+    let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_enabled_mcp_servers(std::collections::BTreeSet::from(["echo".to_owned()]));
+    h.handle.mcp_runtime_cell().update(|runtime| {
+        runtime.set_singleton_status("echo", jinn_mcp_msg::McpConnectionStatus::Running);
+    });
+
+    // When the page asks for the MCP modal's rows.
+    let reply = dispatch(
+        ClientMsg::McpRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the badge reads `running`, not a per-session `starting`.
+    let [ServerMsg::McpRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one mcp_rows frame expected: {reply:?}");
+    };
+    assert_eq!(body.rows[0].badge, jinn_webui2_msg::McpBadgeBody::Running);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_disabled_server_enables_it() {
+    // Given a config holding one server the session has not enabled.
+    let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
+
+    // When the page toggles it.
+    say(
+        &h,
+        ClientMsg::ToggleMcp {
+            server: "echo".to_owned(),
+        },
+    )
+    .await;
+
+    // Then the session's enabled set names it.
+    let guard = h.state.read();
+    assert!(
+        guard
+            .session
+            .active_session()
+            .enabled_mcp_servers()
+            .contains("echo")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_an_enabled_server_disables_it() {
+    // Given a config holding one server the session already enabled.
+    let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_enabled_mcp_servers(std::collections::BTreeSet::from(["echo".to_owned()]));
+
+    // When the page toggles it.
+    say(
+        &h,
+        ClientMsg::ToggleMcp {
+            server: "echo".to_owned(),
+        },
+    )
+    .await;
+
+    // Then the session's enabled set no longer names it.
+    let guard = h.state.read();
+    assert!(
+        !guard
+            .session
+            .active_session()
+            .enabled_mcp_servers()
+            .contains("echo")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_server_publishes_the_full_desired_set() {
+    // Given a config holding two servers, one already enabled.
+    let h = harness_with_mcp(&[
+        ("echo", "jinn luau serve a.lua"),
+        ("weather", "weather-server"),
+    ]);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_enabled_mcp_servers(std::collections::BTreeSet::from(["echo".to_owned()]));
+
+    // When the page toggles the other one on.
+    say(
+        &h,
+        ClientMsg::ToggleMcp {
+            server: "weather".to_owned(),
+        },
+    )
+    .await;
+
+    // Then one message named the full desired set — both servers.
+    let published = h.audit.of_type::<jinn_mcp_msg::McpEnablementChanged>();
+    assert_eq!(published.len(), 1);
+    assert_eq!(
+        published[0].enabled,
+        std::collections::BTreeSet::from(["echo".to_owned(), "weather".to_owned()])
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_server_publishes_nothing_else() {
+    // Given a config holding one server.
+    let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
+
+    // When the page toggles it.
+    say(
+        &h,
+        ClientMsg::ToggleMcp {
+            server: "echo".to_owned(),
+        },
+    )
+    .await;
+
+    // Then the only message published is the enablement change — no persist.
+    assert_eq!(h.audit.names(), ["McpEnablementChanged"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_an_unknown_server_is_refused() {
+    // Given a config holding one server.
+    let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
+
+    // When the page toggles a server the config does not hold.
+    let reply = dispatch(
+        ClientMsg::ToggleMcp {
+            server: "phantom".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told so, nothing was published, and the enabled set
+    // is untouched.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        unreachable!("one error frame expected: {reply:?}");
+    };
+    assert_eq!(error.message, "unknown mcp server");
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+    assert!(
+        h.state
+            .read()
+            .session
+            .active_session()
+            .enabled_mcp_servers()
+            .is_empty()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_runtime_store_pushes_rows_in_the_last_asked_filter() {
+    // Given a config holding one server the session enabled, whose modal
+    // last asked for rows under a filter, and a connected page.
+    let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_enabled_mcp_servers(std::collections::BTreeSet::from(["echo".to_owned()]));
+    let mut inbox = h.handle.register();
+    let _ = dispatch(
+        ClientMsg::McpRows {
+            filter: "ec".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+    drain(&mut inbox);
+
+    // When the runtime cell is written and the coordinator's stored event
+    // is handled.
+    let session_id = active_id(&h.state);
+    h.handle.mcp_runtime_cell().update(|runtime| {
+        runtime.set_status(
+            &session_id,
+            "echo",
+            jinn_mcp_msg::McpConnectionStatus::Running,
+        );
+    });
+    crate::outbound::mcp_runtime_stored(&h.handle);
+
+    // Then the page receives fresh rows, in the filter it last asked, with
+    // the badge now running.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::McpRows(body)] = frames.as_slice() else {
+        unreachable!("one mcp_rows frame expected: {frames:?}");
+    };
+    assert_eq!(body.filter, "ec");
+    assert_eq!(body.rows[0].badge, jinn_webui2_msg::McpBadgeBody::Running);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_runtime_store_for_a_session_with_no_mcp_modal_pushes_nothing() {
+    // Given a config holding one server, and a page whose modal never asked.
+    let h = harness_with_mcp(&[("echo", "jinn luau serve a.lua")]);
+    let mut inbox = h.handle.register();
+
+    // When the stored event is handled.
+    crate::outbound::mcp_runtime_stored(&h.handle);
+
+    // Then nothing was pushed.
+    assert!(drain(&mut inbox).is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Persona rows / switch
+// ---------------------------------------------------------------------------
+
+/// A harness with the given personas in the catalog.
+fn harness_with_personas(personas: &[(&'static str, &'static str, bool)]) -> Harness {
+    harness_seeded(
+        empty_providers(),
+        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
+        &Seed {
+            personas: personas.to_vec(),
+            ..Seed::default()
+        },
+    )
+}
+
+/// The persona names one rows reply carries, in order.
+fn persona_names(reply: &crate::protocol::Reply) -> Vec<String> {
+    let [ServerMsg::PersonaRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one persona_rows frame expected: {reply:?}");
+    };
+    body.rows.iter().map(|row| row.name.clone()).collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn persona_rows_follow_the_catalogs_order() {
+    // Given a catalog seeded in a non-alphabetical order. The catalog is a
+    // name-keyed map, so its own order is alphabetical whatever the seed
+    // order; the modal must follow the catalog, not re-sort.
+    let h = harness_with_personas(&[
+        ("brainstorm", "Explores the problem.", true),
+        ("reviewer", "Reviews code.", true),
+        ("planner", "Plans the work.", true),
+    ]);
+
+    // When the page asks for the persona modal's rows.
+    let reply = dispatch(
+        ClientMsg::PersonaRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then all three are listed, in the catalog's order.
+    assert_eq!(persona_names(&reply), ["brainstorm", "planner", "reviewer"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn persona_rows_mark_the_sessions_persona_active() {
+    // Given a catalog holding two personas, one of them the session's.
+    let h = harness_with_personas(&[
+        ("brainstorm", "Explores the problem.", true),
+        ("reviewer", "Reviews code.", true),
+    ]);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_persona_name("reviewer".to_owned());
+
+    // When the page asks for the persona modal's rows.
+    let reply = dispatch(
+        ClientMsg::PersonaRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then exactly that one is marked active.
+    let [ServerMsg::PersonaRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one persona_rows frame expected: {reply:?}");
+    };
+    let active: Vec<&str> = body
+        .rows
+        .iter()
+        .filter(|row| row.is_active)
+        .map(|row| row.name.as_str())
+        .collect();
+    assert_eq!(active, ["reviewer"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn persona_rows_match_the_shared_filter() {
+    // Given a catalog holding two personas.
+    let h = harness_with_personas(&[
+        ("brainstorm", "Explores the problem.", true),
+        ("reviewer", "Reviews code.", true),
+    ]);
+
+    // When the page asks for the rows under a filter only one matches.
+    let reply = dispatch(
+        ClientMsg::PersonaRows {
+            filter: "revie".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then only the matching persona is listed.
+    assert_eq!(persona_names(&reply), ["reviewer"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn switching_persona_writes_the_sessions_persona() {
+    // Given a catalog holding two personas.
+    let h = harness_with_personas(&[
+        ("brainstorm", "Explores the problem.", true),
+        ("reviewer", "Reviews code.", true),
+    ]);
+
+    // When the page switches to one.
+    say(
+        &h,
+        ClientMsg::SwitchPersona {
+            persona: "reviewer".to_owned(),
+        },
+    )
+    .await;
+
+    // Then the session's persona is that one.
+    let guard = h.state.read();
+    assert_eq!(guard.session.active_session().persona_name(), "reviewer");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn switching_persona_publishes_the_terminals_two_messages_in_order() {
+    // Given a catalog holding one persona with a handoff block.
+    let h = harness_with_personas(&[("reviewer", "Reviews code.", true)]);
+
+    // When the page switches to it.
+    say(
+        &h,
+        ClientMsg::SwitchPersona {
+            persona: "reviewer".to_owned(),
+        },
+    )
+    .await;
+
+    // Then the two messages are published in the terminal's order.
+    assert_eq!(h.audit.names(), ["UpdateAppState", "MarkSessionInteracted"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn switching_persona_with_a_handoff_block_appends_no_entry() {
+    // Given a catalog holding one persona that carries a handoff block.
+    let h = harness_with_personas(&[("reviewer", "Reviews code.", true)]);
+
+    // When the page switches to it.
+    let reply = dispatch(
+        ClientMsg::SwitchPersona {
+            persona: "reviewer".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then nothing was appended, and the reply carries no upsert.
+    assert!(h.state.read().session.active_session().history().is_empty());
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn switching_to_a_blockless_persona_appends_the_shared_error_message() {
+    // Given a catalog holding one persona with no handoff block.
+    let h = harness_with_personas(&[("blockless", "No block here.", false)]);
+
+    // When the page switches to it.
+    say(
+        &h,
+        ClientMsg::SwitchPersona {
+            persona: "blockless".to_owned(),
+        },
+    )
+    .await;
+
+    // Then one error entry carries the shared message.
+    let guard = h.state.read();
+    let history: &[ChatEntry] = guard.session.active_session().history();
+    let [entry] = history else {
+        unreachable!("one entry expected: {history:?}");
+    };
+    assert!(matches!(entry.kind, ChatEntryKind::Error(_)));
+    let ChatEntryKind::Error(text) = &entry.kind else {
+        unreachable!("an error was expected");
+    };
+    assert_eq!(
+        text.as_str(),
+        jinn_persona_msg::missing_compaction_block_message("blockless")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn switching_to_a_blockless_persona_delivers_the_entry_in_the_reply() {
+    // Given a catalog holding one persona with no handoff block.
+    let h = harness_with_personas(&[("blockless", "No block here.", false)]);
+
+    // When the page switches to it.
+    let reply = dispatch(
+        ClientMsg::SwitchPersona {
+            persona: "blockless".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the reply carries the entry's upsert.
+    let [ServerMsg::EntryUpsert(upsert)] = reply.frames.as_slice() else {
+        unreachable!("one upsert frame expected: {reply:?}");
+    };
+    assert_eq!(upsert.index, 0);
+    assert_eq!(upsert.entry.kind, "error");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn switching_to_an_unknown_persona_is_refused() {
+    // Given a catalog holding one persona.
+    let h = harness_with_personas(&[("reviewer", "Reviews code.", true)]);
+
+    // When the page switches to one the catalog does not hold.
+    let reply = dispatch(
+        ClientMsg::SwitchPersona {
+            persona: "phantom".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told so, and nothing was written, appended, or
+    // published.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        unreachable!("one error frame expected: {reply:?}");
+    };
+    assert_eq!(error.message, "unknown persona");
+    assert!(h.state.read().session.active_session().history().is_empty());
     assert_eq!(h.audit.names(), Vec::<&str>::new());
 }

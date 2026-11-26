@@ -38,11 +38,29 @@ export const sel = {
   MENU_PANEL: '[data-testid="menu-panel"]',
   MENU_SCRIM: '[data-testid="menu-scrim"]',
   MENU_ITEM_SKILLS: '[data-testid="menu-item-skills"]',
+  MENU_ITEM_PERSONA: '[data-testid="menu-item-persona"]',
+  MENU_ITEM_TOOLS: '[data-testid="menu-item-tools"]',
+  MENU_ITEM_MCP: '[data-testid="menu-item-mcp"]',
   SKILLS_MODAL: '[data-testid="skills-modal"]',
   SKILLS_FILTER: '[data-testid="skills-filter"]',
   SKILL_ROW: '[data-testid="skill-row"]',
   /** One skill row, by its skill name (`data-skill`). */
   SKILL_ROW_NAMED: (name) => `[data-testid="skill-row"][data-skill="${name}"]`,
+  TOOLS_MODAL: '[data-testid="tools-modal"]',
+  TOOLS_FILTER: '[data-testid="tools-filter"]',
+  TOOL_ROW: '[data-testid="tool-row"]',
+  /** One tool row, by its tool name (`data-tool`). */
+  TOOL_ROW_NAMED: (name) => `[data-testid="tool-row"][data-tool="${name}"]`,
+  MCP_MODAL: '[data-testid="mcp-modal"]',
+  MCP_FILTER: '[data-testid="mcp-filter"]',
+  MCP_ROW: '[data-testid="mcp-row"]',
+  /** One MCP row, by its server name (`data-server`). */
+  MCP_ROW_NAMED: (name) => `[data-testid="mcp-row"][data-server="${name}"]`,
+  PERSONA_MODAL: '[data-testid="persona-modal"]',
+  PERSONA_FILTER: '[data-testid="persona-filter"]',
+  PERSONA_ROW: '[data-testid="persona-row"]',
+  /** One persona row, by its persona name (`data-persona`). */
+  PERSONA_ROW_NAMED: (name) => `[data-testid="persona-row"][data-persona="${name}"]`,
   SESSION_ROW: '[data-testid="session-row"]',
   ACTIVE_SESSION_ROW: '.session.active[data-testid="session-row"]',
 };
@@ -94,6 +112,11 @@ export async function sendAndWaitForEcho(page, text) {
 export const SKILL_NAME = scratchSkill.name;
 /** A filter that matches the staged skill's name and nothing else about it. */
 export const SKILL_FILTER = "e2e-scra";
+
+/** The staged MCP server the MCP spec pivots on. */
+export const MCP_SERVER = "e2e-echo";
+/** The staged block-less persona the persona spec pivots on. */
+export const BLOCKLESS_PERSONA = "blockless-e2e";
 
 /** The one prompt the sample model streams slowly. */
 export const SLOW_PROMPT = "!response";
@@ -178,6 +201,27 @@ export async function openSkills(page) {
   await expect(page.locator(sel.SKILLS_MODAL)).toBeVisible();
 }
 
+/** Opens the tools modal through the hamburger menu, and waits for it. */
+export async function openTools(page) {
+  await openMenu(page);
+  await page.locator(sel.MENU_ITEM_TOOLS).click();
+  await expect(page.locator(sel.TOOLS_MODAL)).toBeVisible();
+}
+
+/** Opens the MCP servers modal through the hamburger menu, and waits for it. */
+export async function openMcp(page) {
+  await openMenu(page);
+  await page.locator(sel.MENU_ITEM_MCP).click();
+  await expect(page.locator(sel.MCP_MODAL)).toBeVisible();
+}
+
+/** Opens the persona modal through the hamburger menu, and waits for it. */
+export async function openPersona(page) {
+  await openMenu(page);
+  await page.locator(sel.MENU_ITEM_PERSONA).click();
+  await expect(page.locator(sel.PERSONA_MODAL)).toBeVisible();
+}
+
 /**
  * Selects the sample model from the chip, and waits for the chip to
  * name it.
@@ -201,7 +245,11 @@ export async function selectModel(page) {
 const test = base.extend({
   stage: [{}, { option: true }],
   jinn: async ({ stage }, use) => {
-    const run = await bootJinn({ skill: stage.skill === true });
+    const run = await bootJinn({
+      skill: stage.skill === true,
+      persona: stage.persona === true,
+      mcp: stage.mcp === true,
+    });
     await use(run);
     await teardownJinn(run);
   },

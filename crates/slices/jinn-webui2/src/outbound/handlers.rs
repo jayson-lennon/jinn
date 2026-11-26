@@ -275,7 +275,7 @@ impl MsgHandler<jinn_skills_msg::SkillsLoaded> for OutboundActor {
 /// A free function over the handle so a test drives the real push, with
 /// nothing spawned.
 pub(crate) fn skills_loaded(handle: &super::OutboundHandle, msg: &jinn_skills_msg::SkillsLoaded) {
-    let filter = handle.last_skill_filter(&msg.session_id);
+    let filter = handle.last_filter(&msg.session_id, super::RowsKind::Skills);
     let rows = {
         let guard = handle.deps.state.read();
         guard
@@ -292,6 +292,35 @@ pub(crate) fn skills_loaded(handle: &super::OutboundHandle, msg: &jinn_skills_ms
             rows,
         },
     ));
+}
+
+impl MsgHandler<jinn_mcp_msg::McpRuntimeStored> for OutboundActor {
+    async fn handle(&mut self, _msg: &jinn_mcp_msg::McpRuntimeStored, _ctx: &mut MsgCtx<'_>) {
+        mcp_runtime_stored(&self.handle);
+    }
+}
+
+/// Turns one `McpRuntimeStored` event into the frames a page needs.
+///
+/// The event carries no session: it is the coordinator's "the runtime cell
+/// was written" fact, emitted strictly after the write. Every session whose
+/// MCP modal last asked for rows gets a fresh frame, built from the live
+/// cell now, in the filter that modal is holding — so an open modal's
+/// badges follow the connection without the page asking.
+///
+/// A free function over the handle so a test drives the real push, with
+/// nothing spawned.
+pub(crate) fn mcp_runtime_stored(handle: &super::OutboundHandle) {
+    for (session_id, filter) in handle.filters_for_kind(super::RowsKind::Mcp) {
+        let rows = crate::actions::mcp_row_bodies(handle, &session_id, &filter);
+        handle.broadcast(&jinn_webui2_msg::ServerMsg::McpRows(
+            jinn_webui2_msg::McpRowsBody {
+                session_id,
+                filter,
+                rows,
+            },
+        ));
+    }
 }
 
 /// One flush: reads every streaming field and emits its unsent suffix.

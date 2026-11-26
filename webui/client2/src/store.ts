@@ -15,12 +15,15 @@ import type { Store, StoreSetter } from 'solid-js';
 import type {
   DeltaField,
   EntryEnvelope,
+  McpRow,
   ModelRow,
+  PersonaRow,
   Phase,
   PickerRow,
   ServerMsg,
   SessionRow,
   SkillRow,
+  ToolRow,
 } from './protocol';
 
 export interface ViewState {
@@ -40,6 +43,15 @@ export interface ViewState {
   /** The skills modal's rows, for the filter the page last asked for. */
   skillRows: SkillRow[];
   skillFilter: string;
+  /** The tools modal's rows, for the filter the page last asked for. */
+  toolRows: ToolRow[];
+  toolFilter: string;
+  /** The MCP servers modal's rows, for the filter the page last asked for. */
+  mcpRows: McpRow[];
+  mcpFilter: string;
+  /** The persona modal's rows, for the filter the page last asked for. */
+  personaRows: PersonaRow[];
+  personaFilter: string;
   /** The most recent refusal, if any. */
   error: string | null;
   /** True once a snapshot or a resume has landed on this connection. */
@@ -60,6 +72,12 @@ const INITIAL_STATE: ViewState = {
   modelFilter: '',
   skillRows: [],
   skillFilter: '',
+  toolRows: [],
+  toolFilter: '',
+  mcpRows: [],
+  mcpFilter: '',
+  personaRows: [],
+  personaFilter: '',
   error: null,
   synced: false,
 };
@@ -116,10 +134,16 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         s.entries = msg.entries;
         s.sessions = msg.sessions;
         s.synced = true;
-        // A different session's skills are not the ones the page was
+        // A different session's picker rows are not the ones the page was
         // looking at; an open modal re-asks for its own rows on open.
         s.skillRows = [];
         s.skillFilter = '';
+        s.toolRows = [];
+        s.toolFilter = '';
+        s.mcpRows = [];
+        s.mcpFilter = '';
+        s.personaRows = [];
+        s.personaFilter = '';
       });
       // Indexed from the frame's own array, not the store's. Reading the
       // store's array here left the index naming the session just left,
@@ -192,6 +216,32 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       if (msg.filter !== store.state.skillFilter) return;
       store.set((s) => {
         s.skillRows = msg.rows;
+      });
+      return;
+    }
+    case 'tool_rows': {
+      // The same two guards as the skills frame: the viewed session, and
+      // the filter the page is holding right now.
+      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
+      if (msg.filter !== store.state.toolFilter) return;
+      store.set((s) => {
+        s.toolRows = msg.rows;
+      });
+      return;
+    }
+    case 'mcp_rows': {
+      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
+      if (msg.filter !== store.state.mcpFilter) return;
+      store.set((s) => {
+        s.mcpRows = msg.rows;
+      });
+      return;
+    }
+    case 'persona_rows': {
+      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
+      if (msg.filter !== store.state.personaFilter) return;
+      store.set((s) => {
+        s.personaRows = msg.rows;
       });
       return;
     }

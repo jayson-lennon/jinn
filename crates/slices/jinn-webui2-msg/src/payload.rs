@@ -275,3 +275,129 @@ pub struct SkillRowsBody {
     /// The rows, sorted by skill name, filtered by the shared filter.
     pub rows: Vec<SkillRowBody>,
 }
+
+/// One row of the tools modal.
+///
+/// Everything the browser needs to draw the row and decide what a click
+/// does. `enabled` is the session's live tool filter read at row build —
+/// the same predicate the prompt's gate applies — so the mark the page
+/// shows is the truth the model sees. The description is the definition's
+/// first sentence, the scannable form the shared row builder truncates
+/// to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolRowBody {
+    /// The tool's name — what a `ToggleTool` sends back.
+    pub name: String,
+    /// The description's first sentence.
+    pub description: String,
+    /// Whether the session's tool filter currently permits the tool.
+    pub enabled: bool,
+    /// The name, split into matched and plain runs for the filter the rows
+    /// answer. One plain run when the filter is empty.
+    pub name_runs: Vec<TextRunBody>,
+    /// The description, split the same way.
+    pub description_runs: Vec<TextRunBody>,
+}
+
+/// The tools modal's rows for one filter.
+///
+/// Carries the session and echoes the filter for the same reasons
+/// [`SkillRowsBody`] does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolRowsBody {
+    /// The session whose tools these are.
+    pub session_id: SessionId,
+    /// The filter the rows answer (empty for the unfiltered list).
+    pub filter: String,
+    /// The rows, sorted case-insensitively by name, filtered by the shared
+    /// filter.
+    pub rows: Vec<ToolRowBody>,
+}
+
+/// The display state of one MCP server row's status badge.
+///
+/// The shared derivation's four states, as the wire carries them. The
+/// browser renders the word; it never derives the badge itself, because a
+/// disabled server is `off` no matter what its connection last reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpBadgeBody {
+    /// Disabled for the session — no connection wanted.
+    Off,
+    /// Enabled and coming up, or not yet reported.
+    Starting,
+    /// Enabled, live connection.
+    Running,
+    /// Enabled; the connection failed or was torn down.
+    Dead,
+}
+
+/// One row of the MCP servers modal.
+///
+/// The name, the launch summary, the session's enablement mark, and the
+/// badge the shared derivation produced from the runtime cell's effective
+/// status projection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpRowBody {
+    /// The server name — the `[mcp.<name>]` table key, and what a
+    /// `ToggleMcp` sends back.
+    pub name: String,
+    /// The launch summary (command and args).
+    pub description: String,
+    /// Whether the session has this server enabled.
+    pub enabled: bool,
+    /// The status badge the row shows.
+    pub badge: McpBadgeBody,
+    /// The name, split into matched and plain runs for the filter the rows
+    /// answer. One plain run when the filter is empty.
+    pub name_runs: Vec<TextRunBody>,
+    /// The description, split the same way.
+    pub description_runs: Vec<TextRunBody>,
+}
+
+/// The MCP servers modal's rows for one filter.
+///
+/// Carries the session and echoes the filter for the same reasons
+/// [`SkillRowsBody`] does. A push after a runtime-cell write answers the
+/// filter that session's modal last asked for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpRowsBody {
+    /// The session whose MCP servers these are.
+    pub session_id: SessionId,
+    /// The filter the rows answer (empty for the unfiltered list).
+    pub filter: String,
+    /// The rows, sorted case-insensitively by name, filtered by the shared
+    /// filter.
+    pub rows: Vec<McpRowBody>,
+}
+
+/// One row of the persona modal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersonaRowBody {
+    /// The persona's name — what a `SwitchPersona` sends back.
+    pub name: String,
+    /// Short description shown after the name.
+    pub description: String,
+    /// Whether this row is the session's current persona.
+    pub is_active: bool,
+    /// The name, split into matched and plain runs for the filter the rows
+    /// answer. One plain run when the filter is empty.
+    pub name_runs: Vec<TextRunBody>,
+    /// The description, split the same way.
+    pub description_runs: Vec<TextRunBody>,
+}
+
+/// The persona modal's rows for one filter.
+///
+/// Carries the session and echoes the filter for the same reasons
+/// [`SkillRowsBody`] does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersonaRowsBody {
+    /// The session whose persona choice these rows mark.
+    pub session_id: SessionId,
+    /// The filter the rows answer (empty for the unfiltered list).
+    pub filter: String,
+    /// The rows, in the personas' own (name-sorted) order, filtered by the
+    /// shared filter.
+    pub rows: Vec<PersonaRowBody>,
+}

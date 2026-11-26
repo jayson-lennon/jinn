@@ -43,6 +43,25 @@ const WORKTREE_SLUG = path.basename(REPO_ROOT);
 /** Where the scratch roots are created — per-worktree scoped. */
 export const TMP_BASE = path.join(os.tmpdir(), "jinn-webui2-e2e", WORKTREE_SLUG);
 
+/** The scratch MCP server's script: one echo tool, served over stdio. */
+const MCP_ECHO_SCRIPT = path.join(here, "mcp-echo-tool.lua");
+
+/**
+ * The block-less scratch persona the persona spec's warning path pivots
+ * on. Every shipped persona carries a `<compaction>` block, so the
+ * loud-error path has no row to click without this one.
+ */
+const blocklessPersona = {
+  file: "blockless-e2e.md",
+  body: `+++
+name = "blockless-e2e"
+description = "scratch persona without a compaction handoff block"
++++
+
+You are the e2e scratch persona. Keep replies to one line.
+`,
+};
+
 /** How long to wait for the bind before declaring boot failed. */
 const BIND_TIMEOUT_MS = 30_000;
 /** Delay between bind probes. */
@@ -116,8 +135,20 @@ models = ["second-model"]
  * has no new-session message, and the original UI's new-session modal
  * creates one — but only against a configured project, offering no
  * submit control without it.
+ *
+ * With `mcp` staged, an `[mcp.e2e-echo]` entry points at the repo's
+ * debug binary serving the scratch echo tool over stdio (`jinn luau
+ * serve`, network-free), so the MCP modal has a real server whose
+ * coordinator can reach `running`.
  */
-function jinnTomlFor(port, webui2Port) {
+function jinnTomlFor(port, webui2Port, mcp) {
+  const mcpEntry = mcp
+    ? `
+[mcp.e2e-echo]
+command = "${BIN_PATH}"
+args = ["luau", "serve", "${MCP_ECHO_SCRIPT}"]
+`
+    : "";
   return `version = 1
 
 [webui]
@@ -132,15 +163,22 @@ path = "~/e2e-scratch"
 [[session_lifecycle.script]]
 name = "echo-setup"
 setup_command = "echo $1"
-`;
+${mcpEntry}`;
 }
 
 /** Writes the config dir's two files. */
-function writeConfig(root, port, webui2Port) {
+function writeConfig(root, port, webui2Port, stage) {
   const configDir = path.join(root, "config", "jinn");
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(path.join(configDir, "providers.toml"), PROVIDERS_TOML);
-  fs.writeFileSync(path.join(configDir, "jinn.toml"), jinnTomlFor(port, webui2Port));
+  fs.writeFileSync(path.join(configDir, "jinn.toml"), jinnTomlFor(port, webui2Port, stage.mcp));
+  if (stage.persona) {
+    // Personas are discovered from the config dir's `personas/` child —
+    // under the paths-root override, the scratch root's own.
+    const personasDir = path.join(configDir, "personas");
+    fs.mkdirSync(personasDir, { recursive: true });
+    fs.writeFileSync(path.join(personasDir, blocklessPersona.file), blocklessPersona.body);
+  }
 }
 
 /** The empty trees every scratch root starts with. */
@@ -185,7 +223,7 @@ function writeSkill(root, skill) {
 /** Writes one scratch root: the skeleton, the config files, and any staged resources. */
 function writeScratch(root, port, webui2Port, stage = {}) {
   writeSkeleton(root);
-  writeConfig(root, port, webui2Port);
+  writeConfig(root, port, webui2Port, stage);
   if (stage.skill) writeSkill(root, scratchSkill);
 }
 
@@ -325,8 +363,9 @@ async function killTree(root) {
  * Boots one scratch-isolated, hermetically-launched jinn and returns
  * its run coordinates.
  *
- * @param {{ skill?: boolean }} [options] stage the scratch skill when
- *   `skill` is set.
+ * @param {{ skill?: boolean, persona?: boolean, mcp?: boolean }} [options]
+ *   stage the scratch skill when `skill` is set, the block-less persona
+ *   when `persona` is set, and the echo MCP server when `mcp` is set.
  */
 export async function bootJinn(options = {}) {
   if (!fs.existsSync(BIN_PATH)) {
@@ -338,7 +377,11 @@ export async function bootJinn(options = {}) {
   const webui2Port = await probePort();
   fs.mkdirSync(TMP_BASE, { recursive: true });
   const root = fs.mkdtempSync(path.join(TMP_BASE, "run-"));
-  writeScratch(root, port, webui2Port, { skill: options.skill === true });
+  writeScratch(root, port, webui2Port, {
+    skill: options.skill === true,
+    persona: options.persona === true,
+    mcp: options.mcp === true,
+  });
   const run = {
     port,
     webui2Port,

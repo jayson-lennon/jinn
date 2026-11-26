@@ -92,6 +92,25 @@ pub async fn activate(
         )
         .expect("the cell catalog registers the provider slot before any slice activates");
 
+    // The persona catalog and the MCP runtime projection, for the persona
+    // and MCP pickers' rows. Resolved the same way, from the same catalog.
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: a missing persona slot is a broken boot order and must abort launch, not continue degraded"
+    )]
+    let personas_cell = host
+        .slices()
+        .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+        .expect("the cell catalog registers the persona slot before any slice activates");
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: a missing MCP runtime slot is a broken boot order and must abort launch, not continue degraded"
+    )]
+    let mcp_runtime_cell = host
+        .slices()
+        .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
+        .expect("the cell catalog registers the MCP runtime slot before any slice activates");
+
     let outbound = outbound::spawn(
         host.system(),
         outbound::OutboundActorDeps {
@@ -102,6 +121,9 @@ pub async fn activate(
             services: services.clone(),
             provider_cell,
             session_store,
+            personas_cell,
+            mcp_runtime_cell,
+            config: services.config.clone(),
         },
     );
 

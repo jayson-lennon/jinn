@@ -70,6 +70,25 @@ pub struct OutboundActorDeps {
     pub provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
     /// The session store, for the stored-session picker's rows.
     pub session_store: jinn_session_state::SessionStoreService,
+    /// The persona slice's cell: the scanned persona catalog.
+    pub personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
+    /// The MCP slice's runtime cell: the live connection status projection.
+    pub mcp_runtime_cell: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
+    /// The live configuration layer, for the `[mcp.<name>]` catalog.
+    pub config: jinn_config::ConfigLayer,
+}
+
+/// Which modal a remembered filter belongs to.
+///
+/// One session can have one modal open at a time in practice, but the
+/// server does not know which; remembering per kind means a push for one
+/// modal can never answer another's filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum RowsKind {
+    Skills,
+    Tools,
+    Mcp,
+    Persona,
 }
 
 /// What the actor, the protocol dispatch and the listener share.
@@ -84,10 +103,10 @@ pub struct OutboundHandle {
     /// the actor (which streams) and the dispatch (which answers a fresh
     /// page with a snapshot), so neither re-sends what the other delivered.
     sent: Arc<Mutex<handlers::SentLengths>>,
-    /// The filter each session's skills modal last asked for, so a
+    /// The filter each session's modal of each kind last asked for, so a
     /// discovery push can answer with the view the page is holding. The
     /// dispatch records it; the actor reads it.
-    skill_filters: Arc<Mutex<std::collections::HashMap<SessionId, String>>>,
+    row_filters: Arc<Mutex<std::collections::HashMap<(SessionId, RowsKind), String>>>,
 }
 
 impl OutboundHandle {
@@ -99,29 +118,42 @@ impl OutboundHandle {
         &self.deps.revisions
     }
 
-    /// Records the filter a session's skills modal last asked for.
-    pub(crate) fn remember_skill_filter(&self, session_id: &SessionId, filter: &str) {
-        self.skill_filters
+    /// Records the filter a session's modal of one kind last asked for.
+    pub(crate) fn remember_filter(&self, session_id: &SessionId, kind: RowsKind, filter: &str) {
+        self.row_filters
             .lock()
-            .insert(session_id.clone(), filter.to_owned());
+            .insert((session_id.clone(), kind), filter.to_owned());
     }
 
-    /// The filter a session's skills modal last asked for — the empty
+    /// The filter a session's modal of one kind last asked for — the empty
     /// filter when it never asked.
     #[must_use]
-    pub(crate) fn last_skill_filter(&self, session_id: &SessionId) -> String {
-        self.skill_filters
+    pub(crate) fn last_filter(&self, session_id: &SessionId, kind: RowsKind) -> String {
+        self.row_filters
             .lock()
-            .get(session_id)
+            .get(&(session_id.clone(), kind))
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Every `(session, filter)` a modal of one kind last asked for.
+    ///
+    /// What a push iterates: one frame per session that has a modal of that
+    /// kind open, in the filter it is holding.
+    pub(crate) fn filters_for_kind(&self, kind: RowsKind) -> Vec<(SessionId, String)> {
+        self.row_filters
+            .lock()
+            .iter()
+            .filter(|((_, remembered), _)| *remembered == kind)
+            .map(|((session_id, _), filter)| (session_id.clone(), filter.clone()))
+            .collect()
     }
 }
 
 mod handlers;
 
 #[cfg(test)]
-pub(crate) use handlers::{flush, reconcile, skills_loaded};
+pub(crate) use handlers::{flush, mcp_runtime_stored, reconcile, skills_loaded};
 
 /// The outbound actor.
 #[derive(Debug)]
@@ -169,7 +201,7 @@ impl OutboundHandle {
         Self {
             deps,
             sent: Arc::new(Mutex::new(handlers::SentLengths::default())),
-            skill_filters: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            row_filters: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -244,6 +276,24 @@ impl OutboundHandle {
     ) -> &jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell> {
         &self.deps.provider_cell
     }
+
+    /// The persona slice's cell (the scanned persona catalog).
+    #[must_use]
+    pub fn personas_cell(&self) -> &jinn_slices::TypedCell<jinn_persona_msg::Personas> {
+        &self.deps.personas_cell
+    }
+
+    /// The MCP slice's runtime cell (the live connection status projection).
+    #[must_use]
+    pub fn mcp_runtime_cell(&self) -> &jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState> {
+        &self.deps.mcp_runtime_cell
+    }
+
+    /// The live configuration layer (the `[mcp.<name>]` catalog).
+    #[must_use]
+    pub fn config(&self) -> &jinn_config::ConfigLayer {
+        &self.deps.config
+    }
 }
 
 /// Spawns the outbound actor and arms its flush tick.
@@ -270,6 +320,11 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         .handles::<jinn_provider_selection_msg::ProviderSwitched>()
         .handles::<jinn_session_store_msg::SessionLoadCompleted>()
         .handles::<jinn_skills_msg::SkillsLoaded>()
+        // The coordinator emits this strictly after every runtime-cell
+        // status write, so a handler reading the cell now sees the
+        // transition. Never the raw `McpServerStatus` facts: those have
+        // two publishers and can land before the write.
+        .handles::<jinn_mcp_msg::McpRuntimeStored>()
         // Arms the first flush; the chain self-perpetuates from there (the
         // tick's handler schedules the next one). Without this the tick
         // never starts and no delta ever leaves the actor.

@@ -61,5 +61,11 @@ pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
         ClientMsg::SkillRows { filter } => actions::skill_rows(out, filter),
         ClientMsg::ToggleSkill { skill } => actions::toggle_skill(out, &skill),
         ClientMsg::LoadSkill { skill } => actions::load_skill(out, &skill).await,
+        ClientMsg::ToolRows { filter } => actions::tool_rows(out, filter),
+        ClientMsg::ToggleTool { tool } => actions::toggle_tool(out, &tool),
+        ClientMsg::McpRows { filter } => actions::mcp_rows(out, filter),
+        ClientMsg::ToggleMcp { server } => actions::toggle_mcp(out, &server).await,
+        ClientMsg::PersonaRows { filter } => actions::persona_rows(out, filter),
+        ClientMsg::SwitchPersona { persona } => actions::switch_persona(out, &persona).await,
     }
 }

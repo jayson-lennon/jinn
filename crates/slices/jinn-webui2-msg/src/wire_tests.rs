@@ -14,9 +14,10 @@ use jinn_slices::PhaseView;
 use rstest::rstest;
 
 use crate::payload::{
-    DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ModelBody, ModelRowBody,
-    ModelRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
-    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, TitleBody,
+    DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, McpBadgeBody,
+    McpRowBody, McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, PersonaRowBody,
+    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
+    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION};
 
@@ -70,20 +71,64 @@ fn skill_row(name: &str) -> SkillRowBody {
         enabled: true,
         loaded: false,
         is_project: true,
-        name_runs: vec![
-            TextRunBody {
-                text: "web".to_owned(),
-                matched: true,
-            },
-            TextRunBody {
-                text: "-coder".to_owned(),
-                matched: false,
-            },
-        ],
-        description_runs: vec![TextRunBody {
-            text: "does a thing".to_owned(),
+        name_runs: matched_name_runs(name),
+        description_runs: plain_runs("does a thing"),
+    }
+}
+
+/// A name's runs: `matched` highlighted, the rest plain.
+fn matched_name_runs(name: &str) -> Vec<TextRunBody> {
+    vec![
+        TextRunBody {
+            text: "web".to_owned(),
+            matched: true,
+        },
+        TextRunBody {
+            text: name.strip_prefix("web").unwrap_or(name).to_owned(),
             matched: false,
-        }],
+        },
+    ]
+}
+
+/// One whole-text plain run.
+fn plain_runs(text: &str) -> Vec<TextRunBody> {
+    vec![TextRunBody {
+        text: text.to_owned(),
+        matched: false,
+    }]
+}
+
+/// Builds one tools-modal row with a matched name run.
+fn tool_row(name: &str) -> ToolRowBody {
+    ToolRowBody {
+        name: name.to_owned(),
+        description: "does a thing".to_owned(),
+        enabled: true,
+        name_runs: matched_name_runs(name),
+        description_runs: plain_runs("does a thing"),
+    }
+}
+
+/// Builds one MCP-servers row with a matched name run and a running badge.
+fn mcp_row(name: &str) -> McpRowBody {
+    McpRowBody {
+        name: name.to_owned(),
+        description: "jinn luau serve x.lua".to_owned(),
+        enabled: true,
+        badge: McpBadgeBody::Running,
+        name_runs: matched_name_runs(name),
+        description_runs: plain_runs("jinn luau serve x.lua"),
+    }
+}
+
+/// Builds one persona row with a matched name run.
+fn persona_row(name: &str) -> PersonaRowBody {
+    PersonaRowBody {
+        name: name.to_owned(),
+        description: "does a thing".to_owned(),
+        is_active: true,
+        name_runs: matched_name_runs(name),
+        description_runs: plain_runs("does a thing"),
     }
 }
 
@@ -560,6 +605,176 @@ fn server_skill_rows_round_trips() {
 
 #[rstest]
 #[test]
+fn client_tool_rows_round_trips() {
+    // Given a tools-rows request carrying a filter.
+    let msg = ClientMsg::ToolRows {
+        filter: "ge".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of_client(&back), json_of_client(&msg));
+}
+
+#[rstest]
+#[test]
+fn client_toggle_tool_round_trips() {
+    // Given a toggle naming one tool.
+    let msg = ClientMsg::ToggleTool {
+        tool: "get_time".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of_client(&back), json_of_client(&msg));
+}
+
+#[rstest]
+#[test]
+fn client_mcp_rows_round_trips() {
+    // Given an MCP-rows request carrying a filter.
+    let msg = ClientMsg::McpRows {
+        filter: "ec".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of_client(&back), json_of_client(&msg));
+}
+
+#[rstest]
+#[test]
+fn client_toggle_mcp_round_trips() {
+    // Given a toggle naming one server.
+    let msg = ClientMsg::ToggleMcp {
+        server: "e2e-echo".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of_client(&back), json_of_client(&msg));
+}
+
+#[rstest]
+#[test]
+fn client_persona_rows_round_trips() {
+    // Given a persona-rows request carrying a filter.
+    let msg = ClientMsg::PersonaRows {
+        filter: "br".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of_client(&back), json_of_client(&msg));
+}
+
+#[rstest]
+#[test]
+fn client_switch_persona_round_trips() {
+    // Given a switch naming one persona.
+    let msg = ClientMsg::SwitchPersona {
+        persona: "brainstorm".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of_client(&back), json_of_client(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_tool_rows_round_trips() {
+    // Given tool rows answering a filter, with their matched runs.
+    let msg = ServerMsg::ToolRows(ToolRowsBody {
+        session_id: SessionId::new(),
+        filter: "ge".to_owned(),
+        rows: vec![tool_row("get_time")],
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_mcp_rows_round_trips() {
+    // Given MCP rows answering a filter, with their matched runs and badge.
+    let msg = ServerMsg::McpRows(McpRowsBody {
+        session_id: SessionId::new(),
+        filter: "ec".to_owned(),
+        rows: vec![mcp_row("e2e-echo")],
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_persona_rows_round_trips() {
+    // Given persona rows answering a filter, with their matched runs.
+    let msg = ServerMsg::PersonaRows(PersonaRowsBody {
+        session_id: SessionId::new(),
+        filter: "br".to_owned(),
+        rows: vec![persona_row("brainstorm")],
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn mcp_badge_serializes_as_its_lowercase_word() {
+    // Given one row carrying each badge state.
+    let badges = [
+        McpBadgeBody::Off,
+        McpBadgeBody::Starting,
+        McpBadgeBody::Running,
+        McpBadgeBody::Dead,
+    ];
+
+    // When each is serialized on its own.
+    let words = badges
+        .iter()
+        .map(|badge| serde_json::to_value(badge).expect("badge serializes"))
+        .collect::<Vec<_>>();
+
+    // Then each is the lowercase word the page renders.
+    assert_eq!(
+        words,
+        [
+            serde_json::json!("off"),
+            serde_json::json!("starting"),
+            serde_json::json!("running"),
+            serde_json::json!("dead"),
+        ]
+    );
+}
+
+#[rstest]
+#[test]
 fn server_error_round_trips() {
     // Given a refusal.
     let msg = ServerMsg::Error(ErrorBody {
@@ -669,6 +884,30 @@ fn server_variant_carries_its_snake_case_tag() {
             "skill_rows",
         ),
         (
+            ServerMsg::ToolRows(ToolRowsBody {
+                session_id: SessionId::new(),
+                filter: String::new(),
+                rows: Vec::new(),
+            }),
+            "tool_rows",
+        ),
+        (
+            ServerMsg::McpRows(McpRowsBody {
+                session_id: SessionId::new(),
+                filter: String::new(),
+                rows: Vec::new(),
+            }),
+            "mcp_rows",
+        ),
+        (
+            ServerMsg::PersonaRows(PersonaRowsBody {
+                session_id: SessionId::new(),
+                filter: String::new(),
+                rows: Vec::new(),
+            }),
+            "persona_rows",
+        ),
+        (
             ServerMsg::Error(ErrorBody {
                 message: String::new(),
             }),
@@ -757,6 +996,42 @@ fn client_variant_carries_its_snake_case_tag() {
                 skill: String::new(),
             },
             "load_skill",
+        ),
+        (
+            ClientMsg::ToolRows {
+                filter: String::new(),
+            },
+            "tool_rows",
+        ),
+        (
+            ClientMsg::ToggleTool {
+                tool: String::new(),
+            },
+            "toggle_tool",
+        ),
+        (
+            ClientMsg::McpRows {
+                filter: String::new(),
+            },
+            "mcp_rows",
+        ),
+        (
+            ClientMsg::ToggleMcp {
+                server: String::new(),
+            },
+            "toggle_mcp",
+        ),
+        (
+            ClientMsg::PersonaRows {
+                filter: String::new(),
+            },
+            "persona_rows",
+        ),
+        (
+            ClientMsg::SwitchPersona {
+                persona: String::new(),
+            },
+            "switch_persona",
         ),
     ];
 

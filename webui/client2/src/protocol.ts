@@ -85,6 +85,43 @@ export interface SkillRow {
   description_runs: TextRun[];
 }
 
+/** One row of the tools modal. */
+export interface ToolRow {
+  name: string;
+  /** The tool description's first sentence. */
+  description: string;
+  /** Whether the session's tool filter currently permits the tool. */
+  enabled: boolean;
+  name_runs: TextRun[];
+  description_runs: TextRun[];
+}
+
+/** The MCP server row's status badge, as the server derives it. */
+export type McpBadge = 'off' | 'starting' | 'running' | 'dead';
+
+/** One row of the MCP servers modal. */
+export interface McpRow {
+  name: string;
+  /** The launch summary (command and args). */
+  description: string;
+  /** Whether the session has this server enabled. */
+  enabled: boolean;
+  /** The status badge the row shows. */
+  badge: McpBadge;
+  name_runs: TextRun[];
+  description_runs: TextRun[];
+}
+
+/** One row of the persona modal. */
+export interface PersonaRow {
+  name: string;
+  description: string;
+  /** Whether this row is the session's current persona. */
+  is_active: boolean;
+  name_runs: TextRun[];
+  description_runs: TextRun[];
+}
+
 export type DeltaField = 'text' | 'thinking' | 'args' | 'output';
 
 /** Browser -> server. Exactly one object per user gesture or connect. */
@@ -100,7 +137,13 @@ export type ClientMsg =
   | { type: 'model_rows'; filter: string }
   | { type: 'skill_rows'; filter: string }
   | { type: 'toggle_skill'; skill: string }
-  | { type: 'load_skill'; skill: string };
+  | { type: 'load_skill'; skill: string }
+  | { type: 'tool_rows'; filter: string }
+  | { type: 'toggle_tool'; tool: string }
+  | { type: 'mcp_rows'; filter: string }
+  | { type: 'toggle_mcp'; server: string }
+  | { type: 'persona_rows'; filter: string }
+  | { type: 'switch_persona'; persona: string };
 
 /** Server -> browser. Exactly one fact per frame. */
 export type ServerMsg =
@@ -124,5 +167,8 @@ export type ServerMsg =
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }
   | { type: 'model_rows'; filter: string; rows: ModelRow[] }
   | { type: 'skill_rows'; session_id: string; filter: string; rows: SkillRow[] }
+  | { type: 'tool_rows'; session_id: string; filter: string; rows: ToolRow[] }
+  | { type: 'mcp_rows'; session_id: string; filter: string; rows: McpRow[] }
+  | { type: 'persona_rows'; session_id: string; filter: string; rows: PersonaRow[] }
   | { type: 'error'; message: string }
   | { type: 'ping' };

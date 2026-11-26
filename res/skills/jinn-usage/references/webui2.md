@@ -39,9 +39,10 @@ but nothing coordinates them.
 - **Title** — click the title to rename the session in place; `Enter`
   commits and `Esc` cancels.
 - **Menu** — the `☰` at the title bar's left opens a full-height panel
-  over a dimmed page. **Skills** is its one item today; each item that
-  follows arrives with the picker it opens. A scrim click, `Esc`, or
-  picking an item closes it.
+  over a dimmed page. While a session is active it lists **Skills**,
+  **Persona**, **Tools**, and **MCP servers**, in that order; each opens
+  its picker. With no active session it lists none of them. A scrim
+  click, `Esc`, or picking an item closes it.
 - **Skills** — the menu's **Skills** item (only while a session is
   active) opens the session's discovered skills: a `●` / `○` enabled
   mark, the name and description, a `project` badge on a project-scoped
@@ -53,6 +54,43 @@ but nothing coordinates them.
   - `+` loads the skill's body into context as a pinned tool result,
     enabling the skill first if it was off. A skill already in context
     has its `+` disabled, so nothing is loaded twice.
+- **Persona** — the menu's **Persona** item opens the personas, in their
+  own name-sorted order: a `●` on the session's current persona and a
+  `○` on the rest, the name and description. The current persona's row
+  is highlighted.
+  - Clicking a row switches the session's persona and **closes the
+    modal** — unlike Tools and MCP servers, which stay open.
+  - If the chosen persona carries no `<compaction>` handoff block, an
+    error entry is pushed into the transcript — the same warning the
+    TUI shows. It appears without a reload.
+- **Tools** — the menu's **Tools** item opens one row per tool the
+  session's registry offers, sorted case-insensitively by name: a `✓`
+  (enabled) or `✗` (disabled) mark, the tool name, and the
+  description's first sentence. Disabled rows are muted.
+  - Clicking a row **writes the change at once** — the session's tool
+    filter becomes a deny list over the disabled rows. The mark flips
+    immediately and the modal **stays open**.
+  - Dismissing the modal (`Esc` or a backdrop click) only closes it.
+    There is **no revert**: a mis-click is undone by clicking the row
+    again.
+- **MCP servers** — the menu's **MCP servers** item opens one row per
+  `[mcp.<name>]` entry in `jinn.toml`, sorted case-insensitively by
+  name: a `●` (enabled) or `○` (disabled) mark, the server name, its
+  launch summary (command + args), and a status badge reading `off`,
+  `starting`, `running`, or `dead`. A disabled server reads `off` no
+  matter what its connection last reported.
+  - Clicking a row enables or disables that server for the session **at
+    once** — the same toggle as the TUI's MCP picker — and the modal
+    **stays open**.
+  - The badge updates live on its own: an enabled server's badge moves
+    to `running` with no reload and no re-open.
+  - This is the simple toggle list — no stderr/log pane and no tool
+    list. Those are in the TUI's inspector; `/web2` does not have them.
+
+Every picker modal here covers the full viewport with a backdrop and a
+card: a filter input on top, a scrollable list below. `Esc` or a
+backdrop click closes it. The filter is matched server-side, with the
+matched runs highlighted as you type (debounced).
 
 ## Keys and buttons
 
@@ -63,7 +101,7 @@ There are no keybinds beyond these:
 | `Enter` in the composer | Sends the message. |
 | `Shift+Enter` in the composer | Inserts a newline. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
-| `Esc` | Closes the top overlay: the menu, the skills modal, a picker, or the title editor. |
+| `Esc` | Closes the top overlay: the menu, any of the four picker modals (Skills, Persona, Tools, MCP servers), another picker, or the title editor. |
 
 The composer's buttons follow the session's phase:
 
@@ -91,8 +129,8 @@ that has it.
 
 - Creating, forking, archiving, or tearing down sessions. `/web2` can
   *open* an archived session through its picker, but cannot create one.
-- Personas, MCP servers, tools, and applets — every menu picker but
-  Skills.
+- Applets — the applets picker; every other menu picker exists on
+  `/web2`.
 - Pinning, exclusion, isolate, and the per-entry audit popup.
 - Steer mode. A message sent while working is queued; to steer, cancel
   and send.

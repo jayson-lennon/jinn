@@ -15,6 +15,7 @@ import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry } from './transcript';
 import { Menu, type MenuItem } from './menu';
 import { SkillsModal } from './skills';
+import { McpModal, PersonaModal, ToolsModal } from './pickers';
 
 type Send = (msg: ClientMsg) => void;
 
@@ -51,8 +52,49 @@ export function App(): JSX.Element {
     send({ type: 'skill_rows', filter: '' });
     setSkillsOpen(true);
   };
+  // The tools, MCP servers, and persona modals open the same way: drop
+  // any rows a previous opening left behind, ask for the unfiltered rows,
+  // and mount. A row click on tools or MCP toggles at once and the modal
+  // stays open; a persona click switches and closes.
+  const [toolsOpen, setToolsOpen] = createSignal(false);
+  const onToolFilter = useFilter(store, 'toolFilter', send, (filter) => ({ type: 'tool_rows', filter }));
+  const openTools = (): void => {
+    store.set((s) => {
+      s.toolFilter = '';
+      s.toolRows = [];
+    });
+    send({ type: 'tool_rows', filter: '' });
+    setToolsOpen(true);
+  };
+  const [mcpOpen, setMcpOpen] = createSignal(false);
+  const onMcpFilter = useFilter(store, 'mcpFilter', send, (filter) => ({ type: 'mcp_rows', filter }));
+  const openMcp = (): void => {
+    store.set((s) => {
+      s.mcpFilter = '';
+      s.mcpRows = [];
+    });
+    send({ type: 'mcp_rows', filter: '' });
+    setMcpOpen(true);
+  };
+  const [personaOpen, setPersonaOpen] = createSignal(false);
+  const onPersonaFilter = useFilter(store, 'personaFilter', send, (filter) => ({ type: 'persona_rows', filter }));
+  const openPersona = (): void => {
+    store.set((s) => {
+      s.personaFilter = '';
+      s.personaRows = [];
+    });
+    send({ type: 'persona_rows', filter: '' });
+    setPersonaOpen(true);
+  };
   const menuItems = (): MenuItem[] =>
-    store.state.sessionId === null ? [] : [{ id: 'skills', label: 'Skills', run: openSkills }];
+    store.state.sessionId === null
+      ? []
+      : [
+          { id: 'skills', label: 'Skills', run: openSkills },
+          { id: 'persona', label: 'Persona', run: openPersona },
+          { id: 'tools', label: 'Tools', run: openTools },
+          { id: 'mcp', label: 'MCP servers', run: openMcp },
+        ];
 
   return (
     <div class={`app${connection() === 'open' ? '' : ' disconnected'}`}>
@@ -75,6 +117,48 @@ export function App(): JSX.Element {
           }}
           onClose={() => {
             setSkillsOpen(false);
+          }}
+        />
+      </Show>
+      <Show when={toolsOpen()}>
+        <ToolsModal
+          rows={store.state.toolRows}
+          filter={store.state.toolFilter}
+          onFilter={onToolFilter}
+          onToggle={(tool) => {
+            send({ type: 'toggle_tool', tool });
+          }}
+          onClose={() => {
+            setToolsOpen(false);
+          }}
+        />
+      </Show>
+      <Show when={mcpOpen()}>
+        <McpModal
+          rows={store.state.mcpRows}
+          filter={store.state.mcpFilter}
+          onFilter={onMcpFilter}
+          onToggle={(server) => {
+            send({ type: 'toggle_mcp', server });
+          }}
+          onClose={() => {
+            setMcpOpen(false);
+          }}
+        />
+      </Show>
+      <Show when={personaOpen()}>
+        <PersonaModal
+          rows={store.state.personaRows}
+          filter={store.state.personaFilter}
+          onFilter={onPersonaFilter}
+          onSwitch={(persona) => {
+            // A persona switch is a confirm, not a toggle: the modal has
+            // done its one job, so it closes on the click.
+            send({ type: 'switch_persona', persona });
+            setPersonaOpen(false);
+          }}
+          onClose={() => {
+            setPersonaOpen(false);
           }}
         />
       </Show>
@@ -296,7 +380,7 @@ function SessionRail(props: { store: ClientStore; send: Send }): JSX.Element {
 
 /** A debounced filter request; the store holds the filter so a stale
  *  answer (to text the user has typed past) can be recognised and dropped. */
-function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter' | 'skillFilter', send: Send, request: (filter: string) => ClientMsg) {
+function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter' | 'skillFilter' | 'toolFilter' | 'mcpFilter' | 'personaFilter', send: Send, request: (filter: string) => ClientMsg) {
   let timer: number | null = null;
   return (value: string): void => {
     store.set((s) => { s[key] = value; });
