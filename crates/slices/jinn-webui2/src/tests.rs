@@ -282,6 +282,13 @@ struct Seed {
     mcp_servers: Vec<(&'static str, &'static str)>,
     /// Tools placed in the global tool registry, as `(name, description)`.
     tools: Vec<(&'static str, &'static str)>,
+    /// Saved applets placed in the applets catalog cell, as `(id, title)`
+    /// in the order given — the store actor's recency order is the test's
+    /// to arrange.
+    applets: Vec<(&'static str, &'static str)>,
+    /// The applets server's serving phase folded into the picker cell: the
+    /// resolved bind while serving, `None` while offline (the default).
+    applets_serving: Option<&'static str>,
     /// Projects placed in `[[project.entry]]`.
     projects: Vec<jinn_preferences_config::schemas::ProjectConfig>,
     /// Lifecycles placed in `[[session_lifecycle.script]]`.
@@ -323,9 +330,21 @@ fn harness_seeded(
     let registry_cell = slices
         .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
         .expect("the catalog registers the tool registry slot");
+    let applets_catalog_cell = slices
+        .reader::<jinn_applets_msg::AppletsCatalog>(&jinn_applets_msg::applets_catalog_slot())
+        .expect("the catalog registers the applets catalog slot");
+    let applets_picker_cell = slices
+        .reader::<jinn_applets_msg::AppletsPickerState>(&jinn_applets_msg::applets_picker_slot())
+        .expect("the catalog registers the applets picker slot");
 
     seed_personas(&personas_cell, &seed.personas);
     seed_tools(&registry_cell, &seed.tools);
+    seed_applets(
+        &applets_catalog_cell,
+        &applets_picker_cell,
+        &seed.applets,
+        seed.applets_serving,
+    );
     // One services: the config the seed writes is the config the handle
     // reads. A second `TestServices` would hand the handle a different
     // layer and every MCP row would read as unconfigured.
@@ -358,12 +377,54 @@ fn harness_seeded(
         provider_cell,
         personas_cell,
         mcp_runtime_cell,
+        applets_catalog_cell,
+        applets_picker_cell,
     });
     Harness {
         handle,
         audit,
         state,
     }
+}
+
+/// Seeds the applets catalog cell with the given entries, in the order
+/// given, and folds the serving phase into the picker cell — the two writes
+/// the applets slice's own actors perform, done here by hand because no
+/// applets slice runs under the harness.
+fn seed_applets(
+    catalog_cell: &jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
+    picker_cell: &jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
+    applets: &[(&'static str, &'static str)],
+    serving: Option<&str>,
+) {
+    catalog_cell.update(|cell| {
+        cell.entries = applets
+            .iter()
+            .map(|(id, title)| jinn_applets_msg::AppletEntry {
+                id: (*id).to_owned(),
+                title: (*title).to_owned(),
+                created_at: String::new(),
+            })
+            .collect();
+    });
+    picker_cell.update(|cell| cell.apply_serving(serving.is_some(), serving.unwrap_or("")));
+}
+
+/// A harness with the given saved applets in the catalog and the applets
+/// server serving at `bind` (`None` for offline).
+fn harness_with_applets(
+    applets: &[(&'static str, &'static str)],
+    serving: Option<&'static str>,
+) -> Harness {
+    harness_seeded(
+        empty_providers(),
+        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
+        &Seed {
+            applets: applets.to_vec(),
+            applets_serving: serving,
+            ..Seed::default()
+        },
+    )
 }
 
 /// Seeds the persona catalog with the given personas.
@@ -3521,6 +3582,310 @@ async fn send_with_an_image_while_busy_is_refused_before_ingestion() {
     assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
     // And the session was never marked interacted.
     assert_eq!(h.audit.names().len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Applet rows / push
+// ---------------------------------------------------------------------------
+
+/// The one `applet_rows` frame a reply carries.
+fn applet_body(reply: &crate::protocol::Reply) -> &jinn_webui2_msg::AppletRowsBody {
+    let [ServerMsg::AppletRows(body)] = reply.frames.as_slice() else {
+        unreachable!("one applet_rows frame expected: {reply:?}");
+    };
+    body
+}
+
+/// The applet ids one rows body lists, in order.
+fn applet_ids(body: &jinn_webui2_msg::AppletRowsBody) -> Vec<&str> {
+    body.rows.iter().map(|row| row.id.as_str()).collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applet_rows_publish_the_rescan_then_the_wake() {
+    // Given a harness with a saved applet.
+    let h = harness_with_applets(&[("quiz", "Quiz")], Some("127.0.0.1:41234"));
+
+    // When the page asks for the applets modal's rows.
+    let _ = dispatch(
+        ClientMsg::AppletRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the rescan reached the bus first and the wake second — the
+    // TUI picker opener's own pair, in its order.
+    assert_eq!(h.audit.names(), ["RescanApplets", "WakeAppletsServer"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applet_rows_answer_one_frame_echoing_the_filter() {
+    // Given a harness with a saved applet.
+    let h = harness_with_applets(&[("quiz", "Quiz")], Some("127.0.0.1:41234"));
+
+    // When the page asks under a filter that matches it.
+    let reply = dispatch(
+        ClientMsg::AppletRows {
+            filter: "qui".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the one reply is the rows frame, in the filter asked.
+    assert_eq!(reply.frames.len(), 1);
+    let body = applet_body(&reply);
+    assert_eq!(body.filter, "qui");
+    assert_eq!(applet_ids(body), ["quiz"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applet_rows_link_each_row_to_the_serving_bind() {
+    // Given two applets and a serving server.
+    let h = harness_with_applets(
+        &[("sales", "Sales"), ("quiz", "Quiz")],
+        Some("127.0.0.1:41234"),
+    );
+
+    // When the page asks for the rows.
+    let reply = dispatch(
+        ClientMsg::AppletRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then each row carries the applets URL — bind, `/applets/<id>/`, the
+    // trailing slash — and the body names the serving phase.
+    let body = applet_body(&reply);
+    let hrefs: Vec<&str> = body
+        .rows
+        .iter()
+        .filter_map(|row| row.href.as_deref())
+        .collect();
+    assert_eq!(
+        hrefs,
+        [
+            "http://127.0.0.1:41234/applets/sales/",
+            "http://127.0.0.1:41234/applets/quiz/"
+        ]
+    );
+    assert!(body.serving);
+    assert_eq!(body.bind, "127.0.0.1:41234");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applet_rows_while_offline_answer_rows_without_an_href() {
+    // Given a saved applet and a dormant server.
+    let h = harness_with_applets(&[("quiz", "Quiz")], None);
+
+    // When the page asks for the rows.
+    let reply = dispatch(
+        ClientMsg::AppletRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the row is still listed but carries no href, and the body says
+    // the server is offline with an empty bind.
+    let body = applet_body(&reply);
+    assert_eq!(applet_ids(body), ["quiz"]);
+    assert!(body.rows[0].href.is_none());
+    assert!(!body.serving);
+    assert_eq!(body.bind, "");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applet_rows_refuse_an_href_for_an_id_failing_the_gate() {
+    // Given a serving server whose catalog carries a traversal id.
+    let h = harness_with_applets(&[("../escape", "Escape")], Some("127.0.0.1:41234"));
+
+    // When the page asks for the rows.
+    let reply = dispatch(
+        ClientMsg::AppletRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the row renders without an href even though the server is
+    // serving — a hand-edited catalog cannot inject a path.
+    let body = applet_body(&reply);
+    assert_eq!(applet_ids(body), ["../escape"]);
+    assert!(body.rows[0].href.is_none());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applet_rows_with_an_empty_filter_keep_the_catalog_order_unmarked() {
+    // Given a catalog already ordered newest-first.
+    let h = harness_with_applets(&[("newest", "Newest"), ("older", "Older")], None);
+
+    // When the page asks with an empty filter.
+    let reply = dispatch(
+        ClientMsg::AppletRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then every row is in the catalog's order, and none is marked.
+    let body = applet_body(&reply);
+    assert_eq!(applet_ids(body), ["newest", "older"]);
+    assert!(
+        body.rows
+            .iter()
+            .all(|row| row.title_runs.iter().all(|run| !run.matched)),
+        "an empty filter marks nothing: {:?}",
+        body.rows
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applet_rows_filter_by_title_and_mark_the_matched_run() {
+    // Given three applets.
+    let h = harness_with_applets(
+        &[
+            ("alpha", "Alpha Report"),
+            ("beta", "Beta Dashboard"),
+            ("gamma", "Gamma Quiz"),
+        ],
+        None,
+    );
+
+    // When the page asks under a filter only one title matches.
+    let reply = dispatch(
+        ClientMsg::AppletRows {
+            filter: "alp".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then only that row answers, with its matched run marked.
+    let body = applet_body(&reply);
+    assert_eq!(applet_ids(body), ["alpha"]);
+    let matched: Vec<&str> = body.rows[0]
+        .title_runs
+        .iter()
+        .filter(|run| run.matched)
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(matched, ["Alp"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applet_rows_remember_the_filter_for_a_later_push() {
+    // Given a harness with a saved applet.
+    let h = harness_with_applets(&[("quiz", "Quiz")], None);
+
+    // When the page asks under a filter.
+    let _ = dispatch(
+        ClientMsg::AppletRows {
+            filter: "qui".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the handle remembers that filter — the one a later push
+    // answers in.
+    assert_eq!(h.handle.applet_filter().as_deref(), Some("qui"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applets_rescanned_pushes_the_events_catalog_not_the_cells() {
+    // Given a cell holding row A, while the event carries row B — the
+    // republisher has not written the cell yet.
+    let h = harness_with_applets(&[("stale", "Stale")], Some("127.0.0.1:41234"));
+    let mut inbox = h.handle.register();
+    let _ = dispatch(
+        ClientMsg::AppletRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+    drain(&mut inbox);
+    let event_catalog = jinn_applets_msg::AppletsCatalog {
+        entries: vec![jinn_applets_msg::AppletEntry {
+            id: "fresh".to_owned(),
+            title: "Fresh".to_owned(),
+            created_at: String::new(),
+        }],
+    };
+
+    // When the rescanned event is handled.
+    crate::outbound::applets_rescanned(&h.handle, &event_catalog);
+
+    // Then the pushed frame lists B — the event's catalog — never the
+    // cell's stale A.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::AppletRows(body)] = frames.as_slice() else {
+        unreachable!("one applet_rows frame expected: {frames:?}");
+    };
+    assert_eq!(applet_ids(body), ["fresh"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applets_serving_changed_pushes_the_events_phase_over_the_cell_catalog() {
+    // Given an open modal whose cell is offline and holds one applet.
+    let h = harness_with_applets(&[("quiz", "Quiz")], None);
+    let mut inbox = h.handle.register();
+    let _ = dispatch(
+        ClientMsg::AppletRows {
+            filter: String::new(),
+        },
+        &h.handle,
+    )
+    .await;
+    drain(&mut inbox);
+
+    // When a serving event lands: the server came up at a resolved bind.
+    crate::outbound::applets_serving_changed(&h.handle, true, "127.0.0.1:4321");
+
+    // Then the pushed frame carries the event's phase — online, with the
+    // event's bind in every href — over the cell's catalog.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::AppletRows(body)] = frames.as_slice() else {
+        unreachable!("one applet_rows frame expected: {frames:?}");
+    };
+    assert!(body.serving);
+    assert_eq!(body.bind, "127.0.0.1:4321");
+    assert_eq!(
+        body.rows[0].href.as_deref(),
+        Some("http://127.0.0.1:4321/applets/quiz/")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn applets_rescanned_with_no_modal_open_pushes_nothing() {
+    // Given a harness with a saved applet and no modal that ever asked.
+    let h = harness_with_applets(&[("quiz", "Quiz")], None);
+    let mut inbox = h.handle.register();
+
+    // When a rescanned event is handled.
+    crate::outbound::applets_rescanned(&h.handle, &jinn_applets_msg::AppletsCatalog::default());
+
+    // Then nothing was pushed — nobody is looking.
+    assert_eq!(drain(&mut inbox).len(), 0);
 }
 
 // ---------------------------------------------------------------------------

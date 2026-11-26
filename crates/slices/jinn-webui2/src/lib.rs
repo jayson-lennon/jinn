@@ -114,6 +114,25 @@ pub async fn activate(
         .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
         .expect("the cell catalog registers the MCP runtime slot before any slice activates");
 
+    // The applets catalog and the applets picker, for the applets modal's
+    // rows and the server's serving phase. Resolved the same way.
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: a missing applets catalog slot is a broken boot order and must abort launch, not continue degraded"
+    )]
+    let applets_catalog_cell = host
+        .slices()
+        .reader::<jinn_applets_msg::AppletsCatalog>(&jinn_applets_msg::applets_catalog_slot())
+        .expect("the cell catalog registers the applets catalog slot before any slice activates");
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: a missing applets picker slot is a broken boot order and must abort launch, not continue degraded"
+    )]
+    let applets_picker_cell = host
+        .slices()
+        .reader::<jinn_applets_msg::AppletsPickerState>(&jinn_applets_msg::applets_picker_slot())
+        .expect("the cell catalog registers the applets picker slot before any slice activates");
+
     let outbound = outbound::spawn(
         host.system(),
         outbound::OutboundActorDeps {
@@ -127,6 +146,8 @@ pub async fn activate(
             session_store,
             personas_cell,
             mcp_runtime_cell,
+            applets_catalog_cell,
+            applets_picker_cell,
             config: services.config.clone(),
         },
     );

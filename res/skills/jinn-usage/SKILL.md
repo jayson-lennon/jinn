@@ -83,7 +83,7 @@ the current truth) and echo that.
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `references/ui-map.md`                 | The on-screen surfaces, TUI and web UI: layout diagrams, what each element is, where it sits, its keys |
 | `references/webui.md`                  | The web UI itself: how to open it, its pages, its buttons, what the web cannot do — the hub that routes to each feature's web passage |
-| `references/webui2.md`                 | The second web UI (`/web2`): how to open it, its sessions / transcript / composer / model picker, its `☰` menu and its four pickers (Skills, Persona, Tools, MCP servers), its keys, reconnecting, what it does not do |
+| `references/webui2.md`                 | The second web UI (`/web2`): how to open it, its sessions / transcript / composer / model picker, its `☰` menu and its five pickers (Skills, Persona, Tools, MCP servers, Applets), its keys, reconnecting, what it does not do |
 | `references/keybindings.md`            | Every scope's default bindings, categorized                                                |
 | `references/context-management.md`     | Pinning, context toggles, isolate, compaction/pruning tuning                               |
 | `references/sessions-and-subagents.md` | Sessions (create, switch, rename), the Library, forks, the session tree, subagents/tasks |

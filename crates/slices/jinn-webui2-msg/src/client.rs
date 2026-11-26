@@ -115,6 +115,13 @@ pub enum ClientMsg {
         /// The persona's name.
         persona: String,
     },
+    /// Ask for the applets modal's rows: rescan the saved-app catalog and
+    /// wake the applets server, then answer with the rows as they stand.
+    /// An open modal receives fresh rows when either lands.
+    AppletRows {
+        /// The filter (empty for the unfiltered list).
+        filter: String,
+    },
     /// Ask the provider registry to rediscover its models.
     RefreshModels,
     /// Set the page's color mode.
@@ -164,6 +171,7 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::ToggleMcp { .. } => "toggle_mcp",
         ClientMsg::PersonaRows { .. } => "persona_rows",
         ClientMsg::SwitchPersona { .. } => "switch_persona",
+        ClientMsg::AppletRows { .. } => "applet_rows",
         ClientMsg::RefreshModels => "refresh_models",
         ClientMsg::SetTheme { .. } => "set_theme",
         ClientMsg::SetLibrary { .. } => "set_library",
