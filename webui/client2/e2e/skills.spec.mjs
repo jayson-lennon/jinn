@@ -150,3 +150,33 @@ test.with({ skill: true })("typing in the filter narrows the rows and marks the 
   await expect(page.locator(sel.SKILLS_FILTER)).toHaveValue(SKILL_FILTER);
   await expect(page.locator(sel.SKILL_ROW)).toHaveCount(1);
 });
+
+test.with({ skill: true })("clicking an enabled skill disables it", async ({ page }) => {
+  // Given the open skills modal listing the staged skill, enabled.
+  await openSkills(page);
+  const row = page.locator(sel.SKILL_ROW_NAMED(SKILL_NAME));
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await expect(row).toHaveAttribute("data-enabled", "true");
+
+  // When clicking the row.
+  await row.click();
+
+  // Then it is marked disabled, and the modal stays open.
+  await expect(row).toHaveAttribute("data-enabled", "false");
+  await expect(page.locator(sel.SKILLS_MODAL)).toBeVisible();
+});
+
+test.with({ skill: true })("clicking a disabled skill enables it again", async ({ page }) => {
+  // Given the open skills modal, with the staged skill already disabled.
+  await openSkills(page);
+  const row = page.locator(sel.SKILL_ROW_NAMED(SKILL_NAME));
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.click();
+  await expect(row).toHaveAttribute("data-enabled", "false");
+
+  // When clicking the row again.
+  await row.click();
+
+  // Then it is marked enabled again.
+  await expect(row).toHaveAttribute("data-enabled", "true");
+});

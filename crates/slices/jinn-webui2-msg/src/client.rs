@@ -64,6 +64,12 @@ pub enum ClientMsg {
         /// The filter (empty for the unfiltered list).
         filter: String,
     },
+    /// Toggle one skill's enablement on the active session, applied at
+    /// once to its skill filter; the reply carries the fresh rows.
+    ToggleSkill {
+        /// The skill's name.
+        skill: String,
+    },
 }
 
 #[must_use]
@@ -80,5 +86,6 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::PickerRows { .. } => "picker_rows",
         ClientMsg::ModelRows { .. } => "model_rows",
         ClientMsg::SkillRows { .. } => "skill_rows",
+        ClientMsg::ToggleSkill { .. } => "toggle_skill",
     }
 }

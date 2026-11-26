@@ -513,6 +513,21 @@ fn client_skill_rows_round_trips() {
 
 #[rstest]
 #[test]
+fn client_toggle_skill_round_trips() {
+    // Given a toggle naming one skill.
+    let msg = ClientMsg::ToggleSkill {
+        skill: "web-coder".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of_client(&back), json_of_client(&msg));
+}
+
+#[rstest]
+#[test]
 fn server_skill_rows_round_trips() {
     // Given skill rows answering a filter, with their matched runs.
     let msg = ServerMsg::SkillRows(SkillRowsBody {
@@ -715,6 +730,12 @@ fn client_variant_carries_its_snake_case_tag() {
                 filter: String::new(),
             },
             "skill_rows",
+        ),
+        (
+            ClientMsg::ToggleSkill {
+                skill: String::new(),
+            },
+            "toggle_skill",
         ),
     ];
 

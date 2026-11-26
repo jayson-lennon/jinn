@@ -67,6 +67,9 @@ export function App(): JSX.Element {
           rows={store.state.skillRows}
           filter={store.state.skillFilter}
           onFilter={onSkillFilter}
+          onToggle={(skill) => {
+            send({ type: 'toggle_skill', skill });
+          }}
           onClose={() => {
             setSkillsOpen(false);
           }}

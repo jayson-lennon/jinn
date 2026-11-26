@@ -16,6 +16,8 @@ export interface SkillsModalProps {
   readonly filter: string;
   /** Asks for rows matching the new filter text. */
   readonly onFilter: (value: string) => void;
+  /** Toggles one skill's enablement, by name. */
+  readonly onToggle: (skill: string) => void;
   /** Closes the modal. */
   readonly onClose: () => void;
 }
@@ -52,23 +54,30 @@ export function SkillsModal(props: SkillsModalProps): JSX.Element {
           onInput={(e) => props.onFilter(e.currentTarget.value)}
         />
         <ul class="modal-list skills-rows" data-testid="skills-rows">
-          <For each={props.rows}>{(row) => <SkillRowView row={row} />}</For>
+          <For each={props.rows}>
+            {(row) => <SkillRowView row={row} onToggle={props.onToggle} />}
+          </For>
         </ul>
       </div>
     </div>
   );
 }
 
-function SkillRowView(props: { row: SkillRow }): JSX.Element {
+function SkillRowView(props: { row: SkillRow; onToggle: (skill: string) => void }): JSX.Element {
   const row = (): SkillRow => props.row;
   return (
     <li>
       <div
-        class={`skill-row${row().enabled ? ' skill-row-enabled' : ''}`}
+        class={`skill-row${row().enabled ? ' skill-row-enabled' : ''}${row().loaded ? ' skill-row-loaded' : ''}`}
         data-testid="skill-row"
         data-skill={row().name}
         data-enabled={row().enabled ? 'true' : 'false'}
         data-loaded={row().loaded ? 'true' : 'false'}
+        onClick={() => {
+          // A loaded skill cannot be disabled — its body stays pinned in
+          // history — so the row is not a toggle for it.
+          if (!row().loaded) props.onToggle(row().name);
+        }}
       >
         <span class="skill-row-marker" aria-hidden="true">
           {row().enabled ? '\u25CF' : '\u25CB'}

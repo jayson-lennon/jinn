@@ -1746,3 +1746,213 @@ async fn a_discovery_scan_for_another_session_pushes_nothing_for_this_one() {
 fn skills_loaded(h: &Harness, msg: &jinn_skills_msg::SkillsLoaded) {
     crate::outbound::skills_loaded(&h.handle, msg);
 }
+
+// ---------------------------------------------------------------------------
+// Skills modal: toggle
+// ---------------------------------------------------------------------------
+
+/// A harness whose active session discovered the named skills; the
+/// returned directory is what their paths name and must outlive the test.
+fn harness_with_skills(names: &[&str]) -> (Harness, jinn_testutil::JinnTempDir) {
+    let h = harness();
+    let dir = discover(&h, names);
+    (h, dir)
+}
+
+/// Pins `name`'s skill body into the active session's history, as the
+/// force-load does: a `skill` tool call followed by a pinned result.
+fn pin_loaded(h: &Harness, name: &str) {
+    let mut call = ChatEntry::tool_call(
+        format!("call-{name}"),
+        "skill",
+        format!("{{\"name\":\"{name}\"}}"),
+    );
+    call.pin_position = Some(jinn_core_types::PinPosition::Relative);
+    push(&h.state, call);
+    let mut result = ChatEntry::tool_result(
+        format!("result-{name}"),
+        "skill",
+        format!("<skill name=\"{name}\">body</skill>"),
+        jinn_core_types::ToolResultStatus::Success,
+    );
+    result.pin_position = Some(jinn_core_types::PinPosition::Relative);
+    push(&h.state, result);
+}
+
+/// Withholds `name` on the active session's filter, as a deny filter.
+fn withhold(h: &Harness, name: &str) {
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_skill_filter(Some(jinn_core_types::NameFilter::deny([name.to_owned()])));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_an_enabled_skill_withholds_it_on_the_session_filter() {
+    // Given a session that discovered one skill and permits it.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page toggles that skill.
+    let reply = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the session's filter withholds it, and the row says so.
+    assert!(
+        !h.state
+            .read()
+            .session
+            .active_session()
+            .is_skill_enabled("alpha")
+    );
+    let enabled: Vec<_> = skill_rows(&reply)
+        .into_iter()
+        .map(|row| (row.name, row.enabled))
+        .collect();
+    assert_eq!(enabled, [("alpha".to_owned(), false)]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_disabled_skill_permits_it_again() {
+    // Given a session that discovered one skill and withholds it.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+    withhold(&h, "alpha");
+
+    // When the page toggles that skill.
+    let _ = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the skill is permitted again.
+    assert!(
+        h.state
+            .read()
+            .session
+            .active_session()
+            .is_skill_enabled("alpha")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_keeps_an_allow_mode_filter_in_allow_mode() {
+    // Given a session whose filter is an allow list naming one of its two
+    // skills.
+    let (h, _dir) = harness_with_skills(&["alpha", "beta"]);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_skill_filter(Some(jinn_core_types::NameFilter {
+            mode: jinn_core_types::FilterMode::Allow,
+            names: ["alpha".to_owned()].into_iter().collect(),
+        }));
+
+    // When the page withholds that skill by toggling it.
+    let _ = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the filter is still an allow list — it was not rewritten as a
+    // blocklist — and the skill is withheld.
+    let state = h.state.read();
+    let filter = state
+        .session
+        .active_session()
+        .skill_filter()
+        .expect("a filter was written");
+    assert_eq!(filter.mode, jinn_core_types::FilterMode::Allow);
+    assert!(!filter.permits("alpha"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_loaded_skill_changes_nothing() {
+    // Given a session that discovered one skill, permits it, and holds
+    // its pinned pair.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+    pin_loaded(&h, "alpha");
+
+    // When the page toggles that skill.
+    let _ = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the session still has no filter at all — nothing was written.
+    assert!(
+        h.state
+            .read()
+            .session
+            .active_session()
+            .skill_filter()
+            .is_none()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_a_skill_publishes_nothing() {
+    // Given a session that discovered one skill.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page toggles that skill.
+    let _ = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "alpha".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then no bus message was published.
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_an_undiscovered_skill_is_refused() {
+    // Given a session that discovered one skill.
+    let (h, _dir) = harness_with_skills(&["alpha"]);
+
+    // When the page toggles a skill the session never discovered.
+    let reply = dispatch(
+        ClientMsg::ToggleSkill {
+            skill: "phantom".to_owned(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told so, and the filter is untouched.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        unreachable!("one error frame expected: {reply:?}");
+    };
+    assert_eq!(error.message, "unknown skill");
+    assert!(
+        h.state
+            .read()
+            .session
+            .active_session()
+            .skill_filter()
+            .is_none()
+    );
+}

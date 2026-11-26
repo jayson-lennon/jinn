@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_core_types::{ChatEntry, ChatEntryId, ModelSelection, SessionId};
+use jinn_core_types::{ChatEntry, ChatEntryId, ModelSelection, NameFilter, SessionId};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::common::actor_deps::BusPublish as _;
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
@@ -44,6 +44,8 @@ pub enum Refusal {
     NoActiveSession,
     /// The session store could not be read.
     StoreUnavailable,
+    /// The active session has not discovered a skill by that name.
+    UnknownSkill,
 }
 
 impl Refusal {
@@ -54,6 +56,7 @@ impl Refusal {
             Self::UnknownSession => "unknown session",
             Self::NoActiveSession => "no active session",
             Self::StoreUnavailable => "session store unavailable",
+            Self::UnknownSkill => "unknown skill",
         }
     }
 }
@@ -532,6 +535,75 @@ pub fn skill_rows(out: &OutboundHandle, filter: String) -> Reply {
         filter,
         rows,
     }))
+}
+
+/// Toggles one skill's enablement on the active session and answers
+/// with the fresh rows.
+///
+/// Applied at once, through the filter rather than by rewriting it: an
+/// enabled skill is withheld and a disabled one permitted, on the
+/// session's current filter — an absent filter materializes as the
+/// inherited one, because permitting a name is a configuration change
+/// and a session with no filter cannot carry one. This is the terminal
+/// picker's durable permit (`enable_durably`), so an allow-mode session
+/// stays in allow mode; rewriting the filter as a blocklist, as the
+/// picker's confirm does, would demote it. Nothing is published — the
+/// filter is the session's own and the page re-reads it from the rows.
+///
+/// A skill already loaded into context is not toggled: its body stays
+/// pinned in history, so a disabled marker would promise an unload that
+/// never happens. A skill the session has not discovered is refused.
+pub fn toggle_skill(out: &OutboundHandle, skill: &str) -> Reply {
+    let state = out.state();
+    let session_id = state.read().session.active_session_id().clone();
+    let filter = out.last_skill_filter(&session_id);
+    let outcome = {
+        let mut guard = state.write();
+        guard
+            .session
+            .get_mut(&session_id)
+            .map_or(Toggle::Unknown, |session| {
+                apply_skill_toggle(session, skill)
+            })
+    };
+    match outcome {
+        Toggle::Toggled | Toggle::Loaded => skill_rows(out, filter),
+        Toggle::Unknown => refused(&Refusal::UnknownSkill),
+    }
+}
+
+/// What a toggle found: the skill flipped, the skill is loaded into
+/// context and so stays as it is, or the session never discovered it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Toggle {
+    Toggled,
+    Loaded,
+    Unknown,
+}
+
+/// Flips one skill's enablement on a session's filter. A skill loaded
+/// into context is left alone and reported as such — the caller answers
+/// with rows either way, so the page never shows an error for a click
+/// the UI already discourages.
+fn apply_skill_toggle(session: &mut jinn_session_state::ChatSessionState, skill: &str) -> Toggle {
+    if !session.discovered_skills().iter().any(|s| s.name == skill) {
+        return Toggle::Unknown;
+    }
+    if session.loaded_skills().contains(skill) {
+        return Toggle::Loaded;
+    }
+    let enabled = session.is_skill_enabled(skill);
+    let mut filter = session
+        .skill_filter()
+        .cloned()
+        .unwrap_or_else(NameFilter::inherited);
+    if enabled {
+        filter.withhold(skill);
+    } else {
+        filter.permit(skill);
+    }
+    session.set_skill_filter(Some(filter));
+    Toggle::Toggled
 }
 
 /// One session's skill rows: every skill the shared filter accepts, each
