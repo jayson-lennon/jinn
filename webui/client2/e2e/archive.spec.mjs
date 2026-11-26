@@ -266,3 +266,23 @@ test("the menu offers Archive session while a session is active", async ({
   // Then the item is offered.
   await expect(page.locator(sel.MENU_ITEM_ARCHIVE)).toHaveCount(1);
 });
+
+test("a row's kebab entries stack vertically", async ({ page }) => {
+  // Given a session row's kebab menu is open.
+  const id = await createSession(page);
+  await page
+    .locator(`${sel.ROW_WRAP(id)} ${sel.ROW_MENU}`)
+    .click();
+
+  // Then archive sits below add to library, left-aligned with it.
+  const library = await page
+    .locator(sel.ROW_MENU_LIBRARY)
+    .boundingBox();
+  const archive = await page
+    .locator(sel.ROW_MENU_ARCHIVE)
+    .boundingBox();
+  expect(archive.y).toBeGreaterThanOrEqual(
+    library.y + library.height,
+  );
+  expect(archive.x).toBeCloseTo(library.x, 0);
+});

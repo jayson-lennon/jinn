@@ -165,6 +165,10 @@ body { background: var(--bg); color: var(--fg); }
   right: 0;
   top: 100%;
   z-index: 20;
+  /* A column of entries: without this the buttons flow inline and the
+     second one lands beside the first, overflowing the popup. */
+  display: flex;
+  flex-direction: column;
   min-width: 180px;
   max-width: min(240px, calc(100vw - 24px));
   background: var(--bg-raised);
