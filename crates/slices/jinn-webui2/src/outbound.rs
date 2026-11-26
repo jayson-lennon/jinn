@@ -183,8 +183,8 @@ mod handlers;
 #[cfg(test)]
 pub(crate) use handlers::{
     applets_rescanned, applets_serving_changed, flush, follow_active_session,
-    library_membership_changed, mcp_runtime_stored, model_cache_stored, phase_changed, reconcile,
-    skills_loaded,
+    library_membership_changed, mcp_runtime_stored, model_cache_stored, phase_changed, pin_changed,
+    reconcile, skills_loaded,
 };
 
 /// The outbound actor.
@@ -372,6 +372,10 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         .handles::<jinn_tools_msg::ToolCallReceived>()
         .handles::<jinn_tools_msg::ToolExecutionCompleted>()
         .handles::<jinn_session_history_msg::HistoryAppended>()
+        // A pin rewrites entries in place — no append announces it — so
+        // without this a pin made in the terminal would reach the page
+        // only at the next turn's settle.
+        .handles::<jinn_session_history_msg::ChatEntryPinChanged>()
         .handles::<jinn_chat_input_msg::ChatEntrySubmitted>()
         .handles::<jinn_provider_selection_msg::ProviderSwitched>()
         .handles::<jinn_session_store_msg::SessionLoadCompleted>()

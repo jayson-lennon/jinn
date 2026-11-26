@@ -232,6 +232,31 @@ impl OutboundActor {
     }
 }
 
+impl MsgHandler<jinn_session_history_msg::ChatEntryPinChanged> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_history_msg::ChatEntryPinChanged,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        pin_changed(&self.handle, msg);
+    }
+}
+
+/// On a pin or unpin, sends every entry the page holds differently.
+///
+/// A pin rewrites `pin_position` in place — nothing is appended — so the
+/// event carries only the session, and the reconcile is what finds the
+/// changed entries: each one's serialized form no longer matches what the
+/// page was last sent. A pin takes a whole tool loop, so one gesture
+/// commonly upserts several entries at once.
+pub(crate) fn pin_changed(
+    handle: &super::OutboundHandle,
+    msg: &jinn_session_history_msg::ChatEntryPinChanged,
+) {
+    handle.bump(&msg.session_id);
+    reconcile(handle, &msg.session_id);
+}
+
 impl MsgHandler<jinn_chat_input_msg::ChatEntrySubmitted> for OutboundActor {
     async fn handle(
         &mut self,

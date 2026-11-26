@@ -47,9 +47,12 @@ but nothing coordinates them.
   seconds the overlay clears and the composer names the timeout; the page
   stays on the session it never left.
 - **Archive** — the sidebar's **Archive** button opens a picker over every
-  stored session, loaded or archived, with a title filter. Choosing a row
-  activates it; an archived session is loaded from disk and leaves the
-  archive.
+  stored session, loaded or archived, as a tree: a forked session is
+  indented under its parent, and a filter that matches a child keeps its
+  parent listed above it. Each row shows its title over a smaller, muted
+  `date · project` line (the browser's local time); an archived row is
+  dimmed. Choosing a row activates it; an archived session is loaded from
+  disk and leaves the archive.
 - **New session** — the menu's **New session** item opens a modal with a
   Project select, a Lifecycle select (blank by default), and **Setup
   arguments** when the chosen lifecycle declares any. **Create session**
@@ -86,6 +89,15 @@ but nothing coordinates them.
   fresh rows arrive.
 - **Title** — click the title to rename the session in place; `Enter`
   commits and `Esc` cancels.
+- **Entry menu** — every transcript entry has a `⋮` at its bottom-right,
+  always visible at every width. It opens the session row's popup with the
+  things you can do to that one entry.
+  - **Pin / Unpin** — pins the entry at its relative position, the same
+    pin the TUI's `p` sets, and the entry shows a 📌 on its left edge.
+    Pinned, the item reads **Unpin**. A pin takes the whole tool loop:
+    pinning a tool call or result pins its loop, and each member shows the
+    mark. Pins made in the TUI appear on `/web2` at once. Top and bottom
+    positioning stay in the TUI's Pins sidebar.
 - **Menu** — the `☰` at the title bar's left opens a full-height panel
   over a dimmed page. **New session** is its first item and the
   **Light | Dark | System** color mode group its last, at every time.
@@ -161,8 +173,10 @@ but nothing coordinates them.
 
 Every picker modal here covers the full viewport with a backdrop and a
 card: a filter input on top, a scrollable list below. `Esc` or a
-backdrop click closes it. The filter is matched server-side, with the
-matched runs highlighted as you type (debounced).
+backdrop click closes it. The filter is the terminal's own — run on the
+server, with whitespace-separated terms each matched (so `gpt 4` finds
+`gpt-4`), the closest match ranked first, and the matched runs
+highlighted as you type (debounced).
 
 ## Keys and buttons
 
@@ -209,7 +223,8 @@ that has it.
 - Renaming, deleting, or opening an applet in kiosk mode. The `/web2`
   applets picker opens one in a new tab; those three gestures are the
   TUI's.
-- Pinning, exclusion, isolate, and the per-entry audit popup.
+- Exclusion, isolate, and the per-entry audit popup. (Pinning is on
+  `/web2`: the entry's `⋮` → **Pin**. Top/bottom pin positioning is not.)
 - Steer mode. A message sent while working is queued; to steer, cancel
   and send.
 - The `#prompt`, `@path`, and `/command` input tokens. Text is sent

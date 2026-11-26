@@ -12,6 +12,7 @@
 import { test as base, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { bootJinn, restartJinn, scratchApplet, scratchSkill, teardownJinn } from "./harness.mjs";
 
@@ -38,6 +39,11 @@ export const sel = {
   MODEL_FILTER: '[data-testid="model-filter"]',
   OPEN_PICKER: '[data-testid="open-picker"]',
   PICKER_ROW: '[data-testid="picker-row"]',
+  PICKER_FILTER: '[data-testid="picker-filter"]',
+  /** One picker row, by its depth in the tree. */
+  PICKER_ROW_AT_DEPTH: (depth) => `[data-testid="picker-row"][data-depth="${depth}"]`,
+  /** One picker row, by its stored state. */
+  PICKER_ROW_IN_STATE: (state) => `[data-testid="picker-row"][data-state="${state}"]`,
   MENU_BUTTON: '[data-testid="menu-button"]',
   MENU_PANEL: '[data-testid="menu-panel"]',
   MENU_SCRIM: '[data-testid="menu-scrim"]',
@@ -107,7 +113,19 @@ export const sel = {
   THEME_LIGHT: '[data-testid="theme-group-light"]',
   THEME_DARK: '[data-testid="theme-group-dark"]',
   THEME_SYSTEM: '[data-testid="theme-group-system"]',
+  /** The `⋮` at every transcript entry's bottom-right, its popup, and
+   *  the one item it carries today. */
+  ENTRY_MENU: '[data-testid="entry-menu"]',
+  ENTRY_MENU_POPUP: '[data-testid="entry-menu-popup"]',
+  ENTRY_MENU_PIN: '[data-testid="entry-menu-pin"]',
+  /** The pin mark a pinned entry shows at its left edge. */
+  PIN_MARK: '.pin-mark',
 };
+
+/** The `⋮` of the last entry of `kind`, e.g. `entryMenu(page, "assistant")`. */
+export function entryMenu(page, kind) {
+  return page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY(kind)} ${sel.ENTRY_MENU}`).last();
+}
 
 /** The sample provider's model — the keyless one every scratch boot configures. */
 export const MODEL_NAME = "sample";
@@ -377,6 +395,38 @@ export function archiveSession(jinn, id) {
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
+}
+
+/**
+ * Seeds a session forked from `parentId` directly in the scratch store —
+ * a row whose `parent_session` names its parent, and nothing else, which
+ * is all the session tree reads. `/web2` has no fork gesture, so the
+ * store is arranged the way a fork leaves it.
+ *
+ * A test that needs the row listed follows this with `restartJinn`: the
+ * picker reads the store, and a running instance has already cached its
+ * summaries.
+ *
+ * @param {{ root: string }} jinn the test's own instance.
+ * @param {string} parentId the session the new one is forked from.
+ * @param {string} title the child's title.
+ * @returns {string} the child's id.
+ */
+export function seedChildSession(jinn, parentId, title) {
+  if (!/^[0-9a-f-]{36}$/i.test(parentId)) {
+    throw new Error(`seedChildSession: not a session id: ${parentId}`);
+  }
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  execFileSync(
+    "sqlite3",
+    [
+      path.join(jinn.root, "db", "state.db"),
+      `INSERT INTO sessions (id, title, updated_at, created_at, parent_session) VALUES ('${id}', '${title.replace(/'/g, "''")}', '${now}', '${now}', '${parentId}');`,
+    ],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+  return id;
 }
 
 /**

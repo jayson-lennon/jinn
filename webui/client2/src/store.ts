@@ -216,6 +216,11 @@ export function newestEntryId(entries: readonly EntryEnvelope[]): string | null 
 }
 
 const OPTIMISTIC_PREFIX = 'optimistic-';
+
+/** Whether an entry id is the page's own placeholder for a just-sent message. */
+export function isOptimistic(id: string): boolean {
+  return id.startsWith(OPTIMISTIC_PREFIX);
+}
 let optimisticCounter = 0;
 
 /**

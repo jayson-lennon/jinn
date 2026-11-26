@@ -12,11 +12,11 @@ import type { JSX } from '@solidjs/web';
 import type { ClientMsg, ModelRow } from './protocol';
 import { type ClientStore, apply, clearSessionLoad, newestEntryId, createStore } from './store';
 import { type ConnectionState, openSocket } from './socket';
-import { TranscriptEntry } from './transcript';
+import { TranscriptEntry, useEntryMenuDismiss } from './transcript';
 import { Menu, type MenuItem, type MenuGroup } from './menu';
 import { SkillsModal } from './skills';
 import { AppletsModal } from './applets';
-import { McpModal, PersonaModal, ToolsModal } from './pickers';
+import { McpModal, PersonaModal, Runs, ToolsModal } from './pickers';
 import { Composer } from './composer';
 import { SessionRail } from './rail';
 import { NewSessionModal } from './new-session';
@@ -229,7 +229,7 @@ export function App(): JSX.Element {
           openDrawer={openDrawer}
           drawerOpen={drawerOpen}
         />
-        <Transcript store={store} />
+        <Transcript store={store} send={send} />
         <Composer store={store} send={send} />
       </main>
       <Show when={newSessionOpen()}>
@@ -330,8 +330,15 @@ export function App(): JSX.Element {
 // Transcript
 // ---------------------------------------------------------------------------
 
-function Transcript(props: { store: ClientStore }): JSX.Element {
+function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) => void }): JSX.Element {
   let node: HTMLElement | undefined;
+  // At most one entry menu is open across the whole transcript, so the
+  // open id is the transcript's — the way the rail owns its row menu.
+  const [menuFor, setMenuFor] = createSignal<string | null>(null);
+  const toggleMenu = (id: string): void => {
+    setMenuFor(menuFor() === id ? null : id);
+  };
+  useEntryMenuDismiss(menuFor, () => setMenuFor(null));
   // Follow the stream: when the newest entry grows and the reader is at
   // the bottom, keep them there. A reader who scrolled up is left alone.
   const isNearBottom = (): boolean =>
@@ -360,7 +367,11 @@ function Transcript(props: { store: ClientStore }): JSX.Element {
           second row for the same entry — one user entry, two images. */}
       <For each={props.store.state.entries}>
         {(envelope) => (
-          <TranscriptEntry envelope={envelope} sessionId={props.store.state.sessionId} />
+          <TranscriptEntry
+            envelope={envelope}
+            sessionId={props.store.state.sessionId}
+            menu={{ openFor: menuFor, toggle: toggleMenu, send: props.send }}
+          />
         )}
       </For>
     </section>
@@ -487,11 +498,23 @@ function ModelPicker(props: { store: ClientStore; send: Send; onClose: () => voi
   };
   // A refresh asks the registry to rediscover. The button stays busy until
   // the store's `refreshing` flag clears — which a pushed `model_rows`
-  // frame does when discovery lands.
+  // frame does when discovery lands. The press is also gated by a plain
+  // flag: store writes are batched, so a second click in the same tick
+  // would still read `refreshing` as false and send a second refresh.
+  let pressing = false;
   const refresh = (): void => {
+    if (pressing || props.store.state.refreshing) return;
+    pressing = true;
     props.store.set((s) => { s.refreshing = true; });
     props.send({ type: 'refresh_models' });
   };
+  // The pushed rows that clear the store's busy state re-arm the press.
+  createEffect(
+    () => props.store.state.refreshing,
+    (refreshing) => {
+      if (!refreshing) pressing = false;
+    },
+  );
   const refreshing = (): boolean => props.store.state.refreshing;
   return (
     <div class="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) props.onClose(); }}>
@@ -521,9 +544,9 @@ function ModelPicker(props: { store: ClientStore; send: Send; onClose: () => voi
             {(row) => (
               <li>
                 <button data-testid="model-row" disabled={!row.is_available} onClick={() => pick(row)}>
-                  <span class="session-title">{row.model}</span>
+                  <span class="session-title"><Runs runs={row.model_runs} /></span>
                   <span class="session-meta">
-                    {row.provider_name}
+                    <Runs runs={row.provider_runs} />
                     <Show when={row.is_active}> · current</Show>
                     <Show when={!row.is_available}> · unavailable</Show>
                   </span>

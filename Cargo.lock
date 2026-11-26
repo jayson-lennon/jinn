@@ -6146,6 +6146,7 @@ dependencies = [
  "jinn-skills-msg",
  "jinn-slices",
  "jinn-testutil",
+ "jinn-theme",
  "jinn-tools-msg",
  "jinn-turn-dispatch-msg",
  "jinn-webui2-msg",
