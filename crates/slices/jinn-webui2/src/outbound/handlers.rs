@@ -486,6 +486,77 @@ pub(crate) fn mcp_runtime_stored(handle: &super::OutboundHandle) {
     }
 }
 
+impl MsgHandler<jinn_applets_msg::AppletsRescanned> for OutboundActor {
+    async fn handle(&mut self, msg: &jinn_applets_msg::AppletsRescanned, _ctx: &mut MsgCtx<'_>) {
+        applets_rescanned(&self.handle, &msg.catalog);
+    }
+}
+
+impl MsgHandler<jinn_applets_msg::AppletsServingChanged> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_applets_msg::AppletsServingChanged,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        applets_serving_changed(&self.handle, msg.serving, &msg.bind);
+    }
+}
+
+/// Turns one `AppletsRescanned` into the frame an open applets modal needs.
+///
+/// The list comes from the **event's own catalog**, never the cell. The
+/// applets slice's republisher is a second subscriber to this same event and
+/// is the one that writes the catalog cell — and delivery to two subscribers
+/// is unordered, so a handler that read the cell could run first and push
+/// the pre-rescan list. The event is the fact, in order. The serving phase
+/// does ride the cell here: a rescan never changes it, so the cell is
+/// current by construction.
+///
+/// With no applets modal open (no filter remembered) nothing is pushed.
+/// A free function over the handle so a test drives the real push, with
+/// nothing spawned.
+pub(crate) fn applets_rescanned(
+    handle: &super::OutboundHandle,
+    catalog: &jinn_applets_msg::AppletsCatalog,
+) {
+    let Some(filter) = handle.applet_filter() else {
+        return;
+    };
+    let (serving, bind) = serving_from_cell(handle);
+    handle.broadcast(&jinn_webui2_msg::ServerMsg::AppletRows(
+        crate::actions::applet_rows_body(catalog, serving, &bind, &filter),
+    ));
+}
+
+/// Turns one `AppletsServingChanged` into the frame an open applets modal
+/// needs: the phase from the **event**, the list from the catalog cell.
+///
+/// The mirror of [`applets_rescanned`]. The serving fact carries no catalog,
+/// and a serving transition never changes the list, so the cell is the right
+/// source for it — the same reasoning, read the other way round.
+pub(crate) fn applets_serving_changed(handle: &super::OutboundHandle, serving: bool, bind: &str) {
+    let Some(filter) = handle.applet_filter() else {
+        return;
+    };
+    let catalog = handle.applets_catalog_cell().read().clone();
+    handle.broadcast(&jinn_webui2_msg::ServerMsg::AppletRows(
+        crate::actions::applet_rows_body(&catalog, serving, bind, &filter),
+    ));
+}
+
+/// The applets server's serving phase as the picker cell holds it: the
+/// resolved bind while serving, `(false, "")` while offline. The guard is
+/// cloned and dropped inside the block.
+fn serving_from_cell(handle: &super::OutboundHandle) -> (bool, String) {
+    let picker = handle.applets_picker_cell().read();
+    picker
+        .serving
+        .as_ref()
+        .map_or((false, String::new()), |address| {
+            (true, address.bind.clone())
+        })
+}
+
 /// One flush: reads every streaming field and emits its unsent suffix.
 ///
 /// A free function over the handle so the tick's behaviour is driven

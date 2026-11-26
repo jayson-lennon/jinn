@@ -74,6 +74,11 @@ pub struct OutboundActorDeps {
     pub personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
     /// The MCP slice's runtime cell: the live connection status projection.
     pub mcp_runtime_cell: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
+    /// The applets slice's catalog cell: the saved-app list the store actor
+    /// rescans into it.
+    pub applets_catalog_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
+    /// The applets slice's picker cell, read for the server's serving phase.
+    pub applets_picker_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
     /// The live configuration layer, for the `[mcp.<name>]` catalog.
     pub config: jinn_config::ConfigLayer,
 }
@@ -108,6 +113,10 @@ pub struct OutboundHandle {
     /// discovery push can answer with the view the page is holding. The
     /// dispatch records it; the actor reads it.
     row_filters: Arc<Mutex<std::collections::HashMap<(SessionId, RowsKind), String>>>,
+    /// The filter the applets modal last asked for, or `None` while no modal
+    /// has asked. Not keyed by session: the saved-app catalog is
+    /// instance-wide, so there is one open applets view, not one per session.
+    applet_filter: Arc<Mutex<Option<String>>>,
     /// The queue depth each session's pages were last told, so the tick
     /// pushes a frame only when the depth has actually changed.
     told_queue_lens: Arc<Mutex<std::collections::HashMap<SessionId, usize>>>,
@@ -152,13 +161,27 @@ impl OutboundHandle {
             .map(|((session_id, _), filter)| (session_id.clone(), filter.clone()))
             .collect()
     }
+
+    /// Records the filter the applets modal last asked for — the one a later
+    /// catalog or serving push answers in.
+    pub(crate) fn remember_applet_filter(&self, filter: &str) {
+        *self.applet_filter.lock() = Some(filter.to_owned());
+    }
+
+    /// The filter the applets modal last asked for, or `None` while no modal
+    /// has asked since the handle was built.
+    #[must_use]
+    pub(crate) fn applet_filter(&self) -> Option<String> {
+        self.applet_filter.lock().clone()
+    }
 }
 
 mod handlers;
 
 #[cfg(test)]
 pub(crate) use handlers::{
-    archive_failed, flush, follow_active_session, library_membership_changed, mcp_runtime_stored,
+    applets_rescanned, applets_serving_changed, archive_failed, flush,
+    follow_active_session, library_membership_changed, mcp_runtime_stored,
     model_cache_stored, reconcile, sessions_changed, skills_loaded,
 };
 
@@ -209,6 +232,7 @@ impl OutboundHandle {
             deps,
             sent: Arc::new(Mutex::new(handlers::SentLengths::default())),
             row_filters: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            applet_filter: Arc::new(Mutex::new(None)),
             told_queue_lens: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
@@ -297,6 +321,22 @@ impl OutboundHandle {
         &self.deps.mcp_runtime_cell
     }
 
+    /// The applets slice's catalog cell (the saved-app list).
+    #[must_use]
+    pub fn applets_catalog_cell(
+        &self,
+    ) -> &jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog> {
+        &self.deps.applets_catalog_cell
+    }
+
+    /// The applets slice's picker cell (the server's serving phase).
+    #[must_use]
+    pub fn applets_picker_cell(
+        &self,
+    ) -> &jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState> {
+        &self.deps.applets_picker_cell
+    }
+
     /// The live configuration layer (the `[mcp.<name>]` catalog).
     #[must_use]
     pub fn config(&self) -> &jinn_config::ConfigLayer {
@@ -345,6 +385,14 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         .handles::<jinn_session_msg::SessionArchived>()
         // A failed archive keeps the session live; the page is told why.
         .handles::<jinn_session_msg::SessionArchiveFailed>()
+        // The applets slice rescanned its catalog, or its server changed
+        // phase: an open applets modal receives fresh rows. Both are Events
+        // (broadcast), so a second declarant beside the applets slice's own
+        // republisher is the normal case. The rescanned handler reads the
+        // event's catalog, never the cell — the republisher writes the cell
+        // in its own handler and delivery to two subscribers is unordered.
+        .handles::<jinn_applets_msg::AppletsRescanned>()
+        .handles::<jinn_applets_msg::AppletsServingChanged>()
         // The instance's active session moved — from this page, another
         // page, the TUI, or a subagent. Every page follows with a
         // snapshot. Never `SessionCreated`: that has several publishers,

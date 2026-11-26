@@ -241,6 +241,7 @@ fixed column drawn here, and the `#` is not shown.
 | `⋮` on a session row | The row's menu. **add to library** / **remove from library** moves the session to the other list; **archive** archives that session. | `webui2.md` |
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui2.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui2.md` |
+| **Loading session…** card | A full-page overlay with a spinner, raised the instant a session row or an Archive row is picked and cleared when that session arrives. Covers everything; `Esc` does not close it. | `webui2.md` |
 | `●` after a session title | That session's turn is running. | `webui2.md` |
 | The session title | Click to rename in place: `Enter` commits, `Esc` cancels. | `webui2.md` |
 | `[provider/model]` | The model chip. Opens the model picker; its **Refresh models** button asks the registry to rediscover and stays busy until the fresh rows land. | `webui2.md` |
@@ -250,8 +251,10 @@ fixed column drawn here, and the `#` is not shown.
 | `[+]` | Attach an image. Opens the file picker. | `webui2.md` |
 | `[Q]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
 | `[Send]` (while idle) | Send the message. | `webui2.md` |
-| `☰` | The menu button. Opens a full-height slide-in panel over a scrim. **New session** is its first item and the **Light | Dark | System** color mode group its last, at every time; **Sessions** sits just above the group, and between the first item and **Sessions**, while a session is active, **Archive session**, **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — **Archive session** archives the session in view, and each picker opens its modal. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
+| `☰` | The menu button. Opens a full-height slide-in panel over a scrim. **New session** is its first item and the **Light | Dark | System** color mode group its last, at every time; **Sessions** sits just above the group; **Applets** sits just above **Sessions**, at every time; and between the first item and **Applets**, while a session is active, **Archive session**, **Skills**, **Persona**, **Tools**, **MCP servers**, in that order — **Archive session** archives the session in view, and each picker opens its modal. A scrim click, `Esc`, or picking an item closes it. | `webui2.md` |
 | **Archive session** (menu) | Archives the session in view. Its row leaves the rail and the page moves to another session; a session running a turn is refused with a toast. | `webui2.md` |
+| **Applets** (menu) | A modal over the saved applets, newest first, each a new-tab link while the applets server is serving and a disabled line while it is offline; a status line names the serving bind, and a filter narrows by title. | `webui2.md` |
+| `serving http://<bind>` / `<server offline>` | The applets modal's status line: where the applets server is reachable, or that it is down (rows disabled). | `webui2.md` |
 | **New session** (menu) | A modal with a Project select, a Lifecycle select, **Setup arguments** when the lifecycle declares any, and **Create session**. The new session becomes active and the page moves to it. | `webui2.md` |
 | **Light | Dark | System** (menu) | The color mode. Saved to `state.toml`; **System** follows the browser. | `webui2.md` |
 | `#` (phone only) | Below 768px, at the title bar's left. Opens the sidebar as an off-canvas drawer; a scrim tap, `Esc`, or picking a row closes it. | `webui2.md` |

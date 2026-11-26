@@ -10,8 +10,8 @@ element to it; this file holds only what the TUI has no counterpart for.
 This is the page at `/web`. A second browser page is served at `/web2`
 (see `webui2.md`); this file is about `/web`. `/web2` covers the core
 loop and what hangs off it — sessions and the library, images, themes,
-model refresh, and creating a session — and leaves out `/web`'s applets,
-sources disclosure, and its archive and teardown gestures.
+model refresh, creating a session, and the applets picker — and leaves
+out `/web`'s sources disclosure and its archive and teardown gestures.
 
 ## Open it
 

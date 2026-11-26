@@ -50,6 +50,10 @@ build an applet from scratch. Either way:
   instead — `{url}`, `{profile}`, `{id}`, and `{title}` are substituted
   into your command verbatim). `<c-r>` renames, `<c-d>` deletes (removes
   the saved copy for good), `<esc>` closes.
+- In `/web2`, the menu's **Applets** item opens the same picker as a
+  filterable list: each row is a new-tab link to the applet while the
+  applets server is serving, and disabled while it is offline. Rename,
+  delete, and kiosk are the TUI's.
 - An applet is a **snapshot**: later improvements to the canvas page it
   came from never change it, and it does not live-reload. Ask the agent
   to re-promote (a fresh copy) when you want the improvements.

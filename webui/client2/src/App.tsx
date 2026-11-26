@@ -6,15 +6,16 @@
 // updates when the store does, and every gesture leaves through the one
 // socket.
 
-import { For, Show, Switch, Match, createEffect, createRenderEffect, createSignal } from 'solid-js';
+import { For, Show, Switch, Match, createEffect, createRenderEffect, createSignal, onCleanup } from 'solid-js';
 import { render } from '@solidjs/web';
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg, ModelRow } from './protocol';
-import { type ClientStore, apply, newestEntryId, createStore } from './store';
+import { type ClientStore, apply, clearSessionLoad, newestEntryId, createStore, pushToast } from './store';
 import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry } from './transcript';
 import { Menu, type MenuItem, type MenuGroup } from './menu';
 import { SkillsModal } from './skills';
+import { AppletsModal } from './applets';
 import { McpModal, PersonaModal, ToolsModal } from './pickers';
 import { Composer } from './composer';
 import { SessionRail } from './rail';
@@ -26,6 +27,18 @@ type Send = (msg: ClientMsg) => void;
 
 /** Debounce for filter keystrokes, so typing does not request per key. */
 const FILTER_DEBOUNCE_MS = 150;
+
+/**
+ * How long a requested session load may go unanswered before the page gives
+ * up on it: the overlay clears and the stall is named. An in-memory switch
+ * answers in milliseconds; a disk read takes longer; and a request that never
+ * answers means the socket is dead or the server is wedged — an overlay that
+ * can never clear is the one outcome the timeout exists to rule out.
+ */
+const SESSION_LOAD_STALL_MS = 10_000;
+
+/** What the composer shows when a session load times out. */
+const SESSION_LOAD_STALL_MESSAGE = 'Session switch timed out. The session did not load.';
 
 export function App(): JSX.Element {
   const store = createStore();
@@ -100,6 +113,20 @@ export function App(): JSX.Element {
     send({ type: 'new_session_options' });
     setNewSessionOpen(true);
   };
+  // The applets modal opens like the pickers: drop any rows a previous
+  // opening left behind, ask for the unfiltered rows, and mount. The ask
+  // also asks the applets slice to rescan and to wake its server, so the
+  // first rows may be stale and the fresh catalog arrives as a push.
+  const [appletsOpen, setAppletsOpen] = createSignal(false);
+  const onAppletFilter = useFilter(store, 'appletFilter', send, (filter) => ({ type: 'applet_rows', filter }));
+  const openApplets = (): void => {
+    store.set((s) => {
+      s.appletFilter = '';
+      s.appletRows = [];
+    });
+    send({ type: 'applet_rows', filter: '' });
+    setAppletsOpen(true);
+  };
   // Whether the phone's session drawer is slid in. The page owns it:
   // both the title bar's `#` and the menu's Sessions item open it, and a
   // picked row closes it.
@@ -109,8 +136,11 @@ export function App(): JSX.Element {
   };
 
   // The items are in panel order: New session first, then Archive session
-  // and the pickers (only while a session is active), then Sessions; the
-  // color-mode group comes after every item, last.
+  // and the pickers (only while a session is active), then Applets, then
+  // Sessions; the color-mode group comes after every item, last. Applets
+  // sits outside the session gate because the saved-app catalog is
+  // instance-wide: it has nothing to do with the session, so it is listed
+  // on every page.
   const archiveSession = (): void => {
     const id = store.state.sessionId;
     if (id !== null) send({ type: 'archive_session', session_id: id });
@@ -126,6 +156,7 @@ export function App(): JSX.Element {
           { id: 'tools', label: 'Tools', run: openTools },
           { id: 'mcp', label: 'MCP servers', run: openMcp },
         ]),
+    { id: 'applets', label: 'Applets', run: openApplets },
     { id: 'sessions', label: 'Sessions', run: openDrawer },
   ];
   const menuGroups = (): MenuGroup[] => [
@@ -155,6 +186,33 @@ export function App(): JSX.Element {
       mirrorTheme(theme);
     },
   );
+
+  // The session-load stall timeout. The store's loading id is the cause of
+  // the overlay, and this effect watches it: a non-null id arms one timer
+  // for the wait, and any later run — the id cleared by a snapshot or a
+  // refusal, or replaced by a newer request — clears the timer first, so a
+  // timer never fires for a load that already ended.
+  let stallTimer: number | null = null;
+  createEffect(
+    // Compute (tracked): which session the page is waiting on.
+    () => store.state.loadingSessionId,
+    // Effect (untracked): arm or clear the timer.
+    (loadingId) => {
+      if (stallTimer !== null) {
+        window.clearTimeout(stallTimer);
+        stallTimer = null;
+      }
+      if (loadingId === null) return;
+      stallTimer = window.setTimeout(() => {
+        stallTimer = null;
+        clearSessionLoad(store);
+        pushToast(store, SESSION_LOAD_STALL_MESSAGE);
+      }, SESSION_LOAD_STALL_MS);
+    },
+  );
+  onCleanup(() => {
+    if (stallTimer !== null) window.clearTimeout(stallTimer);
+  });
 
   return (
     <div class={`app${connection() === 'open' ? '' : ' disconnected'}`}>
@@ -239,9 +297,33 @@ export function App(): JSX.Element {
           }}
         />
       </Show>
+      <Show when={appletsOpen()}>
+        <AppletsModal
+          rows={store.state.appletRows}
+          filter={store.state.appletFilter}
+          serving={store.state.appletServing.serving}
+          bind={store.state.appletServing.bind}
+          onFilter={onAppletFilter}
+          onClose={() => {
+            setAppletsOpen(false);
+          }}
+        />
+      </Show>
+      {/* Raised by the page when it asks for a session. Nothing dismisses it
+          — no click handler, no key handler: it ends when the load ends, by
+          the requested session's snapshot, a refusal, or the stall timeout. */}
+      <Show when={store.state.loadingSessionId !== null}>
+        <div class="session-load-overlay" role="status" aria-live="polite" data-testid="session-load-overlay">
+          <div class="session-load-card">
+            <span class="spinner" aria-hidden="true" />
+            <span class="session-load-label">Loading session…</span>
+          </div>
+        </div>
+      </Show>
       <Show when={connection() !== 'open'}>
         <div class="overlay" role="status" aria-live="polite" data-testid="overlay">
-          {connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}
+          <span class="spinner" aria-hidden="true" />
+          <span>{connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}</span>
         </div>
       </Show>
       <Toasts store={store} />
@@ -384,7 +466,7 @@ function TitleBar(props: {
 
 /** A debounced filter request; the store holds the filter so a stale
  *  answer (to text the user has typed past) can be recognised and dropped. */
-function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter' | 'skillFilter' | 'toolFilter' | 'mcpFilter' | 'personaFilter', send: Send, request: (filter: string) => ClientMsg) {
+function useFilter(store: ClientStore, key: 'pickerFilter' | 'modelFilter' | 'skillFilter' | 'toolFilter' | 'mcpFilter' | 'personaFilter' | 'appletFilter', send: Send, request: (filter: string) => ClientMsg) {
   let timer: number | null = null;
   return (value: string): void => {
     store.set((s) => { s[key] = value; });
