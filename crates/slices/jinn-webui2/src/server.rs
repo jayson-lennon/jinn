@@ -317,6 +317,7 @@ mod attachment_route_tests {
                 bus,
                 connections: crate::connections::ConnectionRegistry::default(),
                 revisions: crate::revision::RevisionTracker::default(),
+                settles: crate::settle::SettleTracker::default(),
                 session_store: jinn_session_state::SessionStoreService::new(Arc::new(
                     jinn_kernel::common::services::test_services::FakeSessionStore,
                 )),

@@ -6,7 +6,7 @@
 //! a snapshot is always a read of the current state, so a reconnect can
 //! never resume onto stale data.
 
-use crate::revision::RevisionTracker;
+use crate::{revision::RevisionTracker, settle::SettleTracker};
 use jinn_core_types::SessionId;
 use jinn_kernel::{State, StateReadGuard};
 use jinn_webui2_msg::{
@@ -18,11 +18,15 @@ const UNTITLED: &str = "Untitled Session";
 
 /// Reads the current snapshot out of state, stamped with the session's revision.
 #[must_use]
-pub fn snapshot(state: &State, revisions: &RevisionTracker) -> SnapshotBody {
+pub fn snapshot(
+    state: &State,
+    revisions: &RevisionTracker,
+    settles: &SettleTracker,
+) -> SnapshotBody {
     let guard = state.read();
     let active_id = guard.session.active_session_id().clone();
     let active = guard.session.get(&active_id);
-    let (sessions, library) = rows_from(&guard, &active_id);
+    let (sessions, library) = rows_from(&guard, &active_id, settles);
     let revision = revisions.current(&active_id);
     let theme = persisted_theme(&guard);
 
@@ -73,6 +77,7 @@ pub fn snapshot(state: &State, revisions: &RevisionTracker) -> SnapshotBody {
 fn rows_from(
     guard: &StateReadGuard<'_>,
     active_id: &SessionId,
+    settles: &SettleTracker,
 ) -> (Vec<SessionRowBody>, Vec<SessionRowBody>) {
     let mut sessions = Vec::new();
     let mut library = Vec::new();
@@ -83,6 +88,7 @@ fn rows_from(
             is_active: id == active_id,
             is_busy: session.phase().is_working(),
             in_library: session.in_library(),
+            last_settled_at: settles.last_settled(id),
         };
         if session.in_library() {
             library.push(row);
@@ -105,8 +111,11 @@ pub fn persisted_theme(guard: &StateReadGuard<'_>) -> String {
 
 /// Reads the loaded-session rows on their own (for a `Sessions` push).
 #[must_use]
-pub fn session_rows(state: &State) -> (Vec<SessionRowBody>, Vec<SessionRowBody>) {
+pub fn session_rows(
+    state: &State,
+    settles: &SettleTracker,
+) -> (Vec<SessionRowBody>, Vec<SessionRowBody>) {
     let guard = state.read();
     let active_id = guard.session.active_session_id().clone();
-    rows_from(&guard, &active_id)
+    rows_from(&guard, &active_id, settles)
 }

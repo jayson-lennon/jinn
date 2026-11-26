@@ -24,7 +24,7 @@ use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
 use trouper::context::MsgCtx;
 use trouper::system::ActorSystem;
 
-use crate::{connections::ConnectionRegistry, revision::RevisionTracker};
+use crate::{connections::ConnectionRegistry, revision::RevisionTracker, settle::SettleTracker};
 
 /// The name the outbound actor is spawned under.
 pub const OUTBOUND_ACTOR_NAME: &str = "webui2-outbound";
@@ -64,6 +64,8 @@ pub struct OutboundActorDeps {
     pub connections: ConnectionRegistry,
     /// The per-session history revisions.
     pub revisions: RevisionTracker,
+    /// When each session last landed on Idle — stamped on every session row.
+    pub settles: SettleTracker,
     /// The provider registry and API keys the model picker's rows are built from.
     pub services: jinn_kernel::Services,
     /// The provider slice's cell: the last known model cache.
@@ -181,8 +183,8 @@ mod handlers;
 #[cfg(test)]
 pub(crate) use handlers::{
     applets_rescanned, applets_serving_changed, archive_failed, flush, follow_active_session,
-    library_membership_changed, mcp_runtime_stored, model_cache_stored, pin_changed, reconcile,
-    sessions_changed, skills_loaded,
+    library_membership_changed, mcp_runtime_stored, model_cache_stored, phase_changed, pin_changed,
+    reconcile, sessions_changed, skills_loaded,
 };
 
 /// The outbound actor.
@@ -276,6 +278,12 @@ impl OutboundHandle {
     #[must_use]
     pub fn revision(&self, session_id: &SessionId) -> u64 {
         self.deps.revisions.current(session_id)
+    }
+
+    /// When each session last landed on Idle, for the session rows.
+    #[must_use]
+    pub fn settles(&self) -> &SettleTracker {
+        &self.deps.settles
     }
 
     /// Records that a session's history changed; returns the new revision.

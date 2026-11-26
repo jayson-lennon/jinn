@@ -11,6 +11,7 @@
 
 import { test as base, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { bootJinn, restartJinn, scratchApplet, scratchSkill, teardownJinn } from "./harness.mjs";
@@ -85,6 +86,8 @@ export const sel = {
   ROW_WRAP: (id) => `[data-testid="session-row-wrap"][data-session-id="${id}"]`,
   /** The title bar's `#`, shown only below 768px. */
   SESSIONS_BUTTON: '[data-testid="sessions-button"]',
+  /** The unread count on that button, present only while it is nonzero. */
+  SESSIONS_BUTTON_COUNT: '[data-testid="sessions-button-count"]',
   /** The off-canvas rail's scrim. */
   DRAWER_SCRIM: '[data-testid="drawer-scrim"]',
   RAIL: '[data-testid="rail"]',
@@ -289,6 +292,53 @@ export async function archiveThroughRowMenu(page, sessionId) {
 /** The id of the session the page is viewing, or null when none is. */
 export async function viewedSessionId(page) {
   return page.locator(sel.ACTIVE_SESSION_ROW).getAttribute("data-session-id");
+}
+
+/**
+ * One rail row's button, by session id. The wrapper carries the id so
+ * the lookup never matches a row from another session.
+ *
+ * @param {import('@playwright/test').Page} page the test's own page.
+ * @param {string} sessionId the row's session.
+ */
+export function rowOf(page, sessionId) {
+  return page.locator(`${sel.ROW_WRAP(sessionId)} ${sel.SESSION_ROW}`);
+}
+
+/**
+ * Runs a turn in a session the page is not viewing, without touching
+ * which session is active.
+ *
+ * Every `/web2` page follows the instance's active session, so a page
+ * cannot drive a background session itself: opening it would switch the
+ * instance. This goes around the page, through the instance's loopback
+ * control surface. The scratch instance binds it on an OS-assigned
+ * port and registers that port in its instance registry; the request
+ * is `POST /send`, which queues the text onto a live session, and a
+ * queue onto an idle session starts its turn at once.
+ *
+ * Returns once the instance acknowledges the request, not once the turn
+ * ends — the caller waits for the settle it expects to see.
+ *
+ * @param {{ root: string }} jinn the test's own instance.
+ * @param {string} sessionId the session to run the turn in.
+ * @returns {Promise<void>}
+ */
+export async function startBackgroundTurn(jinn, sessionId) {
+  const registryPath = path.join(jinn.root, "state", "jinn", "remote-instances.json");
+  const entries = JSON.parse(await fs.readFile(registryPath, "utf8"));
+  const entry = entries.find((candidate) => candidate.cwd.startsWith(jinn.root));
+  if (entry === undefined) {
+    throw new Error(`startBackgroundTurn: no instance under ${jinn.root} in ${registryPath}`);
+  }
+  const response = await fetch(`http://127.0.0.1:${entry.port}/send`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, text: SLOW_PROMPT }),
+  });
+  if (!response.ok) {
+    throw new Error(`startBackgroundTurn: /send answered ${response.status}`);
+  }
 }
 
 /**

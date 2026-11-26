@@ -61,6 +61,9 @@ axum = { version = "0.8", features = ["ws"] }
 fuzzy-matcher = "0.3"
 # `MarkedPathAccess` names a session project by its directory, as the TUI picker does.
 marked-path = { workspace = true }
+# Session rows carry each session's last settle-to-Idle time as the core
+# `Timestamp` — the phase event's own type.
+jiff = { workspace = true }
 trouper = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -84,8 +87,6 @@ rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 # Tests resolve the provider cell from the same catalog boot registers it in.
 jinn-cell-catalog = { workspace = true }
-# Test sessions carry the store's own timestamp type.
-jiff = { workspace = true }
 # The tree tests build picker entries, which carry a theme the rows never
 # read on this surface.
 jinn-theme = { workspace = true }

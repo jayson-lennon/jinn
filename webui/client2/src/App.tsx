@@ -22,6 +22,7 @@ import { SessionRail } from './rail';
 import { NewSessionModal } from './new-session';
 import { Toasts } from './toast';
 import { applyTheme, mirrorTheme } from './theme';
+import { unreadCount } from './unread';
 
 type Send = (msg: ClientMsg) => void;
 
@@ -519,21 +520,30 @@ function TitleBar(props: {
     props.send({ type: 'model_rows', filter: '' });
     setPicker(true);
   };
+  // Across both lists: the number on the button is the number of marked
+  // rows the drawer holds, wherever they are.
+  const unread = (): number =>
+    unreadCount(props.store.state.sessions, props.store.state.library, props.store.state.lastSeen);
 
   return (
     <header class="title-bar">
       {/* Left of the hamburger, and only at phone widths: there the rail is an
-          off-canvas drawer and this is what opens it. */}
+          off-canvas drawer and this is what opens it. Marked like /web's
+          button: a gold fill and the count of sessions that settled
+          unseen, so a phone user knows the drawer is worth opening. */}
       <button
         type="button"
-        class="sessions-button"
+        class={`sessions-button${unread() > 0 ? ' unread' : ''}`}
         data-testid="sessions-button"
-        aria-label="Sessions"
+        aria-label={unread() > 0 ? `Sessions, ${unread()} unread` : 'Sessions'}
         aria-expanded={props.drawerOpen() ? 'true' : 'false'}
         aria-controls="session-rail"
         onClick={props.openDrawer}
       >
         #
+        <Show when={unread() > 0}>
+          <span class="sessions-button-count" data-testid="sessions-button-count">{unread()}</span>
+        </Show>
       </button>
       <Menu items={props.menuItems} groups={props.menuGroups} />
       <Switch>

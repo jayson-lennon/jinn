@@ -13,6 +13,7 @@
 import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientStore } from './store';
+import { isUnread, listHasUnread } from './unread';
 import { Runs } from './pickers';
 import { beginSessionLoad } from './store';
 
@@ -99,6 +100,12 @@ export function SessionRail(props: RailProps): JSX.Element {
   const rows = (): import('./protocol').SessionRow[] =>
     props.store.state.railView === 'library' ? props.store.state.library : props.store.state.sessions;
 
+  // A tab is marked when its own list holds an unread row, so the mark
+  // always points at a row the user can find by selecting the tab.
+  const sessionsTabUnread = (): boolean => listHasUnread(props.store.state.sessions, props.store.state.lastSeen);
+  const libraryTabUnread = (): boolean => listHasUnread(props.store.state.library, props.store.state.lastSeen);
+
+
   return (
     <>
       <div
@@ -111,7 +118,7 @@ export function SessionRail(props: RailProps): JSX.Element {
           <button
             type="button"
             role="tab"
-            class="rail-tab"
+            class={`rail-tab${sessionsTabUnread() ? ' unread' : ''}`}
             data-testid="sessions-view"
             aria-selected={props.store.state.railView === 'sessions' ? 'true' : 'false'}
             onClick={() => props.store.set((s) => { s.railView = 'sessions'; })}
@@ -121,7 +128,7 @@ export function SessionRail(props: RailProps): JSX.Element {
           <button
             type="button"
             role="tab"
-            class="rail-tab"
+            class={`rail-tab${libraryTabUnread() ? ' unread' : ''}`}
             data-testid="library-view"
             aria-selected={props.store.state.railView === 'library' ? 'true' : 'false'}
             onClick={() => props.store.set((s) => { s.railView = 'library'; })}
@@ -138,7 +145,7 @@ export function SessionRail(props: RailProps): JSX.Element {
               <li>
                 <div class="session-row" data-testid="session-row-wrap" data-session-id={row.session_id}>
                   <button
-                    class={`session${row.is_active ? ' active' : ''}`}
+                    class={`session${row.is_active ? ' active' : ''}${isUnread(row, props.store.state.lastSeen) ? ' unread' : ''}`}
                     data-testid="session-row"
                     data-session-id={row.session_id}
                     onClick={() => activate(row.session_id)}

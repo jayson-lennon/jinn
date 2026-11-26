@@ -243,6 +243,8 @@ fixed column drawn here, and the `#` is not shown.
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui2.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui2.md` |
 | **Loading session…** card | A full-page overlay with a spinner, raised the instant a session row or an Archive row is picked and cleared when that session arrives. Covers everything; `Esc` does not close it. | `webui2.md` |
+| A gold session row | That session finished a turn while the page viewed another one. Viewing it clears the mark. | `webui2.md` |
+| A gold Sessions / Library tab | Its list holds an unread session, so the mark is never behind the other list. | `webui2.md` |
 | `●` after a session title | That session's turn is running. | `webui2.md` |
 | The session title | Click to rename in place: `Enter` commits, `Esc` cancels. | `webui2.md` |
 | `[provider/model]` | The model chip. Opens the model picker; its **Refresh models** button asks the registry to rediscover and stays busy until the fresh rows land. | `webui2.md` |
@@ -262,7 +264,7 @@ fixed column drawn here, and the `#` is not shown.
 | `serving http://<bind>` / `<server offline>` | The applets modal's status line: where the applets server is reachable, or that it is down (rows disabled). | `webui2.md` |
 | **New session** (menu) | A modal with a Project select, a Lifecycle select, **Setup arguments** when the lifecycle declares any, and **Create session**. The new session becomes active and the page moves to it. | `webui2.md` |
 | **Light | Dark | System** (menu) | The color mode. Saved to `state.toml`; **System** follows the browser. | `webui2.md` |
-| `#` (phone only) | Below 768px, at the title bar's left. Opens the sidebar as an off-canvas drawer; a scrim tap, `Esc`, or picking a row closes it. | `webui2.md` |
+| `#` (phone only) | Below 768px, at the title bar's left. Opens the sidebar as an off-canvas drawer; a scrim tap, `Esc`, or picking a row closes it. Gold with a count while sessions are unread. | `webui2.md` |
 | The skills modal | A filter bar and the session's discovered skills — a `●` / `○` mark, name, description, a `project` badge on project skills, and a `+`. A row click toggles at once; `+` loads the body into context. | `webui2.md` |
 | The tools modal | A filter bar and one row per tool the session's registry offers — a `✓` (enabled) / `✗` (disabled) mark, the name, the description's first sentence. A row click commits at once and the modal stays open; dismissing does not revert. | `webui2.md` |
 | The MCP servers modal | A filter bar and one row per `[mcp.<name>]` in `jinn.toml` — a `●` (enabled) / `○` (disabled) mark, the name, the launch summary, and a status badge: `off`, `starting`, `running`, `dead`. A row click toggles at once; the badge updates live. | `webui2.md` |
@@ -298,6 +300,7 @@ fixed column drawn here, and the `#` is not shown.
 | A blue or yellow session row, a spinning row, `⋮` | Web UI sidebar |
 | The browser page's Send / `Q` / Cancel buttons | Web UI composer |
 | The `/web2` page's Archive button, title, model chip | Web UI 2 (`/web2`) title bar and sidebar |
+| The `/web2` page's unread session mark — gold row, gold tab, phone `#` count | Web UI 2 (`/web2`) sidebar and title bar |
 | The `/web2` page's Send / `Q` / Cancel buttons | Web UI 2 (`/web2`) composer |
 | The `/web2` page's `☰` button and its menu | Web UI 2 (`/web2`) title bar and menu |
 | The `/web2` page's skills list — filter, `●` / `○` marks, `+` | Web UI 2 (`/web2`) skills modal |
