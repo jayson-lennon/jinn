@@ -392,13 +392,44 @@ function citationTitle(citation: { url?: string; title?: string }): string {
   return citation.title || '(untitled)';
 }
 
+/**
+ * The interrupt body with its prompt wrapper taken off.
+ *
+ * A rule interrupt's body is the text the model reads, wrapped in a
+ * `<system-interrupt>` tag whose attributes name the reason and the rule.
+ * The wrapper is prompt machinery: the page shows the rule as the block's
+ * header and the reason as a label, so neither is left in the prose. A body
+ * without the wrapper is returned as it is, with no reason.
+ */
+export function parseInterruptBody(body: string): { text: string; reason: string | null } {
+  const match = /^\s*<system-interrupt\b([^>]*)>([\s\S]*?)<\/system-interrupt>\s*$/i.exec(body);
+  if (match === null) return { text: body, reason: null };
+  const attrs = match[1] ?? '';
+  const reason = /\breason="([^"]*)"/i.exec(attrs)?.[1] ?? null;
+  return { text: (match[2] ?? '').trim(), reason };
+}
+
+/**
+ * Guidance the harness injected mid-turn, as a warning-tinted block.
+ *
+ * Collapsed to its header by default: an interrupt explains why a turn
+ * changed course, which is worth a line in the transcript but not the whole
+ * message until the reader asks for it. The header names the rule that
+ * fired, the label gives the reason, and the body is the guidance itself.
+ */
 function RuleInterruptView(props: { value: unknown; entryId: string }): JSX.Element {
   const data = () => props.value as { rule?: string; body?: string } | undefined;
+  const parsed = () => parseInterruptBody(data()?.body ?? '');
   return (
-    <div class="entry-body">
-      <span class="entry-role">rule · {data()?.rule}</span>
-      <div class="entry-prose" innerHTML={renderMarkdown(data()?.body ?? '', props.entryId)} />
-    </div>
+    <details class="entry-body rule-interrupt">
+      <summary>
+        <span class="interrupt-rule">⚡ Rule fired: {data()?.rule}</span>
+        <Show when={parsed().reason !== null}>
+          <span class="interrupt-reason"> · {parsed().reason}</span>
+        </Show>
+      </summary>
+      <div class="entry-prose" innerHTML={renderMarkdown(parsed().text, props.entryId)} />
+    </details>
   );
 }
 
