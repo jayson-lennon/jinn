@@ -380,8 +380,34 @@ body { background: var(--bg); color: var(--fg); }
 .entry-status { margin-left: 8px; font-size: 11px; color: var(--fg-faint); }
 .result-failure .entry-status { color: var(--danger); }
 .entry-note { color: var(--fg-faint); font-size: 12px; }
-.citations { margin: 0; padding-left: 18px; font-size: 13px; }
-.citations a { color: var(--accent); }
+
+/* ---- the Sources disclosure ---- */
+/* A web-search entry's citations, collapsed to their count like a tool
+   block. Each row is a linked title with its address beside it in muted
+   text, so a reader can see where a claim came from without opening it. */
+.sources summary { cursor: pointer; color: var(--fg-dim); }
+.sources summary:hover { color: var(--fg); }
+.citation { margin: 4px 0 0; font-size: 13px; }
+.citation-title { color: var(--accent); }
+.citation-url { color: var(--fg-faint); margin-left: 6px; word-break: break-all; }
+
+/* ---- footnotes ---- */
+/* The `[^n]` references a web-search model writes. A reference is a small
+   accent-coloured marker; the notes themselves sit in a muted block under
+   the prose, each with a back-link to its reference. */
+.footnote-ref a { color: var(--accent); text-decoration: none; }
+.footnotes { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 0.92em; }
+.footnotes-list { margin: 0; padding-left: 20px; }
+.footnote-item { margin: 2px 0; }
+.footnote-backref { color: var(--fg-faint); text-decoration: none; margin-left: 4px; }
+
+/* ---- task lists ---- */
+/* The `- [ ]` checkboxes the task-list plugin emits. They are disabled:
+   a transcript is a record of what a model planned, not a to-do the reader
+   edits. */
+.contains-task-list { list-style: none; padding-left: 0; }
+.task-list-item { display: flex; align-items: baseline; gap: 8px; }
+.task-list-item-checkbox { margin: 0; accent-color: var(--accent); }
 
 /* ---- the entry menu and the pin mark ---- */
 /* A `⋮` at every entry's bottom-right, always visible: it overlaps only

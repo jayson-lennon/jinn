@@ -111,4 +111,8 @@ test("the refresh's summary table appears in the transcript", async ({ page }) =
   // own summary, and this test's is the newest.
   const summaries = page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY("transient")}`);
   await expect(summaries.last()).toContainText("sample");
+  // And it renders as a real table: the summary is markdown, so its pipes
+  // are table cells and not literal `|` characters.
+  await expect(summaries.last().locator("table")).toHaveCount(1);
+  await expect(summaries.last().locator("table")).toContainText("sample");
 });

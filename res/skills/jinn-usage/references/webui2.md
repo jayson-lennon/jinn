@@ -66,7 +66,12 @@ but nothing coordinates them.
   session, and are still there after the switch.
 - **Transcript** — the full history, streamed live: markdown, thinking,
   tool calls and results, errors, and system messages all render as they
-  arrive.
+  arrive. Markdown covers footnotes, task lists, and tables; a bare
+  `http(s)` address or an email in the prose becomes a link that opens in
+  a new tab, while `www.`, `ftp:`, and protocol-relative addresses stay
+  text. Your own messages render as markdown too. A web-search reply's
+  sources are a collapsed `Sources (N)` line — open it for each source's
+  linked title and address.
 - **Composer** — one row: the draft, a `+` to attach an image, and the
   buttons, all on the same line. Sends a message, queues one while a turn
   is running, or cancels the running turn. An image can arrive three

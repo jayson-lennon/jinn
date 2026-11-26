@@ -277,6 +277,7 @@ fixed column drawn here, and the `#` is not shown.
 | The colored vertical line | Border column (focus accent) |
 | Pinned entries / isolate / audit | Chat log (selection) + Pins sidebar section + audit popup; on `/web2`, a 📌 at the entry's left edge and the entry's `⋮` → Pin |
 | The `/web2` page's per-entry `⋮` and its Pin / Unpin | Web UI 2 (`/web2`) transcript, at each entry's bottom-right |
+| A web-search reply's sources (`Sources (N)`) | Web UI 2 (`/web2`) transcript, the collapsed line under the reply; the original web UI shows the same disclosure under its reply |
 | Task phases / task list | Task-list sidebar section + task-list browser (`s`) + tab |
 | Child bots / bot reports | Bots sidebar section + properties popup (`P`) |
 | Archived sessions | Library sidebar section |
