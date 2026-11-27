@@ -1,4 +1,4 @@
-//! Image ingestion at the `/web2` send boundary.
+//! Image ingestion at the web UI send boundary.
 //!
 //! The composer's three image sources — pasted clipboard bytes, picked
 //! files, and image URLs scanned out of the message text — all arrive at

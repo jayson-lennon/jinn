@@ -1,0 +1,23 @@
+/* ---- spinner ---- */
+/* One spinner for both overlays: the reconnect banner and the session-load card. */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+/* The inline size, for a spinner that sits inside a line of text: the
+   full-output disclosure while it fetches, and the older-entries row. */
+.spinner-small {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+

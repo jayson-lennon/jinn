@@ -135,7 +135,7 @@ impl BusMessage for McpServerLog {}
 ///
 /// Emitted by the coordinator **strictly after** every runtime-cell
 /// status write (`McpServerStatus` handling — per-session and
-/// singleton alike). This is the push trigger `/web2`'s outbound actor
+/// singleton alike). This is the push trigger the web UI's outbound actor
 /// subscribes, deliberately a distinct schema, never a re-subscription
 /// of the raw status facts:
 ///

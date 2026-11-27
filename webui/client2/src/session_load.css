@@ -1,0 +1,31 @@
+/* ---- session-load overlay ---- */
+/* Raised by the page itself when it asks for a session, and cleared only by
+   that session's snapshot, a refusal, or the stall timeout. It covers every
+   surface — modals (80), the menu panel (70), the rail (50), the drawer
+   scrim (40) — and swallows the pointer, so a second activation cannot fire
+   under it. Nothing dismisses it: it ends when the load ends. */
+.session-load-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim);
+}
+.session-load-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 26px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px var(--shadow);
+}
+.session-load-label {
+  color: var(--fg);
+  font-size: 14px;
+}
+

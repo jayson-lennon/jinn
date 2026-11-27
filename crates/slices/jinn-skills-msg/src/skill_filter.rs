@@ -37,7 +37,7 @@ pub struct SkillRowSegments {
 impl FilteredSkillRow {
     /// The row's search text: name then description — the TUI skill
     /// picker's own search closure (`"{name} {description}"`), so a
-    /// query filters the `/web2` skills modal identically.
+    /// query filters the the web UI skills modal identically.
     #[must_use]
     pub fn search_text(&self) -> String {
         format!("{} {}", self.skill.name, self.skill.description)

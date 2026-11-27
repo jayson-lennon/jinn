@@ -3,9 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The /web2 browser client: a Solid 2 app that speaks only ClientMsg and ServerMsg over one WebSocket.",
+  "description": "The web UI browser client: a Solid 2 app that speaks only ClientMsg and ServerMsg over one WebSocket.",
   "scripts": {
     "build": "vite build",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -18,7 +19,9 @@
   },
   "devDependencies": {
     "@solidjs/vite-plugin": "3.0.1",
+    "jsdom": "31.0.1",
     "typescript": "7.0.2",
-    "vite": "8.3.8"
+    "vite": "8.3.8",
+    "vitest": "5.1.2"
   }
 }

@@ -1,0 +1,31 @@
+/* ---- status bar: the persona, the context figure ---- */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+.status-persona {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: var(--radius);
+  font: inherit;
+  cursor: pointer;
+}
+.status-persona:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.status-persona:focus-visible {
+  outline: 1px solid var(--accent);
+}
+.status-context {
+  white-space: nowrap;
+}

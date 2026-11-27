@@ -90,7 +90,7 @@ protocol.
 
 ## The web UI's model picker
 
-The web UI (`/web2`) has its own model picker in the titlebar — the model
+The web UI has its own model picker in the titlebar — the model
 chip naming the session's current model. Clicking it opens a modal over
 the page: type in the filter bar to narrow the list (the picker's own
 fuzzy match, run on the server, matches highlighted as you type), click a
@@ -119,5 +119,5 @@ TUI session picker's tree order. Row states are **fills**, not borders:
 - `· bot` after the title tags a bot session; a small spinner before
   the title means that session is working right now.
 
-The page follows the instance's active session, which another `/web2`
+The page follows the instance's active session, which another web UI
 page or the TUI can change at any time.

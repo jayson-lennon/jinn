@@ -247,7 +247,7 @@ pub enum ImageBytesError {
 /// Native formats (PNG/JPEG/GIF/WEBP) attach as-is; a recognizable
 /// non-native image (HEIC, AVIF, TIFF, BMP, …) transcodes to PNG through the
 /// converter service; anything else reports [`ImageBytesError::NotAnImage`].
-/// The `/web2` composer's send boundary calls this inside `spawn_blocking`.
+/// The the web UI composer's send boundary calls this inside `spawn_blocking`.
 ///
 /// Blocking; callers must run it inside `spawn_blocking`.
 ///

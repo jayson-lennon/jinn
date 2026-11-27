@@ -1,0 +1,85 @@
+/* ---- phone: the rail becomes an off-canvas drawer ---- */
+@media (max-width: 767px) {
+  .app { grid-template-columns: 1fr; }
+  .rail {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(300px, 84vw);
+    z-index: 50;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform .25s ease, visibility .25s;
+    box-shadow: none;
+  }
+  .rail.open { transform: translateX(0); visibility: visible; }
+  .drawer-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: var(--scrim);
+    z-index: 40;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .drawer-scrim.open { visibility: visible; pointer-events: auto; }
+  .sessions-button {
+    display: inline-flex;
+    background: var(--bg-raised);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .sessions-button:hover { border-color: var(--accent); }
+  .sessions-button:focus-visible { outline: 1px solid var(--accent); }
+  /* The `#` button while sessions are unread: the gold fill, and the
+     count beside the glyph. The gap keeps `#` and the number apart. */
+  .sessions-button.unread {
+    background: var(--mark);
+    border-color: var(--mark);
+    color: var(--on-fill);
+    gap: 4px;
+    align-items: center;
+  }
+  .sessions-button.unread:hover { border-color: var(--on-fill); }
+  .sessions-button-count {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  /* The composer keeps its one row on a phone — the draft, `+` and the
+     buttons on one line, the chips above — at the same height as at
+     desktop. Only the touch sizes change: a 16px draft (no iOS
+     zoom-on-focus) and a 40px floor on every control, below the row's
+     own height. */
+  .composer { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  /* The status row lines up with the composer's tighter phone padding. */
+  .session-status { padding-left: 12px; padding-right: 12px; }
+  .draft { font-size: 16px; }
+  /* The prompt popup keeps the composer's side margins and the 40px touch
+     floor the composer's other controls use. */
+  .prompt-popup { left: 12px; right: 12px; }
+  .prompt-row { min-height: 40px; }
+  .composer-actions { flex: none; }
+  .composer-actions button, .attach { min-height: 40px; padding-left: 10px; padding-right: 10px; }
+  /* The jump buttons keep the phone's 40px touch floor, square. */
+  .jump { width: 40px; height: 40px; }
+}
+
+/* The count beside Q: how many messages wait behind the running turn. A
+   queued message is not in the transcript until its turn runs, so this is
+   the only sign it was taken. */
+.queue-depth {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 18px;
+}

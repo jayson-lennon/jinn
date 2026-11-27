@@ -1,4 +1,4 @@
-// The /web2 client build. Plain Vite mode (no `start`): jinn serves its own
+// The web UI client build. Plain Vite mode (no `start`): jinn serves its own
 // page shell, so the build only has to emit one JavaScript file and one
 // stylesheet with fixed names the Rust server embeds.
 import { defineConfig } from 'vite';

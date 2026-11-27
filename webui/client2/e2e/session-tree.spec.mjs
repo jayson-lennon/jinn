@@ -7,7 +7,7 @@
 //! A subagent's or a bot's row adds a kind line under its title, in the
 //! kind's colour, and the viewed session's kind is named above the composer.
 //!
-//! There is no fork gesture on `/web2`, so every test seeds its child row
+//! There is no fork gesture on the web UI, so every test seeds its child row
 //! straight into the scratch store under the active session, which the
 //! test renames first so the pair is findable by title.
 

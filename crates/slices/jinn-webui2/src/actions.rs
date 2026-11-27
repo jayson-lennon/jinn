@@ -1586,7 +1586,7 @@ pub async fn set_theme(out: &OutboundHandle, theme: String) -> Reply {
 /// Publishes the existing `SetSessionLibrary` command and nothing else: the
 /// store actor persists the column, mirrors the flag into the in-memory
 /// session, and announces `SessionLibraryMembershipChanged` — which the
-/// outbound actor turns into a fresh sessions frame for every page. `/web2`
+/// outbound actor turns into a fresh sessions frame for every page. The web UI
 /// writes no membership state of its own; a second writer would race the
 /// store actor's single-writer path.
 ///

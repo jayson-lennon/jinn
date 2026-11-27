@@ -17,7 +17,7 @@
 //! installed, so releasing the hold flips a latch the route reads instead.
 //!
 //! The mid-hydration state — rows already pushed, more still coming — is
-//! pinned by the `/web2` crate's unit tests (the `hydrating` flag on the
+//! pinned by the web UI crate's unit tests (the `hydrating` flag on the
 //! wire), not here: the harness waits for the server's health check before
 //! a page opens, and a scratch database hydrates in milliseconds.
 
@@ -42,7 +42,7 @@ const LOADING_TEXT = "loading sessions…";
  */
 async function holdHello(page) {
   let held = true;
-  await page.routeWebSocket(/\/web2\/ws$/, (ws) => {
+  await page.routeWebSocket(/\/ws$/, (ws) => {
     const server = ws.connectToServer();
     // Page -> server: the hello is swallowed while held, everything else
     // passes. Once this handler is set nothing forwards on its own, so the

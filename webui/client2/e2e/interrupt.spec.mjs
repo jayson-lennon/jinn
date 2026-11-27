@@ -1,4 +1,4 @@
-//! Rule interrupts on `/web2`: guidance the harness injected mid-turn.
+//! Rule interrupts on the web UI: guidance the harness injected mid-turn.
 //!
 //! No gesture on the page produces a rule interrupt, so each spec seeds one
 //! straight into the scratch store in its persisted shape and reopens the

@@ -157,7 +157,7 @@ test.with({ skill: true })(
     await page.keyboard.press("Escape");
 
     // Then the result carries the mark — the pin the skill loader sets on
-    // the body it injects, which was invisible on /web2 before this menu
+    // the body it injects, which was invisible on the web UI before this menu
     // existed — and its menu reads Unpin.
     await expect(result).toHaveClass(/pinned/);
     await result.locator(sel.ENTRY_MENU).click();

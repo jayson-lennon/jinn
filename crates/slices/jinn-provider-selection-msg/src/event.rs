@@ -41,7 +41,7 @@ impl BusMessage for ModelsRefreshed {}
 /// Emitted by [`crate::ProviderActor`]'s handler **strictly after**
 /// `store_model_cache` lands the merged cache in the cell, on both the
 /// refresh path (`ModelsRefreshed`) and the boot path
-/// (`ModelCacheLoaded`). This is the push trigger `/web2`'s outbound
+/// (`ModelCacheLoaded`). This is the push trigger the web UI's outbound
 /// actor subscribes — deliberately a distinct schema, never a
 /// re-subscription of the raw discovery facts:
 ///

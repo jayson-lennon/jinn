@@ -590,20 +590,42 @@ gh-pr-close N COMMENT="":
     fi
     gh pr close {{N}} "${args[@]}"
 
-# Webui2 (the web UI, /web2).
+# Webui2 (the web UI).
 #
-# The /web2 client is build output of webui/client2, and nothing of it is
+# The web UI client is build output of webui/client2, and nothing of it is
 # committed: the slice's build.rs runs the client build itself on every cargo
-# compile (npm ci when the lock file is newer than node_modules, tsc, vite
-# build) and embeds the gzipped result from OUT_DIR. The bundle therefore
-# cannot be stale — it is always built from the sources being compiled — and
-# there is no committed artifact to pin or to conflict on a merge.
+# compile (npm ci when the lock file is newer than node_modules, tsc, vitest
+# run, vite build) and embeds the gzipped result from OUT_DIR. The bundle
+# therefore cannot be stale — it is always built from the sources being
+# compiled — and there is no committed artifact to pin or to conflict on a
+# merge. A failing unit test fails that build by its own name.
 #
 # Node and npm are build prerequisites of the jinn-webui2 crate.
 #
-#   webui2-e2e       — full-stack Playwright e2e for /web2 (shuffled)
+#   webui2-unit [F]  — the web UI client's unit tests (the same `vitest run`
+#                      build.rs runs), F a file-name filter
+#   webui2-e2e       — full-stack Playwright e2e for the web UI (shuffled)
 #   webui2-e2e-one F [G] — only the spec files matching F, titles matching G
 #   webui2-e2e-clean — kill stray e2e jinn runs
+
+# Run the web UI client's unit tests — the same `vitest run` the slice's
+# build.rs runs on every compile — without building anything else. FILTER,
+# when given, is a Vitest file-name filter. The root alone is named: Vitest
+# finds `vitest.config.mjs` there itself, the same way `build.rs` runs it,
+# so neither path can drift from the other. The binary is invoked straight
+# from node_modules/.bin, never a package runner, which would fetch a
+# different version when the install were missing.
+webui2-unit FILTER="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -d webui/client2/node_modules ]; then
+        echo '==> npm ci (webui/client2)'
+        npm ci --prefix webui/client2
+    fi
+    filter_args=()
+    if [[ -n '{{FILTER}}' ]]; then filter_args=('{{FILTER}}'); fi
+    webui/client2/node_modules/.bin/vitest run "${filter_args[@]}" --root webui/client2
+    echo '==> webui2-unit green'
 
 # Kill stray webui2-e2e jinn runs (each names its own scratch db path).
 webui2-e2e-clean:
@@ -928,7 +950,7 @@ release TAG:
         exit 1
     fi
 
-    # --- Pre-flight: the /web2 client must build from the committed sources ---
+    # --- Pre-flight: the web UI client must build from the committed sources ---
     # Nothing of the client is committed: the slice's build.rs builds it on
     # every cargo compile, so a binary is always built from the sources beside
     # it. Building it here, BEFORE the push, proves the committed sources

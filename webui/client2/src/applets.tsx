@@ -9,7 +9,8 @@
 import { For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { AppletRow, TextRun } from './protocol';
-import { FilterableModal } from './pickers';
+import { FilterableModal } from './filterable_modal';
+import { Runs } from './runs';
 
 export interface AppletsModalProps {
   readonly rows: readonly AppletRow[];
@@ -91,11 +92,3 @@ export function AppletsModal(props: AppletsModalProps): JSX.Element {
   );
 }
 
-/** The title's text, with the filter's matched runs highlighted. */
-function Runs(props: { runs: readonly TextRun[] }): JSX.Element {
-  return (
-    <For each={props.runs}>
-      {(run) => (run.matched ? <mark>{run.text}</mark> : <span>{run.text}</span>)}
-    </For>
-  );
-}

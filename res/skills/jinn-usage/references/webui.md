@@ -1,38 +1,39 @@
-# The web UI (`/web2`)
+# The web UI
 
-A running jinn instance serves a browser UI at `/web2`. It is a mirror of
-the TUI with web UX: the same sessions, the same transcript, the same
-single active session, and every action publishes the same message the
-TUI's keybind does.
+A running jinn instance serves a browser UI at the root of its own port.
+It is a mirror of the TUI with web UX: the same sessions, the same
+transcript, the same single active session, and every action publishes
+the same message the TUI's keybind does.
 
 It covers the core loop — sessions and the library, images, themes, model
 refresh, and creating a session — and leaves out what
-[What `/web2` does not do](#what-web2-does-not-do) lists.
+[What the web UI does not do](#what-the-web-ui-does-not-do) lists.
 
 It is a **single-user, unauthenticated** surface — reach it over loopback
 or a VPN you secure.
 
 ## Open it
 
-Point a browser at `http://127.0.0.1:8388/web2` (or the `[webui2]` bind
+Point a browser at the port's root, `http://127.0.0.1:8388/` by default
+(or the `[webui]` bind
 you configured — see the **Web UI** entry under
 [Common asks → settings](configuration.md#common-asks--settings)).
 
 The TUI's Dashboard tab names the address the server is actually running
-on, on its **webui2** row — the line to copy when the bind is not the
+on, on its **webui** row — the line to copy when the bind is not the
 default or uses port `0`. A wildcard bind (`0.0.0.0` / `::`) has no
 single address, so that row reads `serving on port <port> on all
-interfaces (http://<your-ip>:<port>/web2)` and you substitute your
+interfaces (http://<your-ip>:<port>)` and you substitute your
 machine's IP.
 
 The same row is the slice's health line: after the address it carries
 `· N page(s) · last hello X ms` — how many browser pages are connected
 and how long the last connect took to be answered. The row turns to a
 warning tone and names the stall when a connect's reply runs past five
-seconds or a write to a page stalls, so a stuck `/web2` is visible from
+seconds or a write to a page stalls, so a stuck web UI is visible from
 the TUI without opening a log.
 
-One browser tab is the supported model. Two tabs on `/web2` both work,
+One browser tab is the supported model. Two tabs both work,
 but nothing coordinates them.
 
 ## What it does
@@ -83,7 +84,7 @@ but nothing coordinates them.
   `[[project.entry]]` configured the modal says so instead of showing a
   form.
 - **Follows the active session** — when the active session changes
-  anywhere (another `/web2` page, the TUI), every `/web2` page
+  anywhere (another web UI page, the TUI), every web UI page
   switches to it. Nothing the user has typed holds the page back: an
   unsent draft and any pending images belong to the user, not to the
   session, and are still there after the switch.
@@ -149,14 +150,14 @@ but nothing coordinates them.
     pin the TUI's `p` sets, and the entry shows a 📌 on its left edge.
     Pinned, the item reads **Unpin**. A pin takes the whole tool loop:
     pinning a tool call or result pins its loop, and each member shows the
-    mark. Pins made in the TUI appear on `/web2` at once. Top and bottom
+    mark. Pins made in the TUI appear on the web UI at once. Top and bottom
     positioning stay in the TUI's Pins sidebar.
   - **Exclude from context / Include in context** — flips the entry between
     forced-exclude and forced-include, the same override the TUI's `x` sets,
     and takes the whole tool loop like a pin does. The item names the action
     it will take: an entry in context reads **Exclude from context**, one
     out of it reads **Include in context**. An excluded entry is drawn
-    dimmed. Excludes made in the TUI appear on `/web2` at once. The item is
+    dimmed. Excludes made in the TUI appear on the web UI at once. The item is
     absent on a pinned entry, since a pin overrides exclusion, and the web
     cannot return an entry to the default — the TUI's `r` does.
   - **Fork** — forks the session at that entry into a new session holding
@@ -242,7 +243,7 @@ but nothing coordinates them.
   - The badge updates live on its own: an enabled server's badge moves
     to `running` with no reload and no re-open.
   - This is the simple toggle list — no stderr/log pane and no tool
-    list. Those are in the TUI's inspector; `/web2` does not have them.
+    list. Those are in the TUI's inspector; the web UI does not have them.
 
 Every picker modal here covers the full viewport with a backdrop and a
 card: a filter input on top, a scrollable list below. `Esc` or a
@@ -306,22 +307,22 @@ nothing is answered at once, so a brief drop on an idle page clears in a
 moment instead of returning. It keeps retrying for as long as the page is
 open; there is no give-up state.
 
-## What `/web2` does not do
+## What the web UI does not do
 
 Everything below exists on the TUI. When a user asks for one of these on
-`/web2`, say so and point at the surface that has it.
+the web UI, say so and point at the surface that has it.
 
-- Archiving a whole subtree. `/web2` can *create*, *open*, *fork*, *teardown +
+- Archiving a whole subtree. The web UI can *create*, *open*, *fork*, *teardown +
   archive*, and *archive* single sessions, but has no archive-tree gesture.
-- Renaming, deleting, or opening an applet in kiosk mode. The `/web2`
+- Renaming, deleting, or opening an applet in kiosk mode. The web UI
   applets picker opens one in a new tab; those three gestures are the
   TUI's.
 - Exclusion, isolate, and the per-entry audit popup. (Pinning is on
-  `/web2`: the entry's `⋮` → **Pin**. Top/bottom pin positioning is not.)
+  the web UI: the entry's `⋮` → **Pin**. Top/bottom pin positioning is not.)
 - Steer mode. A message sent while working is queued; to steer, cancel
   and send.
 - The `@path` and `/command` input tokens. That text is sent verbatim;
-  `@path` is the TUI's way to attach a file, and `/web2` has the `+`
+  `@path` is the TUI's way to attach a file, and the web UI has the `+`
   instead. The `#prompt` token does work — see **Prompt templates** above.
 - Model alloys, reasoning-effort and endpoint pickers.
 

@@ -1,0 +1,29 @@
+/* ---- toasts: every refusal and failure, bottom-right ---- */
+
+/* Above the menu panel (70), every modal (80), and the session-load
+   overlay (90): a refusal is what clears that overlay, and a toast raised
+   while one is still up must still be seen. */
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 32px));
+  z-index: 91;
+}
+.toast {
+  padding: 10px 14px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px var(--shadow);
+  cursor: pointer;
+}
+

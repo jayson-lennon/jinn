@@ -1,0 +1,20 @@
+/* ---- rule interrupts ---- */
+/* Guidance the harness injected mid-turn: a warning-tinted block with a
+   yellow left edge, so it never reads as something the user or the model
+   wrote. Collapsed to its header until the reader opens it. */
+.rule-interrupt {
+  background: var(--warn-bg);
+  border-left: 3px solid var(--warn-border);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 6px 10px;
+}
+.rule-interrupt summary { cursor: pointer; color: var(--warn); }
+.rule-interrupt summary:hover { filter: brightness(1.15); }
+.interrupt-reason { color: var(--fg-faint); font-size: 12px; }
+.rule-interrupt .entry-prose { margin-top: 6px; }
+.tool[open] > summary { margin-bottom: 6px; }
+.tool code { color: var(--accent); }
+.entry-status { margin-left: 8px; font-size: 11px; color: var(--fg-faint); }
+.result-failure .entry-status { color: var(--danger); }
+.entry-note { color: var(--fg-faint); font-size: 12px; }
+

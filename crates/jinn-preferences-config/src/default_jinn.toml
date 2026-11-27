@@ -307,16 +307,17 @@ noise_reduction = true
 # ###########################################################################
 # Web UI
 # ###########################################################################
-[webui2]
-# > Where the web UI (`/web2`) binds — the message-driven mirror of the
-# > terminal UI: it shares the instance's active session and streams the
-# > transcript over one WebSocket. Host:port as one value.
+[webui]
+# > Where the web UI binds — the message-driven mirror of the terminal
+# > UI: it shares the instance's active session and streams the transcript
+# > over one WebSocket. Host:port as one value; the page is served at the
+# > root of that address.
 # >
 # > The default is a FIXED port (unlike the other servers): the page keeps
 # > a live connection open to the address it was loaded from, so a per-start
 # > ephemeral port would break every bookmark every restart. Port 0 still
 # > works if you prefer an ephemeral port per launch; the resolved URL is
-# > noted on the webui2 dashboard row.
+# > noted on the webui dashboard row.
 # >
 # > The bind is taken as configured — there is no authentication, so put
 # > jinn behind a VPN or an SSH tunnel before exposing it beyond loopback.

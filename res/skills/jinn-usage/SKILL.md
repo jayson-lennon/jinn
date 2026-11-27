@@ -22,15 +22,15 @@ page onto the same sessions — so most features have a TUI and a web way.
    the surface's name, its position, and how to interact with it.
 3. **Decide which surface the user is on: the TUI or the web UI.** jinn
    serves both from one instance — same sessions, same active session. The
-   web UI (`/web2`) is a browser page with few keybinds: almost every
+   web UI (a browser page, served at the root of its own port) has few keybinds: almost every
    action is a click. Say "browser", "web UI", or a URL, or name a
    web-only element (the `#` drawer button, **Switch session…**, the
    **Queue** / **Cancel** / **Send** buttons, its **Skills**, **Persona**,
    **Tools**, or **MCP servers** modal)
-   → read `references/webui2.md` first. Unsaid → answer for the TUI, and when the feature also exists on
+   → read `references/webui.md` first. Unsaid → answer for the TUI, and when the feature also exists on
    the web add one line for it (each feature reference carries its web
    passage beside the TUI one). A feature the web lacks is listed under
-   "What `/web2` does not do" there — say it is TUI-only; never describe a
+   "What the web UI does not do" there — say it is TUI-only; never describe a
    web control that does not exist.
 4. **Answer with real keybinds.** Every instruction cites a concrete binding:
    "press `p` in normal mode to pin", never "use the pin command". What's
@@ -79,12 +79,12 @@ the current truth) and echo that.
 | File                                   | Covers                                                                                     |
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `references/ui-map.md`                 | The on-screen surfaces, TUI and web UI: layout diagrams, what each element is, where it sits, its keys |
-| `references/webui2.md`                 | The web UI (`/web2`): how to open it, its sessions / transcript / composer / model picker, its `☰` menu and its five pickers (Skills, Persona, Tools, MCP servers, Applets), its keys, reconnecting, what it does not do |
+| `references/webui.md`                  | The web UI (the browser page served at the root of its own port): how to open it, its sessions / transcript / composer / model picker, its `☰` menu and its five pickers (Skills, Persona, Tools, MCP servers, Applets), its keys, reconnecting, what it does not do |
 | `references/keybindings.md`            | Every scope's default bindings, categorized                                                |
 | `references/context-management.md`     | Pinning, context toggles, isolate, compaction/pruning tuning                               |
 | `references/sessions-and-subagents.md` | Sessions (create, switch, rename), the Library, forks, the session tree, subagents/tasks |
 | `references/bots.md`                  | Bots: properties popup, triggers, `[[bot.entry]]`, report history, the Library               |
-| `references/pickers-and-search.md`     | The `<leader>s*` pickers (incl. `/web2`'s Tools, Skills, Persona, and MCP modals), session search |
+| `references/pickers-and-search.md`     | The `<leader>s*` pickers (incl. the web UI's Tools, Skills, Persona, and MCP modals), session search |
 | `references/terminal-overlay.md`       | Interactive terminal overlay, control mode                                                 |
 | `references/mcp-servers.md`            | MCP server config, enabling, the inspector                                                 |
 | `references/discord.md`                | The Discord bot: forum threads as sessions, the commands, authorization, `gdc`             |

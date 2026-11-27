@@ -305,7 +305,7 @@ impl ProviderActor {
         });
         // The cache is now in the cell — the push-trigger event rides
         // strictly after the write, so a subscriber's re-read of the
-        // cell sees the merged cache (the `/web2` push's ordering
+        // cell sees the merged cache (the the web UI push's ordering
         // dependency).
         self.publish_after_cache_write().await;
     }
@@ -331,12 +331,12 @@ impl ProviderActor {
         self.deps.services.provider_registry.merge_cache(&cache);
         self.store_model_cache(cache);
         self.handle_load_provider_picker_entries();
-        // Same post-write ordering as the refresh path: `/web2`'s
+        // Same post-write ordering as the refresh path: the web UI's
         // push must not precede the cell write it answers.
         self.publish_after_cache_write().await;
     }
 
-    /// Emits [`ModelCacheStored`] — the push trigger `/web2`'s outbound
+    /// Emits [`ModelCacheStored`] — the push trigger the web UI's outbound
     /// actor subscribes — through the shared bus. The bus publish path rides
     /// the system broadcast directly (the same path every other event
     /// this actor emits uses), so no outbox `.emits` declaration
@@ -896,7 +896,7 @@ mod tests {
 
         // Then exactly one ModelCacheStored was delivered, and the
         // provider cell ALREADY holds the merged cache at delivery
-        // time — the ordering `/web2`'s push depends on (a
+        // time — the ordering the web UI's push depends on (a
         // push rendered from a predating cache would show stale rows).
         let stored_events = await_recorded(&stored, 1, std::time::Duration::from_secs(2)).await;
         assert_eq!(stored_events.len(), 1);

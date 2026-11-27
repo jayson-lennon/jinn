@@ -107,7 +107,7 @@ test("a loaded archived session returns to the sidebar", async ({
 });
 
 // ---------------------------------------------------------------------------
-// Archiving from /web2: the hamburger menu's Archive session item, and each
+// Archiving from the web UI: the hamburger menu's Archive session item, and each
 // rail row's `⋮`. The row leaves the rail at once, the page lands on another
 // session, and a busy session is refused with a toast instead.
 // ---------------------------------------------------------------------------

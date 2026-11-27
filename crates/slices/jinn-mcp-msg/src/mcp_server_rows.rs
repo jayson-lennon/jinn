@@ -1,7 +1,7 @@
 //! MCP server rows as shared vocabulary — one builder feeding both
 //! surfaces.
 //!
-//! The TUI inspector (`jinn-mcp-slice`'s picker) and the `/web2` MCP
+//! The TUI inspector (`jinn-mcp-slice`'s picker) and the the web UI MCP
 //! modal show the same thing: every
 //! configured server, its launch summary, whether the viewed session
 //! enables it, and the live connection status. Building those rows in
@@ -48,7 +48,7 @@ impl McpRowBadge {
     /// runtime cell's status for this server.
     ///
     /// The single derivation every surface shares: the TUI picker's
-    /// preview badge and the `/web2` MCP modal's status label both call this,
+    /// preview badge and the the web UI MCP modal's status label both call this,
     /// so a stale cell report can never render as a running connection
     /// the session does not want.
     #[must_use]
@@ -137,7 +137,7 @@ pub fn build_rows(
 impl McpServerRow {
     /// The row's search text: name then description — the TUI MCP
     /// inspector's own search closure (`"{name} {description}"`), so a
-    /// query filters the `/web2` MCP modal identically.
+    /// query filters the the web UI MCP modal identically.
     #[must_use]
     pub fn search_text(&self) -> String {
         format!("{} {}", self.name, self.description)

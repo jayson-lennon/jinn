@@ -17,7 +17,7 @@
 //! - the environment is BUILT from an allowlist, never inherited.
 //!
 //! The web UI binds a probed port: each boot probes a free one and writes
-//! the `[webui2]` section, so two concurrent runs never fight over the
+//! the `[webui]` section, so two concurrent runs never fight over the
 //! shipped default.
 
 import { spawn } from "node:child_process";
@@ -155,7 +155,7 @@ models = ["second-model"]
  * concurrent run never collides with this one's.
  *
  * The project entry and the lifecycle script exist for the new-session
- * specs: `/web2`'s modal creates a session only against a configured
+ * specs: the web UI's modal creates a session only against a configured
  * project, and offers no submit control without one. The lifecycle's
  * setup takes a NAMED argument so one spec can assert the page shows the
  * template's own spelling of it rather than a label made up from its
@@ -188,7 +188,7 @@ args = ["luau", "serve", "${MCP_ECHO_SCRIPT}"]
     : "";
   return `version = 1
 
-[webui2]
+[webui]
 bind = "127.0.0.1:${webui2Port}"
 
 [[project.entry]]
@@ -394,7 +394,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function awaitBind(port, root) {
   const deadline = Date.now() + BIND_TIMEOUT_MS;
   for (;;) {
-    const open = await fetch(`http://127.0.0.1:${port}/health2`)
+    const open = await fetch(`http://127.0.0.1:${port}/health`)
       .then((r) => r.ok)
       .catch(() => false);
     if (open) return;
@@ -527,8 +527,8 @@ export async function bootJinn(options = {}) {
   const run = {
     webui2Port,
     root,
-    /** The `/web2` page itself — the fixture's page opens this. */
-    baseUrl: `http://127.0.0.1:${webui2Port}/web2`,
+    /** The web UI page itself, at the root — the fixture's page opens this. */
+    baseUrl: `http://127.0.0.1:${webui2Port}/`,
     pid: 0,
   };
   await launch(run);

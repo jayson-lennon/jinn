@@ -1,8 +1,9 @@
-//! The listener: binds the `[webui2]` socket and serves `/web2` on it.
+//! The listener: binds the `[webui]` socket and serves the web UI at its
+//! root.
 //!
 //! A service actor whose spawn is the readiness point — once it returns,
 //! the port accepts connections. The bind is
-//! read once and frozen for the process's lifetime; a live `[webui2]`
+//! read once and frozen for the process's lifetime; a live `[webui]`
 //! edit applies at the next restart, because a rebind would strand every
 //! open page's socket with no way to learn the new port.
 //!
@@ -21,8 +22,9 @@ use trouper::system::ActorSystem;
 
 use crate::{outbound::OutboundHandle, server::ServerShared};
 
-/// The name the listener is spawned under.
-pub const WEBUI2_ACTOR_NAME: &str = "webui2";
+/// The name the listener is spawned under — also the dashboard row every
+/// status note for the slice lands on.
+pub const WEBUI2_ACTOR_NAME: &str = "webui";
 
 /// Why the listener could not come up.
 #[derive(Debug, wherror::Error)]
@@ -82,9 +84,6 @@ impl jinn_kernel::common::actor_deps::BusPublish for ListenerActor {
     }
 }
 
-/// The path the page is served at, matching the router's `/web2` route.
-pub(crate) const PAGE_PATH: &str = "/web2";
-
 /// What the dashboard row calls the slice.
 pub(crate) const WEBUI2_ROW_DESCRIPTION: &str = "Web UI (browser transcript, send, cancel)";
 
@@ -104,7 +103,8 @@ impl BoundAddress {
 }
 
 /// The dashboard note for a bound listener: what a user opens to reach
-/// the page, built from the address the server is actually running on.
+/// the page, built from the address the server is actually running on. The
+/// page is the root of that address, so the note carries no path.
 ///
 /// - A wildcard bind (`0.0.0.0` / `::`) serves every interface, so no
 ///   single address is true. The note names the port and shows the URL
@@ -118,7 +118,7 @@ impl BoundAddress {
 pub fn connection_note(bound: SocketAddr) -> String {
     if is_unspecified(bound.ip()) {
         return format!(
-            "serving on port {} on all interfaces (http://<your-ip>:{}{PAGE_PATH})",
+            "serving on port {} on all interfaces (http://<your-ip>:{})",
             bound.port(),
             bound.port()
         );
@@ -126,13 +126,13 @@ pub fn connection_note(bound: SocketAddr) -> String {
     format!("serving on {}", page_url(bound))
 }
 
-/// The page's URL for a specific bind.
+/// The page's URL for a specific bind: the address alone.
 fn page_url(bound: SocketAddr) -> String {
     let host = match bound.ip() {
         IpAddr::V4(ip) => ip.to_string(),
         IpAddr::V6(ip) => format!("[{ip}]"),
     };
-    format!("http://{host}:{}{PAGE_PATH}", bound.port())
+    format!("http://{host}:{}", bound.port())
 }
 
 /// Whether the address serves every interface rather than one.
@@ -226,8 +226,8 @@ mod note_tests {
 
         // Then it is that address's page URL.
         assert_eq!(
-            note, "serving on http://192.168.1.10:8388/web2",
-            "a specific bind names its own address and the page path"
+            note, "serving on http://192.168.1.10:8388",
+            "a specific bind names its own address, and the page is its root"
         );
     }
 
@@ -242,7 +242,7 @@ mod note_tests {
 
         // Then it is the loopback page URL, by its literal IP.
         assert_eq!(
-            note, "serving on http://127.0.0.1:8388/web2",
+            note, "serving on http://127.0.0.1:8388",
             "loopback is a specific bind, not a wildcard"
         );
     }
@@ -258,7 +258,7 @@ mod note_tests {
 
         // Then no unusable address is printed: the port and a URL to substitute into.
         assert_eq!(
-            note, "serving on port 8388 on all interfaces (http://<your-ip>:8388/web2)",
+            note, "serving on port 8388 on all interfaces (http://<your-ip>:8388)",
             "a wildcard is not a destination, so the host is left to the user"
         );
     }
@@ -274,7 +274,7 @@ mod note_tests {
 
         // Then it reads like the IPv4 wildcard, with its own port.
         assert_eq!(
-            note, "serving on port 8388 on all interfaces (http://<your-ip>:8388/web2)",
+            note, "serving on port 8388 on all interfaces (http://<your-ip>:8388)",
             "the IPv6 wildcard is not a destination either"
         );
     }
@@ -290,7 +290,7 @@ mod note_tests {
 
         // Then the host stays bracketed, as a URL requires.
         assert_eq!(
-            note, "serving on http://[::1]:8388/web2",
+            note, "serving on http://[::1]:8388",
             "an unbracketed IPv6 host is not a valid URL"
         );
     }
@@ -306,7 +306,7 @@ mod note_tests {
 
         // Then it matches the formatter's output for that address.
         assert_eq!(
-            note, "serving on http://127.0.0.1:9123/web2",
+            note, "serving on http://127.0.0.1:9123",
             "the row and the log read one string from one value"
         );
     }

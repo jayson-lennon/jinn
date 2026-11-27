@@ -385,7 +385,7 @@ fn committing_all_on_rows_yields_an_empty_deny_filter() {
 }
 
 // ---------------------------------------------------------------------------
-// filter_rows — the `/web2` tool picker's shared fuzzy filter
+// filter_rows — the the web UI tool picker's shared fuzzy filter
 // ---------------------------------------------------------------------------
 
 #[rstest::rstest]

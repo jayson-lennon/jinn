@@ -1,0 +1,14 @@
+/* ---- full tool output ---- */
+/* A tool result's full output is fetched when its disclosure opens, so the
+   disclosure has three states: loading, the text, or unavailable. */
+.tool-output-loading,
+.tool-output-spinner {
+  color: var(--fg-dim);
+  font-size: 0.85em;
+}
+.tool-output-missing {
+  color: var(--fg-dim);
+  font-style: italic;
+  margin: 4px 0;
+}
+

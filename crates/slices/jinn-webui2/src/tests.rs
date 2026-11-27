@@ -6760,16 +6760,17 @@ async fn the_launch_note_names_the_port_that_was_actually_bound() {
     // When it publishes its note.
     let (notes, note) = spawn_listener_and_collect_notes().await;
 
-    // Then the note is the bound address's page URL, the same string the
-    // caller logs.
+    // Then the note is the bound address alone, the same string the
+    // caller logs: no path, the page is the root.
     assert_eq!(
         notes[0].status_message.as_deref(),
         Some(note.as_str()),
         "the row and the log read one string"
     );
     assert!(
-        note.starts_with("serving on http://127.0.0.1:") && note.ends_with("/web2"),
-        "a specific loopback bind names its own address and the page path: {note}"
+        note.strip_prefix("serving on http://127.0.0.1:")
+            .is_some_and(|port| !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())),
+        "a specific loopback bind names its own address and nothing after the port: {note}"
     );
 }
 
