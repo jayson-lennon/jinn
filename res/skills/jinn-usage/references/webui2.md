@@ -269,8 +269,10 @@ and the rest loads on scroll.
 
 The retry delay grows on every unanswered connect (250 ms doubling to 8 s)
 and resets only once a connect has been answered, so a server that is
-stalling is left alone rather than hammered. It keeps retrying for as long
-as the page is open; there is no give-up state.
+stalling is left alone rather than hammered. A reconnect that missed
+nothing is answered at once, so a brief drop on an idle page clears in a
+moment instead of returning. It keeps retrying for as long as the page is
+open; there is no give-up state.
 
 ## What `/web2` does not do
 

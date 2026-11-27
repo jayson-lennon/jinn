@@ -945,6 +945,20 @@ fn server_ping_round_trips_as_a_bare_tag() {
 
 #[rstest]
 #[test]
+fn server_current_round_trips_as_a_bare_tag() {
+    // Given the answer to a `hello` that missed nothing.
+    let msg = ServerMsg::Current;
+
+    // When it is serialized.
+    let json = serde_json::to_value(&msg).expect("current serializes");
+
+    // Then it is the type tag alone, and reads back unchanged.
+    assert_eq!(json, serde_json::json!({ "type": "current" }));
+    assert_eq!(json_of(&roundtrip_server(&msg)), json_of(&msg));
+}
+
+#[rstest]
+#[test]
 fn server_variant_carries_its_snake_case_tag() {
     // Given one message of every server variant.
     let session = SessionId::new();
@@ -1086,6 +1100,7 @@ fn server_variant_carries_its_snake_case_tag() {
             }),
             "error",
         ),
+        (ServerMsg::Current, "current"),
         (ServerMsg::Ping, "ping"),
     ];
 

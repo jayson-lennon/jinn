@@ -77,12 +77,18 @@ function isInContext(envelope: EntryEnvelope): boolean {
  * the transcript's scroll box. The kebab is at the entry's bottom-right, so
  * for the last entry — the one most often acted on — a downward popup
  * would open into the composer and be cut off.
+ *
+ * The measurement waits one frame: a ref runs before the browser has laid
+ * out the content this render produced, so a popup measured at once can
+ * read as fitting when it does not, and a few pixels of it end up clipped.
  */
 function fitPopup(node: HTMLElement): void {
-  const scroller = node.closest('.transcript');
-  if (scroller === null) return;
-  const limit = scroller.getBoundingClientRect().bottom;
-  if (node.getBoundingClientRect().bottom > limit) node.classList.add('up');
+  requestAnimationFrame(() => {
+    const scroller = node.closest('.transcript');
+    if (scroller === null) return;
+    const limit = scroller.getBoundingClientRect().bottom;
+    if (node.getBoundingClientRect().bottom > limit) node.classList.add('up');
+  });
 }
 
 export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: string | null; menu: EntryMenuProps }): JSX.Element {

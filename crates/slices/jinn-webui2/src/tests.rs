@@ -1145,6 +1145,58 @@ async fn hello_with_a_matching_cursor_and_revision_sends_only_later_entries() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn hello_with_a_cursor_at_the_newest_entry_answers_current() {
+    // Given a page that saw the only entry at the current revision, and
+    // nothing has arrived since.
+    let h = harness();
+    push(&h.state, ChatEntry::user("one"));
+    let cursor = active_last_entry_id(&h.state);
+    let revision = h.handle.revision(&active_id(&h.state));
+
+    // When it reconnects naming both.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: Some(cursor),
+            revision: Some(revision),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the answer is the "current" frame alone, never silence.
+    let [ServerMsg::Current] = reply.frames.as_slice() else {
+        unreachable!("a hello that missed nothing answers current");
+    };
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_with_a_gap_answers_upserts_and_no_current_frame() {
+    // Given a page that saw the first of two entries at the current revision.
+    let h = harness();
+    push(&h.state, ChatEntry::user("one"));
+    let cursor = active_last_entry_id(&h.state);
+    let revision = h.handle.revision(&active_id(&h.state));
+    push(&h.state, ChatEntry::user("two"));
+
+    // When it reconnects naming both.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: Some(cursor),
+            revision: Some(revision),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the answer is exactly the missed entry, with no "current" frame.
+    let [ServerMsg::EntryUpsert(_)] = reply.frames.as_slice() else {
+        unreachable!("a hello with a gap answers one upsert per missed entry");
+    };
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn hello_with_a_stale_revision_answers_a_snapshot() {
     // Given a page whose revision predates an in-place rewrite of the history.
     let h = harness();
