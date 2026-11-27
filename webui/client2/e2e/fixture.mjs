@@ -39,6 +39,18 @@ export const sel = {
   STATUS_PERSONA: '[data-testid="status-persona"]',
   /** The context usage figure in the status bar, as the server formats it. */
   STATUS_CONTEXT: '[data-testid="status-context"]',
+  /** The session dash: the scrim, the card, and its four sections. */
+  DASH_SCRIM: '[data-testid="dash-scrim"]',
+  DASH: '[data-testid="dash"]',
+  DASH_STATS: '[data-testid="dash-stats"]',
+  DASH_MCP: '[data-testid="dash-mcp"]',
+  DASH_TASKS: '[data-testid="dash-tasks"]',
+  DASH_PINS: '[data-testid="dash-pins"]',
+  DASH_PIN: '[data-testid="dash-pin"]',
+  DASH_PIN_NAMED: (entryId) => `[data-testid="dash-pin"][data-entry-id="${entryId}"]`,
+  /** The statistics rows' label and value cells. */
+  DASH_ROW_LABEL: '[data-testid="dash-stats"] .dash-row-label',
+  DASH_ROW_VALUE: '[data-testid="dash-stats"] .dash-row-value',
   MODEL_ROW: '[data-testid="model-row"]',
   MODEL_FILTER: '[data-testid="model-filter"]',
   OPEN_PICKER: '[data-testid="open-picker"]',
@@ -296,6 +308,14 @@ export async function createSessionWithLifecycle(page, lifecycle) {
 export async function openMenu(page) {
   await page.locator(sel.MENU_BUTTON).click();
   await expect(page.locator(sel.MENU_PANEL)).toBeVisible();
+}
+
+/** Opens the session dash by clicking the status bar's context figure, and
+ *  waits for its card. The figures land on the tick after the open; a test
+ *  that needs them waits on its own row. */
+export async function openDash(page) {
+  await page.locator(sel.STATUS_CONTEXT).click();
+  await expect(page.locator(sel.DASH)).toBeVisible();
 }
 
 /** Picks a color mode from the menu's color-mode group. */
@@ -585,13 +605,18 @@ export function seedChildSession(jinn, parentId, title, origin = "fork") {
  * A test that needs the long history follows this with `restartJinn`: a
  * running instance has already loaded the session into memory.
  *
+ * `pinOrdinal` pins the clone at that ordinal, so a test can reach an entry
+ * the page does not hold — the dash's pin jump, which loads history until
+ * the pinned one is held.
+ *
  * @param {{ root: string }} jinn the test's own instance.
  * @param {string} id the session to grow.
- * @param {{ copies: number, text?: string }} options how many older
- *   entries to seed, and the text each carries before its number.
- * @returns {void}
+ * @param {{ copies: number, text?: string, pinOrdinal?: number }} options how
+ *   many older entries to seed, the text each carries before its number, and
+ *   the ordinal of the one clone to pin.
+ * @returns {string | undefined} the pinned clone's id, when one was asked for.
  */
-export function seedOlderEntries(jinn, id, { copies, text = "older entry" }) {
+export function seedOlderEntries(jinn, id, { copies, text = "older entry", pinOrdinal }) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) {
     throw new Error(`seedOlderEntries: not a session id: ${id}`);
   }
@@ -618,6 +643,7 @@ export function seedOlderEntries(jinn, id, { copies, text = "older entry" }) {
   // ordinal order agree. (The real entry was sent seconds ago, so a span
   // of `copies` ms never reaches another real entry.)
   const templateMs = uuidV7Timestamp(templateId);
+  let pinned;
   run(`UPDATE session_history SET ordinal = ordinal + ${copies} WHERE session_id = '${id}';`);
   for (let i = 0; i < copies; i += 1) {
     const cloneId = uuidV7(templateMs - (copies - i));
@@ -630,9 +656,11 @@ export function seedOlderEntries(jinn, id, { copies, text = "older entry" }) {
       `INSERT INTO entries (id, timing, kind) VALUES ('${cloneId}', '${timing.replace(/'/g, "''")}', '${cloneKind}');`,
     );
     run(
-      `INSERT INTO session_history (session_id, entry_id, ordinal) VALUES ('${id}', '${cloneId}', ${i});`,
+      `INSERT INTO session_history (session_id, entry_id, ordinal, pin_position) VALUES ('${id}', '${cloneId}', ${i}, ${i === pinOrdinal ? "'TOP'" : "NULL"});`,
     );
+    if (i === pinOrdinal) pinned = cloneId;
   }
+  return pinned;
 }
 
 /** The full output the seeded truncated tool result carries. */

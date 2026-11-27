@@ -16,6 +16,7 @@ import { indexSnapshot } from './transcript_entries';
 import { markSeenOnSnapshot, saveLastSeen } from './last_seen';
 import { resolveLoadingAfterSnapshot } from './session_load';
 import { resetSessionPickerRows } from './picker_rows';
+import { resetDash } from './dash';
 import type { ServerMsg } from './protocol';
 
 /** `snapshot`: the page's whole state for one session, from one frame. */
@@ -53,6 +54,9 @@ export function applySnapshot(store: ClientStore, msg: Extract<ServerMsg, { type
     // A different session's picker rows are not the ones the page was
     // looking at; an open modal re-asks for its own rows on open.
     resetSessionPickerRows(s);
+    // The dash describes one session: a switch closes it and drops the
+    // other session's facts and any jump still in flight.
+    resetDash(s);
     // The page is now viewing this session: whatever settled before
     // this moment is seen. One arm covers a click on the page and a
     // switch made elsewhere that the page follows — both land here.

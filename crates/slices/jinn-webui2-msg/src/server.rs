@@ -5,9 +5,10 @@
 //! variant is a compile error until it has a handler.
 
 use crate::payload::{
-    AppletRowsBody, ContextUsageBody, EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody,
-    McpRowsBody, ModelBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody,
-    PickerRowsBody, PromptTemplatesBody, SessionsBody, SkillRowsBody, SnapshotBody, ThemeBody,
+    AppletRowsBody, ContextUsageBody, DashMcpRowsBody, DashPinRowsBody, DashTasksBody,
+    EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody, ModelBody,
+    ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody, PickerRowsBody,
+    PromptTemplatesBody, SessionStatsBody, SessionsBody, SkillRowsBody, SnapshotBody, ThemeBody,
     TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
@@ -68,6 +69,15 @@ pub enum ServerMsg {
     Theme(ThemeBody),
     /// The session's persona and context usage figure, when either changed.
     ContextUsage(ContextUsageBody),
+    /// The dash's session statistics, pushed only while a dash is open and
+    /// only when a displayed value changed.
+    SessionStats(Box<SessionStatsBody>),
+    /// The dash's pinned rows, when the session's pins changed.
+    DashPinRows(Box<DashPinRowsBody>),
+    /// The dash's task list, when the session's list changed.
+    DashTasks(Box<DashTasksBody>),
+    /// The dash's enabled MCP servers and their live status.
+    DashMcpRows(DashMcpRowsBody),
     /// A request was refused.
     Error(ErrorBody),
     /// A `hello` answered with nothing to send: the page's cursor is the
@@ -111,6 +121,10 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::NewSessionOptions(_) => "new_session_options",
         ServerMsg::Theme(_) => "theme",
         ServerMsg::ContextUsage(_) => "context_usage",
+        ServerMsg::SessionStats(_) => "session_stats",
+        ServerMsg::DashPinRows(_) => "dash_pin_rows",
+        ServerMsg::DashTasks(_) => "dash_tasks",
+        ServerMsg::DashMcpRows(_) => "dash_mcp_rows",
         ServerMsg::Error(_) => "error",
         ServerMsg::Current => "current",
         ServerMsg::Ping => "ping",

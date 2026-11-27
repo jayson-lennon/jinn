@@ -26,6 +26,22 @@
 .status-persona:focus-visible {
   outline: 1px solid var(--accent);
 }
+/* The figure opens the dash, so it takes the persona button's treatment. */
 .status-context {
   white-space: nowrap;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 2px 6px;
+  margin-right: -6px;
+  border-radius: var(--radius);
+  font: inherit;
+  cursor: pointer;
+}
+.status-context:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.status-context:focus-visible {
+  outline: 1px solid var(--accent);
 }

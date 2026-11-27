@@ -511,6 +511,9 @@ mod attachment_route_tests {
                 &jinn_provider_selection_msg::provider_state_slot(),
             )
             .expect("the catalog registers the provider slot");
+        let work_time_cell = slices
+            .reader::<jinn_work_time_msg::WorkingTimeState>(&jinn_work_time_msg::work_time_slot())
+            .expect("the catalog registers the work-time slot");
         let personas_cell = slices
             .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
             .expect("the catalog registers the persona slot");
@@ -547,6 +550,7 @@ mod attachment_route_tests {
                 config: services.config.clone(),
                 services,
                 provider_cell,
+                work_time_cell,
                 personas_cell,
                 mcp_runtime_cell,
                 applets_catalog_cell,

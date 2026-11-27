@@ -150,6 +150,75 @@ fn refused_with(message: impl Into<String>) -> Reply {
     }))
 }
 
+/// A dash opened on the page. The statistics are not in the reply: they
+/// ride the outbound actor's next tick, so the push rule (and its
+/// "nothing while idle" guarantee) stays in one place.
+pub(crate) fn dash_open(out: &OutboundHandle) -> Reply {
+    let session_id = out.state().read().session.active_session_id().clone();
+    out.dash_opened(&session_id);
+    Reply::default()
+}
+
+/// The dash on the page closed.
+pub(crate) fn dash_close(out: &OutboundHandle) -> Reply {
+    out.dash_closed();
+    Reply::default()
+}
+
+/// Loads history until `entry_id` is held, so the page can scroll to it.
+///
+/// The reply is a stream of the page's own older-entry pages, built newest
+/// first by walking back from the target and sent oldest first, so each
+/// prepends cleanly before the ones the page already holds. One request, one
+/// round trip, and nothing about the page's tail changes shape. A target
+/// that is not an entry of the active session is refused.
+pub(crate) fn jump_to_entry(out: &OutboundHandle, entry_id: &ChatEntryId) -> Reply {
+    // One read of the history, so every page comes from the same instant.
+    let guard = out.state().read();
+    let session_id = guard.session.active_session_id().clone();
+    let Some(session) = guard.session.get(&session_id) else {
+        return refused_with("no such entry");
+    };
+    let Some(target) = session.find_entry_index_by_id(entry_id) else {
+        return refused_with("no such entry");
+    };
+    let windows = pages_up_to(session.history(), target + 1);
+    drop(guard);
+    // Marked before any frame is built, so a later reconcile never re-sends
+    // a page this reply is about to deliver.
+    for window in &windows {
+        out.mark_delivered(&session_id, window);
+    }
+    let frames = windows
+        .into_iter()
+        .map(|window| {
+            ServerMsg::EntriesPage(Box::new(EntriesPageBody {
+                session_id: session_id.clone(),
+                entries: window.entries,
+                entries_before: window.entries_before,
+            }))
+        })
+        .collect();
+    Reply { frames }
+}
+
+/// Every page from the start of the history up to (and including) index
+/// `end`, oldest first: the run a jump streams, in the order the page
+/// prepends them.
+fn pages_up_to(history: &[ChatEntry], end: usize) -> Vec<crate::page::EntryWindow> {
+    let mut windows = Vec::new();
+    let mut window_end = end;
+    while let Some(window) = crate::page::page_before(history, window_end) {
+        window_end = window.entries_before;
+        windows.push(window);
+        if window_end == 0 {
+            break;
+        }
+    }
+    windows.reverse();
+    windows
+}
+
 /// The answer to a frame that is not a `ClientMsg`. The socket stays open.
 #[must_use]
 pub fn malformed() -> Reply {
@@ -1224,6 +1293,8 @@ pub async fn toggle_mcp(out: &OutboundHandle, server: &str) -> Reply {
         enabled: desired,
     })
     .await;
+    // The dash's badges follow the click that opened the picker, not only
+    // the next runtime event.
     let filter = out.last_filter(&session_id, RowsKind::Mcp);
     mcp_rows(out, filter)
 }

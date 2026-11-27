@@ -333,6 +333,9 @@ fn harness_seeded(
             &jinn_provider_selection_msg::provider_state_slot(),
         )
         .expect("the catalog registers the provider slot");
+    let work_time_cell = slices
+        .reader::<jinn_work_time_msg::WorkingTimeState>(&jinn_work_time_msg::work_time_slot())
+        .expect("the catalog registers the work-time slot");
     let personas_cell = slices
         .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
         .expect("the catalog registers the persona slot");
@@ -387,6 +390,7 @@ fn harness_seeded(
         config: services.config.clone(),
         services,
         provider_cell,
+        work_time_cell,
         personas_cell,
         mcp_runtime_cell,
         applets_catalog_cell,
@@ -7238,4 +7242,418 @@ fn a_provider_switch_pushes_the_model_and_the_figure_at_once() {
         unreachable!("one figure frame beside the model frame: {frames:?}");
     };
     assert_eq!(label, "50.0%/200k");
+}
+
+// ---------------------------------------------------------------------------
+// The dash
+// ---------------------------------------------------------------------------
+
+/// A connected page, with whatever its connection already delivered drained.
+fn dash_page(
+    h: &Harness,
+) -> (
+    tokio::sync::mpsc::UnboundedReceiver<ServerMsg>,
+    crate::connections::ConnectionGuard,
+) {
+    let (_id, inbox, connection) = h.handle.register();
+    let mut inbox = inbox;
+    let _ = drain(&mut inbox);
+    (inbox, connection)
+}
+
+/// The `session_stats` frame among the frames, if one was pushed.
+///
+/// A tick may push other frames alongside it (the status bar's own figure,
+/// a drifted entry); the dash tests care only that the statistics came.
+fn one_stats(frames: &[ServerMsg]) -> Option<&jinn_webui2_msg::SessionStatsBody> {
+    frames.iter().find_map(|frame| match frame {
+        ServerMsg::SessionStats(body) => Some(body.as_ref()),
+        _ => None,
+    })
+}
+
+#[rstest::rstest]
+#[test]
+fn dash_stats_are_not_pushed_while_no_dash_is_open() {
+    // Given a connected page with no dash open.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives no statistics.
+    let frames = drain(&mut inbox);
+    assert!(one_stats(&frames).is_none());
+}
+
+#[rstest::rstest]
+#[test]
+fn opening_a_dash_makes_the_next_tick_push_the_full_statistics() {
+    // Given a connected page whose dash opens.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    push(&h.state, ChatEntry::user("hello"));
+    let _ = actions::dash_open(&h.handle);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives every figure in one frame, for the active session.
+    let frames = drain(&mut inbox);
+    let body = one_stats(&frames).expect("one session_stats frame");
+    assert_eq!(body.session_id, active_id(&h.state));
+    assert_eq!(body.turn_count, 1);
+}
+
+#[rstest::rstest]
+#[test]
+fn an_open_dash_is_pushed_again_only_when_a_figure_changed() {
+    // Given an open dash that has already received its statistics.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    crate::outbound::flush(&h.handle);
+    let _ = drain(&mut inbox);
+
+    // When a tick runs and nothing about the session changed.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives nothing.
+    assert_eq!(drain(&mut inbox).len(), 0);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_working_time_the_session_accrued_is_pushed_to_an_open_dash() {
+    // Given an open dash that has already received its statistics, for a
+    // session with no working time yet.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    crate::outbound::flush(&h.handle);
+    let frames = drain(&mut inbox);
+    let first = one_stats(&frames).expect("a session_stats frame");
+    assert_eq!(first.working, "00:00:00");
+
+    // When the session accrues an hour of working time, and a tick runs.
+    let id = active_id(&h.state);
+    let start = jiff::Timestamp::from_second(1_000_000).expect("a timestamp");
+    let end = jiff::Timestamp::from_second(1_003_600).expect("a timestamp");
+    let work_time = h.handle.work_time_cell();
+    work_time.update(|cell| {
+        cell.restore(
+            id,
+            vec![jinn_core_types::WorkingInterval::closed(start, end)],
+        )
+    });
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives the statistics again, with the clock advanced.
+    let frames = drain(&mut inbox);
+    let body = one_stats(&frames).expect("a session_stats frame");
+    assert_eq!(body.working, "01:00:00");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_changed_figure_is_pushed_to_an_open_dash() {
+    // Given an open dash that has already received its statistics.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    crate::outbound::flush(&h.handle);
+    let _ = drain(&mut inbox);
+
+    // When the session gains a turn and a tick runs.
+    push(&h.state, ChatEntry::user("one more"));
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives the statistics again, carrying the new count.
+    let frames = drain(&mut inbox);
+    assert_eq!(
+        one_stats(&frames)
+            .expect("a session_stats frame")
+            .turn_count,
+        1
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn closing_a_dash_stops_the_pushes() {
+    // Given a dash that was open and is now closed.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    let _ = actions::dash_close(&h.handle);
+    push(&h.state, ChatEntry::user("after the close"));
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives no statistics.
+    let frames = drain(&mut inbox);
+    assert!(one_stats(&frames).is_none());
+}
+
+#[rstest::rstest]
+#[test]
+fn dash_stats_for_a_lone_session_carry_no_tree() {
+    // Given an open dash on a session with no children.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the frame's tree is absent.
+    let frames = drain(&mut inbox);
+    assert!(
+        one_stats(&frames)
+            .expect("a session_stats frame")
+            .tree
+            .is_none()
+    );
+}
+
+// --- the jump ---
+
+/// Every entry text across a reply's pages, in arrival order.
+fn jumped_texts(reply: &Reply) -> Vec<String> {
+    reply
+        .frames
+        .iter()
+        .flat_map(|frame| match frame {
+            ServerMsg::EntriesPage(page) => page
+                .entries
+                .iter()
+                .map(|entry| entry.entry_text().to_owned())
+                .collect::<Vec<_>>(),
+            other => unreachable!(
+                "a jump replies in pages, got {:?}",
+                jinn_webui2_msg::server::tag_of(other)
+            ),
+        })
+        .collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_jump_to_a_far_back_entry_streams_every_page_up_to_it() {
+    // Given a history of three pages, and a pin on the first entry of the
+    // third — two whole pages precede it.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2 + 10);
+    let target = active_entry_id_at(&h, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2);
+
+    // When the page asks to jump to it.
+    let reply = actions::jump_to_entry(&h.handle, &target);
+
+    // Then the reply is three pages, oldest first, ending at the pinned entry.
+    assert_eq!(reply.frames.len(), 3);
+    let texts = jumped_texts(&reply);
+    assert_eq!(texts.len(), jinn_webui2_msg::TAIL_MAX_ENTRIES * 2 + 1);
+    assert_eq!(texts.last().map(String::as_str), Some("entry 400"));
+    assert_eq!(texts.first().map(String::as_str), Some("entry 0"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_jump_to_the_newest_entry_is_one_page() {
+    // Given a history of ten entries, and a pin on the last.
+    let h = harness();
+    push_many(&h.state, 10);
+    let target = active_last_entry_id(&h.state);
+
+    // When the page asks to jump to it.
+    let reply = actions::jump_to_entry(&h.handle, &target);
+
+    // Then the reply is one page carrying the whole history.
+    assert_eq!(reply.frames.len(), 1);
+    assert_eq!(jumped_texts(&reply).len(), 10);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_jump_to_an_unknown_entry_is_refused() {
+    // Given a session with history.
+    let h = harness();
+    push_many(&h.state, 3);
+
+    // When the page asks to jump to an entry that is not in it.
+    let reply = actions::jump_to_entry(&h.handle, &jinn_core_types::ChatEntryId::new());
+
+    // Then the reply is one refusal.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+}
+
+/// The id of the active session's history entry at `index`.
+fn active_entry_id_at(h: &Harness, index: usize) -> jinn_core_types::ChatEntryId {
+    h.state.read().session.active_session().history()[index]
+        .id
+        .clone()
+}
+
+// --- the dash's rows, on the tick ---
+
+/// The `dash_pin_rows` frame among the frames, if one was pushed.
+fn one_pin_rows(frames: &[ServerMsg]) -> Option<&jinn_webui2_msg::DashPinRowsBody> {
+    frames.iter().find_map(|frame| match frame {
+        ServerMsg::DashPinRows(body) => Some(body.as_ref()),
+        _ => None,
+    })
+}
+
+/// The `dash_tasks` frame among the frames, if one was pushed.
+fn one_tasks(frames: &[ServerMsg]) -> Option<&jinn_webui2_msg::DashTasksBody> {
+    frames.iter().find_map(|frame| match frame {
+        ServerMsg::DashTasks(body) => Some(body.as_ref()),
+        _ => None,
+    })
+}
+
+/// The `dash_mcp_rows` frame among the frames, if one was pushed.
+fn one_mcp_rows(frames: &[ServerMsg]) -> Option<&jinn_webui2_msg::DashMcpRowsBody> {
+    frames.iter().find_map(|frame| match frame {
+        ServerMsg::DashMcpRows(body) => Some(body),
+        _ => None,
+    })
+}
+
+#[rstest::rstest]
+#[test]
+fn an_open_dash_pushes_the_session_pins_with_the_sidebar_labels() {
+    // Given a page whose dash opens, on a session that already has a user
+    // entry pinned to the top — a session the page is only now learning,
+    // not a pin toggled while it watched.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let mut pinned = ChatEntry::user("show me the weather");
+    let id = pinned.id.clone();
+    pinned.pin_position = Some(jinn_core_types::PinPosition::Top);
+    push(&h.state, pinned);
+    let _ = actions::dash_open(&h.handle);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives one pin row, labeled as the sidebar labels it.
+    let frames = drain(&mut inbox);
+    let body = one_pin_rows(&frames).expect("one dash_pin_rows frame");
+    assert_eq!(body.rows.len(), 1);
+    assert_eq!(body.rows[0].entry_id, id);
+    assert_eq!(body.rows[0].text, "[TOP] > show me the weather");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_task_list_the_session_already_holds_is_pushed_to_an_open_dash() {
+    // Given a page whose dash opens, on a session whose task list has two
+    // phases — written before the page ever saw the session.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .task_list_mut()
+        .set_from_inputs(&[
+            jinn_tools_msg::PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![
+                    ("write it".to_owned(), jinn_tools_msg::TaskStatus::Completed),
+                    ("test it".to_owned(), jinn_tools_msg::TaskStatus::Pending),
+                ],
+            },
+            jinn_tools_msg::PhaseInput {
+                description: "Ship".to_owned(),
+                tasks: vec![("release".to_owned(), jinn_tools_msg::TaskStatus::Pending)],
+            },
+        ]);
+    let _ = actions::dash_open(&h.handle);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives both phases with their tasks, and the counts.
+    let frames = drain(&mut inbox);
+    let body = one_tasks(&frames).expect("one dash_tasks frame");
+    assert_eq!(body.phases.len(), 2);
+    assert_eq!(body.phases[0].tasks.len(), 2);
+    assert_eq!(body.done, 1);
+    assert_eq!(body.total, 3);
+}
+
+#[rstest::rstest]
+#[test]
+fn dash_mcp_rows_list_the_enabled_servers_only() {
+    // Given two configured servers, one of them enabled for the session, and
+    // a page whose dash opens.
+    let h = harness();
+    seed_mcp_servers(
+        h.handle.config(),
+        &[("fs", "filesystem"), ("git", "git tools")],
+    );
+    let mut enabled = std::collections::BTreeSet::new();
+    enabled.insert("fs".to_owned());
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_enabled_mcp_servers(enabled);
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives one MCP row: the enabled server, with its badge.
+    let frames = drain(&mut inbox);
+    let body = one_mcp_rows(&frames).expect("one dash_mcp_rows frame");
+    assert_eq!(body.rows.len(), 1);
+    assert_eq!(body.rows[0].name, "fs");
+}
+
+#[rstest::rstest]
+#[test]
+fn an_unchanged_dash_pushes_no_rows_on_the_next_tick() {
+    // Given an open dash that has already received its rows.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    crate::outbound::flush(&h.handle);
+    let _ = drain(&mut inbox);
+
+    // When a tick runs and no pin, task, or server changed.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives no dash row frames.
+    let frames = drain(&mut inbox);
+    assert!(one_pin_rows(&frames).is_none());
+    assert!(one_tasks(&frames).is_none());
+    assert!(one_mcp_rows(&frames).is_none());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_changed_pin_set_is_pushed_to_an_open_dash() {
+    // Given an open dash that has already received its (empty) rows.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    crate::outbound::flush(&h.handle);
+    let _ = drain(&mut inbox);
+
+    // When an entry is pinned while the dash is open, and a tick runs.
+    let mut pinned = ChatEntry::user("show me the weather");
+    pinned.pin_position = Some(jinn_core_types::PinPosition::Top);
+    push(&h.state, pinned);
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives the new pin row.
+    let frames = drain(&mut inbox);
+    let body = one_pin_rows(&frames).expect("one dash_pin_rows frame");
+    assert_eq!(body.rows.len(), 1);
 }

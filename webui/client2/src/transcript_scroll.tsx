@@ -13,6 +13,7 @@ import type { JSX } from '@solidjs/web';
 import type { ClientMsg, EntryEnvelope } from './protocol';
 import type { ClientStore } from './store';
 import { beginFork } from './session_load';
+import { clearJump } from './dash';
 import { TranscriptEntry, useEntryMenuDismiss } from './transcript';
 
 // ---------------------------------------------------------------------------
@@ -83,7 +84,9 @@ export function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) =
   const oldestHeld = (): string | undefined => props.store.state.entries[0]?.entry.id;
   const requestOlder = (): void => {
     const s = props.store.state;
-    if (s.loadingMore || s.entriesBefore === 0 || !s.synced) return;
+    // A jump streams its own pages in; a landing one can leave the reader
+    // near the top, which must not start a second load beside it.
+    if (s.loadingMore || s.jumpTarget !== null || s.entriesBefore === 0 || !s.synced) return;
     const before = oldestHeld();
     if (before === undefined) return;
     props.store.set((v) => {
@@ -98,6 +101,10 @@ export function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) =
   createRenderEffect(
     () => props.store.state.loadingMore,
     (loading, prev) => {
+      if (props.store.state.jumpTarget !== null) {
+        heightBeforePage = null;
+        return;
+      }
       if (loading && node) {
         heightBeforePage = node.scrollHeight;
         return;
@@ -109,6 +116,29 @@ export function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) =
           if (node) node.scrollTop += delta;
         });
       }
+    },
+  );
+  // A pin's jump: the target may be pages back, and the reply streams them
+  // in one at a time. Each landing page changes the entry count, so this is
+  // the moment to look: once the target is held, it goes to the top of the
+  // box and the jump is over. Until then the reader is left where they are.
+  createRenderEffect(
+    () => props.store.state.entries.length,
+    () => {
+      const target = props.store.state.jumpTarget;
+      if (target === null || node === undefined) return;
+      // A microtask, so the rows this change produced are laid out first.
+      queueMicrotask(() => {
+        if (node === undefined) return;
+        const hit = node.querySelector<HTMLElement>(`[data-entry-id="${target}"]`);
+        if (hit === null) return;
+        jumpTo(hit.offsetTop - node.offsetTop);
+        // The jump is over only once its own scroll has settled: the scroll
+        // it makes lands the reader at the top, and the load-older guard
+        // must still hold for that event — or it loads the whole session.
+        // A macrotask later, the guard is released by clearing the target.
+        setTimeout(() => clearJump(props.store), 0);
+      });
     },
   );
   // One scroll handler carries both behaviours: the jump buttons' measure
@@ -132,6 +162,11 @@ export function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) =
   return (
     <div class="transcript-wrap">
       <section class="transcript" data-testid="transcript" ref={node} onScroll={onTranscriptScroll}>
+        <Show when={props.store.state.jumpTarget !== null}>
+          <div class="older-spinner" data-testid="jump-spinner">
+            <span class="spinner spinner-small" aria-hidden="true" /> jumping to entry…
+          </div>
+        </Show>
         <Show when={props.store.state.loadingMore}>
           <div class="older-spinner" data-testid="older-spinner">
             <span class="spinner spinner-small" aria-hidden="true" /> loading older entries…

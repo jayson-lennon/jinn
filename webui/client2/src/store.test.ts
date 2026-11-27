@@ -505,3 +505,184 @@ describe('isBusy', () => {
     expect(yes).toBe(busy);
   });
 });
+
+// --- the dash ---
+
+function sessionStats(
+  overrides: Partial<Extract<ServerMsg, { type: 'session_stats' }>> = {},
+): Extract<ServerMsg, { type: 'session_stats' }> {
+  return {
+    type: 'session_stats',
+    session_id: 's1',
+    cwd: '/proj',
+    cache_hit_percent: 97,
+    tokens_sent: '1.2k',
+    tokens_received: '3.4k',
+    context_label: '12.3k / 200k (6%)',
+    cost: '$0.00123',
+    turn_count: 4,
+    working: '00:01:02',
+    model: '(openai)/gpt',
+    tree: null,
+    ...overrides,
+  };
+}
+
+describe('the dash', () => {
+  it('lands the session statistics in the dash', async () => {
+    // Given a page viewing s1 with no statistics.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When the statistics arrive.
+    apply(store, sessionStats());
+    await settled();
+
+    // Then the dash holds the figures the frame carried.
+    expect(store.state.dashStats).toMatchObject({ turn_count: 4, working: '00:01:02', tree: null });
+  });
+
+  it('lands the pin rows in the dash', async () => {
+    // Given a page viewing s1.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When the pin rows arrive.
+    apply(store, { type: 'dash_pin_rows', session_id: 's1', rows: [{ entry_id: 'e7', text: '[TOP] > hi' }] });
+    await settled();
+
+    // Then the dash holds the one pin.
+    expect(store.state.dashPins).toEqual([{ entry_id: 'e7', text: '[TOP] > hi' }]);
+  });
+
+  it('lands the task list in the dash', async () => {
+    // Given a page viewing s1.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When the task list arrives.
+    apply(store, {
+      type: 'dash_tasks',
+      session_id: 's1',
+      phases: [{ description: 'Build', is_active: true, has_pending_work: true, tasks: [{ description: 'write', status: 'Pending' }] }],
+      done: 0,
+      total: 1,
+    });
+    await settled();
+
+    // Then the dash holds the one phase and the counts.
+    expect(store.state.dashTasks).toMatchObject({ done: 0, total: 1, phases: [{ description: 'Build', is_active: true }] });
+  });
+
+  it('lands the enabled MCP rows in the dash', async () => {
+    // Given a page viewing s1.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When the MCP rows arrive.
+    apply(store, { type: 'dash_mcp_rows', session_id: 's1', rows: [{ name: 'fs', badge: 'running' }] });
+    await settled();
+
+    // Then the dash holds the one server with its badge.
+    expect(store.state.dashMcp).toEqual([{ name: 'fs', badge: 'running' }]);
+  });
+
+  it('drops the statistics for a session the page has left', async () => {
+    // Given a page viewing s1.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When s2's statistics arrive.
+    apply(store, sessionStats({ session_id: 's2' }));
+    await settled();
+
+    // Then the dash holds nothing.
+    expect(store.state.dashStats).toBeNull();
+  });
+
+  it('drops the pin rows for a session the page has left', async () => {
+    // Given a page viewing s1.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When s2's pin rows arrive.
+    apply(store, { type: 'dash_pin_rows', session_id: 's2', rows: [{ entry_id: 'e7', text: 'x' }] });
+    await settled();
+
+    // Then the dash holds no pins.
+    expect(store.state.dashPins).toEqual([]);
+  });
+
+  it('closes the dash on a snapshot', async () => {
+    // Given an open dash.
+    const store = createStore();
+    store.set((s) => {
+      s.dashOpen = true;
+    });
+    await settled();
+
+    // When a snapshot lands.
+    apply(store, snapshot());
+    await settled();
+
+    // Then the dash is closed.
+    expect(store.state.dashOpen).toBe(false);
+  });
+
+  it('drops the dash facts on a snapshot', async () => {
+    // Given a dash holding statistics, pins, tasks and servers.
+    const store = createStore();
+    apply(store, sessionStats());
+    apply(store, { type: 'dash_pin_rows', session_id: 's1', rows: [{ entry_id: 'e7', text: 'x' }] });
+    apply(store, { type: 'dash_mcp_rows', session_id: 's1', rows: [{ name: 'fs', badge: 'running' }] });
+    await settled();
+
+    // When a snapshot lands.
+    apply(store, snapshot());
+    await settled();
+
+    // Then the dash holds none of it.
+    expect(store.state.dashStats).toBeNull();
+    expect(store.state.dashPins).toEqual([]);
+    expect(store.state.dashMcp).toEqual([]);
+  });
+
+  it('drops a pending jump on a snapshot', async () => {
+    // Given a transcript waiting on a jump to e7.
+    const store = createStore();
+    store.set((s) => {
+      s.jumpTarget = 'e7';
+    });
+    await settled();
+
+    // When a snapshot lands.
+    apply(store, snapshot());
+    await settled();
+
+    // Then no jump is pending.
+    expect(store.state.jumpTarget).toBeNull();
+  });
+
+  it('drops a pending jump when the server refuses it', async () => {
+    // Given a transcript waiting on a jump to e7.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    store.set((s) => {
+      s.jumpTarget = 'e7';
+    });
+    await settled();
+
+    // When the refusal arrives.
+    apply(store, { type: 'error', message: 'no such entry' });
+    await settled();
+
+    // Then no jump is pending.
+    expect(store.state.jumpTarget).toBeNull();
+  });
+});

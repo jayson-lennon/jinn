@@ -48,6 +48,8 @@ jinn-persona-msg = { workspace = true }
 # surfaces cannot disagree. Contract crate only: never the status-bar
 # implementation slice.
 jinn-status-bar-msg = { workspace = true }
+# The dash's working-time figure is measured over the work-time cell's intervals.
+jinn-work-time-msg = { workspace = true }
 # The applets modal's rows are the saved-app catalog the applets store actor
 # writes into its cell, and the open gesture publishes that crate's rescan
 # and wake commands. Contract crate only: never the applets implementation

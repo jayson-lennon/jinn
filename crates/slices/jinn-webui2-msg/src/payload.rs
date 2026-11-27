@@ -8,6 +8,7 @@
 use jiff::Timestamp;
 use jinn_core_types::{ChatEntry, ChatEntryId, SessionId};
 use jinn_session_store_msg::SessionState;
+use jinn_tools_msg::TaskStatus;
 use serde::{Deserialize, Serialize};
 
 /// The most entries a snapshot's transcript tail, or one page of older
@@ -807,4 +808,113 @@ pub struct LifecycleOptionBody {
     /// shows so the user knows which argument is which; a count alone
     /// cannot say.
     pub params: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// The dash
+// ---------------------------------------------------------------------------
+
+/// The whole session tree's totals, as the terminal status bar aggregates
+/// them. Only sent while the tree has more than one session — the bar's
+/// own rule — so a lone session never sees the block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TreeStatsBody {
+    /// How many sessions the tree holds.
+    pub session_count: usize,
+    /// The tree's cache-hit percentage; absent when no measured turn in the
+    /// tree reported a cache hit.
+    pub cache_hit_percent: Option<u32>,
+    pub tokens_sent: String,
+    pub tokens_received: String,
+    pub cost: String,
+    pub turn_count: u32,
+    /// `HH:MM:SS`.
+    pub working: String,
+}
+
+/// Every figure the terminal status bar shows for the active session, each
+/// already formatted by the shared statistics function — the page renders
+/// the strings and computes nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionStatsBody {
+    /// The session the figures describe, so a page that has switched
+    /// sessions drops a late frame.
+    pub session_id: SessionId,
+    /// The working directory, shortened as the terminal shows it.
+    pub cwd: String,
+    /// The cache-hit percentage; absent when no measured turn reported a
+    /// cache hit, in which case the page shows no cache row.
+    pub cache_hit_percent: Option<u32>,
+    pub tokens_sent: String,
+    pub tokens_received: String,
+    /// The context usage figure, the same string the status bar shows.
+    pub context_label: String,
+    pub cost: String,
+    pub turn_count: u32,
+    /// `HH:MM:SS`.
+    pub working: String,
+    /// The provider, model, reasoning effort and modalities, as the bar's
+    /// right side shows them.
+    pub model: String,
+    /// The tree's totals; absent while the tree has one session.
+    pub tree: Option<TreeStatsBody>,
+}
+
+/// One pinned entry, as the terminal sidebar's pins section labels it: the
+/// badge, the kind prefix, and the truncated content, already assembled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DashPinRowBody {
+    /// The entry a tap jumps the transcript to.
+    pub entry_id: ChatEntryId,
+    pub text: String,
+}
+
+/// The dash's pinned rows for one session, in the sidebar's order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DashPinRowsBody {
+    pub session_id: SessionId,
+    pub rows: Vec<DashPinRowBody>,
+}
+
+/// One task under a phase.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DashTaskRowBody {
+    pub description: String,
+    pub status: TaskStatus,
+}
+
+/// One phase and the tasks beneath it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DashTaskPhaseBody {
+    pub description: String,
+    pub tasks: Vec<DashTaskRowBody>,
+    /// Whether this is the list's active phase.
+    pub is_active: bool,
+    /// Whether any task in this phase is still pending or postponed.
+    pub has_pending_work: bool,
+}
+
+/// The dash's task list for one session: every phase with its tasks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DashTasksBody {
+    pub session_id: SessionId,
+    pub phases: Vec<DashTaskPhaseBody>,
+    /// How many tasks are done, and how many there are.
+    pub done: usize,
+    pub total: usize,
+}
+
+/// One enabled MCP server and its live status, as the terminal sidebar
+/// lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DashMcpRowBody {
+    pub name: String,
+    pub badge: McpBadgeBody,
+}
+
+/// The dash's MCP rows for one session: the enabled servers only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DashMcpRowsBody {
+    pub session_id: SessionId,
+    pub rows: Vec<DashMcpRowBody>,
 }

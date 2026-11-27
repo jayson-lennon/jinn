@@ -5216,8 +5216,11 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "strip-ansi-escapes",
  "tempfile",
  "tracing",
+ "unicode-segmentation",
+ "unicode-width 0.2.2",
  "wherror",
 ]
 
@@ -5512,8 +5515,10 @@ name = "jinn-status-bar-msg"
 version = "1.27.2"
 dependencies = [
  "jiff",
+ "jinn-common",
  "jinn-core-types",
  "jinn-provider-config",
+ "jinn-provider-selection-msg",
  "jinn-session-state",
  "jinn-slices",
  "jinn-token-count-msg",
@@ -6023,6 +6028,7 @@ dependencies = [
  "jinn-tools-msg",
  "jinn-turn-dispatch-msg",
  "jinn-webui2-msg",
+ "jinn-work-time-msg",
  "marked-path",
  "parking_lot",
  "reqwest 0.13.3",
@@ -6045,6 +6051,7 @@ dependencies = [
  "jinn-core-types",
  "jinn-session-store-msg",
  "jinn-slices",
+ "jinn-tools-msg",
  "rstest",
  "serde",
  "serde_json",

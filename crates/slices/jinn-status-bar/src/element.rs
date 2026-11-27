@@ -15,26 +15,19 @@ use std::collections::HashMap;
 
 use jiff::{SignedDuration, Timestamp};
 use jinn_common::shorten_path;
-use jinn_core_types::model_selection::ModelSelection;
-use jinn_core_types::{SessionId, WorkingInterval, format_working_duration};
+use jinn_core_types::{SessionId, WorkingInterval};
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::common::render_ctx::RenderCtx;
 use jinn_kernel::common::ui_element::UiElement;
-use jinn_kernel::resolve_effort;
-use jinn_provider_config::InputModalities;
 use jinn_provider_config::ModelCache;
 use jinn_session_state::ChatSessionState;
-use jinn_session_state::aggregate_tree_stats;
-use jinn_session_state::compute_turn_count;
 use jinn_slices::DrawContext;
 use jinn_status_bar_msg::StatusBarState;
-use jinn_status_bar_msg::context_figure;
-use jinn_status_bar_msg::format_context_figure;
-use jinn_status_bar_msg::format_tokens;
-use jinn_status_bar_msg::resolve_model_info;
+use jinn_status_bar_msg::session_stats;
 use jinn_status_bar_msg::status_bar_slot;
+use jinn_status_bar_msg::tree_is_shown;
+use jinn_status_bar_msg::tree_stats;
 use jinn_theme::Theme;
-use jinn_token_count_msg::TokenStats;
 use jinn_work_time_msg::WorkingTimeState;
 use jinn_work_time_msg::work_time_slot;
 use ratatui::Frame;
@@ -46,17 +39,6 @@ use ratatui::widgets::Paragraph;
 /// A display element that shows the active strategy and provider/model in the status bar.
 #[derive(Debug)]
 pub struct StatusBarElement;
-
-/// Resolve the active model's input modalities from the cache.
-///
-/// Returns the cached modalities when the model is recorded, otherwise `None`
-/// (so the caller can apply the conservative text-only default).
-fn resolve_modalities(
-    model_cache: Option<&ModelCache>,
-    active_model: &str,
-) -> Option<InputModalities> {
-    resolve_model_info(model_cache, active_model).map(|m| m.input_modalities)
-}
 
 /// Paints the status bar into `area`.
 ///
@@ -192,13 +174,13 @@ fn render_tree_aggregate(
     style: Style,
     slices: &jinn_slices::Slices,
 ) {
-    let tree = aggregate_tree_stats(
+    let tree = tree_stats(
         state.session.sessions(),
         state.session.frozen_nodes(),
         state.session.active_session_id(),
         &live_working_intervals(slices),
     );
-    if tree.session_count <= 1 {
+    if !tree_is_shown(&tree) {
         return;
     }
     let up_arrow = '\u{2191}';
@@ -206,10 +188,10 @@ fn render_tree_aggregate(
     let turn_symbol = '\u{21BB}';
     let session_symbol = '\u{29C9}';
     let tree_prefix = '\u{1F333}';
-    let turns = tree.total_turns;
+    let turns = tree.turn_count;
     let count = tree.session_count;
     let mut tree_spans: Vec<Span> = vec![Span::styled(format!("{tree_prefix} "), style)];
-    match cache_hit_percent_from(tree.cached_total, tree.measured_sent) {
+    match tree.cache_hit_percent {
         Some(pct) => {
             let cache_glyph = '\u{2B22}'; // ⬢
             tree_spans.push(Span::styled(
@@ -220,19 +202,16 @@ fn render_tree_aggregate(
         None => {}
     }
     tree_spans.push(Span::styled(
-        format!("{up_arrow}{} ", format_tokens(tree.effective_sent)),
+        format!("{up_arrow}{} ", tree.tokens_sent_label()),
         style,
     ));
     tree_spans.push(Span::styled(
-        format!("{down_arrow}{} ", format_tokens(tree.total_received)),
+        format!("{down_arrow}{} ", tree.tokens_received_label()),
         style,
     ));
-    tree_spans.push(Span::styled(format!("${:.5} ", tree.total_cost), style));
+    tree_spans.push(Span::styled(format!(" ${:.5} ", tree.total_cost), style));
     tree_spans.push(Span::styled(format!("{turn_symbol}{turns}"), style));
-    tree_spans.push(Span::styled(
-        format!(" {}", format_working_duration(&tree.total_working)),
-        style,
-    ));
+    tree_spans.push(Span::styled(format!(" {}", tree.working_label()), style));
     tree_spans.push(Span::styled(format!(" {session_symbol}{count}"), style));
     let tree_widget = Paragraph::new(Line::from(tree_spans)).alignment(Alignment::Right);
     frame.render_widget(tree_widget, area);
@@ -270,31 +249,34 @@ pub fn render_session_info_line(
     style: Style,
     right_override: Option<Line<'static>>,
 ) {
-    let active_model = session.profile().model.clone();
-    let token_stats = TokenStats::from_ledger(session.token_ledger());
-    let token_info = build_token_info_string(model_cache, session, &token_stats);
-
-    let model = build_model_string(model_cache, session, &active_model);
-    let total_cost = TokenStats::total_cost(session.token_ledger());
+    let stats = session_stats(session, model_cache, working_time);
 
     let left_side = {
-        let turn_count = compute_turn_count(session.history(), session.fork_ordinal());
         let turn_symbol = '\u{21BB}';
         let mut left_spans: Vec<Span> = Vec::new();
         // Cache-hit percentage — leftmost, shown only when there are cache hits.
-        if let Some(pct) = cache_hit_percent(&token_stats) {
+        if let Some(pct) = stats.cache_hit_percent {
             let cache_glyph = '\u{2B22}'; // ⬢
             left_spans.push(Span::styled(
                 format!("{cache_glyph} {pct}% "),
                 cache_hit_style(theme, pct),
             ));
         }
-        left_spans.push(Span::styled(token_info, style));
-        left_spans.push(Span::styled(format!(" ${:.5}", total_cost.abs()), style));
         left_spans.push(Span::styled(
             format!(
-                " {turn_symbol}{turn_count} {}",
-                format_working_duration(&working_time)
+                "\u{2191}{} \u{2193}{} {}",
+                stats.tokens_sent_label(),
+                stats.tokens_received_label(),
+                stats.context_label(),
+            ),
+            style,
+        ));
+        left_spans.push(Span::styled(format!(" {}", stats.cost_label()), style));
+        left_spans.push(Span::styled(
+            format!(
+                " {turn_symbol}{} {}",
+                stats.turn_count,
+                stats.working_label()
             ),
             style,
         ));
@@ -308,7 +290,7 @@ pub fn render_session_info_line(
     // one (the status bar's transient hint), otherwise the model. Either/or
     // in a single render is what keeps a shorter hint from leaving model
     // residue beside it.
-    let right_line = right_override.unwrap_or_else(|| Line::from(Span::styled(model, style)));
+    let right_line = right_override.unwrap_or_else(|| Line::from(Span::styled(stats.model, style)));
     let right_side = Paragraph::new(right_line).alignment(Alignment::Right);
     frame.render_widget(right_side, area);
 }
@@ -347,44 +329,6 @@ pub fn model_cache_of(state: &AppState) -> Option<ModelCache> {
     state.provider_state()?.read().model_cache.clone()
 }
 
-fn build_token_info_string(
-    model_cache: Option<&ModelCache>,
-    session: &ChatSessionState,
-    token_stats: &TokenStats,
-) -> String {
-    let up_arrow = '\u{2191}';
-    let down_arrow = '\u{2193}';
-    let token_info = format!(
-        "{up_arrow}{} {down_arrow}{}",
-        format_tokens(token_stats.effective_sent),
-        format_tokens(token_stats.total_received),
-    );
-
-    let figure = context_figure(session, model_cache);
-    let context_display = format_context_figure(&figure);
-    format!("{token_info} {context_display}")
-}
-
-/// Cache-hit percentage for a session ledger, or `None` when there are no
-/// cache hits. The denominator is `measured_sent` (provider-reported
-/// `prompt_tokens` over turns that reported usage), so cancelled turns — which
-/// report no usage — are excluded from both numerator and denominator.
-fn cache_hit_percent(stats: &TokenStats) -> Option<u32> {
-    cache_hit_percent_from(stats.cached_total, stats.measured_sent)
-}
-
-/// Cache-hit percentage over measured turns only, computed from raw sums.
-///
-/// Returns `None` when there are no cache hits or no measured turns, so the
-/// glyph stays hidden for providers/turns that report no usage.
-fn cache_hit_percent_from(cached_total: u64, measured_sent: u64) -> Option<u32> {
-    if cached_total == 0 || measured_sent == 0 {
-        return None;
-    }
-    let pct = (cached_total as f64 / measured_sent as f64) * 100.0;
-    Some(pct.round() as u32)
-}
-
 /// Foreground style for a displayed cache-hit percentage, banded by health:
 /// 95%+ healthy (`success`), 90–94% degraded (`warning`), below 90% poor
 /// (`error_text`). Bands apply to the rounded display value, so what the
@@ -396,68 +340,4 @@ fn cache_hit_style(theme: &Theme, pct: u32) -> Style {
         _ => theme.error_text,
     };
     Style::default().fg(color)
-}
-
-/// Builds the right-side model display string: resolved name + reasoning effort.
-fn build_model_string(
-    model_cache: Option<&ModelCache>,
-    session: &ChatSessionState,
-    active_model: &ModelSelection,
-) -> String {
-    let (model, resolved_for_lookup) = {
-        // For an Alloy, the bar surfaces the last-rotated member (which one
-        // actually answered) from the token ledger, falling back to the first
-        // member before any dispatch. For a Single selection the model _is_ the
-        // source of truth — never read the historical ledger, which would show
-        // a stale model after switching providers via the picker.
-        //
-        // `model_used` is cloned to an owned `Option<String>` so the resolved
-        // `&str` borrows only `active_model` and a local, avoiding a lifetime
-        // clash between the ledger borrow and the `active_model` borrow.
-        let last_dispatched = active_model.as_alloy().and_then(|_| {
-            session
-                .token_ledger()
-                .last()
-                .and_then(|r| r.model_used.clone())
-        });
-        let resolved = last_dispatched
-            .as_deref()
-            .unwrap_or_else(|| active_model.display_str());
-
-        if active_model.is_no_provider() {
-            ("no model selected".to_owned(), None)
-        } else {
-            let display = if let Some((provider, m)) = resolved.split_once('/') {
-                format!("({provider})/{m}")
-            } else {
-                resolved.to_owned()
-            };
-            (display, Some(resolved.to_owned()))
-        }
-    };
-
-    let model = match active_model.as_alloy() {
-        Some(alloy) => format!("[alloy {}] {model}", alloy.models.len()),
-        None => model,
-    };
-
-    // Append the resolved reasoning effort as `[<mode>]`.
-    // Omitted entirely when no effort is resolved (no `[none]` noise).
-    let resolved_effort = resolve_effort(session.profile().reasoning_effort);
-    let model = match resolved_effort {
-        Some(effort) => format!("{model} [{}]", effort.as_str()),
-        None => model,
-    };
-
-    // Append the modality indicator as `<t>` / `<ti>` AFTER the effort bracket,
-    // using the SAME resolved model the name surfaces (last-dispatched for
-    // alloys, else selection). Conservative: an unknown / not-in-cache model
-    // shows `<t>` (text is always available); "no model selected" shows nothing.
-    let modalities = resolved_for_lookup.map(|resolved| {
-        resolve_modalities(model_cache, &resolved).unwrap_or_else(InputModalities::text)
-    });
-    match modalities {
-        Some(m) => format!("{model} <{}>", m.display()),
-        None => model,
-    }
 }

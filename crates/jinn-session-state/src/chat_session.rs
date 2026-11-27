@@ -64,7 +64,7 @@ mod tool_calls;
 mod viewport;
 
 // Local types that moved into child modules keep their public paths here.
-pub use pins::{PinDisplayRow, PinRowLabel};
+pub use pins::{PinDisplayRow, PinRowLabel, truncate_to_width};
 pub use streaming::StreamingError;
 
 /// The state of a single chat session.

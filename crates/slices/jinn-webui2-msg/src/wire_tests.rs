@@ -17,14 +17,17 @@ use jinn_slices::PhaseView;
 use rstest::rstest;
 
 use crate::payload::{
-    AppletRowBody, AppletRowsBody, ContextUsageBody, DeltaField, EntryDeltaBody, EntryEnvelope,
-    EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody,
-    McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody,
-    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody,
-    PromptTemplatesBody, SessionRowBody, SessionRowOrigin, SessionsBody, SkillRowBody,
-    SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
+    AppletRowBody, AppletRowsBody, ContextUsageBody, DashMcpRowBody, DashMcpRowsBody,
+    DashPinRowBody, DashPinRowsBody, DashTaskPhaseBody, DashTaskRowBody, DashTasksBody, DeltaField,
+    EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
+    LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelBody, ModelRowBody,
+    ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PhaseBody,
+    PickerRowBody, PickerRowsBody, PromptTemplateBody, PromptTemplatesBody, SessionRowBody,
+    SessionRowOrigin, SessionStatsBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody,
+    TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody, TreeStatsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
+use jinn_tools_msg::TaskStatus;
 
 fn roundtrip(msg: &ClientMsg) -> ClientMsg {
     let json = serde_json::to_string(msg).expect("client msg serializes");
@@ -2255,4 +2258,275 @@ fn server_entries_page_round_trips() {
     // Then it is unchanged.
     assert_eq!(json_of(&back), json_of(&msg));
     assert_eq!(crate::server::tag_of(&back), "entries_page");
+}
+
+// ---------------------------------------------------------------------------
+// The dash
+// ---------------------------------------------------------------------------
+
+fn tree_stats() -> TreeStatsBody {
+    TreeStatsBody {
+        session_count: 2,
+        cache_hit_percent: Some(96),
+        tokens_sent: "1.2k".to_owned(),
+        tokens_received: "850".to_owned(),
+        cost: "$0.01500".to_owned(),
+        turn_count: 4,
+        working: "00:00:10".to_owned(),
+    }
+}
+
+#[rstest]
+#[test]
+fn client_dash_open_round_trips_with_its_tag() {
+    // Given a dash open.
+    let msg = ClientMsg::DashOpen;
+
+    // When it is serialized and read back.
+    let json = json_of_client(&msg);
+    let back = roundtrip(&msg);
+
+    // Then it is the bare tag, unchanged.
+    assert_eq!(json, serde_json::json!({ "type": "dash_open" }));
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_dash_close_round_trips_with_its_tag() {
+    // Given a dash close.
+    let msg = ClientMsg::DashClose;
+
+    // When it is serialized and read back.
+    let json = json_of_client(&msg);
+    let back = roundtrip(&msg);
+
+    // Then it is the bare tag, unchanged.
+    assert_eq!(json, serde_json::json!({ "type": "dash_close" }));
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_jump_to_entry_round_trips_with_its_entry() {
+    // Given a jump naming an entry.
+    let msg = ClientMsg::JumpToEntry {
+        entry_id: ChatEntryId::new(),
+    };
+
+    // When it is serialized and read back.
+    let json = json_of_client(&msg);
+    let back = roundtrip(&msg);
+
+    // Then the entry it names survives.
+    assert_eq!(back, msg);
+    assert_eq!(json["type"], "jump_to_entry");
+    assert_eq!(json["entry_id"], json_of_client(&back)["entry_id"]);
+}
+
+#[rstest]
+#[test]
+fn server_session_stats_round_trips_with_its_fields_flattened() {
+    // Given a dash push carrying every figure, tree included.
+    let msg = ServerMsg::SessionStats(Box::new(SessionStatsBody {
+        session_id: SessionId::new(),
+        cwd: "~/code".to_owned(),
+        cache_hit_percent: Some(90),
+        tokens_sent: "17.0k".to_owned(),
+        tokens_received: "5.0k".to_owned(),
+        context_label: "50.0%/200k".to_owned(),
+        cost: "$0.01900".to_owned(),
+        turn_count: 3,
+        working: "01:02:03".to_owned(),
+        model: "(openrouter)/m [high] <t>".to_owned(),
+        tree: Some(tree_stats()),
+    }));
+
+    // When it is serialized and read back.
+    let json = serde_json::to_value(&msg).expect("session stats serialize");
+    let back = roundtrip_server(&msg);
+
+    // Then the frame is the tag with its fields beside it, every figure a
+    // server-formatted string.
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "type": "session_stats",
+            "session_id": json_of(&back)["session_id"],
+            "cwd": "~/code",
+            "cache_hit_percent": 90,
+            "tokens_sent": "17.0k",
+            "tokens_received": "5.0k",
+            "context_label": "50.0%/200k",
+            "cost": "$0.01900",
+            "turn_count": 3,
+            "working": "01:02:03",
+            "model": "(openrouter)/m [high] <t>",
+            "tree": {
+                "session_count": 2,
+                "cache_hit_percent": 96,
+                "tokens_sent": "1.2k",
+                "tokens_received": "850",
+                "cost": "$0.01500",
+                "turn_count": 4,
+                "working": "00:00:10",
+            },
+        })
+    );
+    assert_eq!(crate::server::tag_of(&back), "session_stats");
+}
+
+#[rstest]
+#[test]
+fn server_session_stats_carries_an_absent_tree_as_null() {
+    // Given a dash push for a lone session, with no tree and no cache hits.
+    let msg = ServerMsg::SessionStats(Box::new(SessionStatsBody {
+        session_id: SessionId::new(),
+        cwd: "~/code".to_owned(),
+        cache_hit_percent: None,
+        tokens_sent: "0".to_owned(),
+        tokens_received: "0".to_owned(),
+        context_label: "0.0%".to_owned(),
+        cost: "$0.00000".to_owned(),
+        turn_count: 0,
+        working: "00:00:00".to_owned(),
+        model: "no model selected".to_owned(),
+        tree: None,
+    }));
+
+    // When it is serialized.
+    let json = serde_json::to_value(&msg).expect("session stats serialize");
+
+    // Then both absent figures are explicit nulls the page can test.
+    assert_eq!(json["tree"], serde_json::Value::Null);
+    assert_eq!(json["cache_hit_percent"], serde_json::Value::Null);
+}
+
+#[rstest]
+#[test]
+fn server_dash_pin_rows_round_trip_with_their_text() {
+    // Given the dash's pin rows as the sidebar labels them.
+    let msg = ServerMsg::DashPinRows(Box::new(DashPinRowsBody {
+        session_id: SessionId::new(),
+        rows: vec![
+            DashPinRowBody {
+                entry_id: ChatEntryId::new(),
+                text: "[TOP] > show me".to_owned(),
+            },
+            DashPinRowBody {
+                entry_id: ChatEntryId::new(),
+                text: "[REL] \u{2692} read(...)".to_owned(),
+            },
+        ],
+    }));
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then the rows are unchanged, labels intact.
+    assert_eq!(json_of(&back), json_of(&msg));
+    assert_eq!(crate::server::tag_of(&back), "dash_pin_rows");
+}
+
+#[rstest]
+#[test]
+fn server_dash_tasks_carry_the_task_vocabulary_status_words() {
+    // Given a task list with one task in each status.
+    let msg = ServerMsg::DashTasks(Box::new(DashTasksBody {
+        session_id: SessionId::new(),
+        phases: vec![DashTaskPhaseBody {
+            description: "Build".to_owned(),
+            tasks: vec![
+                DashTaskRowBody {
+                    description: "a".to_owned(),
+                    status: TaskStatus::Pending,
+                },
+                DashTaskRowBody {
+                    description: "b".to_owned(),
+                    status: TaskStatus::Completed,
+                },
+                DashTaskRowBody {
+                    description: "c".to_owned(),
+                    status: TaskStatus::Postponed,
+                },
+                DashTaskRowBody {
+                    description: "d".to_owned(),
+                    status: TaskStatus::Cancelled,
+                },
+            ],
+            is_active: true,
+            has_pending_work: true,
+        }],
+        done: 1,
+        total: 4,
+    }));
+
+    // When it is serialized.
+    let json = serde_json::to_value(&msg).expect("dash tasks serialize");
+
+    // Then each status is the task vocabulary's own word — the same one the
+    // todo tool writes, `Deferred` for a postponed task.
+    let words: Vec<&str> = json["phases"][0]["tasks"]
+        .as_array()
+        .expect("tasks")
+        .iter()
+        .map(|t| t["status"].as_str().expect("a status word"))
+        .collect();
+    assert_eq!(words, ["Pending", "Completed", "Deferred", "Cancelled"]);
+}
+
+#[rstest]
+#[test]
+fn server_dash_tasks_round_trip_unchanged() {
+    // Given a dash task push.
+    let msg = ServerMsg::DashTasks(Box::new(DashTasksBody {
+        session_id: SessionId::new(),
+        phases: vec![DashTaskPhaseBody {
+            description: "Build".to_owned(),
+            tasks: vec![DashTaskRowBody {
+                description: "a".to_owned(),
+                status: TaskStatus::Completed,
+            }],
+            is_active: false,
+            has_pending_work: false,
+        }],
+        done: 1,
+        total: 1,
+    }));
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+    assert_eq!(crate::server::tag_of(&back), "dash_tasks");
+}
+
+#[rstest]
+#[test]
+fn server_dash_mcp_rows_round_trip_with_their_badges() {
+    // Given the dash's MCP rows: the enabled servers with live status.
+    let msg = ServerMsg::DashMcpRows(DashMcpRowsBody {
+        session_id: SessionId::new(),
+        rows: vec![
+            DashMcpRowBody {
+                name: "fs".to_owned(),
+                badge: McpBadgeBody::Running,
+            },
+            DashMcpRowBody {
+                name: "git".to_owned(),
+                badge: McpBadgeBody::Dead,
+            },
+        ],
+    });
+
+    // When it is serialized and read back.
+    let json = serde_json::to_value(&msg).expect("mcp rows serialize");
+    let back = roundtrip_server(&msg);
+
+    // Then the badges are their snake-case words and the frame is unchanged.
+    assert_eq!(json["rows"][0]["badge"], "running");
+    assert_eq!(json["rows"][1]["badge"], "dead");
+    assert_eq!(json_of(&back), json_of(&msg));
+    assert_eq!(crate::server::tag_of(&back), "dash_mcp_rows");
 }

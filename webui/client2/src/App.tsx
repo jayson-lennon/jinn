@@ -29,6 +29,8 @@ import { Composer } from './composer';
 import { SessionRail } from './rail';
 import { SessionStatus } from './status';
 import { StatusBar } from './statusbar';
+import { Dash } from './session_dash';
+import { openDash } from './dash';
 import { NewSessionModal } from './new-session';
 import { Toasts } from './toast';
 import { applyTheme, mirrorTheme } from './theme';
@@ -90,6 +92,19 @@ export function App(): JSX.Element {
     setToolsOpen(true);
   };
   const [mcpOpen, setMcpOpen] = createSignal(false);
+
+  // The dash's one close path. `closeDash` only drops the open flag; this
+  // effect is what tells the server, so every dismiss — the scrim, Escape, a
+  // pin, the MCP picker, a session switch's snapshot — reports the same way.
+  createEffect(
+    // Compute (tracked): whether the dash is open.
+    () => store.state.dashOpen,
+    // Effect (untracked): a fall from open to closed is reported, whatever
+    // dropped the flag.
+    (open, wasOpen) => {
+      if (wasOpen === true && open === false) send({ type: 'dash_close' });
+    }
+  );
   const onMcpFilter = useFilter(store, 'mcpFilter', send, (filter) => ({ type: 'mcp_rows', filter }));
   const openMcp = (): void => {
     store.set((s) => {
@@ -246,6 +261,7 @@ export function App(): JSX.Element {
             persona={store.state.persona}
             contextLabel={store.state.contextLabel}
             onOpenPersona={openPersona}
+            onOpenDash={() => openDash(store, send)}
           />
         </Show>
         <Transcript store={store} send={send} />
@@ -283,6 +299,9 @@ export function App(): JSX.Element {
             setToolsOpen(false);
           }}
         />
+      </Show>
+      <Show when={store.state.dashOpen}>
+        <Dash store={store} send={send} onOpenMcp={openMcp} />
       </Show>
       <Show when={mcpOpen()}>
         <McpModal

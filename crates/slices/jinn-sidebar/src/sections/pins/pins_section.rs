@@ -7,14 +7,13 @@
 use crate::sections::section_trait::{
     EnterFrom, SectionNavResult, SidebarIntent, SidebarSection, SidebarSectionId,
 };
-use jinn_chat_log_view::chat_log::strip_ansi;
 use jinn_core_types::SessionId;
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::protocol::ChatEntryId;
 use jinn_kernel::protocol::ChatEntryKind;
 use jinn_kernel::protocol::{IntentResult, PinPosition};
 use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
-use jinn_session_state::{PinDisplayRow, PinRowLabel};
+use jinn_session_state::{PinDisplayRow, truncate_to_width};
 use jinn_slices::DrawContext;
 use jinn_slices::route::ScopeSignal;
 use jinn_theme::Theme;
@@ -323,128 +322,6 @@ fn cycle_position(pos: PinPosition) -> PinPosition {
 // Rendering helpers
 // ---------------------------------------------------------------------------
 
-/// The `[TOP]`/`[BOT]`/`[REL]` badge text and color for a pin's position.
-fn position_badge(position: PinPosition) -> (&'static str, Color) {
-    match position {
-        PinPosition::Top => ("[TOP]", Color::Cyan),
-        PinPosition::Bottom => ("[BOT]", Color::Magenta),
-        PinPosition::Relative => ("[REL]", Color::DarkGray),
-    }
-}
-
-/// Returns the display prefix and truncated content for a display row.
-///
-/// `kind` is the resolved entry kind for `Verbatim` rows (or `None` when the
-/// entry no longer exists in history, which renders as an empty preview).
-/// Tool rows (`Result`/`SkillResult`/`Call`) assemble their text from the
-/// label and carry no kind prefix (`⚒` for a call).
-fn entry_prefix_and_content(
-    kind: Option<&ChatEntryKind>,
-    label: &PinRowLabel,
-) -> (&'static str, String) {
-    match label {
-        PinRowLabel::Verbatim => match kind {
-            Some(resolved) => verbatim_prefix_and_content(resolved),
-            None => ("", String::new()),
-        },
-        PinRowLabel::Result {
-            name,
-            content,
-            success,
-        } => {
-            let icon = if *success { "✓" } else { "✗" };
-            (
-                "",
-                format!(
-                    "{} {}: {}",
-                    icon,
-                    truncate_str(name, 15),
-                    truncate_str(content, 20)
-                ),
-            )
-        }
-        PinRowLabel::SkillResult { content } => ("", truncate_str(content, 40)),
-        PinRowLabel::Call { name } => ("\u{2692} ", format!("{}(...)", truncate_str(name, 20))),
-    }
-}
-
-/// The per-kind prefix and content a `Verbatim` row shows, exactly as
-/// the sidebar has always rendered non-tool entries.
-fn verbatim_prefix_and_content(kind: &ChatEntryKind) -> (&'static str, String) {
-    match kind {
-        ChatEntryKind::User { display, .. } => ("> ", truncate_str(display, 40)),
-        ChatEntryKind::Assistant(text) => ("\u{2666} ", truncate_str(text, 40)),
-        ChatEntryKind::System(text) => ("\u{2699} ", truncate_str(text, 40)),
-        ChatEntryKind::Error(text) => ("\u{26a0} ", truncate_str(text, 40)),
-        ChatEntryKind::Actor { source, text } => {
-            let content = format!("[{}] {}", source, truncate_str(text, 30));
-            ("", content)
-        }
-        // Inter-session mail is self-describing: the text already carries the
-        // sender's attribution, so the preview is the text alone.
-        ChatEntryKind::Intersession { text, .. } => ("", truncate_str(text, 25)),
-        // Table entries, annotations, and tool kinds are not shown in the
-        // pinned panel summary. Tool kinds on a Verbatim row cannot occur:
-        // the projection labels every tool result/call with a tool label
-        // variant.
-        ChatEntryKind::Compaction { .. }
-        | ChatEntryKind::Annotation { .. }
-        | ChatEntryKind::ToolCall { .. }
-        | ChatEntryKind::ToolResult { .. } => ("", String::new()),
-        // Rule guidance shows the rule that fired, not the guidance body.
-        ChatEntryKind::RuleInterrupt { rule, .. } => ("\u{26a1} ", truncate_str(rule, 40)),
-        // Thinking entries are not shown in the pinned panel summary.
-        ChatEntryKind::Thinking(text) => ("", truncate_str(text, 40)),
-
-        ChatEntryKind::Transient(s) => ("\u{2139} ", truncate_str(s, 40)),
-    }
-}
-
-/// Truncates a string to the given max grapheme length, appending an ellipsis if needed.
-/// Truncate a string to at most `max_width` display columns, appending \u{2026} if truncated.
-///
-/// Uses `unicode_width` to measure each grapheme's display width. Wide characters
-/// (emoji, CJK) that would overflow the budget are skipped entirely rather than
-/// rendered partially.
-pub(crate) fn truncate_to_width(s: &str, max_width: usize) -> String {
-    use unicode_segmentation::UnicodeSegmentation;
-    use unicode_width::UnicodeWidthStr;
-
-    let s_width = UnicodeWidthStr::width(s);
-    if s_width <= max_width {
-        return s.to_owned();
-    }
-
-    // Zero budget: no room for anything, not even an ellipsis.
-    if max_width == 0 {
-        return String::new();
-    }
-
-    // Walk graphemes, accumulating display width.
-    // Stop before a grapheme that would overflow the budget
-    // (leaving room for the ellipsis).
-    let ellipsis_width = 1; // \u{2026} is 1 cell
-    let target_width = max_width.saturating_sub(ellipsis_width);
-
-    let mut accumulated = 0usize;
-    let mut result = String::new();
-    for g in s.graphemes(true) {
-        let gw = UnicodeWidthStr::width(g);
-        if accumulated + gw > target_width {
-            break;
-        }
-        result.push_str(g);
-        accumulated += gw;
-    }
-    result.push('\u{2026}');
-    result
-}
-
-/// Strip ANSI escape sequences and truncate to at most `max_width` display columns.
-pub(crate) fn truncate_str(s: &str, max_width: usize) -> String {
-    truncate_to_width(&strip_ansi(s), max_width)
-}
-
 /// Builds the list of lines for the pinned entries panel.
 ///
 /// `resolve_kind` supplies the `ChatEntryKind` for a row's entry id; it is
@@ -475,11 +352,20 @@ fn build_entry_list<'a>(
     for (i, row) in rows.iter().enumerate() {
         let is_selected = section_focused && i == selected_index;
 
-        let (badge_text, badge_color) = position_badge(row.position);
+        let badge_text = row.badge_text();
+        // The badge keeps its color as the position signal: cyan for a pin
+        // at the top, magenta at the bottom, dark gray relative to the view.
+        let badge_color = match row.position {
+            PinPosition::Top => Color::Cyan,
+            PinPosition::Bottom => Color::Magenta,
+            PinPosition::Relative => Color::DarkGray,
+        };
 
-        // A Verbatim row resolves its entry by id for its kind prefix; tool
-        // rows render from the label alone and never consult the resolver.
-        let (prefix, content) = entry_prefix_and_content(resolve_kind(&row.entry_id), &row.label);
+        // The label — prefix and truncated content — is the session's own,
+        // shared with every surface that shows a pins row. A Verbatim row
+        // resolves its entry by id for its kind prefix; tool rows render
+        // from the label alone and never consult the resolver.
+        let (prefix, content) = row.prefix_and_content(resolve_kind(&row.entry_id));
 
         // Truncate the assembled content to the remaining cell budget.
         let full_content = format!("{prefix}{content}");
