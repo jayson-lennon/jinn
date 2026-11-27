@@ -1,7 +1,7 @@
 // The session dash: a card under the status bar's context figure.
 //
-// It lists the session's statistics, the enabled MCP servers, the task list,
-// and the pinned entries. Every row is the server's own: the figures are
+// It lists the session's statistics, the enabled MCP servers, the pinned
+// entries, and the task list. Every row is the server's own: the figures are
 // pre-formatted by the same function the terminal status bar calls, the pin
 // labels by the one the terminal sidebar calls, so this component renders
 // strings and computes nothing. The one gesture it owns is its own dismiss;
@@ -59,7 +59,7 @@ function StatRow(props: { readonly label: string; readonly value: string; readon
 }
 
 function CacheRow(props: { readonly percent: number }): JSX.Element {
-  return <StatRow label="Cache" value={`${props.percent}%`} health={cacheHealth(props.percent)} />;
+  return <StatRow label="Cache hit rate" value={`${props.percent}%`} health={cacheHealth(props.percent)} />;
 }
 
 function TreeBlock(props: { readonly tree: TreeStats }): JSX.Element {
@@ -239,8 +239,8 @@ export function Dash(props: {
       <div class="dash" role="dialog" aria-label="Session dash" data-testid="dash">
         <Statistics stats={props.store.state.dashStats ?? emptyStats()} />
         <McpSection store={props.store} onOpen={props.onOpenMcp} />
-        <TasksSection tasks={props.store.state.dashTasks} />
         <PinsSection store={props.store} send={props.send} />
+        <TasksSection tasks={props.store.state.dashTasks} />
       </div>
     </>
   );
