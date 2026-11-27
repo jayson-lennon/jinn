@@ -42,6 +42,11 @@ export interface EntryEnvelope {
     model_used?: string | null;
     model_requested?: string | null;
   };
+  /** Whether the entry is in the model's context right now — the server's
+   * `is_in_context`, pin and override included. The page reads it and never
+   * re-derives it; a frame from before the field existed carries none and
+   * reads as in context. */
+  in_context?: boolean;
 }
 
 export interface SessionRow {
@@ -49,6 +54,9 @@ export interface SessionRow {
   title: string;
   is_active: boolean;
   is_busy: boolean;
+  /** Whether the session's teardown command is running. Independent of
+   *  `is_busy`: a teardown does not change the session's phase. */
+  is_tearing_down: boolean;
   /** Whether the session is a library member (listed under Library). */
   in_library: boolean;
   /** When the session last landed on Idle, as RFC 3339 — or null when it
@@ -207,6 +215,7 @@ export type ClientMsg =
   | { type: 'persona_rows'; filter: string }
   | { type: 'switch_persona'; persona: string }
   | { type: 'toggle_pin'; entry_id: string }
+  | { type: 'toggle_context'; entry_id: string }
   | { type: 'fork'; entry_id: string }
   | { type: 'more_entries'; before: string }
   | { type: 'applet_rows'; filter: string }
@@ -214,6 +223,7 @@ export type ClientMsg =
   | { type: 'set_theme'; theme: Theme }
   | { type: 'set_library'; session_id: string; in_library: boolean }
   | { type: 'archive_session'; session_id: string }
+  | { type: 'teardown_session'; session_id: string }
   | { type: 'new_session_options' }
   | {
       type: 'create_session';
@@ -231,6 +241,10 @@ export type ServerMsg =
       phase: { session_id: string; phase: Phase; queue_len: number };
       model_label: string;
       title: string;
+      /** The session's persona, as the status bar shows it. Empty when no
+       *  session is active. The context figure beside it is not the
+       *  snapshot's: it arrives as its own frame on the first tick. */
+      persona: string;
       revision: number;
       entries: EntryEnvelope[];
       /** How many entries of the session precede the oldest one carried. */
@@ -255,6 +269,10 @@ export type ServerMsg =
   | { type: 'sessions'; rows: SessionRow[]; library: SessionRow[]; hydrating: boolean }
   | { type: 'model'; session_id: string; label: string }
   | { type: 'title'; session_id: string; title: string }
+  /** The status bar's two facts, pushed when either changed. The figure is
+   *  the server's own formatted string — the terminal's — so the page
+   *  renders it and computes nothing. */
+  | { type: 'context_usage'; session_id: string; persona: string; label: string }
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }
   | { type: 'model_rows'; session_id: string; filter: string; rows: ModelRow[] }
   | { type: 'skill_rows'; session_id: string; filter: string; rows: SkillRow[] }
@@ -265,4 +283,5 @@ export type ServerMsg =
   | { type: 'new_session_options'; projects: string[]; lifecycles: LifecycleOption[] }
   | { type: 'theme'; theme: Theme }
   | { type: 'error'; message: string }
+  | { type: 'current' }
   | { type: 'ping' };

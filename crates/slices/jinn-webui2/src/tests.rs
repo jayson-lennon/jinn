@@ -16,12 +16,18 @@
 use std::sync::Arc;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_core_types::{ChatEntry, ChatEntryId, ChatEntryKind, ModelSelection, PinPosition};
+use jinn_context_assembly_msg::ContextOverrideChanged;
+use jinn_core_types::{
+    ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride, ModelSelection, PinPosition,
+};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::State;
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_provider_selection_msg::ProviderSwitch;
-use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, UnpinChatEntry};
+use jinn_session_history_msg::{
+    ChatEntryPinChanged, PinChatEntry, SetEntryContextOverride, UnpinChatEntry,
+};
+use jinn_session_lifecycle_msg::{CloseSession, SessionTeardownFinished, SessionTeardownStarted};
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
     ArchiveSession, PersistSession, SessionForkRequested, SessionLoadRequested, SetSessionLibrary,
@@ -1136,6 +1142,58 @@ async fn hello_with_a_matching_cursor_and_revision_sends_only_later_entries() {
         unreachable!("a resumable hello answers upserts");
     };
     assert_eq!(upsert.index, 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_with_a_cursor_at_the_newest_entry_answers_current() {
+    // Given a page that saw the only entry at the current revision, and
+    // nothing has arrived since.
+    let h = harness();
+    push(&h.state, ChatEntry::user("one"));
+    let cursor = active_last_entry_id(&h.state);
+    let revision = h.handle.revision(&active_id(&h.state));
+
+    // When it reconnects naming both.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: Some(cursor),
+            revision: Some(revision),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the answer is the "current" frame alone, never silence.
+    let [ServerMsg::Current] = reply.frames.as_slice() else {
+        unreachable!("a hello that missed nothing answers current");
+    };
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_with_a_gap_answers_upserts_and_no_current_frame() {
+    // Given a page that saw the first of two entries at the current revision.
+    let h = harness();
+    push(&h.state, ChatEntry::user("one"));
+    let cursor = active_last_entry_id(&h.state);
+    let revision = h.handle.revision(&active_id(&h.state));
+    push(&h.state, ChatEntry::user("two"));
+
+    // When it reconnects naming both.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: Some(cursor),
+            revision: Some(revision),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the answer is exactly the missed entry, with no "current" frame.
+    let [ServerMsg::EntryUpsert(_)] = reply.frames.as_slice() else {
+        unreachable!("a hello with a gap answers one upsert per missed entry");
+    };
 }
 
 #[rstest::rstest]
@@ -2827,6 +2885,282 @@ fn a_pin_changed_event_for_another_session_sends_nothing() {
 
     // Then the page receives nothing.
     assert_eq!(drain(&mut inbox).len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Context toggle
+// ---------------------------------------------------------------------------
+
+/// The single context-override command the page published, with its target.
+fn one_override_target(h: &Harness) -> ContextOverride {
+    let published = h.audit.of_type::<SetEntryContextOverride>();
+    assert_eq!(published.len(), 1, "exactly one override command");
+    published[0].value
+}
+
+/// Toggles the context of the active session's only entry.
+async fn toggle_only_entry(h: &Harness) {
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+    say(h, ClientMsg::ToggleContext { entry_id }).await;
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_default_entry_publishes_forced_exclude() {
+    // Given a session holding one user entry at the default override.
+    let h = harness();
+    push(&h.state, ChatEntry::user("hello"));
+
+    // When the page toggles that entry's context.
+    toggle_only_entry(&h).await;
+
+    // Then the override command forces the entry out of context.
+    assert_eq!(one_override_target(&h), ContextOverride::ForcedExclude);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_default_excluded_kind_publishes_forced_include() {
+    // Given a session holding one thinking entry — a kind the context
+    // leaves out by default.
+    let h = harness();
+    push(&h.state, ChatEntry::thinking("let me think"));
+
+    // When the page toggles that entry's context.
+    toggle_only_entry(&h).await;
+
+    // Then the override command forces the entry into context.
+    assert_eq!(one_override_target(&h), ContextOverride::ForcedInclude);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_worker_excluded_entry_publishes_forced_include() {
+    // Given a session holding one entry the auto-prune worker excluded.
+    let h = harness();
+    let mut entry = ChatEntry::user("hello");
+    entry.apply_context_override(
+        ContextOverride::ForcedExclude,
+        jinn_core_types::ChangeSource::Worker {
+            name: "trivial_assistant".to_owned(),
+        },
+    );
+    push(&h.state, entry);
+
+    // When the page toggles that entry's context.
+    toggle_only_entry(&h).await;
+
+    // Then the override command forces the entry back into context.
+    assert_eq!(one_override_target(&h), ContextOverride::ForcedInclude);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_forced_include_entry_publishes_forced_exclude() {
+    // Given a session holding one entry already forced into context.
+    let h = harness();
+    let mut entry = ChatEntry::user("hello");
+    entry.apply_context_override(
+        ContextOverride::ForcedInclude,
+        jinn_core_types::ChangeSource::User,
+    );
+    push(&h.state, entry);
+
+    // When the page toggles that entry's context.
+    toggle_only_entry(&h).await;
+
+    // Then the override command forces the entry out of context.
+    assert_eq!(one_override_target(&h), ContextOverride::ForcedExclude);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_forced_exclude_entry_publishes_forced_include() {
+    // Given a session holding one entry already forced out of context.
+    let h = harness();
+    let mut entry = ChatEntry::user("hello");
+    entry.apply_context_override(
+        ContextOverride::ForcedExclude,
+        jinn_core_types::ChangeSource::User,
+    );
+    push(&h.state, entry);
+
+    // When the page toggles that entry's context.
+    toggle_only_entry(&h).await;
+
+    // Then the override command forces the entry into context.
+    assert_eq!(one_override_target(&h), ContextOverride::ForcedInclude);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_pinned_entry_is_refused_and_publishes_nothing() {
+    // Given a session holding one entry already pinned to the top.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .pin_entry(&entry_id, PinPosition::Top);
+
+    // When the page toggles the context on the pinned entry.
+    let reply = dispatch(
+        ClientMsg::ToggleContext {
+            entry_id: entry_id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_an_unknown_entry_is_refused_and_publishes_nothing() {
+    // Given a session whose history holds no entry with the id the page names.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+
+    // When the page toggles the context on an id the session does not hold.
+    let reply = dispatch(
+        ClientMsg::ToggleContext {
+            entry_id: ChatEntryId::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+// ---------------------------------------------------------------------------
+// Context toggle: the live push
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_context_override_changed_event_upserts_the_entry_the_page_holds_differently() {
+    // Given a connected page that holds one entry as it stood in context.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+    let (_id, mut inbox, _connection) = h.handle.register();
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+
+    // When the entry is forced out of context — as the terminal's `x`
+    // does — and the override event reaches the outbound actor.
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_entry_context_override_by_id(&entry_id, ContextOverride::ForcedExclude);
+    crate::outbound::context_override_changed(
+        &h.handle,
+        &ContextOverrideChanged {
+            session_id: active_id(&h.state),
+            entry_id: entry_id.clone(),
+        },
+    );
+
+    // Then the page receives exactly one upsert, and it reads as out of
+    // context with the exclusion carried.
+    let frames = drain(&mut inbox);
+    assert!(matches!(frames.as_slice(), [ServerMsg::EntryUpsert(_)]));
+    let ServerMsg::EntryUpsert(upsert) = &frames[0] else {
+        unreachable!("matched above");
+    };
+    let entry: ChatEntry = serde_json::from_value(upsert.entry.entry.as_json().clone())
+        .expect("the projected entry deserializes back");
+    assert_eq!(entry.id, entry_id);
+    assert_eq!(entry.context_override(), ContextOverride::ForcedExclude);
+    assert!(!upsert.entry.in_context);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_context_override_changed_event_for_another_session_sends_nothing() {
+    // Given a connected page holding one entry, already delivered.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+    let (_id, mut inbox, _connection) = h.handle.register();
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+
+    // When an override event names a session the page is not viewing.
+    crate::outbound::context_override_changed(
+        &h.handle,
+        &ContextOverrideChanged {
+            session_id: jinn_core_types::SessionId::new(),
+            entry_id: ChatEntryId::new(),
+        },
+    );
+
+    // Then the page receives nothing.
+    assert_eq!(drain(&mut inbox).len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_context_override_changed_event_upserts_every_member_of_the_tool_loop() {
+    // Given a connected page holding a three-entry tool loop, delivered.
+    let h = harness();
+    push(&h.state, ChatEntry::assistant("checking the worker"));
+    push(
+        &h.state,
+        ChatEntry::tool_call("call-1", "bash", r#"{"command":"ls"}"#),
+    );
+    push(
+        &h.state,
+        ChatEntry::tool_result(
+            "call-1",
+            "bash",
+            "file.txt",
+            jinn_core_types::ToolResultStatus::Success,
+        ),
+    );
+    let (_id, mut inbox, _connection) = h.handle.register();
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+    let result_id = h.state.read().session.active_session().history()[2]
+        .id
+        .clone();
+
+    // When the result is forced out of context — the write takes the whole
+    // loop — and the override event names only that result.
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_entry_context_override_by_id(&result_id, ContextOverride::ForcedExclude);
+    crate::outbound::context_override_changed(
+        &h.handle,
+        &ContextOverrideChanged {
+            session_id: active_id(&h.state),
+            entry_id: result_id.clone(),
+        },
+    );
+
+    // Then every member of the loop reaches the page as an upsert.
+    let frames = drain(&mut inbox);
+    let upserts = frames
+        .iter()
+        .filter(|f| matches!(f, ServerMsg::EntryUpsert(_)))
+        .count();
+    assert_eq!(upserts, 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -5112,6 +5446,132 @@ async fn archive_of_a_stored_only_session_is_refused_as_already_archived() {
 }
 
 // ---------------------------------------------------------------------------
+// Teardown + archive (the terminal's `x`)
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_publishes_the_close_command() {
+    // Given a page with one live, idle session.
+    let h = harness();
+    let id = active_id(&h.state);
+
+    // When the page tears it down.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the lifecycle actor's close command is published, naming the
+    // session, and nothing is replied.
+    let commands = h.audit.of_type::<CloseSession>();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].session_id, id);
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_of_a_busy_session_is_refused_and_publishes_nothing() {
+    // Given a session running a turn.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
+
+    // When the page tears it down.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told the session is busy and nothing was published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_of_a_busy_session_names_the_busy_reason() {
+    // Given a session running a turn.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
+
+    // When the page tears it down.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the refusal is the same sentence an archive is refused with.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        panic!("expected one error frame, got {:?}", reply.frames);
+    };
+    assert_eq!(error.message, "session is busy — cancel the turn first");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_of_an_unknown_session_is_refused() {
+    // Given a page with an empty store.
+    let h = harness_with_store();
+
+    // When the page names a session nothing knows.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: jinn_core_types::SessionId::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the request is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_of_a_stored_only_session_is_refused_as_already_archived() {
+    // Given a session that is on disk and not in memory — an archived one.
+    let h = harness_with_store();
+    let id = store_only_session(&h, "already archived").await;
+
+    // When the page tears it down.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told it is already archived and nothing is published.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        panic!("expected one error frame, got {:?}", reply.frames);
+    };
+    assert_eq!(error.message, format!("session {id} is already archived"));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+// ---------------------------------------------------------------------------
 // Model refresh
 // ---------------------------------------------------------------------------
 
@@ -5426,8 +5886,11 @@ fn a_library_member_is_listed_under_library_and_not_sessions() {
         .set_in_library(true);
 
     // When the sidebar's rows are built.
-    let (sessions, library, _) =
-        crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
+    let (sessions, library, _) = crate::snapshot::session_rows(
+        &h.state,
+        &crate::settle::SettleTracker::default(),
+        &std::collections::HashSet::new(),
+    );
 
     // Then the session is in the library list and not the sessions list.
     assert_eq!(library[0].session_id, id);
@@ -5441,8 +5904,11 @@ fn a_non_member_is_listed_under_sessions_and_not_library() {
     let h = harness();
 
     // When the sidebar's rows are built.
-    let (sessions, library, _) =
-        crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
+    let (sessions, library, _) = crate::snapshot::session_rows(
+        &h.state,
+        &crate::settle::SettleTracker::default(),
+        &std::collections::HashSet::new(),
+    );
 
     // Then the session is in the sessions list and the library list is empty.
     assert_eq!(sessions[0].session_id, active_id(&h.state));
@@ -5741,6 +6207,116 @@ fn a_failed_archive_pushes_one_error_frame() {
     assert!(error.message.contains("archiving the session write failed"));
 }
 
+// ---------------------------------------------------------------------------
+// The teardown busy dot
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[test]
+fn a_teardown_started_pushes_one_sessions_frame_with_the_flag_set() {
+    // Given a page with one live session.
+    let h = harness();
+    let id = active_id(&h.state);
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the lifecycle actor announces the teardown started.
+    crate::outbound::teardown_started(
+        &h.handle,
+        &SessionTeardownStarted {
+            session_id: id.clone(),
+        },
+    );
+
+    // Then the page receives one sessions frame whose row carries the flag.
+    let frames = drain(&mut inbox);
+    let [frame] = frames.as_slice() else {
+        panic!("expected one frame, got {frames:?}");
+    };
+    let row = only_row(frame);
+    assert_eq!(row.session_id, id);
+    assert!(row.is_tearing_down);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_teardown_finished_pushes_one_sessions_frame_with_the_flag_clear() {
+    // Given a page whose session is marked as tearing down.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.handle.mark_tearing_down(&id);
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the lifecycle actor announces the teardown finished.
+    crate::outbound::teardown_finished(
+        &h.handle,
+        &SessionTeardownFinished {
+            session_id: id.clone(),
+            error: None,
+        },
+    );
+
+    // Then the page receives one sessions frame whose row has dropped the flag.
+    let frames = drain(&mut inbox);
+    let [frame] = frames.as_slice() else {
+        panic!("expected one frame, got {frames:?}");
+    };
+    let row = only_row(frame);
+    assert_eq!(row.session_id, id);
+    assert!(!row.is_tearing_down);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_finished_teardown_clears_a_flag_that_was_never_set() {
+    // Given a page whose session was never marked — a teardown refused
+    // before anything spawned publishes a finish and no start.
+    let h = harness();
+    let id = active_id(&h.state);
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the lifecycle actor announces the teardown finished.
+    crate::outbound::teardown_finished(
+        &h.handle,
+        &SessionTeardownFinished {
+            session_id: id.clone(),
+            error: Some("teardown refused".to_owned()),
+        },
+    );
+
+    // Then the page still receives one sessions frame, with the flag clear.
+    let frames = drain(&mut inbox);
+    let [frame] = frames.as_slice() else {
+        panic!("expected one frame, got {frames:?}");
+    };
+    let row = only_row(frame);
+    assert!(!row.is_tearing_down);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_snapshot_built_mid_teardown_carries_the_flag() {
+    // Given a session whose teardown command is running.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.handle.mark_tearing_down(&id);
+
+    // When a fresh page's snapshot is built.
+    let frame = crate::snapshot::snapshot(
+        &h.state,
+        h.handle.revisions(),
+        h.handle.settles(),
+        &h.handle.tearing_down(),
+    );
+
+    // Then the row the snapshot carries has the flag set — a page that
+    // connects mid-teardown sees the dot from its first frame.
+    let [row] = frame.body.sessions.as_slice() else {
+        panic!("one session row expected, got {:?}", frame.body.sessions);
+    };
+    assert_eq!(row.session_id, id);
+    assert!(row.is_tearing_down);
+}
+
 #[rstest::rstest]
 #[tokio::test]
 async fn active_session_changed_pushes_one_snapshot() {
@@ -5867,8 +6443,11 @@ fn link_session(
 /// The `(id, depth)` of every Sessions row, in the order the page receives
 /// them — the tree, as a list of positions.
 fn session_tree(h: &Harness) -> Vec<(jinn_core_types::SessionId, u32)> {
-    let (sessions, _library, _hydrating) =
-        crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
+    let (sessions, _library, _hydrating) = crate::snapshot::session_rows(
+        &h.state,
+        &crate::settle::SettleTracker::default(),
+        &std::collections::HashSet::new(),
+    );
     sessions
         .into_iter()
         .map(|row| (row.session_id, row.depth))
@@ -5999,8 +6578,11 @@ fn a_library_member_is_listed_flat_with_depth_zero() {
         .set_in_library(true);
 
     // When the sidebar's rows are built.
-    let (_sessions, library, _hydrating) =
-        crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
+    let (_sessions, library, _hydrating) = crate::snapshot::session_rows(
+        &h.state,
+        &crate::settle::SettleTracker::default(),
+        &std::collections::HashSet::new(),
+    );
 
     // Then the Library lists it at the top level, whatever its parent.
     assert_eq!(
@@ -6027,8 +6609,11 @@ fn a_row_carries_its_parent_and_origin() {
     );
 
     // When the sidebar's rows are built.
-    let (sessions, _library, _hydrating) =
-        crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
+    let (sessions, _library, _hydrating) = crate::snapshot::session_rows(
+        &h.state,
+        &crate::settle::SettleTracker::default(),
+        &std::collections::HashSet::new(),
+    );
 
     // Then the child's row names its parent and says what kind it is.
     let row = sessions
@@ -6198,7 +6783,226 @@ async fn the_launch_note_describes_the_row() {
     // Then the note carries the row's description.
     assert_eq!(
         notes[0].description.as_deref(),
-        Some("Web UI 2 (browser transcript, send, cancel)"),
+        Some("Web UI (browser transcript, send, cancel)"),
         "the row is told what the slice is"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The session status bar: the persona and the context figure, pushed on change
+// ---------------------------------------------------------------------------
+
+/// The model the status-bar tests run against: one whose window the cache
+/// records, so the figure has a denominator.
+const WINDOWED_MODEL: &str = "openrouter/anthropic/claude-sonnet-4";
+
+/// Stamps a 200k window for [`WINDOWED_MODEL`] into the provider cell, the
+/// way a model refresh leaves it, so a session on that model has a figure.
+fn seed_window(handle: &OutboundHandle) {
+    handle.provider_cell().update(|cell| {
+        cell.model_cache = Some(jinn_provider_config::ModelCache {
+            entries: [(
+                "openrouter".to_owned(),
+                vec![jinn_provider_config::ModelInfo {
+                    id: "anthropic/claude-sonnet-4".to_owned(),
+                    context_length: Some(200_000),
+                    input_modalities: jinn_provider_config::InputModalities::text(),
+                }],
+            )]
+            .into_iter()
+            .collect(),
+            last_updated_at: None,
+        });
+    });
+}
+
+/// Puts the active session on [`WINDOWED_MODEL`] with a 100k assembled
+/// prompt, so its figure reads `50.0%/200k`.
+fn put_session_at_half_window(page: &Page) {
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_model(ModelSelection::Single(WINDOWED_MODEL.to_owned()));
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_context_sizes(100_000, 0);
+}
+
+/// The `ContextUsage` frames among `frames`, as their `(persona, label)`.
+fn status_frames(frames: &[ServerMsg]) -> Vec<(String, String)> {
+    frames
+        .iter()
+        .filter_map(|frame| match frame {
+            ServerMsg::ContextUsage(body) => Some((body.persona.clone(), body.label.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_answers_a_snapshot_naming_the_sessions_persona() {
+    // Given a session running the reviewer persona.
+    let h = harness();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_persona_name("reviewer".to_owned());
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot names it.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert_eq!(snapshot.persona, "reviewer");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_snapshot_of_no_session_carries_no_persona() {
+    // Given a state whose active session has been removed from the map,
+    // leaving its id active and nothing behind it.
+    let h = harness();
+    let orphan = active_id(&h.state);
+    h.state.write().session.remove_without_replacement(&orphan);
+
+    // When a snapshot is taken of it.
+    let frame = crate::snapshot::snapshot(
+        &h.state,
+        &crate::revision::RevisionTracker::default(),
+        &crate::settle::SettleTracker::default(),
+        &h.handle.tearing_down(),
+    );
+
+    // Then the body carries no persona — there is no session to name.
+    assert_eq!(frame.body.persona, "");
+}
+
+#[rstest::rstest]
+#[test]
+fn an_idle_connection_receives_no_status_frame() {
+    // Given a connected page and nothing changed between two ticks.
+    let mut page = connected_page();
+
+    // When the tick runs twice.
+    let first = flush_frames(&mut page);
+    let second = flush_frames(&mut page);
+
+    // Then neither pushes: the first records a baseline, and the second has
+    // nothing new to say.
+    assert!(
+        status_frames(&first).is_empty(),
+        "the baseline tick is silent: {first:?}"
+    );
+    assert!(
+        status_frames(&second).is_empty(),
+        "an idle tick is silent: {second:?}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_changed_figure_is_pushed_on_the_next_tick() {
+    // Given a connected page whose baseline tick has been drained, and then
+    // the session put on a windowed model with a half-full prompt.
+    let mut page = connected_page();
+    seed_window(&page.handle);
+    let baseline = flush_frames(&mut page);
+    assert!(
+        status_frames(&baseline).is_empty(),
+        "the baseline tick is silent: {baseline:?}"
+    );
+
+    // When the session's figure changes and the next tick runs.
+    put_session_at_half_window(&page);
+    let frames = flush_frames(&mut page);
+
+    // Then exactly one frame arrives, carrying the new figure.
+    let status = status_frames(&frames);
+    let [(_, label)] = status.as_slice() else {
+        unreachable!("one frame for the changed figure: {frames:?}");
+    };
+    assert_eq!(label, "50.0%/200k");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_persona_change_is_pushed_on_the_next_tick() {
+    // Given a connected page whose baseline tick has been drained.
+    let mut page = connected_page();
+    let baseline = flush_frames(&mut page);
+    assert!(
+        status_frames(&baseline).is_empty(),
+        "the baseline tick is silent: {baseline:?}"
+    );
+
+    // When the session's persona changes and the next tick runs.
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_persona_name("reviewer".to_owned());
+    let frames = flush_frames(&mut page);
+
+    // Then exactly one frame arrives, naming the new persona.
+    let status = status_frames(&frames);
+    let [(persona, _)] = status.as_slice() else {
+        unreachable!("one frame for the changed persona: {frames:?}");
+    };
+    assert_eq!(persona, "reviewer");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_provider_switch_pushes_the_model_and_the_figure_at_once() {
+    // Given a connected page whose baseline tick has been drained, a session
+    // on a windowed model, and then a figure that differs from the baseline.
+    let mut page = connected_page();
+    seed_window(&page.handle);
+    let baseline = flush_frames(&mut page);
+    assert!(
+        status_frames(&baseline).is_empty(),
+        "the baseline tick is silent: {baseline:?}"
+    );
+    let session_id = active_id(&page.state);
+    put_session_at_half_window(&page);
+
+    // When the provider switch lands, outside the tick.
+    crate::outbound::provider_switched(
+        &page.handle,
+        &jinn_provider_selection_msg::ProviderSwitched {
+            session_id: session_id.clone(),
+            provider_name: "openrouter".to_owned(),
+        },
+    );
+
+    // Then one model frame and one figure frame arrive together, without
+    // waiting for the next tick.
+    let frames = drain(&mut page.inbox);
+    assert_eq!(
+        frames
+            .iter()
+            .filter(|frame| matches!(frame, ServerMsg::Model(_)))
+            .count(),
+        1,
+        "one model frame: {frames:?}"
+    );
+    let status = status_frames(&frames);
+    let [(_, label)] = status.as_slice() else {
+        unreachable!("one figure frame beside the model frame: {frames:?}");
+    };
+    assert_eq!(label, "50.0%/200k");
 }

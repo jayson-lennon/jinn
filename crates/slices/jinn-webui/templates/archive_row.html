@@ -1,4 +1,0 @@
-<a class="{{ row_class }} {% if !loaded %}archived{% endif %}"
-   {{ session_attr }}="{{ session_id }}"
-   data-on:click="(${{ open_signal }} = false, $switching = true) !== undefined && @post('{{ session_page_path }}{{ session_id }}/activate')"
-   style="padding-left: {{ 12 + depth * 16 }}px"><span class="archive-project" style="min-width: {{ project_width }}ch">{{ project }}</span><span class="archive-title">{% for seg in title_segments %}{% if seg.matched %}<mark>{{ seg.text }}</mark>{% else %}{{ seg.text }}{% endif %}{% endfor %}</span><span class="archive-state">{% if loaded %}loaded{% else %}archived{% endif %}</span></a>

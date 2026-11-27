@@ -214,53 +214,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "askama"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6024d73179f43f15ccd2b881bfea6fee7f3a46ec53f33b52210dea749ebebaa4"
-dependencies = [
- "askama_macros",
- "itoa",
- "percent-encoding",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "askama_derive"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "071ee5ebf2138e3ad180e0aacf6940c2cab5e6d8333741d9925c7bee2b153f39"
-dependencies = [
- "askama_parser",
- "memchr",
- "proc-macro2",
- "quote",
- "rustc-hash 2.1.1",
- "syn 3.0.9",
-]
-
-[[package]]
-name = "askama_macros"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "643e1c7cbb6aec1d920332fe51a7c0d8219e273dcb8602db03f5263e4d16487b"
-dependencies = [
- "askama_derive",
-]
-
-[[package]]
-name = "askama_parser"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c5ae75772275d268b03ab8bdccdd12117b6169ee23256942b34e46c9f476583"
-dependencies = [
- "rustc-hash 2.1.1",
- "unicode-ident",
- "winnow 1.0.4",
-]
-
-[[package]]
 name = "assert-json-diff"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1705,17 +1658,6 @@ name = "data-encoding"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
-
-[[package]]
-name = "datastar"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27799c6e0b861af6c4bd0afc91454a0d3f2f9ac7560417bbf1bfd3da5d9d6205"
-dependencies = [
- "axum",
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "deflate64"
@@ -3418,8 +3360,6 @@ dependencies = [
  "jinn-turn-dispatch",
  "jinn-turn-dispatch-msg",
  "jinn-watchdog",
- "jinn-webui",
- "jinn-webui-msg",
  "jinn-webui2",
  "jinn-webui2-msg",
  "jinn-work-time",
@@ -3735,7 +3675,6 @@ dependencies = [
  "jinn-theme-msg",
  "jinn-token-count-msg",
  "jinn-tools-msg",
- "jinn-webui-msg",
  "jinn-work-time-msg",
  "jinn-workflows-msg",
 ]
@@ -5572,8 +5511,13 @@ dependencies = [
 name = "jinn-status-bar-msg"
 version = "1.27.2"
 dependencies = [
+ "jiff",
  "jinn-core-types",
+ "jinn-provider-config",
+ "jinn-session-state",
  "jinn-slices",
+ "jinn-token-count-msg",
+ "rstest",
  "serde",
 ]
 
@@ -6037,84 +5981,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jinn-webui"
-version = "1.27.2"
-dependencies = [
- "askama",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "chaser-oxide",
- "datastar",
- "error-stack",
- "flate2",
- "form_urlencoded",
- "futures",
- "http-body-util",
- "image",
- "jiff",
- "jinn-app-state",
- "jinn-applets-msg",
- "jinn-cell-catalog",
- "jinn-chat-input-msg",
- "jinn-config",
- "jinn-core-types",
- "jinn-inference-msg",
- "jinn-kernel",
- "jinn-llm-support",
- "jinn-mcp-msg",
- "jinn-persona-msg",
- "jinn-picker",
- "jinn-preferences-config",
- "jinn-provider",
- "jinn-provider-config",
- "jinn-provider-selection-msg",
- "jinn-selection-widget",
- "jinn-session-history-msg",
- "jinn-session-lifecycle-msg",
- "jinn-session-msg",
- "jinn-session-state",
- "jinn-session-store",
- "jinn-session-store-msg",
- "jinn-skills-msg",
- "jinn-slices",
- "jinn-testutil",
- "jinn-theme",
- "jinn-tools-msg",
- "jinn-webui-msg",
- "marked-path",
- "parking_lot",
- "pulldown-cmark",
- "reqwest 0.13.3",
- "rstest",
- "rustls 0.23.45",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tokio-stream",
- "toml 0.8.23",
- "tower",
- "tracing",
- "trouper",
- "unicode-segmentation",
- "url",
- "wherror",
-]
-
-[[package]]
-name = "jinn-webui-msg"
-version = "1.27.2"
-dependencies = [
- "jinn-core-types",
- "jinn-slices",
- "rstest",
- "serde",
- "serde_json",
- "trouper",
-]
-
-[[package]]
 name = "jinn-webui2"
 version = "1.27.2"
 dependencies = [
@@ -6131,6 +5997,7 @@ dependencies = [
  "jinn-cell-catalog",
  "jinn-chat-input-msg",
  "jinn-config",
+ "jinn-context-assembly-msg",
  "jinn-core-types",
  "jinn-inference-msg",
  "jinn-kernel",
@@ -6149,6 +6016,7 @@ dependencies = [
  "jinn-session-store-msg",
  "jinn-skills-msg",
  "jinn-slices",
+ "jinn-status-bar-msg",
  "jinn-testutil",
  "jinn-theme",
  "jinn-tools-msg",
@@ -9877,7 +9745,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]
@@ -11841,9 +11708,6 @@ name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
-dependencies = [
- "memchr",
-]
 
 [[package]]
 name = "winreg"

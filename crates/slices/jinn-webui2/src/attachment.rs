@@ -7,9 +7,7 @@
 //! magic number, non-native formats transcode to PNG through
 //! [`jinn_llm_support`'s converter][svc] (the `read_image` tool's
 //! machinery, shared as a library crate), and each image is capped before
-//! conversion. A refusal is one sentence naming the offender — the
-//! original web UI's rules and sentences, copied because no slice may
-//! depend on that slice's crate.
+//! conversion. A refusal is one sentence naming the offender.
 //!
 //! [svc]: jinn_llm_support::image_convert::ImageConverterService
 
@@ -65,8 +63,7 @@ pub fn is_image_url(url: &str) -> bool {
 ///
 /// The scan is deliberately shallow: `https://`-prefixed tokens running to
 /// the next whitespace, gated by [`is_image_url`]. A URL that fails the gate
-/// is skipped — it stays a plain link in the message, exactly as on the
-/// original web UI.
+/// is skipped — it stays a plain link in the message.
 #[must_use]
 pub fn scan_image_urls(text: &str) -> Vec<String> {
     text.split_whitespace()

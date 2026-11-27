@@ -40,7 +40,9 @@ use jinn_persona_msg::PersonasLoaded;
 use jinn_session_history_msg::CitationsReceived;
 use jinn_session_history_msg::SubmitHistoryMutations;
 use jinn_session_history_msg::TaskListUpdated;
-use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, PushChatEntry, UnpinChatEntry};
+use jinn_session_history_msg::{
+    ChatEntryPinChanged, PinChatEntry, PushChatEntry, SetEntryContextOverride, UnpinChatEntry,
+};
 use jinn_session_msg::{
     GiveUpProviderRetries, MarkSessionInteracted, RetryStalledSession, TurnCompleted,
 };
@@ -185,6 +187,7 @@ impl SessionPersistenceActor {
             // Context-related.
             .handles::<PinChatEntry>()
             .handles::<UnpinChatEntry>()
+            .handles::<SetEntryContextOverride>()
             // Events (also broadcast targets — every publish of these
             // schemas reaches this actor, whatever slice emitted it).
             .handles::<StreamToken>()
@@ -251,6 +254,12 @@ impl MsgHandler<PinChatEntry> for SessionPersistenceActor {
 impl MsgHandler<UnpinChatEntry> for SessionPersistenceActor {
     async fn handle(&mut self, msg: &UnpinChatEntry, _ctx: &mut MsgCtx<'_>) {
         self.handle_unpin_chat_entry(msg).await;
+    }
+}
+
+impl MsgHandler<SetEntryContextOverride> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: &SetEntryContextOverride, _ctx: &mut MsgCtx<'_>) {
+        self.handle_set_entry_context_override(msg).await;
     }
 }
 

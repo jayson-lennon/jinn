@@ -2,7 +2,7 @@
 name = "jinn-webui2-msg"
 version.workspace = true
 edition.workspace = true
-description = "The wire contract for the second web UI: the two tagged message enums the browser and the server exchange over one WebSocket."
+description = "The wire contract for the web UI: the two tagged message enums the browser and the server exchange over one WebSocket."
 
 [dependencies]
 # A pure contract crate: data and pure functions only. No actor, no

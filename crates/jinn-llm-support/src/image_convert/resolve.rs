@@ -247,7 +247,7 @@ pub enum ImageBytesError {
 /// Native formats (PNG/JPEG/GIF/WEBP) attach as-is; a recognizable
 /// non-native image (HEIC, AVIF, TIFF, BMP, …) transcodes to PNG through the
 /// converter service; anything else reports [`ImageBytesError::NotAnImage`].
-/// The webui's send boundary calls this inside `spawn_blocking`.
+/// The `/web2` composer's send boundary calls this inside `spawn_blocking`.
 ///
 /// Blocking; callers must run it inside `spawn_blocking`.
 ///
@@ -383,8 +383,8 @@ mod tests {
         // When ingesting the bytes.
         let result = ingest_image_bytes_blocking(bytes, &converter);
 
-        // Then the refusal names the bytes not-an-image (the webui maps
-        // this to its 400).
+        // Then the refusal names the bytes not-an-image (the composer's
+        // send boundary surfaces this to the page as a refusal).
         assert_eq!(result.unwrap_err(), ImageBytesError::NotAnImage);
     }
 

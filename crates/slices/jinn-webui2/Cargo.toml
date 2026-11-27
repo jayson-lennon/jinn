@@ -2,14 +2,14 @@
 name = "jinn-webui2"
 version.workspace = true
 edition.workspace = true
-description = "The second web UI slice: a message-driven mirror of the terminal UI over one WebSocket, bound per the [webui2] config section — sessions, transcript, composer, pickers, title."
+description = "The web UI slice: a message-driven mirror of the terminal UI over one WebSocket, bound per the [webui2] config section — sessions, transcript, composer, pickers, title."
 
 [dependencies]
-# A leaf slice like the original web UI: its own contract crate
+# A leaf slice: its own contract crate
 # (jinn-webui2-msg), the kernel for State, and the existing message
 # crates whose commands it publishes and whose events it subscribes. No
 # other slice's implementation crate except the store query the picker
-# rows need; never jinn-webui (the original UI is frozen).
+# rows need.
 jinn-webui2-msg = { workspace = true }
 jinn-preferences-config = { workspace = true }
 jinn-slices = { workspace = true }
@@ -25,6 +25,7 @@ jinn-session-state = { workspace = true }
 jinn-session-list = { workspace = true }
 jinn-session-store-msg = { workspace = true }
 jinn-session-history-msg = { workspace = true }
+jinn-context-assembly-msg = { workspace = true }
 jinn-inference-msg = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
 jinn-session-msg = { workspace = true }
@@ -43,6 +44,10 @@ jinn-mcp-msg = { workspace = true }
 # persona msg crate. Contract crate only: never the persona implementation
 # slice.
 jinn-persona-msg = { workspace = true }
+# The status bar's context figure is the terminal status bar's own, so the two
+# surfaces cannot disagree. Contract crate only: never the status-bar
+# implementation slice.
+jinn-status-bar-msg = { workspace = true }
 # The applets modal's rows are the saved-app catalog the applets store actor
 # writes into its cell, and the open gesture publishes that crate's rescan
 # and wake commands. Contract crate only: never the applets implementation
@@ -57,8 +62,8 @@ jinn-llm-support = { workspace = true }
 # arguments each setup declares. Contract crate only.
 jinn-session-lifecycle-msg = { workspace = true }
 # An image URL in the message text is fetched by the server; base64 decodes
-# the composer's uploads — the same pinned reqwest shape the original web
-# UI uses.
+# the composer's uploads — the same pinned reqwest shape the provider
+# backends use.
 reqwest = { workspace = true }
 base64 = { workspace = true }
 axum = { version = "0.8", features = ["ws"] }

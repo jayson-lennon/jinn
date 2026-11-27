@@ -39,6 +39,13 @@ export interface ViewState {
   queueLen: number;
   modelLabel: string;
   title: string;
+  /** The active session's persona, as the snapshot and a `context_usage`
+   *  frame carry it. */
+  persona: string;
+  /** The context usage figure, as the server formats it: the terminal's own
+   *  string. The page computes nothing; an empty string means no figure has
+   *  arrived yet for this session. */
+  contextLabel: string;
   /** The history revision the page last saw, echoed back on reconnect. */
   revision: number;
   entries: EntryEnvelope[];
@@ -116,6 +123,8 @@ const INITIAL_STATE: ViewState = {
   queueLen: 0,
   modelLabel: '',
   title: '',
+  persona: '',
+  contextLabel: '',
   revision: 0,
   entries: [],
   entriesBefore: 0,
@@ -285,6 +294,10 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         s.queueLen = msg.phase.queue_len;
         s.modelLabel = msg.model_label;
         s.title = msg.title;
+        s.persona = msg.persona;
+        // The figure is not the snapshot's; the tick pushes it within one
+        // interval. Cleared here so the previous session's never lingers.
+        s.contextLabel = '';
         s.revision = msg.revision;
         s.entries = msg.entries;
         s.entriesBefore = msg.entries_before;
@@ -430,6 +443,14 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       });
       return;
     }
+    case 'context_usage': {
+      if (!belongsToViewedSession(store, msg.session_id)) return;
+      store.set((s) => {
+        s.persona = msg.persona;
+        s.contextLabel = msg.label;
+      });
+      return;
+    }
     case 'picker_rows': {
       // A late answer to a filter the user has typed past is dropped.
       if (msg.filter !== store.state.pickerFilter) return;
@@ -507,6 +528,12 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       store.set((s) => {
         s.loadingSessionId = null;
       });
+      return;
+    }
+    case 'current': {
+      // The answer to a `hello` that missed nothing. It carries no fact —
+      // the transcript the page holds is already the server's — and its
+      // arrival is the whole effect: the socket ends its handshake wait.
       return;
     }
     case 'ping': {

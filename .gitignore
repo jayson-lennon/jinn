@@ -45,11 +45,6 @@ worktrees/*
 .jinn-autocoder-trash/*
 .issues/*
 .autodev.ledger.md
-# Askama templates are source, not build output: the webui slice's page
-# and fragment templates compile into the binary and must be tracked
-# (the `*.html` rule above ate the four model templates once — fresh
-# checkouts could not compile).
-!crates/slices/jinn-webui/templates/*.html
 *.wav
 .artifacts
 /*.toml
@@ -63,17 +58,17 @@ dumps/
 __pycache__/
 *.pyc
 
-# webui e2e tier run artifacts (webui/client/e2e)
-webui/client/e2e/.run/
-webui/client/e2e/node_modules/
-webui/client/e2e/playwright-report/
-webui/client/e2e/test-results/
+# Installed Node dependencies, anywhere in the tree. A directory that
+# deletes its own nested .gitignore while leaving node_modules/ on disk
+# flips that folder from ignored to untracked, and `just commit` sweeps it in.
+node_modules/
 
-# webui2 client (the second web UI): its installed dependencies and its
-# build output are produced by the jinn-webui2 slice's build.rs on every
-# cargo compile; nothing of the bundle is committed.
-webui/client2/node_modules/
+# webui2 client (the web UI, /web2): its build output is produced by the
+# jinn-webui2 slice's build.rs on every cargo compile; nothing of the bundle
+# is committed.
 webui/client2/dist/
-webui/client2/e2e/node_modules/
 webui/client2/e2e/playwright-report/
 webui/client2/e2e/test-results/
+
+# Playwright's run-status output from a suite run at the repo root.
+test-results/

@@ -57,8 +57,6 @@
 pub mod fuzzy_tool_call_watchdog_actor;
 pub mod provider_error_watchdog_actor;
 pub mod repeat_tool_call_watchdog_actor;
-#[cfg(test)]
-pub mod session_loop_excerpts;
 pub mod stall_watchdog_actor;
 pub mod stream_rule_watchdog_actor;
 pub mod stuck_loop_watchdog_actor;

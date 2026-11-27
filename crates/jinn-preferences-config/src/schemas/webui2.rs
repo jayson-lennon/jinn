@@ -1,8 +1,8 @@
-//! The `[webui2]` section — the second web UI's socket binding.
+//! The `[webui2]` section — the web UI's (`/web2`) socket binding.
 //!
-//! One key: `bind`, a host:port socket address (`127.0.0.1:8388`).
-//! Sibling of [`super::WebUiConfig`]: the same fixed-port rationale (a
-//! bookmarkable URL), read **once, at activation**, and frozen for the
+//! One key: `bind`, a host:port socket address (`127.0.0.1:8388`). The
+//! shipped default names a **fixed port** so the URL stays bookmarkable;
+//! the section is read **once, at activation**, and frozen for the
 //! process's lifetime. A live edit applies at the next restart.
 //!
 //! The listener that binds it lives in `jinn-webui2`. This module is
@@ -13,8 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use wherror::Error;
 
-/// The default bind: loopback on the fixed second-web-UI port — one
-/// past the original web UI's, so both surfaces run side by side.
+/// The default bind: loopback on the fixed web UI port.
 pub const DEFAULT_WEBUI2_BIND: &str = "127.0.0.1:8388";
 
 /// The bind string failed to parse as a host:port socket address.
@@ -34,7 +33,7 @@ fn default_bind() -> String {
 /// this section at runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebUi2Config {
-    /// Host:port the second web UI binds, e.g. `"127.0.0.1:8388"`.
+    /// Host:port the web UI (`/web2`) binds, e.g. `"127.0.0.1:8388"`.
     /// Port `0` binds an OS-assigned ephemeral port.
     #[serde(default = "default_bind")]
     pub bind: String,

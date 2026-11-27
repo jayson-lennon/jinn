@@ -1,22 +1,21 @@
-# Web UI 2 (`/web2`)
+# The web UI (`/web2`)
 
-A running jinn instance serves a **second** browser UI at `/web2`, beside
-the original at `/web`. It is a mirror of the TUI with web UX: the same
-sessions, the same transcript, the same single active session, and every
-action publishes the same message the TUI's keybind does.
+A running jinn instance serves a browser UI at `/web2`. It is a mirror of
+the TUI with web UX: the same sessions, the same transcript, the same
+single active session, and every action publishes the same message the
+TUI's keybind does.
 
-The original web UI is unchanged and still served. `/web2` is the newer
-surface; it covers the core loop — sessions and the library, images,
-themes, model refresh, and creating a session — and leaves out what
+It covers the core loop — sessions and the library, images, themes, model
+refresh, and creating a session — and leaves out what
 [What `/web2` does not do](#what-web2-does-not-do) lists.
 
-Like `/web`, it is a **single-user, unauthenticated** surface — reach it
-over loopback or a VPN you secure.
+It is a **single-user, unauthenticated** surface — reach it over loopback
+or a VPN you secure.
 
 ## Open it
 
 Point a browser at `http://127.0.0.1:8388/web2` (or the `[webui2]` bind
-you configured — see the **Web UI 2** entry under
+you configured — see the **Web UI** entry under
 [Common asks → settings](configuration.md#common-asks--settings)).
 
 The TUI's Dashboard tab names the address the server is actually running
@@ -43,9 +42,12 @@ but nothing coordinates them.
   library members. Exactly one shows at a time. In either list the active
   session is highlighted and clicking a row activates that session (the
   TUI follows). Each row's `⋮` offers **add to library** or **remove from
-  library**, which moves it to the other list, and **archive**, which
-  archives that session without running its teardown lifecycle. While the
-  page is still waiting for its first list, and again while the server is
+  library**, which moves it to the other list; **teardown + archive**, which
+  runs that session's teardown lifecycle and then archives it (the terminal's
+  `x` — a session with nothing to tear down is archived at once); and
+  **archive**, which archives without running the teardown lifecycle. While
+  the teardown runs, the row shows its busy dot.
+  While the page is still waiting for its first list, and again while the server is
   still loading its saved sessions at startup, whichever list is showing
   ends with a muted **loading sessions…** row — a spinner, below the rows
   already loaded. It has no timeout: it clears when the server says the
@@ -81,7 +83,7 @@ but nothing coordinates them.
   `[[project.entry]]` configured the modal says so instead of showing a
   form.
 - **Follows the active session** — when the active session changes
-  anywhere (another `/web2` page, `/web`, the TUI), every `/web2` page
+  anywhere (another `/web2` page, the TUI), every `/web2` page
   switches to it. Nothing the user has typed holds the page back: an
   unsent draft and any pending images belong to the user, not to the
   session, and are still there after the switch.
@@ -133,6 +135,13 @@ but nothing coordinates them.
   fresh rows arrive.
 - **Title** — click the title to rename the session in place; `Enter`
   commits and `Esc` cancels.
+- **Status bar** — the row under the title bar, shown while a session is
+  active. On the left, the session's persona: click the name to open the
+  persona picker (the same modal the menu's **Persona** item opens). On
+  the right, the context usage figure — the terminal's own, so the two
+  surfaces always agree: `used%/max` when the model's context window is
+  known, `used/???` when it is not. It is text only, and follows every
+  history change, pin, context toggle and model switch without a reload.
 - **Entry menu** — every transcript entry has a `⋮` at its bottom-right,
   always visible at every width. It opens the session row's popup with the
   things you can do to that one entry.
@@ -142,6 +151,14 @@ but nothing coordinates them.
     pinning a tool call or result pins its loop, and each member shows the
     mark. Pins made in the TUI appear on `/web2` at once. Top and bottom
     positioning stay in the TUI's Pins sidebar.
+  - **Exclude from context / Include in context** — flips the entry between
+    forced-exclude and forced-include, the same override the TUI's `x` sets,
+    and takes the whole tool loop like a pin does. The item names the action
+    it will take: an entry in context reads **Exclude from context**, one
+    out of it reads **Include in context**. An excluded entry is drawn
+    dimmed. Excludes made in the TUI appear on `/web2` at once. The item is
+    absent on a pinned entry, since a pin overrides exclusion, and the web
+    cannot return an entry to the default — the TUI's `r` does.
   - **Fork** — forks the session at that entry into a new session holding
     the history up to and including it, the same fork the TUI's `f` makes;
     the new session is linked as the source's child and every page moves
@@ -193,7 +210,8 @@ but nothing coordinates them.
   - `+` loads the skill's body into context as a pinned tool result,
     enabling the skill first if it was off. A skill already in context
     has its `+` disabled, so nothing is loaded twice.
-- **Persona** — the menu's **Persona** item opens the personas, in their
+- **Persona** — the menu's **Persona** item, or the persona name in the
+  status bar under the title bar, opens the personas, in their
   own name-sorted order: a `●` on the session's current persona and a
   `○` on the rest, the name and description. The current persona's row
   is highlighted.
@@ -239,8 +257,9 @@ There are no keybinds beyond these:
 
 | Key | Does |
 | --- | --- |
-| `Enter` in the composer | Sends the message. |
-| `Shift+Enter` in the composer | Inserts a newline. |
+| `Enter` in the composer | Inserts a newline. |
+| `Ctrl+Enter` in the composer | Sends the message; queues it while a turn is running. |
+| `Shift+Enter` in the composer | Sends the message; queues it while a turn is running. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
 | `Esc` | Closes the top overlay: the menu, any of the five picker modals (Skills, Persona, Tools, MCP servers, Applets), the New session modal, another picker, the title editor, or the phone drawer. It does **not** close the **Loading session…** overlay — that ends only when the load ends. |
 
@@ -252,10 +271,12 @@ The composer's buttons follow the session's phase:
   there. A count beside the `Q` shows how many are queued, since a
   queued message does not appear in the transcript until its turn runs.
 
-`Enter` follows the same rule: idle it sends, working it queues. An
-empty draft with no image does nothing either way; an image with no text
-sends. Images are limited to 5 MB each, and a refused one is named in a
-toast while the draft and every chip stay put.
+`Ctrl+Enter` and `Shift+Enter` follow the same rule: idle they send,
+working they queue. `Enter` inserts a newline, so a phone's return key
+never sends — the **Send** button does. An empty draft with no image does
+nothing either way; an image with no text sends. Images are limited to
+5 MB each, and a refused one is named in a toast while the draft and
+every chip stay put.
 
 **Cancel** stops the running turn. Queued work is dumped into the TUI's
 input box as an editable draft — not into the web composer.
@@ -270,18 +291,18 @@ and the rest loads on scroll.
 
 The retry delay grows on every unanswered connect (250 ms doubling to 8 s)
 and resets only once a connect has been answered, so a server that is
-stalling is left alone rather than hammered. It keeps retrying for as long
-as the page is open; there is no give-up state.
+stalling is left alone rather than hammered. A reconnect that missed
+nothing is answered at once, so a brief drop on an idle page clears in a
+moment instead of returning. It keeps retrying for as long as the page is
+open; there is no give-up state.
 
 ## What `/web2` does not do
 
-Everything below exists on the TUI, and most of it on `/web` too. When a
-user asks for one of these on `/web2`, say so and point at the surface
-that has it.
+Everything below exists on the TUI. When a user asks for one of these on
+`/web2`, say so and point at the surface that has it.
 
-- Closing or tearing down sessions, and archiving a whole subtree.
-  `/web2` can *create*, *open*, *fork*, and *archive* single sessions, but
-  has no close, teardown, or archive-tree gesture.
+- Archiving a whole subtree. `/web2` can *create*, *open*, *fork*, *teardown +
+  archive*, and *archive* single sessions, but has no archive-tree gesture.
 - Renaming, deleting, or opening an applet in kiosk mode. The `/web2`
   applets picker opens one in a new tab; those three gestures are the
   TUI's.

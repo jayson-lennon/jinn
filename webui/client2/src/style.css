@@ -1,5 +1,5 @@
 /* The /web2 page. Every colour is a token, so a theme is one place.
-   The values are the original web UI's: dark lifted from the sonokai
+   The values: dark lifted from the sonokai
    terminal theme, light from nord-light, and a system mode that follows
    the browser. The names are this page's own; the values are not. */
 :root {
@@ -38,7 +38,7 @@
   --scrim: rgba(0, 0, 0, .55);
   /* text on an accent or error fill: near-black */
   --on-fill: #2c2e34;
-  /* the unread fill: the warm gold /web's unread rows carry */
+  /* the unread fill: the warm gold an unread session row carries */
   --mark: #ebdca0;
   /* a subagent's kind — the terminal's `subagent_fg`, the same value in
      every mode because the terminal ships one pair for every theme */
@@ -87,7 +87,7 @@
   --scrim: rgba(0, 0, 0, .55);
   /* on fills: the dark ink */
   --on-fill: #2e3440;
-  /* the unread fill: /web's light-mode unread gold */
+  /* the unread fill: the light-mode unread gold */
   --mark: #ebcb8b;
   /* the two kind colours are the terminal's own, unchanged in light mode */
   --subagent: #b29ef0;
@@ -331,10 +331,11 @@ body { background: var(--bg); color: var(--fg); }
      track is `auto` — it sizes to its content's minimum, so a row wider
      than a phone (the busy composer's two buttons) pushed the column
      past the viewport and the draft off the left edge.
-     The fourth track is the session's status row, which is always present
-     at a fixed height — see its rule — so this track never changes size. */
+     Title bar, status bar, transcript, the session's status row, composer.
+     The status row is always present at a fixed height — see its rule — so
+     its track never changes size. */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -347,6 +348,38 @@ body { background: var(--bg); color: var(--fg); }
   gap: 12px;
   padding: 10px 18px;
   border-bottom: 1px solid var(--border);
+}
+
+/* ---- status bar: the persona, the context figure ---- */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+.status-persona {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: var(--radius);
+  font: inherit;
+  cursor: pointer;
+}
+.status-persona:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.status-persona:focus-visible {
+  outline: 1px solid var(--accent);
+}
+.status-context {
+  white-space: nowrap;
 }
 /* ---- hamburger menu ---- */
 .menu { position: relative; display: inline-flex; flex: none; }
@@ -601,6 +634,13 @@ body { background: var(--bg); color: var(--fg); }
   visibility: hidden;
 }
 .entry.pinned .pin-mark { visibility: visible; }
+/* An entry the server reports as out of the model's context: its content
+   dims, and nothing else does. The kebab and its popup are direct children
+   of the entry too, and are left at full strength — "Include in context"
+   is the one action an excluded entry most needs, and it must stay
+   legible and clickable. Opacity on the entry itself would dim them along
+   with the content. */
+.entry.excluded > :not(.entry-menu) { opacity: .6; }
 
 /* ---- session status ---- */
 /* The row between the transcript and the composer: the busy text at its
@@ -818,7 +858,7 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
 .modal-list button:disabled { color: var(--fg-faint); cursor: not-allowed; }
 
 /* ---- skills modal ---- */
-/* The row is the original web UI's skills row: one line, baseline-aligned,
+/* The skills row: one line, baseline-aligned,
    marker · name · description · badge, with the load button pinned to the
    end. Scoped under .skills-rows so each rule outranks .modal-list button. */
 .skills-modal { width: min(560px, 92vw); max-height: 70vh; display: flex; flex-direction: column; }
@@ -901,8 +941,8 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
 }
 
 /* ---- tools, MCP servers, and persona modals ---- */
-/* Ported from the first web UI's tools, mcp, and persona styles, onto
-   this page's tokens, and shaped like this page's skills row. The
+/* The tools, MCP, and persona modal rows, on
+   this page's tokens, shaped like this page's skills row. The
    generic `.modal-list button` is a vertical stack, so the row must set
    `flex-direction: row` back, and the description needs `min-width: 0`
    or the ellipsis cannot engage inside the flex line. The tools rows

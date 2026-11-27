@@ -12,6 +12,7 @@ use jinn_kernel::common::state::State;
 use jinn_preferences_config::schemas::{BuiltinId, LifecycleCommand};
 use jinn_session_lifecycle_msg::CloseSession;
 use jinn_session_lifecycle_msg::SessionTeardownFinished;
+use jinn_session_lifecycle_msg::SessionTeardownStarted;
 use jinn_session_lifecycle_msg::TeardownSessionTree;
 use jinn_session_lifecycle_msg::builtin::{BuiltinHandler, BuiltinHandlerError, BuiltinRegistry};
 use jinn_session_lifecycle_msg::{
@@ -949,6 +950,35 @@ async fn a_recorded_teardown_runs_and_releases_the_slot() {
         finished[0].error
     );
     assert_eq!(finished[0].session_id, session_id);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn spawning_a_teardown_publishes_the_started_event() {
+    // Given a session past setup with the shell lifecycle recorded.
+    let fixture = shell_fixture().await;
+    let starts = fixture
+        .harness
+        .spawn_recorder::<SessionTeardownStarted>()
+        .await;
+    let session_id = seed_session(&fixture);
+    advance_past_setup(&fixture, &session_id);
+    stamp_shell_lifecycle(&fixture, &session_id);
+
+    // When a teardown arrives for it.
+    fixture
+        .harness
+        .publish(RunSessionTeardown {
+            session_id: session_id.clone(),
+            command: "ignored-by-the-actor".to_owned(),
+            args: Vec::new(),
+        })
+        .await;
+
+    // Then exactly one started event is published, naming the session.
+    let started = await_recorded(&starts, 1, Duration::from_secs(2)).await;
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].session_id, session_id);
 }
 
 #[rstest::rstest]

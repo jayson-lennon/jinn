@@ -10,17 +10,19 @@
 )]
 
 use jinn_core_types::chat_entry::ChatEntryKind;
-use jinn_core_types::{ChatEntry, ChatEntryId, ContextOverride, SessionId, ToolResultStatus};
+use jinn_core_types::{
+    ChatEntry, ChatEntryId, ContextOverride, PinPosition, SessionId, ToolResultStatus,
+};
 use jinn_slices::PhaseView;
 use rstest::rstest;
 
 use crate::payload::{
-    AppletRowBody, AppletRowsBody, DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody,
-    ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody,
-    ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody,
-    PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionRowOrigin, SessionsBody,
-    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
-    ToolRowsBody,
+    AppletRowBody, AppletRowsBody, ContextUsageBody, DeltaField, EntryDeltaBody, EntryEnvelope,
+    EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody,
+    McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody,
+    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionRowOrigin,
+    SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody,
+    ToolRowBody, ToolRowsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 
@@ -51,6 +53,7 @@ fn row(title: &str) -> SessionRowBody {
         title: title.to_owned(),
         is_active: false,
         is_busy: false,
+        is_tearing_down: false,
         in_library: false,
         last_settled_at: None,
         parent_session: None,
@@ -396,6 +399,7 @@ fn server_snapshot_round_trips() {
         },
         model_label: "ollama/llama3".to_owned(),
         title: "title".to_owned(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: [ChatEntry::user("hi"), ChatEntry::assistant("yo")]
@@ -430,6 +434,7 @@ fn server_snapshot_without_active_session_round_trips() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: Vec::new(),
@@ -677,6 +682,34 @@ fn server_title_round_trips() {
     let back = roundtrip_server(&msg);
 
     // Then the title is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_context_usage_round_trips_with_its_fields_flattened() {
+    // Given a status-bar push carrying a persona and a formatted figure.
+    let msg = ServerMsg::ContextUsage(ContextUsageBody {
+        session_id: SessionId::new(),
+        persona: "reviewer".to_owned(),
+        label: "50.0%/200k".to_owned(),
+    });
+
+    // When it is serialized and read back.
+    let json = serde_json::to_value(&msg).expect("context usage serializes");
+    let back = roundtrip_server(&msg);
+
+    // Then the frame is the tag with its three fields beside it, and the
+    // figure is the server's own string — nothing for the page to derive.
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "type": "context_usage",
+            "session_id": json_of(&back)["session_id"],
+            "persona": "reviewer",
+            "label": "50.0%/200k",
+        })
+    );
     assert_eq!(json_of(&back), json_of(&msg));
 }
 
@@ -1036,6 +1069,20 @@ fn server_ping_round_trips_as_a_bare_tag() {
 
 #[rstest]
 #[test]
+fn server_current_round_trips_as_a_bare_tag() {
+    // Given the answer to a `hello` that missed nothing.
+    let msg = ServerMsg::Current;
+
+    // When it is serialized.
+    let json = serde_json::to_value(&msg).expect("current serializes");
+
+    // Then it is the type tag alone, and reads back unchanged.
+    assert_eq!(json, serde_json::json!({ "type": "current" }));
+    assert_eq!(json_of(&roundtrip_server(&msg)), json_of(&msg));
+}
+
+#[rstest]
+#[test]
 fn server_variant_carries_its_snake_case_tag() {
     // Given one message of every server variant.
     let session = SessionId::new();
@@ -1052,6 +1099,7 @@ fn server_variant_carries_its_snake_case_tag() {
                 phase: phase.clone(),
                 model_label: String::new(),
                 title: String::new(),
+                persona: String::new(),
                 revision: 0,
                 entries_before: 0,
                 entries: Vec::new(),
@@ -1172,11 +1220,20 @@ fn server_variant_carries_its_snake_case_tag() {
             "theme",
         ),
         (
+            ServerMsg::ContextUsage(ContextUsageBody {
+                session_id: session.clone(),
+                persona: String::new(),
+                label: String::new(),
+            }),
+            "context_usage",
+        ),
+        (
             ServerMsg::Error(ErrorBody {
                 message: String::new(),
             }),
             "error",
         ),
+        (ServerMsg::Current, "current"),
         (ServerMsg::Ping, "ping"),
     ];
 
@@ -1325,6 +1382,12 @@ fn client_variant_carries_its_snake_case_tag() {
             },
             "archive_session",
         ),
+        (
+            ClientMsg::TeardownSession {
+                session_id: SessionId::new(),
+            },
+            "teardown_session",
+        ),
         (ClientMsg::NewSessionOptions, "new_session_options"),
         (
             ClientMsg::CreateSession {
@@ -1360,6 +1423,7 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: sent.clone(),
@@ -1471,6 +1535,69 @@ fn entry_envelope_names_every_kind_in_snake_case() {
             "intersession",
         ]
     );
+}
+
+#[rstest]
+#[test]
+fn an_envelope_is_in_context_for_a_default_user_entry() {
+    // Given a user entry at the default override — a kind the context keeps.
+    let envelope = EntryEnvelope::new(&ChatEntry::user("hello"));
+
+    // Then the envelope reads as in context.
+    assert!(envelope.in_context);
+}
+
+#[rstest]
+#[test]
+fn an_envelope_is_out_of_context_for_a_forced_exclude_entry() {
+    // Given a user entry forced out of context.
+    let entry = ChatEntry::user("hello").with_context_override(ContextOverride::ForcedExclude);
+
+    // When it is wrapped for the wire.
+    let envelope = EntryEnvelope::new(&entry);
+
+    // Then the envelope reads as out of context.
+    assert!(!envelope.in_context);
+}
+
+#[rstest]
+#[test]
+fn an_envelope_is_in_context_for_a_pinned_forced_exclude_entry() {
+    // Given a user entry that is both forced out of context and pinned —
+    // the pin wins, exactly as the core's `is_in_context` decides.
+    let entry = ChatEntry::user("hello")
+        .with_context_override(ContextOverride::ForcedExclude)
+        .with_pin(PinPosition::Relative);
+
+    // When it is wrapped for the wire.
+    let envelope = EntryEnvelope::new(&entry);
+
+    // Then the envelope reads as in context.
+    assert!(envelope.in_context);
+}
+
+#[rstest]
+#[test]
+fn an_envelope_without_the_field_reads_as_in_context() {
+    // Given an upsert frame whose envelope predates the `in_context` field.
+    let json = serde_json::json!({
+        "type": "entry_upsert",
+        "session_id": SessionId::new(),
+        "index": 0,
+        "entry": {
+            "kind": "user",
+            "entry": serde_json::to_value(ChatEntry::user("hello")).expect("serialize")
+        }
+    });
+
+    // When it is deserialized.
+    let msg: ServerMsg = serde_json::from_value(json).expect("deserialize");
+
+    // Then the entry reads as in context, not as a parse failure.
+    let ServerMsg::EntryUpsert(body) = &msg else {
+        unreachable!("an entry_upsert deserializes as an upsert");
+    };
+    assert!(body.entry.in_context);
 }
 
 #[rstest]
@@ -1660,6 +1787,21 @@ fn client_archive_session_round_trips() {
 
 #[rstest]
 #[test]
+fn client_teardown_session_round_trips() {
+    // Given a request to tear down and archive a session.
+    let msg = ClientMsg::TeardownSession {
+        session_id: SessionId::new(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
 fn client_new_session_options_round_trips() {
     // Given a request for the form's choices.
     let msg = ClientMsg::NewSessionOptions;
@@ -1703,6 +1845,23 @@ fn client_toggle_pin_round_trips() {
     // Then the entry id survives and the wire tag is `toggle_pin`.
     assert_eq!(back, msg);
     assert_eq!(json_of_client(&back)["type"], "toggle_pin");
+}
+
+#[rstest]
+#[test]
+fn client_toggle_context_round_trips() {
+    // Given a context toggle naming one entry.
+    let entry_id = ChatEntryId::new();
+    let msg = ClientMsg::ToggleContext {
+        entry_id: entry_id.clone(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the entry id survives and the wire tag is `toggle_context`.
+    assert_eq!(back, msg);
+    assert_eq!(json_of_client(&back)["type"], "toggle_context");
 }
 
 #[rstest]
@@ -1772,6 +1931,7 @@ fn snapshot_carries_its_library_rows_and_theme() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: Vec::new(),
@@ -1823,6 +1983,7 @@ fn snapshot_carries_its_hydrating_flag() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: Vec::new(),

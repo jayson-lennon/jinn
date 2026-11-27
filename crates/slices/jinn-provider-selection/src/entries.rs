@@ -3,7 +3,7 @@
 //! The row *data* (availability, alias resolution, remote merge, sort,
 //! active promotion) is the shared builder in
 //! `jinn_provider_selection_msg::provider_rows` — one builder for the
-//! TUI popup and the web modal, so the two surfaces cannot drift. The
+//! TUI popup and the `/web2` model picker, so the two surfaces cannot drift. The
 //! row rendering (ratatui lines, highlight mapping) lives beside the
 //! entry type in the msg crate's `entries` module; this module holds
 //! only what is TUI-chrome: the two footer lines and truncation.

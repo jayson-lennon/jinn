@@ -13,14 +13,16 @@
 use std::time::Duration;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_core_types::{ChatEntry, ChatEntryId, ModelSelection, NameFilter, PinPosition, SessionId};
+use jinn_core_types::{
+    ChatEntry, ChatEntryId, ContextOverride, ModelSelection, NameFilter, PinPosition, SessionId,
+};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::common::actor_deps::BusPublish as _;
 use jinn_mcp_msg::McpRowBadge;
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_preferences_config::schemas::mcp::McpServersConfig;
 use jinn_provider_selection_msg::{ProviderSwitch, RefreshModels};
-use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
+use jinn_session_history_msg::{PinChatEntry, SetEntryContextOverride, UnpinChatEntry};
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
@@ -67,6 +69,8 @@ pub enum Refusal {
     UnknownPersona,
     /// The active session holds no entry with that id.
     UnknownEntry,
+    /// The entry is pinned, so a pin overrides any exclusion.
+    EntryIsPinned,
     /// The theme is not one of the three modes.
     UnknownTheme(String),
     /// No live session and nothing in the store carries that id.
@@ -106,6 +110,7 @@ impl Refusal {
             Self::UnknownMcpServer => "unknown mcp server".to_owned(),
             Self::UnknownPersona => "unknown persona".to_owned(),
             Self::UnknownEntry => "unknown entry".to_owned(),
+            Self::EntryIsPinned => "entry is pinned — unpin it to change its context".to_owned(),
             Self::UnknownTheme(theme) => {
                 format!("unknown theme `{theme}` (want light, dark, or system)")
             }
@@ -162,10 +167,12 @@ pub fn malformed() -> Reply {
 /// Incremental when the page's cursor is an entry of the active session,
 /// its revision is the session's current one (nothing but appends can have
 /// happened), **and** what came after the cursor fits one window: the
-/// reply is then just those entries, as upserts. Any other case — a fresh
-/// page, a cursor the session no longer holds, a revision from before a
-/// restart, or a gap larger than one window — answers with the bounded
-/// tail as a [`ServerMsg::Snapshot`]. The page's view is replaced
+/// reply is then just those entries, as upserts — or, when the cursor is
+/// the newest entry and nothing came after it, the one frame
+/// [`ServerMsg::Current`], so the answer is never silence. Any other case
+/// — a fresh page, a cursor the session no longer holds, a revision from
+/// before a restart, or a gap larger than one window — answers with the
+/// bounded tail as a [`ServerMsg::Snapshot`]. The page's view is replaced
 /// wholesale there, so a wrong guess can never leave a gap, and a
 /// reconnect can never replay an unbounded stretch of history.
 pub fn hello(
@@ -184,8 +191,11 @@ pub fn hello(
     match resumed {
         Some(window) => {
             out.mark_delivered(&session_id, &window);
-            Reply {
-                frames: upserts_of(out.state(), &session_id, &window),
+            let frames = upserts_of(out.state(), &session_id, &window);
+            if frames.is_empty() {
+                Reply::one(ServerMsg::Current)
+            } else {
+                Reply { frames }
             }
         }
         None => snapshot_reply(out),
@@ -270,7 +280,12 @@ pub fn more_entries(out: &OutboundHandle, before: &ChatEntryId) -> Reply {
 
 /// The bounded-tail snapshot for the active session, recorded as delivered.
 fn snapshot_reply(out: &OutboundHandle) -> Reply {
-    let frame = snapshot::snapshot(out.state(), out.revisions(), out.settles());
+    let frame = snapshot::snapshot(
+        out.state(),
+        out.revisions(),
+        out.settles(),
+        &out.tearing_down(),
+    );
     let session_id = frame.body.session_id.clone().unwrap_or_default();
     out.mark_delivered(&session_id, &frame.window);
     Reply::one(ServerMsg::Snapshot(Box::new(frame.body)))
@@ -496,7 +511,7 @@ pub async fn picker_rows(out: &OutboundHandle, filter: String) -> Reply {
     let rows = match stored_rows(out, &filter).await {
         Ok(rows) => rows,
         Err(report) => {
-            tracing::warn!(error = %report, "second web UI could not read stored sessions");
+            tracing::warn!(error = %report, "web UI could not read stored sessions");
             return refused(&Refusal::StoreUnavailable);
         }
     };
@@ -628,8 +643,8 @@ fn root_starts(rows: &[PickerRowBody]) -> Vec<usize> {
 /// The model picker's rows for a filter, from the shared row builder.
 ///
 /// The same `load_provider_entries` → `sorted_entries` → `filter_entries`
-/// path the original web UI runs, over the same search text the terminal's
-/// picker matches by — so all three surfaces list the same rows, in the
+/// path the terminal's picker runs, over the same search text it matches
+/// by — so both surfaces list the same rows, in the
 /// same score order, for the same filter. An empty filter keeps every row
 /// in the sorted order, the active one promoted to the top.
 pub fn model_rows(out: &OutboundHandle, filter: String) -> Reply {
@@ -1393,8 +1408,8 @@ fn tool_row_bodies(
 
 // ---------------------------------------------------------------------------
 // Applet rows
-// Parity: the original web UI's `regions/applets.rs` pull, and the TUI
-// `<leader>sa` picker's opener, which publishes the same rescan/wake pair
+// Same publish pair as the TUI `<leader>sa` picker's opener: the shared
+// rescan/wake pair, so both surfaces launch an applet the same way.
 // ---------------------------------------------------------------------------
 
 /// The applets modal's rows for a filter, with the applets server's serving
@@ -1465,9 +1480,8 @@ fn applet_row_body(
 ///
 /// An empty filter keeps the catalog's own order — the store actor has
 /// already sorted it newest first. Otherwise the shared fuzzy filter over the
-/// titles orders by score, exactly the original web UI's pull and the TUI
-/// picker's matcher; the matched runs are cut on grapheme boundaries so a
-/// `<mark>` never splits a cluster.
+/// titles orders by score, exactly the TUI picker's matcher; the matched
+/// runs are cut on grapheme boundaries so a `<mark>` never splits a cluster.
 pub(crate) fn applet_rows_body(
     catalog: &jinn_applets_msg::AppletsCatalog,
     serving: bool,
@@ -1603,6 +1617,47 @@ pub async fn archive_session(out: &OutboundHandle, session_id: SessionId) -> Rep
     Reply::none()
 }
 
+/// Closes a session the way the terminal's `x` does: runs its teardown
+/// lifecycle, then archives it — or archives it at once when no teardown is
+/// due.
+///
+/// Parity: the sidebar's `x`
+/// (`jinn_sidebar`'s `handle_session_close_with_lifecycle`), message for
+/// message. Publishes the existing `CloseSession` command and nothing else:
+/// the lifecycle actor owns the teardown, the archive, the fallback when
+/// nothing is due, and a failed teardown (the session then stays open), so
+/// this slice adds no disposal logic of its own and the two surfaces cannot
+/// drift. Nothing is replied — every later fact reaches the page through
+/// the outbound actor's pushes, exactly as a TUI-initiated close would. In
+/// particular the fallback archives silently: a toast would need a
+/// server-to-page message the terminal has no counterpart for.
+///
+/// A session running a turn is refused before the publish, with the same
+/// sentence `archive_session` refuses with — one busy refusal cannot
+/// disagree with itself. An id that is neither live nor stored is refused
+/// the same way, and a stored-but-not-live id is one already in the archive.
+pub async fn teardown_session(out: &OutboundHandle, session_id: SessionId) -> Reply {
+    // Owned, so the read guard drops before the store await below.
+    let phase = out
+        .state()
+        .read()
+        .session
+        .get(&session_id)
+        .map(jinn_kernel::ChatSessionState::phase);
+    match phase {
+        Some(phase) if phase.is_working() => return refused(&Refusal::ArchiveSessionBusy),
+        Some(_) => {}
+        None => match out.session_store().load_session(&session_id).await {
+            Ok(Some(_)) => return refused(&Refusal::AlreadyArchived(session_id)),
+            Ok(None) => return refused(&Refusal::UnknownSession),
+            Err(_) => return refused(&Refusal::StoreUnavailable),
+        },
+    }
+    out.publish(jinn_session_lifecycle_msg::CloseSession { session_id })
+        .await;
+    Reply::none()
+}
+
 /// Asks the provider registry to rediscover its models.
 ///
 /// Publishes the existing `RefreshModels` command (one declarant:
@@ -1726,9 +1781,68 @@ fn persisted_ordinal(
 }
 
 // ---------------------------------------------------------------------------
+// Context toggle
+// Parity: the terminal's `x` on the selected entry
+// (`jinn_chat_log_view::chat_entry_selection::intent::handle_ignore_selected`)
+// ---------------------------------------------------------------------------
+
+/// Flips one entry of the active session between forced-include and
+/// forced-exclude.
+///
+/// A forced entry flips to the other forced value; an entry still at the
+/// default flips its *effective* state, exactly as the terminal's `x`
+/// does — an in-context entry is forced out, a kind that is out of context
+/// by default is forced in. The result is always a forced value: nothing
+/// here returns an entry to the default, which is the terminal's `r`. The
+/// page can only name an entry it was sent, so an unknown id is refused and
+/// never falls back to the store. A pinned entry is refused too, because a
+/// pin overrides exclusion and the write would silently do nothing. One
+/// message is published and nothing is replied; the session actor applies
+/// the override, persists the session, and publishes
+/// `ContextOverrideChanged`, which the outbound actor turns into the
+/// upserts the page sees.
+pub async fn toggle_context(out: &OutboundHandle, entry_id: ChatEntryId) -> Reply {
+    // Decided under one read guard, which drops before the publish: the
+    // state lock is never held across an await.
+    let decision = {
+        let state = out.state();
+        let guard = state.read();
+        let session_id = guard.session.active_session_id().clone();
+        let Some(session) = guard.session.get(&session_id) else {
+            return refused(&Refusal::NoActiveSession);
+        };
+        let Some(entry) = session
+            .find_entry_index_by_id(&entry_id)
+            .and_then(|index| session.history().get(index))
+        else {
+            return refused(&Refusal::UnknownEntry);
+        };
+        if entry.is_pinned() {
+            return refused(&Refusal::EntryIsPinned);
+        }
+        let target = match entry.context_override() {
+            ContextOverride::ForcedInclude => ContextOverride::ForcedExclude,
+            ContextOverride::Default if entry.is_in_context() => ContextOverride::ForcedExclude,
+            ContextOverride::ForcedExclude | ContextOverride::Default => {
+                ContextOverride::ForcedInclude
+            }
+        };
+        (session_id, target)
+    };
+    let (session_id, target) = decision;
+    out.publish(SetEntryContextOverride {
+        session_id,
+        entry_id,
+        value: target,
+    })
+    .await;
+    Reply::none()
+}
+
+// ---------------------------------------------------------------------------
 // New session
-// Parity: the original web UI's `delivery::handle_create`, which is the
-// TUI project/lifecycle pickers' confirm and Discord `/new`
+// The same creation path as the TUI project/lifecycle pickers' confirm
+// and Discord `/new`
 // ---------------------------------------------------------------------------
 
 /// The new-session form's choices, read from the live configuration.
@@ -1782,8 +1896,7 @@ pub fn new_session_options(out: &OutboundHandle) -> Reply {
 
 /// Creates a session through the shared creation path.
 ///
-/// The original web UI's `handle_create`, message for message. Validates
-/// against the config layer (the project must name a configured
+/// Validates against the config layer (the project must name a configured
 /// `[[project.entry]]`; the lifecycle must be blank or a configured
 /// `[[session_lifecycle.script]]`; the args must meet the lifecycle's
 /// parameter minimum), then — under one state write guard — stashes the

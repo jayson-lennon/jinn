@@ -16,10 +16,9 @@
 //!   reads the scratch root's project-local skills, not the checkout's;
 //! - the environment is BUILT from an allowlist, never inherited.
 //!
-//! Both browser surfaces bind: a jinn always boots the original web UI
-//! too, and it is fail-fast on its port, so a scratch config naming only
-//! `[webui2]` would die at launch on the fixed default. Each boot probes
-//! a free port for each and writes both sections.
+//! The web UI binds a probed port: each boot probes a free one and writes
+//! the `[webui2]` section, so two concurrent runs never fight over the
+//! shipped default.
 
 import { spawn } from "node:child_process";
 import net from "node:net";
@@ -118,7 +117,7 @@ function providersTomlFor(textOnly) {
   // The attachments spec sends images; the sample model is not in the
   // models.dev reference data, so the vision gate needs the explicit
   // capability marker on the model's own row (the lever the gate's error
-  // entry names). The original UI's harness carries the same block. A
+  // entry names). A
   // text-only row is the gate's blocked path: the error it names.
   const modalities = textOnly ? '["text"]' : '["text", "image"]';
   return `version = 1
@@ -133,7 +132,7 @@ models = ["sample"]
 # The attachments spec sends images; the sample model is not in the
 # models.dev reference data, so the vision gate needs the explicit
 # capability marker on the model's own row (the lever the gate's error
-# entry names). The original UI's harness carries the same block.
+# entry names).
 [[providers.sample.model_info]]
 id = "sample"
 input_modalities = ${modalities}
@@ -148,9 +147,8 @@ models = ["second-model"]
 }
 
 /**
- * The scratch jinn.toml body. Both browser surfaces bind a probed
- * port; the original UI is fail-fast on a taken port and every jinn
- * boots it.
+ * The scratch jinn.toml body. The web UI binds a probed port, so a
+ * concurrent run never collides with this one's.
  *
  * The project entry and the lifecycle script exist for the new-session
  * specs: `/web2`'s modal creates a session only against a configured
@@ -163,8 +161,20 @@ models = ["second-model"]
  * debug binary serving the scratch echo tool over stdio (`jinn luau
  * serve`, network-free), so the MCP modal has a real server whose
  * coordinator can reach `running`.
+ *
+ * Three more lifecycle scripts exist for the teardown specs, each with a
+ * setup command because a teardown is only due for a session whose setup
+ * has run — a lifecycle with a teardown and no setup never reaches that
+ * state, and a close archives without running anything:
+ *
+ * - `marker-teardown` writes a marker file under the instance's scratch
+ *   home, so a spec can assert the command actually ran.
+ * - `slow-teardown` sleeps before exiting, so a spec can observe the
+ *   row's busy dot and a reload while the teardown is in flight.
+ * - `failing-teardown` exits non-zero, so a spec can assert a failed
+ *   teardown leaves the session open.
  */
-function jinnTomlFor(port, webui2Port, mcp) {
+function jinnTomlFor(webui2Port, mcp) {
   const mcpEntry = mcp
     ? `
 [mcp.e2e-echo]
@@ -173,9 +183,6 @@ args = ["luau", "serve", "${MCP_ECHO_SCRIPT}"]
 `
     : "";
   return `version = 1
-
-[webui]
-bind = "127.0.0.1:${port}"
 
 [webui2]
 bind = "127.0.0.1:${webui2Port}"
@@ -186,18 +193,34 @@ path = "~/e2e-scratch"
 [[session_lifecycle.script]]
 name = "echo-setup"
 setup_command = "echo <greeting>"
+
+[[session_lifecycle.script]]
+name = "marker-teardown"
+setup_command = "true"
+teardown_command = "touch ~/.teardown-marker"
+
+[[session_lifecycle.script]]
+name = "slow-teardown"
+setup_command = "true"
+teardown_command = "sleep 4; touch ~/.slow-teardown-done"
+
+[[session_lifecycle.script]]
+name = "failing-teardown"
+setup_command = "true"
+teardown_command = "exit 1"
+
 ${mcpEntry}`;
 }
 
 /** Writes the config dir's two files. */
-function writeConfig(root, port, webui2Port, stage) {
+function writeConfig(root, webui2Port, stage) {
   const configDir = path.join(root, "config", "jinn");
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(
     path.join(configDir, "providers.toml"),
     providersTomlFor(stage.textOnly === true),
   );
-  fs.writeFileSync(path.join(configDir, "jinn.toml"), jinnTomlFor(port, webui2Port, stage.mcp));
+  fs.writeFileSync(path.join(configDir, "jinn.toml"), jinnTomlFor(webui2Port, stage.mcp));
   if (stage.persona) {
     // Personas are discovered from the config dir's `personas/` child —
     // under the paths-root override, the scratch root's own.
@@ -207,9 +230,16 @@ function writeConfig(root, port, webui2Port, stage) {
   }
 }
 
-/** The empty trees every scratch root starts with. */
+/**
+ * The empty trees every scratch root starts with.
+ *
+ * `e2e-scratch` is the configured project's directory. It must exist:
+ * a lifecycle command is spawned with the session's cwd as its working
+ * directory, so a missing project fails the setup before it runs and the
+ * session's lifecycle state never advances past `nothing_ran`.
+ */
 function writeSkeleton(root) {
-  for (const dir of ["db", "tmp", "cwd"]) {
+  for (const dir of ["db", "tmp", "cwd", "e2e-scratch"]) {
     fs.mkdirSync(path.join(root, dir), { recursive: true });
   }
 }
@@ -289,9 +319,9 @@ function writeApplet(root, applet) {
 }
 
 /** Writes one scratch root: the skeleton, the config files, and any staged resources. */
-function writeScratch(root, port, webui2Port, stage = {}) {
+function writeScratch(root, webui2Port, stage = {}) {
   writeSkeleton(root);
-  writeConfig(root, port, webui2Port, stage);
+  writeConfig(root, webui2Port, stage);
   if (stage.skill) writeSkill(root, scratchSkill);
   if (stage.applet) writeApplet(root, scratchApplet);
 }
@@ -416,7 +446,7 @@ async function killTree(root) {
  * its run coordinates.
  *
  * The binary runs under util-linux `script`, which hands it a pty and
- * keeps the process (and both web UIs) up: the default TUI mode needs
+ * keeps the process (and the web UI) up: the default TUI mode needs
  * a tty. `setsid` puts the wrapper outside the caller's session, and
  * teardown finds the tree by the scratch root on the command line.
  *
@@ -427,7 +457,7 @@ async function killTree(root) {
  *   With `textOnly`, the sample model's row declares text only, so an
  *   image send hits the vision gate's blocked path.
  *
- * @returns {Promise<{port: number, webui2Port: number, root: string, baseUrl: string, pid: number}>}
+ * @returns {Promise<{webui2Port: number, root: string, baseUrl: string, pid: number}>}
  *
  * # Errors
  *
@@ -441,11 +471,10 @@ export async function bootJinn(options = {}) {
       `jinn binary not found at ${BIN_PATH} — run the tier through a recipe (just webui2-e2e / just webui2-e2e-one), which builds it`,
     );
   }
-  const port = await probePort();
   const webui2Port = await probePort();
   fs.mkdirSync(TMP_BASE, { recursive: true });
   const root = fs.mkdtempSync(path.join(TMP_BASE, "run-"));
-  writeScratch(root, port, webui2Port, {
+  writeScratch(root, webui2Port, {
     skill: options.skill === true,
     persona: options.persona === true,
     mcp: options.mcp === true,
@@ -453,13 +482,10 @@ export async function bootJinn(options = {}) {
     applet: options.applet === true,
   });
   const run = {
-    port,
     webui2Port,
     root,
     /** The `/web2` page itself — the fixture's page opens this. */
     baseUrl: `http://127.0.0.1:${webui2Port}/web2`,
-    /** The original web UI on the same instance; `createSession` drives it. */
-    legacyUrl: `http://127.0.0.1:${port}/web`,
     pid: 0,
   };
   await launch(run);

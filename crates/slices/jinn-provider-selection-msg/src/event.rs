@@ -41,25 +41,22 @@ impl BusMessage for ModelsRefreshed {}
 /// Emitted by [`crate::ProviderActor`]'s handler **strictly after**
 /// `store_model_cache` lands the merged cache in the cell, on both the
 /// refresh path (`ModelsRefreshed`) and the boot path
-/// (`ModelCacheLoaded`). This is the push trigger the webui fan-out
-/// subscribes — deliberately a distinct schema, never a re-subscription
-/// of the raw discovery facts:
+/// (`ModelCacheLoaded`). This is the push trigger `/web2`'s outbound
+/// actor subscribes — deliberately a distinct schema, never a
+/// re-subscription of the raw discovery facts:
 ///
-/// - `ModelsRefreshed` is an Event with two unordered declarants
-///   (`ProviderActor` and the fan-out), so a push riding it could
-///   render before the cell holds the new cache and the client's
-///   re-pull would read stale rows with no correction coming.
+/// - `ModelsRefreshed` is the discovery actor's own publish, so a push
+///   riding it could render before the cell holds the new cache and the
+///   page's re-pull would read stale rows with no correction coming.
 /// - `ModelCacheLoaded` is *handled* by `ProviderActor`; emitting it
 ///   would loop the actor onto itself.
 ///
 /// The payload carries one thing: `stored_at`, the write's timestamp,
 /// stamped by the emitter strictly after the cell write. It is
 /// provenance, not content — every consumer still renders by reading
-/// the cell (or re-pulling the picker fragment built from it), never
-/// from the event. The webui fan-out stamps it into its `models` SSE
-/// envelope's data line: an SSE event with an empty data buffer is
-/// discarded by the browser per the WHATWG stream spec (the frame
-/// never dispatches), so the signal must carry bytes to arrive.
+/// the cell (or re-pulling the picker rows built from it), never from
+/// the event. The subscriber carries the timestamp on its push so the
+/// frame always has a body to deliver.
 #[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
 #[schema(description = "The merged model cache was stored in the provider cell.")]
 pub struct ModelCacheStored {

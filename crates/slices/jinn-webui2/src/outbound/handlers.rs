@@ -189,6 +189,7 @@ pub(crate) fn phase_changed(
     handle.broadcast(&crate::frames::sessions(
         &handle.deps.state,
         handle.settles(),
+        &handle.tearing_down(),
     ));
 }
 
@@ -286,6 +287,7 @@ impl OutboundActor {
         self.push(&crate::frames::sessions(
             &self.handle.deps.state,
             self.handle.settles(),
+            &self.handle.tearing_down(),
         ));
     }
 }
@@ -310,6 +312,34 @@ impl MsgHandler<jinn_session_history_msg::ChatEntryPinChanged> for OutboundActor
 pub(crate) fn pin_changed(
     handle: &super::OutboundHandle,
     msg: &jinn_session_history_msg::ChatEntryPinChanged,
+) {
+    handle.bump(&msg.session_id);
+    reconcile(handle, &msg.session_id);
+}
+
+impl MsgHandler<jinn_context_assembly_msg::ContextOverrideChanged> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_context_assembly_msg::ContextOverrideChanged,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        context_override_changed(&self.handle, msg);
+    }
+}
+
+/// On a context override change, sends every entry the page holds
+/// differently.
+///
+/// A toggle rewrites `context_override` in place — nothing is appended —
+/// and it takes a whole tool loop, while the event names only the entry
+/// the user acted on. So the event carries the session and one id, and the
+/// reconcile is what finds every changed member: each one's serialized
+/// form no longer matches what the page was last sent. Without this a
+/// toggle made in the terminal would reach the page only at the next
+/// turn's settle.
+pub(crate) fn context_override_changed(
+    handle: &super::OutboundHandle,
+    msg: &jinn_context_assembly_msg::ContextOverrideChanged,
 ) {
     handle.bump(&msg.session_id);
     reconcile(handle, &msg.session_id);
@@ -352,13 +382,26 @@ impl MsgHandler<jinn_provider_selection_msg::ProviderSwitched> for OutboundActor
 
 impl OutboundActor {
     fn on_provider_switched(&mut self, msg: &jinn_provider_selection_msg::ProviderSwitched) {
-        self.push(&jinn_webui2_msg::ServerMsg::Model(
-            jinn_webui2_msg::ModelBody {
-                session_id: msg.session_id.clone(),
-                label: msg.provider_name.clone(),
-            },
-        ));
+        provider_switched(&self.handle, msg);
     }
+}
+
+/// Turns one provider switch into the frames a page needs: the new model's
+/// label, and the context figure recomputed against the new model's window.
+///
+/// The figure's own push is not left to the tick: the label changes this
+/// instant, so the figure beside it changes this instant too.
+pub(crate) fn provider_switched(
+    handle: &super::OutboundHandle,
+    msg: &jinn_provider_selection_msg::ProviderSwitched,
+) {
+    handle.broadcast(&jinn_webui2_msg::ServerMsg::Model(
+        jinn_webui2_msg::ModelBody {
+            session_id: msg.session_id.clone(),
+            label: msg.provider_name.clone(),
+        },
+    ));
+    push_status(handle);
 }
 
 impl MsgHandler<jinn_session_store_msg::SessionLoadCompleted> for OutboundActor {
@@ -381,6 +424,7 @@ impl OutboundActor {
         self.push(&crate::frames::sessions(
             &self.handle.deps.state,
             self.handle.settles(),
+            &self.handle.tearing_down(),
         ));
     }
 }
@@ -491,6 +535,7 @@ pub(crate) fn library_membership_changed(handle: &super::OutboundHandle) {
     handle.broadcast(&crate::frames::sessions(
         &handle.deps.state,
         handle.settles(),
+        &handle.tearing_down(),
     ));
 }
 
@@ -508,6 +553,7 @@ pub(crate) fn sessions_changed(handle: &super::OutboundHandle) {
     handle.broadcast(&crate::frames::sessions(
         &handle.deps.state,
         handle.settles(),
+        &handle.tearing_down(),
     ));
 }
 
@@ -536,6 +582,7 @@ pub(crate) fn startup_hydration_finished(handle: &super::OutboundHandle) {
     handle.broadcast(&crate::frames::sessions(
         &handle.deps.state,
         handle.settles(),
+        &handle.tearing_down(),
     ));
 }
 
@@ -563,6 +610,61 @@ pub(crate) fn archive_failed(
             ),
         },
     ));
+}
+
+impl MsgHandler<jinn_session_lifecycle_msg::SessionTeardownStarted> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionTeardownStarted,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        teardown_started(&self.handle, msg);
+    }
+}
+
+/// Turns one `SessionTeardownStarted` into the frame the rail needs: the
+/// row's busy dot lights while the teardown command runs.
+///
+/// A running teardown does not change the session's phase, so `is_busy`
+/// stays false and the dot needs this flag of its own. The id joins the
+/// handle's tearing-down set first, then the session list is pushed — so a
+/// frame built at any later instant, including a fresh page's snapshot,
+/// carries the flag.
+///
+/// A free function over the handle so a test drives the real push, with
+/// nothing spawned.
+pub(crate) fn teardown_started(
+    handle: &super::OutboundHandle,
+    msg: &jinn_session_lifecycle_msg::SessionTeardownStarted,
+) {
+    handle.mark_tearing_down(&msg.session_id);
+    sessions_changed(handle);
+}
+
+impl MsgHandler<jinn_session_lifecycle_msg::SessionTeardownFinished> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionTeardownFinished,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        teardown_finished(&self.handle, msg);
+    }
+}
+
+/// Turns one `SessionTeardownFinished` into the frame the rail needs: the
+/// busy dot drops.
+///
+/// The lifecycle actor publishes this on every outcome — success, failure,
+/// a refusal before anything spawned, a cancel — so the id is removed
+/// whether or not it was ever marked. A successful teardown-and-archive
+/// clears the dot here a moment before the archive removes the row; that
+/// is the actor's own publish order.
+pub(crate) fn teardown_finished(
+    handle: &super::OutboundHandle,
+    msg: &jinn_session_lifecycle_msg::SessionTeardownFinished,
+) {
+    handle.clear_tearing_down(&msg.session_id);
+    sessions_changed(handle);
 }
 
 impl MsgHandler<jinn_kernel::protocol::system::ActiveSessionChanged> for OutboundActor {
@@ -597,8 +699,12 @@ pub(crate) async fn follow_active_session(
     msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
 ) {
     crate::actions::wait_for_activation(&handle.deps.state, &msg.session_id).await;
-    let (frame, window) =
-        crate::frames::snapshot(&handle.deps.state, &handle.deps.revisions, handle.settles());
+    let (frame, window) = crate::frames::snapshot(
+        &handle.deps.state,
+        &handle.deps.revisions,
+        handle.settles(),
+        &handle.tearing_down(),
+    );
     handle.mark_delivered(&msg.session_id, &window);
     handle.broadcast(&frame);
 }
@@ -703,7 +809,57 @@ fn serving_from_cell(handle: &super::OutboundHandle) -> (bool, String) {
         })
 }
 
-/// One flush: reads every streaming field and emits its unsent suffix.
+/// The status-bar facts for the active session: its persona and the context
+/// figure, as the terminal's own shared function formats it.
+fn status_facts(handle: &super::OutboundHandle) -> Option<(SessionId, String, String)> {
+    // State guard first, then the provider cell — the order every other
+    // path takes them in. Both drop before this returns.
+    let guard = handle.state().read();
+    let session_id = guard.session.active_session_id().clone();
+    let session = guard.session.get(&session_id)?;
+    let model_cache = handle.provider_cell().read().model_cache.clone();
+    let figure = jinn_status_bar_msg::context_figure(session, model_cache.as_ref());
+    Some((
+        session_id,
+        session.persona_name().to_owned(),
+        jinn_status_bar_msg::format_context_figure(&figure),
+    ))
+}
+
+/// Reads the active session's persona and context figure and pushes one
+/// `ContextUsage` frame only when either differs from what pages were last
+/// told.
+///
+/// The first read of a session records a baseline and pushes nothing, the
+/// way the queue depth does: the tick is silent until something has actually
+/// changed. An idle connection therefore never receives this frame.
+pub(crate) fn push_status(handle: &super::OutboundHandle) {
+    let Some((session_id, persona, label)) = status_facts(handle) else {
+        return;
+    };
+    let status = (persona, label);
+    let mut told = handle.told_status.lock();
+    match told.get(&session_id) {
+        Some(known) if *known == status => return,
+        None => {
+            told.insert(session_id, status);
+            return;
+        }
+        Some(_) => {}
+    }
+    told.insert(session_id.clone(), status.clone());
+    drop(told);
+    handle.broadcast(&jinn_webui2_msg::ServerMsg::ContextUsage(
+        jinn_webui2_msg::ContextUsageBody {
+            session_id,
+            persona: status.0,
+            label: status.1,
+        },
+    ));
+}
+
+/// One flush: reads every streaming field and emits its unsent suffix, and
+/// the status-bar facts if they have drifted.
 ///
 /// A free function over the handle so the tick's behaviour is driven
 /// directly in a test, with nothing spawned: the actor's tick calls it, and
@@ -713,6 +869,7 @@ pub(crate) fn flush(handle: &super::OutboundHandle) {
         return;
     }
     push_drifted_queue_depths(handle);
+    push_status(handle);
     let growing = growing_fields(handle);
     let mut sent = handle.sent.lock();
     for (session_id, index, entry, field, current) in growing {

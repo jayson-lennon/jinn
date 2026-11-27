@@ -14,10 +14,14 @@
 //! - [`PinChatEntry`] / [`UnpinChatEntry`] — pin management (sidebar pins,
 //!   intent handler).
 //! - [`ChatEntryPinChanged`] — emitted after a pin state change.
+//! - [`SetEntryContextOverride`] — a user's force-include or force-exclude
+//!   of one entry (the web entry menu; the terminal's `x` edits directly).
 //! - [`CitationsReceived`] — url-citation annotations from a completed stream.
 //! - [`TaskListUpdated`] — a todo-list tool mutated the task list.
 
-use jinn_core_types::{ChatEntry, ChatEntryId, HistoryMutation, PinPosition, SessionId};
+use jinn_core_types::{
+    ChatEntry, ChatEntryId, ContextOverride, HistoryMutation, PinPosition, SessionId,
+};
 use serde::{Deserialize, Serialize};
 
 /// Push a chat entry into the conversation history.
@@ -117,6 +121,25 @@ pub struct UnpinChatEntry {
 }
 
 impl jinn_slices::BusMessage for UnpinChatEntry {}
+
+/// Set one entry's context override as a user decision.
+///
+/// The write applies to the entry's whole tool loop and is stamped as a
+/// user change, so the auto-prune workers defer to it. A pinned loop
+/// refuses a `ForcedExclude`: a pin overrides exclusion.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command)]
+#[schema(description = "Set a chat entry's context override as a user decision.")]
+pub struct SetEntryContextOverride {
+    /// The session containing the entry.
+    pub session_id: SessionId,
+    /// The entry whose override to set.
+    pub entry_id: ChatEntryId,
+    /// The override to write. Never [`ContextOverride::Default`]: a reset
+    /// stays the terminal's `r`, which edits the session directly.
+    pub value: ContextOverride,
+}
+
+impl jinn_slices::BusMessage for SetEntryContextOverride {}
 
 /// A chat entry's pin state changed.
 #[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
@@ -230,6 +253,42 @@ mod tests {
         // Then the roundtrips preserve the fields.
         assert_eq!(pin.position, pin_back.position);
         assert_eq!(unpin.entry_id, unpin_back.entry_id);
+    }
+
+    #[rstest::rstest]
+    #[case(ContextOverride::ForcedInclude)]
+    #[case(ContextOverride::ForcedExclude)]
+    fn set_entry_context_override_serializes_roundtrip(#[case] value: ContextOverride) {
+        // Given a context-override command naming a session and an entry.
+        let cmd = SetEntryContextOverride {
+            session_id: SessionId::new(),
+            entry_id: ChatEntryId::new(),
+            value,
+        };
+
+        // When serializing and deserializing.
+        let back: SetEntryContextOverride =
+            serde_json::from_str(&serde_json::to_string(&cmd).expect("serialize"))
+                .expect("deserialize");
+
+        // Then the roundtrip preserves every field.
+        assert_eq!(cmd.session_id, back.session_id);
+        assert_eq!(cmd.entry_id, back.entry_id);
+        assert_eq!(cmd.value, back.value);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn set_entry_context_override_is_a_command() {
+        use trouper::schema::{Schema, SchemaKind};
+
+        // Given the context-override command's schema.
+        let schema = <SetEntryContextOverride as Schema>::schema_def();
+
+        // When reading its name and kind.
+        // Then it is named after the type and carries the command kind.
+        assert_eq!(schema.name, "SetEntryContextOverride");
+        assert!(matches!(schema.kind, SchemaKind::Command));
     }
 
     #[rstest::rstest]

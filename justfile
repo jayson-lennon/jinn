@@ -590,124 +590,7 @@ gh-pr-close N COMMENT="":
     fi
     gh pr close {{N}} "${args[@]}"
 
-# Webui (the only recipe with a Node footprint is webui-e2e, dev-only
-# Playwright; cargo never runs Node).
-#
-# The Datastar browser bundle is committed vendored input, not build
-# output: with the TypeScript client gone, nothing in-repo regenerates
-# it (the canvas vendor precedent). vendor-manifest.toml pins its
-# sha256; cargo's build.rs verifies the bytes against that pin on every
-# compile, so `just webui-build` is a pure verifier — gzip integrity
-# plus a manifest-vs-disk sha256 re-check, no Node, no Python, no
-# network. Nothing here is generated.
-#
-#   webui-build   — verify the vendored bundle (gzip + sha256 pin)
-#   webui-smoke   — the headless-chromium test (JINN_WEBUI_SMOKE=1 just webui-smoke)
-#   webui-e2e     — full-stack Playwright e2e (real jinn + sample backend)
-#   webui-e2e-one F [G] — the same tier, only the spec files matching F (a path regex),
-#                   narrowed to titles matching G when G is given (the inner loop)
-#
-# Every e2e test boots its own jinn against its own scratch db and
-# config, so no test can see state another test left behind, and each
-# test arranges its own precondition. The tier runs in a shuffled
-# order with the seed printed: an order-dependent test fails the run
-# and names how to reproduce it. Both e2e recipes build the binary
-# themselves, so a run against a stale binary is not reachable.
-
-# Verify the vendored Datastar bundle against its manifest pin.
-webui-build:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    VENDOR=crates/slices/jinn-webui/resources/vendor
-    echo '==> verify vendored bundle (gzip integrity)'
-    gzip -t "$VENDOR/datastar.js.gz"
-    echo '==> verify vendored bundle (sha256 pin)'
-    echo "ef62c7c7e7738d70b1e599226d209a1f2a526cbb004abcbe1d0d7d5601c074ab  $VENDOR/datastar.js.gz" \
-        | sha256sum -c -
-    echo '==> webui-build green'
-
-# Run the webui smoke test in a real headless chromium.
-webui-smoke:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export JINN_WEBUI_SMOKE=1
-    cargo test -p jinn-webui --lib smoke_tests
-    echo '==> webui-smoke green'
-
-# Kill stray webui-e2e jinn runs and remove their scratch dirs.
-webui-e2e-clean:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    SLUG="$(basename {{justfile_directory()}})"
-    E2E_PAT="--db-path /tmp/jinn-webui-e2e/${SLUG}/"
-    pkill -TERM -f -- "$E2E_PAT" 2>/dev/null || true
-    sleep 0.5
-    pkill -KILL -f -- "$E2E_PAT" 2>/dev/null || true
-    rm -rf "/tmp/jinn-webui-e2e/${SLUG}/run-"*
-    echo '==> webui-e2e-clean green'
-
-# Shared preamble of both e2e recipes: sweep, build, ensure Node deps.
-#
-# The build runs on every invocation and cargo's own fingerprinting
-# decides whether anything recompiles — the binary embeds the askama
-# templates and the vendored web assets at compile time, so a template
-# edit must reach it without a hand-rolled staleness check.
-#
-# The dependency install is skipped when node_modules is present and
-# newer than the lock file; `npm ci` otherwise (reproducible from the
-# lock, and the only npm command in the tier). Playwright's own
-# command-line entry is invoked straight from node_modules/.bin: a
-# package-runner wrapper would silently fetch a different version
-# whenever the install were missing, and the tier pins one version.
-[private]
-webui-e2e-prep:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just webui-e2e-clean
-    echo '==> cargo build --bin jinn'
-    cargo build --bin jinn
-    if [ ! -d webui/client/e2e/node_modules ] \
-        || [ -n "$(find webui/client/e2e/package-lock.json -newer webui/client/e2e/node_modules -print -quit 2>/dev/null)" ]; then
-        echo '==> npm ci (webui/client/e2e)'
-        npm ci --prefix webui/client/e2e
-    else
-        echo '==> node_modules current (npm ci skipped)'
-    fi
-
-# Run webui-e2e test suite (shuffled; the runner prints the seed).
-webui-e2e:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just webui-e2e-prep
-    echo '==> playwright e2e'
-    webui/client/e2e/node_modules/.bin/playwright test \
-        --config webui/client/e2e/playwright.config.mjs --shuffle
-    echo '==> webui-e2e green'
-
-# Run only the webui e2e tests matching FILTER — the sanctioned
-# iterate-on-failure loop (a file name, a -g title fragment, ...).
-# Same build, same isolation, same shuffle as the full tier.
-#
-# FILTER is placed BEFORE --shuffle on purpose: --shuffle takes an
-# optional seed argument, so a filter written after it would be eaten
-# as the seed and the whole tier would run.
-[doc("Run only webui e2e tests matching FILTER (after build + clean).")]
-webui-e2e-one FILTER Grep="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just webui-e2e-prep
-    echo "==> playwright e2e (files: {{FILTER}}, titles: '{{Grep}}')"
-    # FILTER is a Playwright FILE filter (a regex over spec paths, e.g.
-    # 'skills' or 'smoke|scroll'); GREP, when given, narrows to the
-    # tests whose TITLE matches its regex. Each is quoted whole, so an
-    # alternation such as 'a|b' reaches the runner instead of the shell.
-    grep_args=()
-    if [[ -n '{{Grep}}' ]]; then grep_args=(--grep '{{Grep}}'); fi
-    webui/client/e2e/node_modules/.bin/playwright test '{{FILTER}}' "${grep_args[@]}" \
-        --config webui/client/e2e/playwright.config.mjs --shuffle
-    echo '==> webui-e2e-one green'
-
-# Webui2 (the second web UI, /web2).
+# Webui2 (the web UI, /web2).
 #
 # The /web2 client is build output of webui/client2, and nothing of it is
 # committed: the slice's build.rs runs the client build itself on every cargo
@@ -738,11 +621,10 @@ webui2-e2e-clean:
     echo '==> webui2-e2e-clean green'
 
 # Build the binary and install the webui2 tier's Node dependencies.
-# Same shape as the original tier's prep: the dependency install is
-# skipped when node_modules is present and newer than the lock file, and
-# Playwright is invoked straight from node_modules/.bin — never a
-# package runner, which would fetch a different version when the
-# install were missing.
+# The dependency install is skipped when node_modules is present and newer
+# than the lock file, and Playwright is invoked straight from
+# node_modules/.bin — never a package runner, which would fetch a different
+# version when the install were missing.
 [private]
 webui2-e2e-prep:
     #!/usr/bin/env bash

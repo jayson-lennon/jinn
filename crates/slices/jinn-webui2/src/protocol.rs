@@ -69,6 +69,7 @@ pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
         ClientMsg::PersonaRows { filter } => actions::persona_rows(out, filter),
         ClientMsg::SwitchPersona { persona } => actions::switch_persona(out, &persona).await,
         ClientMsg::TogglePin { entry_id } => actions::toggle_pin(out, entry_id).await,
+        ClientMsg::ToggleContext { entry_id } => actions::toggle_context(out, entry_id).await,
         ClientMsg::Fork { entry_id } => actions::fork(out, entry_id).await,
         ClientMsg::AppletRows { filter } => actions::applet_rows(out, filter).await,
         ClientMsg::RefreshModels => actions::refresh_models(out).await,
@@ -78,6 +79,9 @@ pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
             in_library,
         } => actions::set_library(out, session_id, in_library).await,
         ClientMsg::ArchiveSession { session_id } => actions::archive_session(out, session_id).await,
+        ClientMsg::TeardownSession { session_id } => {
+            actions::teardown_session(out, session_id).await
+        }
         ClientMsg::NewSessionOptions => actions::new_session_options(out),
         ClientMsg::CreateSession {
             project,

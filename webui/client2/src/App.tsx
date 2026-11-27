@@ -20,6 +20,7 @@ import { McpModal, PersonaModal, Runs, ToolsModal } from './pickers';
 import { Composer } from './composer';
 import { SessionRail } from './rail';
 import { SessionStatus } from './status';
+import { StatusBar } from './statusbar';
 import { NewSessionModal } from './new-session';
 import { Toasts } from './toast';
 import { applyTheme, mirrorTheme } from './theme';
@@ -235,6 +236,16 @@ export function App(): JSX.Element {
           openDrawer={openDrawer}
           drawerOpen={drawerOpen}
         />
+        {/* The bar describes a session; with none active there is nothing
+            to show, and the hamburger hides its session items for the same
+            reason. */}
+        <Show when={store.state.sessionId !== null}>
+          <StatusBar
+            persona={store.state.persona}
+            contextLabel={store.state.contextLabel}
+            onOpenPersona={openPersona}
+          />
+        </Show>
         <Transcript store={store} send={send} />
         <SessionStatus store={store} />
         <Composer store={store} send={send} />
@@ -584,8 +595,8 @@ function TitleBar(props: {
   return (
     <header class="title-bar">
       {/* Left of the hamburger, and only at phone widths: there the rail is an
-          off-canvas drawer and this is what opens it. Marked like /web's
-          button: a gold fill and the count of sessions that settled
+          off-canvas drawer and this is what opens it. Marked like an unread
+          row: a gold fill and the count of sessions that settled
           unseen, so a phone user knows the drawer is worth opening. */}
       <button
         type="button"

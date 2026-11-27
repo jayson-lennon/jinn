@@ -55,7 +55,7 @@ pub struct AppStateFile {
     /// `profile.reasoning_effort`. `None` means "let the provider decide".
     #[serde(default)]
     pub reasoning_effort: Option<jinn_core_types::ReasoningEffort>,
-    /// The webui's color mode: `"light"`, `"dark"`, or `"system"`.
+    /// The web UI's (`/web2`) color mode: `"light"`, `"dark"`, or `"system"`.
     /// `None` means system — the page follows the OS
     /// `prefers-color-scheme`. Independent of [`AppStateFile::theme_name`],
     /// which names a TUI theme file the web never reads.

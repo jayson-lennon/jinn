@@ -510,12 +510,11 @@ async fn activate_remote(ctx: &mut Ctx<'_>) -> Result<(), ActivateError> {
     Ok(())
 }
 
-/// Binds the second web UI (`/web2`).
+/// Binds the web UI (`/web2`).
 ///
-/// The same dependencies as the original web UI — the provider cell, the
-/// store, the bus — on its own port and actor, so it activates after the
-/// producers the original waits for. The two web UIs share nothing but the
-/// bus.
+/// It reads the provider cell and the store and publishes on the bus, so
+/// it activates after the producers those depend on. Its bind is
+/// fail-fast: a port it cannot take stops launch where the cause is visible.
 ///
 /// # Errors
 ///
@@ -585,45 +584,6 @@ async fn activate_auxiliary_slices(
     )?;
 
     activate_remote(ctx).await?;
-
-    // The webui slice binds the browser surface at launch, after the
-    // session-store's actors (Block 1 — its handlers await the store
-    // for archived sessions) and beside remote (same dormant-server
-    // block, same fail-fast bind). Consumes nothing: delivery
-    // publishes existing schemas, reads resolve State/cells at request
-    // time, and the fan-out subscribes events the actors above emit —
-    // its spawn is the subscription point, so it must not precede any
-    // event publisher it would miss launches from. Unlike remote: no
-    // registry write (remote owns this pid's row) and no reload
-    // handling (the bind is frozen — a rebind would strand the SSE
-    // pages).
-    {
-        let config_snapshot = ctx.services().config.clone();
-        let bus_snapshot = ctx.services().bus.clone();
-        let state_snapshot = ctx.state().clone();
-        let store_snapshot = ctx.services().session_store.clone();
-        let services_snapshot = ctx.services().clone();
-        // The applets cells, for the webui applets modal (read-only:
-        // the catalog cell's writer is the applets store actor, the
-        // picker cell's the republisher). The catalog registers both
-        // slots in Block 0, so the readers resolve regardless of the
-        // webui slice sitting before the applets slice in this block.
-        let applets_catalog_cell =
-            ctx.cell::<jinn_applets_msg::AppletsCatalog>(&jinn_applets_msg::applets_catalog_slot());
-        let applets_picker_cell = ctx
-            .cell::<jinn_applets_msg::AppletsPickerState>(&jinn_applets_msg::applets_picker_slot());
-        jinn_webui::activate(
-            &mut ctx.host(),
-            &config_snapshot,
-            bus_snapshot,
-            state_snapshot,
-            store_snapshot,
-            &services_snapshot,
-            applets_catalog_cell,
-            applets_picker_cell,
-        )
-        .await?;
-    }
 
     activate_webui2(ctx).await?;
 
@@ -749,17 +709,11 @@ pub enum ActivateError {
     /// discovery model, so launch stops where the cause is visible. The
     /// slice's report rides typed.
     Remote(error_stack::Report<jinn_remote::RemoteActivationError>),
-    /// The `[webui]` section failed to read, its bind did not parse, or
+    /// The `[webui2]` section failed to read, its bind did not parse, or
     /// the port was taken. Fatal with the same severity as remote: an
     /// instance whose browser surface cannot bind defeats the slice's
     /// whole purpose, so launch stops where the cause is visible. The
     /// slice's report rides typed.
-    WebUi(error_stack::Report<jinn_webui::WebUiActivationError>),
-    /// The `[webui2]` section failed to read, its bind did not parse, or
-    /// the port was taken. Fatal with the same severity as the original
-    /// web UI: an instance whose second browser surface cannot bind
-    /// defeats that slice's whole purpose. The slice's report rides
-    /// typed.
     WebUi2(error_stack::Report<jinn_webui2::WebUi2ActivationError>),
     /// The `[applets]` section failed to read or its bind was malformed.
     /// Fatal with the same severity as canvas: every
@@ -814,12 +768,6 @@ impl From<error_stack::Report<jinn_preferences_config::schemas::CanvasBindError>
 impl From<error_stack::Report<jinn_remote::RemoteActivationError>> for ActivateError {
     fn from(report: error_stack::Report<jinn_remote::RemoteActivationError>) -> Self {
         Self::Remote(report)
-    }
-}
-
-impl From<error_stack::Report<jinn_webui::WebUiActivationError>> for ActivateError {
-    fn from(report: error_stack::Report<jinn_webui::WebUiActivationError>) -> Self {
-        Self::WebUi(report)
     }
 }
 

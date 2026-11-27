@@ -71,6 +71,13 @@ pub struct SessionRowBody {
     pub is_active: bool,
     /// Whether a turn is running (any phase other than idle).
     pub is_busy: bool,
+    /// Whether the session's teardown command is running.
+    ///
+    /// Independent of `is_busy`: a teardown does not change the session's
+    /// phase, so a session can be tearing down and not busy. Defaults to
+    /// false, so a frame from a server built before teardown still reads.
+    #[serde(default)]
+    pub is_tearing_down: bool,
     /// Whether the session is a library member. A member is listed under
     /// the Library view and hidden from the Sessions view.
     pub in_library: bool,
@@ -110,6 +117,10 @@ pub struct SnapshotBody {
     pub model_label: String,
     /// The active session's title (empty when no session is active).
     pub title: String,
+    /// The active session's persona name (empty when no session is active).
+    /// The status bar shows it; the context figure beside it is not the
+    /// snapshot's — it arrives as its own frame on the first tick.
+    pub persona: String,
     /// The active session's history revision. The page echoes it back
     /// in `Hello` so the server can tell a safe incremental resume from
     /// one that needs the whole transcript again.
@@ -153,6 +164,18 @@ pub struct EntryEnvelope {
     pub kind: String,
     /// The entry, in its wire projection (see [`wire_entry`]).
     pub entry: WireEntry,
+    /// Whether the entry is in the model's context right now: the core's
+    /// `is_in_context` — pin, override, and the kind's default together.
+    /// The browser reads it to dim an excluded entry and to word the
+    /// context toggle, and never re-derives it. A frame written before
+    /// this field existed deserializes as in context.
+    #[serde(default = "default_true")]
+    pub in_context: bool,
+}
+
+/// The `in_context` default for an envelope that predates the field.
+fn default_true() -> bool {
+    true
 }
 
 impl EntryEnvelope {
@@ -163,6 +186,7 @@ impl EntryEnvelope {
         Self {
             kind: entry.kind_str().to_owned(),
             entry: WireEntry::project(entry),
+            in_context: entry.is_in_context(),
         }
     }
 
@@ -366,6 +390,19 @@ pub struct TitleBody {
     pub session_id: SessionId,
     /// The new title.
     pub title: String,
+}
+
+/// A session's status-bar facts, pushed when either changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextUsageBody {
+    /// The session the facts describe, so a page that has switched
+    /// sessions drops a late frame.
+    pub session_id: SessionId,
+    /// The persona the session is running, as the status bar shows it.
+    pub persona: String,
+    /// The context usage figure, already formatted by the terminal's own
+    /// shared function — the page renders the string and computes nothing.
+    pub label: String,
 }
 
 /// One row of the stored-session picker.
