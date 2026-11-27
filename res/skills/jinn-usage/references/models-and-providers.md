@@ -90,36 +90,34 @@ protocol.
 
 ## The web UI's model picker
 
-The web UI has its own model picker in the
-titlebar — a button naming the session's current model. Clicking it
-opens a modal over the page: type in the filter bar to narrow the list
-(each keystroke queries the server; matches are case-insensitive over
-model id and provider name), click a row to switch. Rows mirror the
-TUI picker: available models first alphabetically with the current
-pick promoted to the top, `✗` marks unavailable providers (missing API
-key — those rows are inert), `→` marks aliases, `*` marks
-remote-discovered models. **Refresh models** re-runs discovery (the
-same `<c-r>` pipeline as the TUI); the list updates in place when it
-lands, without losing the typed filter. Alloys and multi-select are
+The web UI (`/web2`) has its own model picker in the titlebar — the model
+chip naming the session's current model. Clicking it opens a modal over
+the page: type in the filter bar to narrow the list (the picker's own
+fuzzy match, run on the server, matches highlighted as you type), click a
+row to switch. Rows come from the TUI picker's own builder: available
+models first alphabetically with the current pick promoted to the top,
+`✗` marks unavailable providers (missing API key — those rows are inert),
+`→` marks aliases, `*` marks remote-discovered models. **Refresh models**
+re-runs discovery (the same `<c-r>` pipeline as the TUI); the button is
+disabled and busy until the fresh rows land, and the list updates in
+place without losing the typed filter. Alloys and multi-select are
 TUI-only — the web picker switches single models.
 
 ## The web UI's session list
 
-The web UI's left sidebar has a **Sessions | Library** toggle: the
+The web UI's left sidebar has a **Sessions | Library** control: the
 Sessions list holds every session — loaded and archived — except Library
 members, which the Library list shows instead. Either list follows the
-TUI session picker's tree order, and the filter box above it narrows
-the list with the picker's own fuzzy match. Row states are **fills**,
-not borders:
+TUI session picker's tree order. Row states are **fills**, not borders:
 
 - **Blue fill** — the session this page is viewing.
-- **Yellow fill** — a session that settled to idle while it was not the
-  active one (work the user has not viewed: a cancelled or errored
-  settle marks too; subagent sessions never do). Viewing it — clicking
-  the row or opening its page — clears the mark. The mark is
-  process-local: a fresh jinn boot starts with none.
+- **Gold fill** — a session that settled while the page was viewing
+  another one (work the user has not viewed; subagent sessions never
+  do). Viewing it — clicking the row, or the page following a switch
+  made elsewhere — clears the mark. The mark is this browser's own
+  record: it survives a reload, and a jinn restart forgets every mark.
 - `· bot` after the title tags a bot session; a small spinner before
   the title means that session is working right now.
 
-The blue fill follows what the page views, which can differ from the
-instance's active session (another tab, or the TUI, may hold that).
+The page follows the instance's active session, which another `/web2`
+page or the TUI can change at any time.

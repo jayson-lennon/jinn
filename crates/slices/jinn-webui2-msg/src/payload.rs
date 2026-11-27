@@ -90,6 +90,13 @@ pub struct SnapshotBody {
     pub sessions: Vec<SessionRowBody>,
     /// The library members the sidebar's Library view shows.
     pub library: Vec<SessionRowBody>,
+    /// Whether the instance is still loading its saved sessions at startup.
+    ///
+    /// True while startup hydration is running, so the rows above are a
+    /// partial list and more will arrive; false once every saved session
+    /// has landed, none were saved, or the read failed. The page keeps its
+    /// loading indicator up until a frame carries `false`.
+    pub hydrating: bool,
     /// The persisted color mode — `light`, `dark`, or `system` — applied
     /// before the transcript's first paint.
     pub theme: String,
@@ -400,6 +407,10 @@ pub struct SessionsBody {
     pub rows: Vec<SessionRowBody>,
     /// The library members, in the Library view's order.
     pub library: Vec<SessionRowBody>,
+    /// Whether the instance is still loading its saved sessions at startup —
+    /// the same fact the snapshot's `hydrating` carries, so a page that
+    /// connected mid-hydration learns when the list is complete.
+    pub hydrating: bool,
 }
 
 /// A refused request, with the reason the browser shows the user.

@@ -26,7 +26,8 @@ use jinn_session_history_msg::{PinChatEntry, SetEntryContextOverride, UnpinChatE
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
-    ArchiveSession, PersistSession, SessionLoadRequested, SessionTreeEntry, SetSessionLibrary,
+    ArchiveSession, PersistSession, SessionForkRequested, SessionLoadRequested, SessionTreeEntry,
+    SetSessionLibrary,
 };
 use jinn_webui2_msg::{
     AppletRowBody, AppletRowsBody, EntriesPageBody, EntryUpsertBody, ErrorBody, ImageUploadBody,
@@ -500,7 +501,7 @@ pub async fn picker_rows(out: &OutboundHandle, filter: String) -> Reply {
     let rows = match stored_rows(out, &filter).await {
         Ok(rows) => rows,
         Err(report) => {
-            tracing::warn!(error = %report, "second web UI could not read stored sessions");
+            tracing::warn!(error = %report, "web UI could not read stored sessions");
             return refused(&Refusal::StoreUnavailable);
         }
     };
@@ -632,8 +633,8 @@ fn root_starts(rows: &[PickerRowBody]) -> Vec<usize> {
 /// The model picker's rows for a filter, from the shared row builder.
 ///
 /// The same `load_provider_entries` → `sorted_entries` → `filter_entries`
-/// path the original web UI runs, over the same search text the terminal's
-/// picker matches by — so all three surfaces list the same rows, in the
+/// path the terminal's picker runs, over the same search text it matches
+/// by — so both surfaces list the same rows, in the
 /// same score order, for the same filter. An empty filter keeps every row
 /// in the sorted order, the active one promoted to the top.
 pub fn model_rows(out: &OutboundHandle, filter: String) -> Reply {
@@ -1397,8 +1398,8 @@ fn tool_row_bodies(
 
 // ---------------------------------------------------------------------------
 // Applet rows
-// Parity: the original web UI's `regions/applets.rs` pull, and the TUI
-// `<leader>sa` picker's opener, which publishes the same rescan/wake pair
+// Same publish pair as the TUI `<leader>sa` picker's opener: the shared
+// rescan/wake pair, so both surfaces launch an applet the same way.
 // ---------------------------------------------------------------------------
 
 /// The applets modal's rows for a filter, with the applets server's serving
@@ -1469,9 +1470,8 @@ fn applet_row_body(
 ///
 /// An empty filter keeps the catalog's own order — the store actor has
 /// already sorted it newest first. Otherwise the shared fuzzy filter over the
-/// titles orders by score, exactly the original web UI's pull and the TUI
-/// picker's matcher; the matched runs are cut on grapheme boundaries so a
-/// `<mark>` never splits a cluster.
+/// titles orders by score, exactly the TUI picker's matcher; the matched
+/// runs are cut on grapheme boundaries so a `<mark>` never splits a cluster.
 pub(crate) fn applet_rows_body(
     catalog: &jinn_applets_msg::AppletsCatalog,
     serving: bool,
@@ -1620,9 +1620,11 @@ pub async fn refresh_models(out: &OutboundHandle) -> Reply {
 }
 
 // ---------------------------------------------------------------------------
-// Pin
+// Pin / Fork
 // Parity: the terminal's `p` on the selected entry
 // (`jinn_chat_log_view::chat_entry_selection::intent::handle_pin_selected`)
+// and its `f` on the selected entry
+// (`jinn_chat_log_view::chat_entry_selection::intent::handle_fork_from_entry`)
 // ---------------------------------------------------------------------------
 
 /// Toggles the pin on one entry of the active session.
@@ -1670,6 +1672,61 @@ pub async fn toggle_pin(out: &OutboundHandle, entry_id: ChatEntryId) -> Reply {
         .await;
     }
     Reply::none()
+}
+
+/// Forks the active session at one entry — the terminal's `f` on the selected
+/// entry (`jinn_chat_log_view::chat_entry_selection::intent::handle_fork_from_entry`).
+///
+/// The `at_ordinal` is the entry's index among the session's **persisted**
+/// entries — transients excluded — because that is the list the store slices:
+/// a fork is cut from the source's snapshot, which drops transients. Indexing
+/// the live history instead would count a transient (skill discovery's table,
+/// a model refresh's summary) ahead of the entry and copy history the user
+/// forked past. The loading guard is armed for the source exactly as the
+/// terminal arms it: the store actor re-points it at the child. Nothing is
+/// replied; the child reaches every page through the `ActiveSessionChanged`
+/// snapshot its restore publishes.
+pub async fn fork(out: &OutboundHandle, entry_id: ChatEntryId) -> Reply {
+    // Decided under one write guard, which drops before the publish: the
+    // state lock is never held across an await.
+    let decision = {
+        let state = out.state();
+        let mut guard = state.write();
+        let session_id = guard.session.active_session_id().clone();
+        let Some(session) = guard.session.get(&session_id) else {
+            return refused(&Refusal::NoActiveSession);
+        };
+        let Some(at_ordinal) = persisted_ordinal(session, &entry_id) else {
+            return refused(&Refusal::UnknownEntry);
+        };
+        guard.session.begin_load(session_id.clone());
+        (session_id, at_ordinal)
+    };
+    let (source_session_id, at_ordinal) = decision;
+    out.publish(SessionForkRequested {
+        source_session_id,
+        at_ordinal,
+    })
+    .await;
+    Reply::none()
+}
+
+/// The entry's index among the session's non-transient entries, or `None`
+/// when the session holds no entry with that id.
+///
+/// This is the ordinal a fork is cut at: `SessionSnapshot` is built from the
+/// live history with every `Transient` removed, and `forked_from` takes
+/// `entries[..=at_ordinal]` of that list. A transient is never the answer —
+/// the page cannot name one — so a transient id resolves to `None`.
+fn persisted_ordinal(
+    session: &jinn_kernel::ChatSessionState,
+    entry_id: &ChatEntryId,
+) -> Option<usize> {
+    session
+        .history()
+        .iter()
+        .filter(|entry| !matches!(entry.kind, jinn_core_types::ChatEntryKind::Transient(_)))
+        .position(|entry| entry.id == *entry_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -1733,8 +1790,8 @@ pub async fn toggle_context(out: &OutboundHandle, entry_id: ChatEntryId) -> Repl
 
 // ---------------------------------------------------------------------------
 // New session
-// Parity: the original web UI's `delivery::handle_create`, which is the
-// TUI project/lifecycle pickers' confirm and Discord `/new`
+// The same creation path as the TUI project/lifecycle pickers' confirm
+// and Discord `/new`
 // ---------------------------------------------------------------------------
 
 /// The new-session form's choices, read from the live configuration.
@@ -1788,8 +1845,7 @@ pub fn new_session_options(out: &OutboundHandle) -> Reply {
 
 /// Creates a session through the shared creation path.
 ///
-/// The original web UI's `handle_create`, message for message. Validates
-/// against the config layer (the project must name a configured
+/// Validates against the config layer (the project must name a configured
 /// `[[project.entry]]`; the lifecycle must be blank or a configured
 /// `[[session_lifecycle.script]]`; the args must meet the lifecycle's
 /// parameter minimum), then — under one state write guard — stashes the

@@ -200,6 +200,7 @@ export type ClientMsg =
   | { type: 'switch_persona'; persona: string }
   | { type: 'toggle_pin'; entry_id: string }
   | { type: 'toggle_context'; entry_id: string }
+  | { type: 'fork'; entry_id: string }
   | { type: 'more_entries'; before: string }
   | { type: 'applet_rows'; filter: string }
   | { type: 'refresh_models' }
@@ -229,6 +230,9 @@ export type ServerMsg =
       entries_before: number;
       sessions: SessionRow[];
       library: SessionRow[];
+      /** True while the instance is still loading its saved sessions at
+       *  startup, so the rows above are a partial list. */
+      hydrating: boolean;
       theme: Theme;
     }
   | { type: 'entry_upsert'; session_id: string; index: number; entry: EntryEnvelope }
@@ -241,7 +245,7 @@ export type ServerMsg =
     }
   | { type: 'entry_delta'; session_id: string; entry_id: string; field: DeltaField; chunk: string }
   | { type: 'phase'; session_id: string; phase: Phase; queue_len: number }
-  | { type: 'sessions'; rows: SessionRow[]; library: SessionRow[] }
+  | { type: 'sessions'; rows: SessionRow[]; library: SessionRow[]; hydrating: boolean }
   | { type: 'model'; session_id: string; label: string }
   | { type: 'title'; session_id: string; title: string }
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }

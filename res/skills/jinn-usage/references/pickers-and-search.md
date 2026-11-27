@@ -55,46 +55,10 @@ highlights:
 - **Tool / Skill**: `<Tab>` toggles the highlighted entry on/off for this
   session. Toggles are per-session and persist for the session; the
   `tool_filter` / `skill_filter` defaults in `jinn.toml` stay as written.
-- **Tool, in the web UI**: the web mirrors the tool picker's
-  seed and commit. Open the menu button (top-left `☰`) on a session
-  page and pick **Tools**. The modal lists the registry's tools for the
-  viewed session — provider-gated (tools the current provider cannot run
-  are absent), bot-gated (`conclude` always for a bot, `notify_parent`
-  only with a parent), sorted by name — each row showing its name, the
-  description's first sentence, and an on/off mark read from the
-  session's live `tool_filter`. Clicking a row commits immediately for
-  the viewed session: the filter becomes a deny filter over the off-rows with the
-  clicked tool flipped (the TUI `<enter>` confirm's semantic, applied per
-  click — no staging, no confirm). Dismissing with `Esc` or an overlay
-  click **reverts** to the filter the session held when the modal
-  opened, absence included. The item does not render on the landing
-  page (nothing is viewed there), and there is no context-cost figure
-  on the web — that stays TUI-only. A text filter bar (styled
-  like the persona and model filters') narrows the rows server-side on
-  every keystroke with the matches highlighted; toggling under a
-  filter keeps the filtered view, and the revert still restores the
-  filter held at open. The tools, skills, MCP-server, persona, and
-  model modals all carry this filter bar.
-  Rows update live while the modal is open: when an MCP server
-  connects or disconnects for the session, the server pushes a signal
-  and the open modal re-fetches its rows in place (the same
-  signal-and-repull pattern the MCP and skills modals use). Only the
-  rows are replaced — the revert snapshot survives, so dismissing
-  after a live update still restores the filter held at open.
 - **Skill**: `<c-l>` loads the highlighted skill's body into context as a
   pinned tool-result pair. The picker stays open so you can load several, and
   loading auto-enables a disabled skill. `<c-u>`/`<c-d>` scroll the markdown
   preview; `<c-r>` re-scans skill directories.
-- **Skill, in the web UI**: the menu button's **Skills** item (session
-  pages only) opens the same list for the viewed session — name,
-  description, and a `●` / `○` enabled mark, with the filter bar narrowing
-  it server-side. Clicking a row toggles the skill at once, the TUI
-  `<Tab>` + `<enter>` result with no staging. Each row's `+` is the web's
-  `<c-l>`: it loads the skill's body into context, auto-enabling a disabled
-  skill; loading one that is already loaded appends an "already loaded"
-  notice instead of a second copy. The modal refreshes itself when a
-  skill scan lands. The markdown preview and the context-cost footer are
-  TUI-only.
 - **Skill, in `/web2`**: the menu button's **Skills** item (while a
   session is active) opens the same list for the active session —
   the `●` / `○` mark, name, description, a `project` badge on a
@@ -111,7 +75,7 @@ highlights:
   filter bar narrowing it and highlighting the matches. Clicking a row
   commits at once, the TUI `<Tab>` + `<enter>` result with no staging,
   and the modal stays open. Dismissing with `Esc` or a backdrop click
-  only closes it — unlike `/web`, there is **no revert**; undo a
+  only closes it — there is **no revert**; undo a
   mis-click by clicking the row again.
 - **MCP servers, in `/web2`**: the menu button's **MCP servers** item
   (while a session is active) opens one row per `[mcp.<name>]` in

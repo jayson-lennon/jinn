@@ -1,7 +1,0 @@
-<div id="{{ modal_id }}" class="archive-modal"
-     data-attr:hidden="${{ open_signal }} ? null : true" hidden
-     data-effect__debounce.150ms="${{ open_signal }} && (${{ filter_signal }} + ' ' + ${{ open_signal }}).trim() && @get('{{ rows_url }}', {selector: '{{ rows_selector }}', openWhenHidden: true})"
-     data-on:click="evt.target === evt.currentTarget && (${{ open_signal }} = false)"><div class="archive-modal-inner"
-     data-on:keydown__document="evt.key === 'Escape' && (${{ open_signal }} = false)"><div class="archive-modal-head"><input id="{{ filter_id }}" type="text" value="{{ filter }}" autocomplete="off" placeholder="filter sessions…"
-           data-bind:{{ filter_signal }}></div><div id="{{ rows_id }}"
-    >{% for row in rows %}{{ row|safe }}{% endfor %}</div></div></div>

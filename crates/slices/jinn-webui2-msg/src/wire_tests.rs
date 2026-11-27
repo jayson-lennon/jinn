@@ -402,6 +402,7 @@ fn server_snapshot_round_trips() {
             .collect(),
         sessions: vec![row("a"), row("b")],
         library: Vec::new(),
+        hydrating: false,
         theme: String::new(),
     }));
 
@@ -432,6 +433,7 @@ fn server_snapshot_without_active_session_round_trips() {
         entries: Vec::new(),
         sessions: Vec::new(),
         library: Vec::new(),
+        hydrating: false,
         theme: String::new(),
     }));
 
@@ -506,6 +508,7 @@ fn server_sessions_round_trips() {
     // Given a session list.
     let msg = ServerMsg::Sessions(SessionsBody {
         rows: vec![row("one"), row("two")],
+        hydrating: false,
         library: vec![row("kept")],
     });
 
@@ -526,6 +529,7 @@ fn server_sessions_carries_a_rows_settle_time() {
             last_settled_at: Some(settled),
             ..row("one")
         }],
+        hydrating: false,
         library: vec![],
     });
 
@@ -542,6 +546,7 @@ fn server_sessions_carries_an_unsettle_rows_time_as_null() {
     // Given a session list whose row never settled.
     let msg = ServerMsg::Sessions(SessionsBody {
         rows: vec![row("one")],
+        hydrating: false,
         library: vec![],
     });
 
@@ -961,6 +966,7 @@ fn server_variant_carries_its_snake_case_tag() {
                 entries: Vec::new(),
                 sessions: Vec::new(),
                 library: Vec::new(),
+                hydrating: false,
                 theme: String::new(),
             })),
             "snapshot",
@@ -986,6 +992,7 @@ fn server_variant_carries_its_snake_case_tag() {
         (
             ServerMsg::Sessions(SessionsBody {
                 rows: Vec::new(),
+                hydrating: false,
                 library: Vec::new(),
             }),
             "sessions",
@@ -1267,6 +1274,7 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
         entries: sent.clone(),
         sessions: Vec::new(),
         library: Vec::new(),
+        hydrating: false,
         theme: String::new(),
     }));
 
@@ -1688,6 +1696,23 @@ fn client_toggle_context_round_trips() {
 
 #[rstest]
 #[test]
+fn client_fork_round_trips() {
+    // Given a fork naming one entry.
+    let entry_id = ChatEntryId::new();
+    let msg = ClientMsg::Fork {
+        entry_id: entry_id.clone(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the entry id survives and the wire tag is `fork`.
+    assert_eq!(back, msg);
+    assert_eq!(json_of_client(&back)["type"], "fork");
+}
+
+#[rstest]
+#[test]
 fn server_new_session_options_round_trips() {
     // Given the form's choices: two projects and a lifecycle taking one named arg.
     let msg = ServerMsg::NewSessionOptions(NewSessionOptionsBody {
@@ -1741,6 +1766,7 @@ fn snapshot_carries_its_library_rows_and_theme() {
         entries: Vec::new(),
         sessions: Vec::new(),
         library: vec![row("kept")],
+        hydrating: false,
         theme: "dark".to_owned(),
     }));
 
@@ -1760,6 +1786,7 @@ fn sessions_frame_carries_its_library_rows() {
     member.in_library = true;
     let msg = ServerMsg::Sessions(SessionsBody {
         rows: Vec::new(),
+        hydrating: false,
         library: vec![member],
     });
 
@@ -1768,6 +1795,54 @@ fn sessions_frame_carries_its_library_rows() {
 
     // Then the member row carries its flag.
     assert_eq!(json["library"][0]["in_library"], true);
+}
+
+#[rstest]
+#[test]
+fn snapshot_carries_its_hydrating_flag() {
+    // Given a snapshot taken while startup hydration is still running.
+    let session = SessionId::new();
+    let msg = ServerMsg::Snapshot(Box::new(SnapshotBody {
+        protocol: WEBUI2_PROTOCOL_VERSION,
+        session_id: Some(session.clone()),
+        phase: PhaseBody {
+            session_id: session,
+            phase: PhaseView::Idle,
+            queue_len: 0,
+        },
+        model_label: String::new(),
+        title: String::new(),
+        revision: 0,
+        entries_before: 0,
+        entries: Vec::new(),
+        sessions: Vec::new(),
+        library: Vec::new(),
+        hydrating: true,
+        theme: String::new(),
+    }));
+
+    // When it is serialized.
+    let json = json_of(&msg);
+
+    // Then the flag rides the wire as true.
+    assert_eq!(json["hydrating"], true);
+}
+
+#[rstest]
+#[test]
+fn sessions_frame_carries_its_hydrating_flag() {
+    // Given a session-list frame sent while startup hydration is still running.
+    let msg = ServerMsg::Sessions(SessionsBody {
+        rows: vec![row("one")],
+        library: Vec::new(),
+        hydrating: true,
+    });
+
+    // When it is serialized.
+    let json = json_of(&msg);
+
+    // Then the flag rides the wire as true, beside the rows it describes.
+    assert_eq!(json["hydrating"], true);
 }
 
 // ---------------------------------------------------------------------------

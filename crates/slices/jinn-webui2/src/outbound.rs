@@ -185,6 +185,7 @@ pub(crate) use handlers::{
     applets_rescanned, applets_serving_changed, archive_failed, context_override_changed, flush,
     follow_active_session, library_membership_changed, mcp_runtime_stored, model_cache_stored,
     phase_changed, pin_changed, reconcile, sessions_changed, skills_loaded,
+    startup_hydration_finished,
 };
 
 /// The outbound actor.
@@ -400,6 +401,11 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         .handles::<jinn_chat_input_msg::ChatEntrySubmitted>()
         .handles::<jinn_provider_selection_msg::ProviderSwitched>()
         .handles::<jinn_session_store_msg::SessionLoadCompleted>()
+        // Startup hydration ended: the event lands strictly after the
+        // session map's hydration flag is cleared, so a page re-reading the
+        // lists now sees the final set and the flag down — which is how the
+        // rail's loading row comes down. Read the state, never the event.
+        .handles::<jinn_session_store_msg::StartupHydrationFinished>()
         .handles::<jinn_skills_msg::SkillsLoaded>()
         // The coordinator emits this strictly after every runtime-cell
         // status write, so a handler reading the cell now sees the

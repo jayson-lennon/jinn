@@ -140,6 +140,14 @@ pub enum ClientMsg {
         /// The entry to toggle.
         entry_id: ChatEntryId,
     },
+    /// Fork the active session at one entry: a new session holding the
+    /// history up to and including it, which becomes the active session.
+    /// The entry is in the active session — the same command the
+    /// terminal's `f` publishes.
+    Fork {
+        /// The entry to fork at.
+        entry_id: ChatEntryId,
+    },
     /// Ask for the applets modal's rows: rescan the saved-app catalog and
     /// wake the applets server, then answer with the rows as they stand.
     /// An open modal receives fresh rows when either lands.
@@ -205,6 +213,7 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::SwitchPersona { .. } => "switch_persona",
         ClientMsg::TogglePin { .. } => "toggle_pin",
         ClientMsg::ToggleContext { .. } => "toggle_context",
+        ClientMsg::Fork { .. } => "fork",
         ClientMsg::AppletRows { .. } => "applet_rows",
         ClientMsg::RefreshModels => "refresh_models",
         ClientMsg::SetTheme { .. } => "set_theme",

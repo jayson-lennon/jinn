@@ -539,6 +539,34 @@ pub(crate) fn sessions_changed(handle: &super::OutboundHandle) {
     ));
 }
 
+impl MsgHandler<jinn_session_store_msg::StartupHydrationFinished> for OutboundActor {
+    async fn handle(
+        &mut self,
+        _msg: &jinn_session_store_msg::StartupHydrationFinished,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        startup_hydration_finished(&self.handle);
+    }
+}
+
+/// Turns the end of startup hydration into the frame the rail needs: both
+/// sidebar lists re-read from live state, which now carries every landed
+/// session and the hydration flag down.
+///
+/// The store publishes the event strictly after clearing that flag, so the
+/// state read here is the final one. The event itself carries nothing — it
+/// is the signal, and the lists are the fact. No revision is bumped: no
+/// history changed. No snapshot is sent: the viewed session did not move.
+///
+/// A free function over the handle so a test drives the real push, with
+/// nothing spawned.
+pub(crate) fn startup_hydration_finished(handle: &super::OutboundHandle) {
+    handle.broadcast(&crate::frames::sessions(
+        &handle.deps.state,
+        handle.settles(),
+    ));
+}
+
 impl MsgHandler<jinn_session_msg::SessionArchiveFailed> for OutboundActor {
     async fn handle(
         &mut self,

@@ -1,5 +1,5 @@
 /* The /web2 page. Every colour is a token, so a theme is one place.
-   The values are the original web UI's: dark lifted from the sonokai
+   The values: dark lifted from the sonokai
    terminal theme, light from nord-light, and a system mode that follows
    the browser. The names are this page's own; the values are not. */
 :root {
@@ -38,7 +38,7 @@
   --scrim: rgba(0, 0, 0, .55);
   /* text on an accent or error fill: near-black */
   --on-fill: #2c2e34;
-  /* the unread fill: the warm gold /web's unread rows carry */
+  /* the unread fill: the warm gold an unread session row carries */
   --mark: #ebdca0;
   /* the shadow a raised card casts */
   --shadow: rgba(0, 0, 0, .5);
@@ -82,7 +82,7 @@
   --scrim: rgba(0, 0, 0, .55);
   /* on fills: the dark ink */
   --on-fill: #2e3440;
-  /* the unread fill: /web's light-mode unread gold */
+  /* the unread fill: the light-mode unread gold */
   --mark: #ebcb8b;
   /* the shadow a raised card casts, lighter over a pale page */
   --shadow: rgba(46, 52, 64, .18);
@@ -255,6 +255,17 @@ body { background: var(--bg); color: var(--fg); }
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
+}
+/* The rail's loading row: the last child of the list above, so it sits
+   under the rows a mid-hydration instance has already pushed. Muted, like
+   the transcript's "loading older entries" row. */
+.rail-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  color: var(--fg-dim);
+  font-size: 12px;
 }
 .session {
   width: 100%;
@@ -759,7 +770,7 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
 .modal-list button:disabled { color: var(--fg-faint); cursor: not-allowed; }
 
 /* ---- skills modal ---- */
-/* The row is the original web UI's skills row: one line, baseline-aligned,
+/* The skills row: one line, baseline-aligned,
    marker · name · description · badge, with the load button pinned to the
    end. Scoped under .skills-rows so each rule outranks .modal-list button. */
 .skills-modal { width: min(560px, 92vw); max-height: 70vh; display: flex; flex-direction: column; }
@@ -842,8 +853,8 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
 }
 
 /* ---- tools, MCP servers, and persona modals ---- */
-/* Ported from the first web UI's tools, mcp, and persona styles, onto
-   this page's tokens, and shaped like this page's skills row. The
+/* The tools, MCP, and persona modal rows, on
+   this page's tokens, shaped like this page's skills row. The
    generic `.modal-list button` is a vertical stack, so the row must set
    `flex-direction: row` back, and the description needs `min-width: 0`
    or the ellipsis cannot engage inside the flex line. The tools rows

@@ -20,6 +20,19 @@ impl SessionLoadCompleted {
 
 impl jinn_slices::BusMessage for SessionLoadCompleted {}
 
+/// Emitted once when startup hydration of the unarchived sessions ends.
+///
+/// Published strictly after the session map's hydration flag is cleared, on
+/// every path that clears it: every saved session landed, there were none to
+/// load, or the summary read failed. A push-only surface (the `/web2` rail)
+/// cannot read that flag the way the terminal's every-tick render does, so
+/// this event is how it learns the loading indicator must come down.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
+#[schema(description = "Startup hydration of the unarchived sessions ended.")]
+pub struct StartupHydrationFinished;
+
+impl jinn_slices::BusMessage for StartupHydrationFinished {}
+
 /// Emitted after a session's library membership changes.
 ///
 /// Library membership is a durable flag on the session, so this event tells
@@ -41,8 +54,23 @@ impl jinn_slices::BusMessage for SessionLibraryMembershipChanged {}
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code")]
 
-    use super::{SessionLibraryMembershipChanged, SessionLoadCompleted};
+    use super::{SessionLibraryMembershipChanged, SessionLoadCompleted, StartupHydrationFinished};
     use jinn_core_types::SessionId;
+
+    #[rstest::rstest]
+    #[test]
+    fn startup_hydration_finished_round_trips() {
+        // Given the field-less event.
+        let event = StartupHydrationFinished;
+
+        // When it is serialized and deserialized.
+        let json = serde_json::to_string(&event).unwrap();
+        let restored: StartupHydrationFinished = serde_json::from_str(&json).unwrap();
+
+        // Then the wire form is the bare unit, and it reads back as the event.
+        assert_eq!(json, "null");
+        let _: StartupHydrationFinished = restored;
+    }
 
     #[rstest::rstest]
     #[test]

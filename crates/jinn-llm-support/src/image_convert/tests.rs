@@ -320,7 +320,7 @@ fn fallback_converter_errors_when_both_stages_fail() {
 }
 
 // ---------------------------------------------------------------------------
-// Bytes-based conversion (webui ingestion)
+// Bytes-based conversion (composer image ingestion)
 // ---------------------------------------------------------------------------
 
 #[rstest]
