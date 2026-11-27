@@ -1,5 +1,5 @@
 // The page entry: mount the app into the shell jinn serves.
-import { mount } from './App';
+import { mount } from './app/App';
 import './styles/style.css';
 
 const parent = document.getElementById('app');
