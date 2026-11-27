@@ -16,7 +16,7 @@ import { indexSnapshot } from '../transcript/transcript_entries';
 import { markSeenOnSnapshot, saveLastSeen } from '../rail/last_seen';
 import { resolveLoadingAfterSnapshot } from '../session_load';
 import { resetSessionPickerRows } from '../pickers/picker_rows';
-import { resetDash } from '../dash';
+import { resetDash } from '../dash/dash';
 import type { ServerMsg } from '../protocol/protocol';
 import { reloadIfStale } from '../protocol/protocol_version';
 

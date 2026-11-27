@@ -13,7 +13,7 @@ import type { JSX } from '@solidjs/web';
 import type { ClientMsg, EntryEnvelope } from '../protocol/protocol';
 import type { ClientStore } from '../store/store';
 import { beginFork } from '../session_load';
-import { clearJump } from '../dash';
+import { clearJump } from '../dash/dash';
 import { TranscriptEntry, useEntryMenuDismiss } from './transcript';
 
 // ---------------------------------------------------------------------------

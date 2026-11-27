@@ -20,7 +20,7 @@ import type { PromptCompletion } from '../composer/prompts';
 import { applySnapshot } from './snapshot';
 import { applyEntriesPage, applyEntryDelta, applyEntryUpsert } from '../transcript/transcript_entries';
 import { applySessions, applyTitle } from '../rail/session_rows';
-import { applyDashMcpRows, applyDashPinRows, applyDashTasks, applySessionStats, clearJumpTarget } from '../dash';
+import { applyDashMcpRows, applyDashPinRows, applyDashTasks, applySessionStats, clearJumpTarget } from '../dash/dash';
 import {
   applyAppletRows,
   applyMcpRows,
