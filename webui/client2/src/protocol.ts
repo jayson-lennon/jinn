@@ -62,7 +62,20 @@ export interface SessionRow {
   /** When the session last landed on Idle, as RFC 3339 — or null when it
    *  has not settled since the server started, or is a subagent's. */
   last_settled_at: string | null;
+  /** The session's persisted direct parent, when it was forked or spawned
+   *  under one. */
+  parent_session: string | null;
+  /** What kind of session this is. A subagent or a bot is a conversation
+   *  the user did not type into, and the page names it in two places. */
+  origin: SessionOrigin;
+  /** The row's depth in the Sessions list's tree: 0 for a root, one more
+   *  per level under a listed parent. Always 0 for a library row — that
+   *  list is flat. An older server omits it, so read it as `?? 0`. */
+  depth: number;
 }
+
+/** The kind of session a row is, as the core's origin spells it. */
+export type SessionOrigin = 'user' | 'fork' | 'subagent' | 'bot';
 
 /** The page's color mode. */
 export type Theme = 'light' | 'dark' | 'system';
@@ -236,6 +249,10 @@ export type ServerMsg =
       phase: { session_id: string; phase: Phase; queue_len: number };
       model_label: string;
       title: string;
+      /** The session's persona, as the status bar shows it. Empty when no
+       *  session is active. The context figure beside it is not the
+       *  snapshot's: it arrives as its own frame on the first tick. */
+      persona: string;
       revision: number;
       entries: EntryEnvelope[];
       /** How many entries of the session precede the oldest one carried. */
@@ -263,6 +280,10 @@ export type ServerMsg =
   | { type: 'sessions'; rows: SessionRow[]; library: SessionRow[]; hydrating: boolean }
   | { type: 'model'; session_id: string; label: string }
   | { type: 'title'; session_id: string; title: string }
+  /** The status bar's two facts, pushed when either changed. The figure is
+   *  the server's own formatted string — the terminal's — so the page
+   *  renders it and computes nothing. */
+  | { type: 'context_usage'; session_id: string; persona: string; label: string }
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }
   | { type: 'model_rows'; session_id: string; filter: string; rows: ModelRow[] }
   | { type: 'skill_rows'; session_id: string; filter: string; rows: SkillRow[] }

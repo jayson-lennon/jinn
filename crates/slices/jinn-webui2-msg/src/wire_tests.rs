@@ -17,12 +17,12 @@ use jinn_slices::PhaseView;
 use rstest::rstest;
 
 use crate::payload::{
-    AppletRowBody, AppletRowsBody, DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody,
-    ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody,
-    ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody,
-    PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody, PromptTemplatesBody,
-    SessionRowBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody,
-    ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
+    AppletRowBody, AppletRowsBody, ContextUsageBody, DeltaField, EntryDeltaBody, EntryEnvelope,
+    EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody,
+    McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody,
+    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody,
+    PromptTemplatesBody, SessionRowBody, SessionRowOrigin, SessionsBody, SkillRowBody,
+    SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 
@@ -56,6 +56,9 @@ fn row(title: &str) -> SessionRowBody {
         is_tearing_down: false,
         in_library: false,
         last_settled_at: None,
+        parent_session: None,
+        origin: SessionRowOrigin::User,
+        depth: 0,
     }
 }
 
@@ -396,6 +399,7 @@ fn server_snapshot_round_trips() {
         },
         model_label: "ollama/llama3".to_owned(),
         title: "title".to_owned(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: [ChatEntry::user("hi"), ChatEntry::assistant("yo")]
@@ -431,6 +435,7 @@ fn server_snapshot_without_active_session_round_trips() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: Vec::new(),
@@ -563,6 +568,95 @@ fn server_sessions_carries_an_unsettle_rows_time_as_null() {
 
 #[rstest]
 #[test]
+fn server_sessions_carries_a_rows_parent_origin_and_depth() {
+    // Given a subagent row one level under its parent.
+    let parent = SessionId::new();
+    let msg = ServerMsg::Sessions(SessionsBody {
+        rows: vec![SessionRowBody {
+            parent_session: Some(parent.clone()),
+            origin: SessionRowOrigin::Subagent,
+            depth: 1,
+            ..row("child")
+        }],
+        hydrating: false,
+        library: vec![],
+    });
+
+    // When it is serialized.
+    let json = json_of(&msg);
+
+    // Then the row names its parent, its kind, and its depth.
+    assert_eq!(json["rows"][0]["parent_session"], parent.to_string());
+    // And the kind is the core origin's own snake_case spelling.
+    assert_eq!(json["rows"][0]["origin"], "subagent");
+    // And the depth is the tree's.
+    assert_eq!(json["rows"][0]["depth"], 1);
+}
+
+#[rstest]
+#[test]
+fn server_sessions_without_the_tree_fields_still_reads() {
+    // Given a session list frame from before the row carried a parent, a
+    // kind, or a depth — exactly the fields it used to have, and no more.
+    let frame = format!(
+        r#"{{"type":"sessions","hydrating":false,"library":[],"rows":[{{"session_id":"{}","title":"one","is_active":false,"is_busy":false,"in_library":false,"last_settled_at":null}}]}}"#,
+        SessionId::new()
+    );
+
+    // When it is read.
+    let back: ServerMsg = serde_json::from_str(&frame).expect("an old frame still reads");
+
+    // Then the row lands with every tree field at its default.
+    let ServerMsg::Sessions(body) = &back else {
+        unreachable!("the frame's own tag names a sessions message");
+    };
+    assert_eq!(
+        (
+            body.rows[0].parent_session.clone(),
+            body.rows[0].origin,
+            body.rows[0].depth
+        ),
+        (None, SessionRowOrigin::User, 0)
+    );
+}
+
+#[rstest]
+#[case(SessionRowOrigin::User, "user")]
+#[case(SessionRowOrigin::Fork, "fork")]
+#[case(SessionRowOrigin::Subagent, "subagent")]
+#[case(SessionRowOrigin::Bot, "bot")]
+fn row_origin_reads_and_writes_the_core_origins_spelling(
+    #[case] origin: SessionRowOrigin,
+    #[case] wire: &str,
+) {
+    // Given a row of one kind, and the core origin's own spelling of it.
+    let msg = ServerMsg::Sessions(SessionsBody {
+        rows: vec![SessionRowBody {
+            origin,
+            ..row("one")
+        }],
+        hydrating: false,
+        library: vec![],
+    });
+    let same_spelling = format!(
+        r#"{{"type":"sessions","hydrating":false,"library":[],"rows":[{{"session_id":"{}","title":"one","is_active":false,"is_busy":false,"in_library":false,"last_settled_at":null,"origin":"{wire}"}}]}}"#,
+        SessionId::new()
+    );
+
+    // When it is written, and the spelling is read back.
+    let written = json_of(&msg)["rows"][0]["origin"].clone();
+    let read: ServerMsg = serde_json::from_str(&same_spelling).expect("the spelling reads");
+
+    // Then the twin writes that spelling and reads it, so the two cannot disagree.
+    assert_eq!(written, wire);
+    assert!(matches!(
+        read,
+        ServerMsg::Sessions(body) if body.rows[0].origin == origin
+    ));
+}
+
+#[rstest]
+#[test]
 fn server_model_round_trips() {
     // Given a model change.
     let msg = ServerMsg::Model(ModelBody {
@@ -590,6 +684,34 @@ fn server_title_round_trips() {
     let back = roundtrip_server(&msg);
 
     // Then the title is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_context_usage_round_trips_with_its_fields_flattened() {
+    // Given a status-bar push carrying a persona and a formatted figure.
+    let msg = ServerMsg::ContextUsage(ContextUsageBody {
+        session_id: SessionId::new(),
+        persona: "reviewer".to_owned(),
+        label: "50.0%/200k".to_owned(),
+    });
+
+    // When it is serialized and read back.
+    let json = serde_json::to_value(&msg).expect("context usage serializes");
+    let back = roundtrip_server(&msg);
+
+    // Then the frame is the tag with its three fields beside it, and the
+    // figure is the server's own string — nothing for the page to derive.
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "type": "context_usage",
+            "session_id": json_of(&back)["session_id"],
+            "persona": "reviewer",
+            "label": "50.0%/200k",
+        })
+    );
     assert_eq!(json_of(&back), json_of(&msg));
 }
 
@@ -761,6 +883,7 @@ fn snapshot_carries_prompt_templates() {
         library: Vec::new(),
         hydrating: false,
         theme: String::new(),
+        persona: String::new(),
         prompt_templates: vec![PromptTemplateBody {
             name: "plan".to_owned(),
             description: "Discuss and plan software implementation.".to_owned(),
@@ -1052,6 +1175,7 @@ fn server_variant_carries_its_snake_case_tag() {
                 phase: phase.clone(),
                 model_label: String::new(),
                 title: String::new(),
+                persona: String::new(),
                 revision: 0,
                 entries_before: 0,
                 entries: Vec::new(),
@@ -1178,6 +1302,14 @@ fn server_variant_carries_its_snake_case_tag() {
                 theme: String::new(),
             }),
             "theme",
+        ),
+        (
+            ServerMsg::ContextUsage(ContextUsageBody {
+                session_id: session.clone(),
+                persona: String::new(),
+                label: String::new(),
+            }),
+            "context_usage",
         ),
         (
             ServerMsg::Error(ErrorBody {
@@ -1375,6 +1507,7 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: sent.clone(),
@@ -1883,6 +2016,7 @@ fn snapshot_carries_its_library_rows_and_theme() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: Vec::new(),
@@ -1935,6 +2069,7 @@ fn snapshot_carries_its_hydrating_flag() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: Vec::new(),

@@ -6377,6 +6377,330 @@ fn flush_frames_h(
     frames
 }
 
+// ---------------------------------------------------------------------------
+// The Sessions list as a tree
+// ---------------------------------------------------------------------------
+
+/// A fixed creation time, so a test's sessions never tie on the instant
+/// they were built — the tree orders siblings by creation, and two builds
+/// in one tick would otherwise land in hash order.
+fn created(minutes_ago: i64) -> jiff::Timestamp {
+    moment("2026-11-26T12:00:00Z") - jiff::Span::new().minutes(minutes_ago)
+}
+
+/// A harness whose active session is one named "parent", created at a
+/// known time, and is ready for children to be linked under it.
+fn harness_with_parent() -> Harness {
+    let h = harness();
+    {
+        let mut guard = h.state.write();
+        let parent = guard.session.active_session_mut();
+        parent.set_title("parent".to_owned());
+        parent.restore_created_at(created(10));
+    }
+    h
+}
+
+/// Links one more live session into the harness under `parent`, of `kind`,
+/// created `minutes_ago` — later than the parent's own creation, so a child
+/// is never mistaken for a newer root.
+fn link_session(
+    h: &Harness,
+    parent: &jinn_core_types::SessionId,
+    title: &str,
+    kind: jinn_session_msg::SessionOrigin,
+    minutes_ago: i64,
+) -> jinn_core_types::SessionId {
+    let mut session = match kind {
+        jinn_session_msg::SessionOrigin::Subagent => {
+            jinn_session_state::ChatSessionState::new_child(parent, false)
+        }
+        jinn_session_msg::SessionOrigin::Bot => {
+            let parent_session = h
+                .state
+                .read()
+                .session
+                .get(parent)
+                .expect("the parent is in the map")
+                .clone();
+            jinn_session_state::ChatSessionState::new_bot(&parent_session, false)
+        }
+        kind => {
+            let mut fork = jinn_session_state::ChatSessionState::new();
+            fork.set_parent_session(parent.clone());
+            fork.set_origin(kind);
+            fork
+        }
+    };
+    let id = jinn_core_types::SessionId::new();
+    session.set_session_id(id.clone());
+    session.set_title(title.to_owned());
+    session.restore_created_at(created(minutes_ago));
+    h.state.write().session.insert(session);
+    id
+}
+
+/// The `(id, depth)` of every Sessions row, in the order the page receives
+/// them — the tree, as a list of positions.
+fn session_tree(h: &Harness) -> Vec<(jinn_core_types::SessionId, u32)> {
+    let (sessions, _library, _hydrating) = crate::snapshot::session_rows(
+        &h.state,
+        &crate::settle::SettleTracker::default(),
+        &std::collections::HashSet::new(),
+    );
+    sessions
+        .into_iter()
+        .map(|row| (row.session_id, row.depth))
+        .collect()
+}
+
+#[rstest::rstest]
+#[test]
+fn a_child_is_listed_right_after_its_parent() {
+    // Given a parent, and a fork created after it.
+    let h = harness_with_parent();
+    let parent = active_id(&h.state);
+    let child = link_session(
+        &h,
+        &parent,
+        "child",
+        jinn_session_msg::SessionOrigin::Fork,
+        5,
+    );
+
+    // When the sidebar's rows are built.
+    let tree = session_tree(&h);
+
+    // Then the child is one level deeper, directly under its parent.
+    assert_eq!(tree, vec![(parent, 0), (child, 1)]);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_grandchild_is_nested_two_levels_deep() {
+    // Given a parent, a child of it, and a child of the child.
+    let h = harness_with_parent();
+    let parent = active_id(&h.state);
+    let child = link_session(
+        &h,
+        &parent,
+        "child",
+        jinn_session_msg::SessionOrigin::Fork,
+        7,
+    );
+    let grandchild = link_session(
+        &h,
+        &child,
+        "grandchild",
+        jinn_session_msg::SessionOrigin::Fork,
+        3,
+    );
+
+    // When the sidebar's rows are built.
+    let tree = session_tree(&h);
+
+    // Then each generation is one level deeper than the one before it.
+    assert_eq!(tree, vec![(parent, 0), (child, 1), (grandchild, 2)]);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_bot_is_nested_under_its_parent() {
+    // Given a parent, and a bot attached to it.
+    let h = harness_with_parent();
+    let parent = active_id(&h.state);
+    let bot = link_session(&h, &parent, "bot", jinn_session_msg::SessionOrigin::Bot, 5);
+
+    // When the sidebar's rows are built.
+    let tree = session_tree(&h);
+
+    // Then the bot nests like any other child: what nests a row is its
+    // parent link, not how it was made.
+    assert_eq!(tree, vec![(parent, 0), (bot, 1)]);
+}
+
+#[rstest::rstest]
+#[test]
+fn an_orphan_whose_parent_is_not_listed_becomes_a_root() {
+    // Given a grandparent, a child of it, and a grandchild of the child —
+    // and then the child archived away, so the grandchild's parent is gone
+    // while its grandparent is still listed.
+    //
+    // This is the one place this list and the terminal's disagree. The
+    // terminal walks an orphan to its loaded grandparent through a repair
+    // map in its own sidebar cell, which this slice cannot read; the shared
+    // builder, handed an empty map, roots the row instead. A later repair
+    // that changes this must change this test on purpose.
+    let h = harness_with_parent();
+    let grandparent = active_id(&h.state);
+    let middle = link_session(
+        &h,
+        &grandparent,
+        "middle",
+        jinn_session_msg::SessionOrigin::Fork,
+        7,
+    );
+    let orphan = link_session(
+        &h,
+        &middle,
+        "grandchild",
+        jinn_session_msg::SessionOrigin::Fork,
+        3,
+    );
+    assert!(h.state.write().session.remove(&middle));
+
+    // When the sidebar's rows are built.
+    let tree = session_tree(&h);
+
+    // Then the grandchild is a root beside its grandparent, not nested
+    // under it.
+    assert_eq!(tree, vec![(orphan, 0), (grandparent, 0)]);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_library_member_is_listed_flat_with_depth_zero() {
+    // Given a parent with a child, and the child moved into the Library.
+    let h = harness_with_parent();
+    let parent = active_id(&h.state);
+    let child = link_session(
+        &h,
+        &parent,
+        "child",
+        jinn_session_msg::SessionOrigin::Fork,
+        5,
+    );
+    h.state
+        .write()
+        .session
+        .get_mut(&child)
+        .expect("the child is in the map")
+        .set_in_library(true);
+
+    // When the sidebar's rows are built.
+    let (_sessions, library, _hydrating) = crate::snapshot::session_rows(
+        &h.state,
+        &crate::settle::SettleTracker::default(),
+        &std::collections::HashSet::new(),
+    );
+
+    // Then the Library lists it at the top level, whatever its parent.
+    assert_eq!(
+        library
+            .iter()
+            .map(|row| (row.session_id.clone(), row.depth))
+            .collect::<Vec<_>>(),
+        vec![(child, 0)]
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_row_carries_its_parent_and_origin() {
+    // Given a parent with a subagent child.
+    let h = harness_with_parent();
+    let parent = active_id(&h.state);
+    let child = link_session(
+        &h,
+        &parent,
+        "child",
+        jinn_session_msg::SessionOrigin::Subagent,
+        5,
+    );
+
+    // When the sidebar's rows are built.
+    let (sessions, _library, _hydrating) = crate::snapshot::session_rows(
+        &h.state,
+        &crate::settle::SettleTracker::default(),
+        &std::collections::HashSet::new(),
+    );
+
+    // Then the child's row names its parent and says what kind it is.
+    let row = sessions
+        .iter()
+        .find(|row| row.session_id == child)
+        .expect("the child is listed");
+    assert_eq!(
+        (row.parent_session.clone(), row.origin),
+        (Some(parent), jinn_webui2_msg::SessionRowOrigin::Subagent)
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_sessions_frame_carries_tree_order() {
+    // Given a parent with a child, and a page listening.
+    let h = harness_with_parent();
+    let parent = active_id(&h.state);
+    let child = link_session(
+        &h,
+        &parent,
+        "child",
+        jinn_session_msg::SessionOrigin::Fork,
+        5,
+    );
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the list is pushed — the real path, whatever asked for it.
+    crate::outbound::sessions_changed(&h.handle);
+
+    // Then the frame's rows arrive in tree order, each at its depth.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::Sessions(body)] = frames.as_slice() else {
+        panic!("one sessions frame expected, got {frames:?}");
+    };
+    assert_eq!(
+        body.rows
+            .iter()
+            .map(|row| (row.session_id.clone(), row.depth))
+            .collect::<Vec<_>>(),
+        vec![(parent, 0), (child, 1)]
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_phase_change_pushes_the_child_through_the_sessions_frame() {
+    // Given a parent with a child, and a page listening.
+    //
+    // The child reaches the page with no refresh on `SessionCreated`: a
+    // spawn starts a turn at once, and the phase change pushes the list.
+    let h = harness_with_parent();
+    let parent = active_id(&h.state);
+    let child = link_session(
+        &h,
+        &parent,
+        "child",
+        jinn_session_msg::SessionOrigin::Subagent,
+        5,
+    );
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the child's phase changes, as a spawn's first turn does.
+    crate::outbound::phase_changed(
+        &h.handle,
+        &phase_change(
+            &child,
+            jinn_slices::PhaseView::Idle,
+            jinn_slices::PhaseView::Streaming,
+            moment("2026-11-26T12:00:05Z"),
+        ),
+    );
+
+    // Then the sessions frame that follows lists the child under its parent.
+    let frames = drain(&mut inbox);
+    let [_, ServerMsg::Sessions(body)] = frames.as_slice() else {
+        panic!("a phase frame then a sessions frame expected, got {frames:?}");
+    };
+    assert_eq!(
+        body.rows
+            .iter()
+            .map(|row| (row.session_id.clone(), row.depth))
+            .collect::<Vec<_>>(),
+        vec![(parent, 0), (child, 1)]
+    );
+}
+
 /// Spawns the listener on a real trouper bus over an OS-assigned port,
 /// with a recorder for the dashboard note registered first, and returns
 /// every note the launch published together with the bound address.
@@ -6695,4 +7019,222 @@ async fn a_sent_hash_token_from_the_web_expands() {
         .expect("still in memory")
         .expand_entry(&mut entry);
     assert_eq!(entry.prompt_text(), Some("PLAN_BODY_MARKER"));
+}
+
+// The session status bar: the persona and the context figure, pushed on change
+// ---------------------------------------------------------------------------
+
+/// The model the status-bar tests run against: one whose window the cache
+/// records, so the figure has a denominator.
+const WINDOWED_MODEL: &str = "openrouter/anthropic/claude-sonnet-4";
+
+/// Stamps a 200k window for [`WINDOWED_MODEL`] into the provider cell, the
+/// way a model refresh leaves it, so a session on that model has a figure.
+fn seed_window(handle: &OutboundHandle) {
+    handle.provider_cell().update(|cell| {
+        cell.model_cache = Some(jinn_provider_config::ModelCache {
+            entries: [(
+                "openrouter".to_owned(),
+                vec![jinn_provider_config::ModelInfo {
+                    id: "anthropic/claude-sonnet-4".to_owned(),
+                    context_length: Some(200_000),
+                    input_modalities: jinn_provider_config::InputModalities::text(),
+                }],
+            )]
+            .into_iter()
+            .collect(),
+            last_updated_at: None,
+        });
+    });
+}
+
+/// Puts the active session on [`WINDOWED_MODEL`] with a 100k assembled
+/// prompt, so its figure reads `50.0%/200k`.
+fn put_session_at_half_window(page: &Page) {
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_model(ModelSelection::Single(WINDOWED_MODEL.to_owned()));
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_context_sizes(100_000, 0);
+}
+
+/// The `ContextUsage` frames among `frames`, as their `(persona, label)`.
+fn status_frames(frames: &[ServerMsg]) -> Vec<(String, String)> {
+    frames
+        .iter()
+        .filter_map(|frame| match frame {
+            ServerMsg::ContextUsage(body) => Some((body.persona.clone(), body.label.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_answers_a_snapshot_naming_the_sessions_persona() {
+    // Given a session running the reviewer persona.
+    let h = harness();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_persona_name("reviewer".to_owned());
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot names it.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert_eq!(snapshot.persona, "reviewer");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_snapshot_of_no_session_carries_no_persona() {
+    // Given a state whose active session has been removed from the map,
+    // leaving its id active and nothing behind it.
+    let h = harness();
+    let orphan = active_id(&h.state);
+    h.state.write().session.remove_without_replacement(&orphan);
+
+    // When a snapshot is taken of it.
+    let frame = crate::snapshot::snapshot(
+        &h.state,
+        &crate::revision::RevisionTracker::default(),
+        &crate::settle::SettleTracker::default(),
+        &h.handle.tearing_down(),
+    );
+
+    // Then the body carries no persona — there is no session to name.
+    assert_eq!(frame.body.persona, "");
+}
+
+#[rstest::rstest]
+#[test]
+fn an_idle_connection_receives_no_status_frame() {
+    // Given a connected page and nothing changed between two ticks.
+    let mut page = connected_page();
+
+    // When the tick runs twice.
+    let first = flush_frames(&mut page);
+    let second = flush_frames(&mut page);
+
+    // Then neither pushes: the first records a baseline, and the second has
+    // nothing new to say.
+    assert!(
+        status_frames(&first).is_empty(),
+        "the baseline tick is silent: {first:?}"
+    );
+    assert!(
+        status_frames(&second).is_empty(),
+        "an idle tick is silent: {second:?}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_changed_figure_is_pushed_on_the_next_tick() {
+    // Given a connected page whose baseline tick has been drained, and then
+    // the session put on a windowed model with a half-full prompt.
+    let mut page = connected_page();
+    seed_window(&page.handle);
+    let baseline = flush_frames(&mut page);
+    assert!(
+        status_frames(&baseline).is_empty(),
+        "the baseline tick is silent: {baseline:?}"
+    );
+
+    // When the session's figure changes and the next tick runs.
+    put_session_at_half_window(&page);
+    let frames = flush_frames(&mut page);
+
+    // Then exactly one frame arrives, carrying the new figure.
+    let status = status_frames(&frames);
+    let [(_, label)] = status.as_slice() else {
+        unreachable!("one frame for the changed figure: {frames:?}");
+    };
+    assert_eq!(label, "50.0%/200k");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_persona_change_is_pushed_on_the_next_tick() {
+    // Given a connected page whose baseline tick has been drained.
+    let mut page = connected_page();
+    let baseline = flush_frames(&mut page);
+    assert!(
+        status_frames(&baseline).is_empty(),
+        "the baseline tick is silent: {baseline:?}"
+    );
+
+    // When the session's persona changes and the next tick runs.
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_persona_name("reviewer".to_owned());
+    let frames = flush_frames(&mut page);
+
+    // Then exactly one frame arrives, naming the new persona.
+    let status = status_frames(&frames);
+    let [(persona, _)] = status.as_slice() else {
+        unreachable!("one frame for the changed persona: {frames:?}");
+    };
+    assert_eq!(persona, "reviewer");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_provider_switch_pushes_the_model_and_the_figure_at_once() {
+    // Given a connected page whose baseline tick has been drained, a session
+    // on a windowed model, and then a figure that differs from the baseline.
+    let mut page = connected_page();
+    seed_window(&page.handle);
+    let baseline = flush_frames(&mut page);
+    assert!(
+        status_frames(&baseline).is_empty(),
+        "the baseline tick is silent: {baseline:?}"
+    );
+    let session_id = active_id(&page.state);
+    put_session_at_half_window(&page);
+
+    // When the provider switch lands, outside the tick.
+    crate::outbound::provider_switched(
+        &page.handle,
+        &jinn_provider_selection_msg::ProviderSwitched {
+            session_id: session_id.clone(),
+            provider_name: "openrouter".to_owned(),
+        },
+    );
+
+    // Then one model frame and one figure frame arrive together, without
+    // waiting for the next tick.
+    let frames = drain(&mut page.inbox);
+    assert_eq!(
+        frames
+            .iter()
+            .filter(|frame| matches!(frame, ServerMsg::Model(_)))
+            .count(),
+        1,
+        "one model frame: {frames:?}"
+    );
+    let status = status_frames(&frames);
+    let [(_, label)] = status.as_slice() else {
+        unreachable!("one figure frame beside the model frame: {frames:?}");
+    };
+    assert_eq!(label, "50.0%/200k");
 }

@@ -37,6 +37,28 @@ pub enum DeltaField {
     Output,
 }
 
+/// The kind of session a rail row is, as the core's origin spells it on
+/// the wire.
+///
+/// A local twin of the session crate's `SessionOrigin`, byte for byte
+/// (`snake_case`, the same four names): a message crate never depends on
+/// another message crate, so the contract cannot name the original, and a
+/// twin that drifted from it would put one word in the store and another
+/// on the socket. The server converts at the row; the browser only reads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionRowOrigin {
+    /// Created by the user.
+    #[default]
+    User,
+    /// Created by forking a session.
+    Fork,
+    /// Spawned as a child by another session.
+    Subagent,
+    /// A peer session that runs against a parent.
+    Bot,
+}
+
 /// One row of the session list the sidebar shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionRowBody {
@@ -52,7 +74,9 @@ pub struct SessionRowBody {
     /// Whether the session's teardown command is running.
     ///
     /// Independent of `is_busy`: a teardown does not change the session's
-    /// phase, so a session can be tearing down and not busy.
+    /// phase, so a session can be tearing down and not busy. Defaults to
+    /// false, so a frame from a server built before teardown still reads.
+    #[serde(default)]
     pub is_tearing_down: bool,
     /// Whether the session is a library member. A member is listed under
     /// the Library view and hidden from the Sessions view.
@@ -63,6 +87,20 @@ pub struct SessionRowBody {
     /// and always for a subagent session. The page compares it against
     /// its own last-seen time to decide whether the row is unread.
     pub last_settled_at: Option<Timestamp>,
+    /// The session's persisted direct parent, when it was forked or
+    /// spawned under one.
+    #[serde(default)]
+    pub parent_session: Option<SessionId>,
+    /// What kind of session this is — the fact behind the row's kind line
+    /// and the viewed session's label above the composer.
+    #[serde(default)]
+    pub origin: SessionRowOrigin,
+    /// The row's depth in the Sessions list's tree: 0 for a root, one more
+    /// per level under a listed parent. The server sends the order and the
+    /// depth; the browser indents and builds no tree of its own. Always 0
+    /// for a library row, whose list is flat.
+    #[serde(default)]
+    pub depth: u32,
 }
 
 /// The whole state a page needs on a fresh connect: the active session,
@@ -79,6 +117,10 @@ pub struct SnapshotBody {
     pub model_label: String,
     /// The active session's title (empty when no session is active).
     pub title: String,
+    /// The active session's persona name (empty when no session is active).
+    /// The status bar shows it; the context figure beside it is not the
+    /// snapshot's — it arrives as its own frame on the first tick.
+    pub persona: String,
     /// The active session's history revision. The page echoes it back
     /// in `Hello` so the server can tell a safe incremental resume from
     /// one that needs the whole transcript again.
@@ -352,6 +394,19 @@ pub struct TitleBody {
     pub session_id: SessionId,
     /// The new title.
     pub title: String,
+}
+
+/// A session's status-bar facts, pushed when either changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextUsageBody {
+    /// The session the facts describe, so a page that has switched
+    /// sessions drops a late frame.
+    pub session_id: SessionId,
+    /// The persona the session is running, as the status bar shows it.
+    pub persona: String,
+    /// The context usage figure, already formatted by the terminal's own
+    /// shared function — the page renders the string and computes nothing.
+    pub label: String,
 }
 
 /// One row of the stored-session picker.

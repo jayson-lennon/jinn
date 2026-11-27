@@ -11,7 +11,10 @@
 - (webui) Add messaging pinning functionality.
 - Add instructions to `canvas` skill to encourage agent to flesh out specs on its own while creating.
 - (webui) Add spinner to session list while loading sessions.
+- (webui) Session list now displays in tree using indents.
+- (webui) Subagent and bot sessions are now identified in session list and in session transcript.
 - (webui) Add teardown functionality to session list.
+- (webui) Add status bar showing persona + context usage
 
 
 ## 2026-11-24 v.27.2

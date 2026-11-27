@@ -16,13 +16,13 @@ pub mod server;
 
 pub use client::ClientMsg;
 pub use payload::{
-    AppletRowBody, AppletRowsBody, DeltaField, EntriesPageBody, EntryDeltaBody, EntryEnvelope,
-    EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody,
-    McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody,
-    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody,
-    PromptTemplatesBody, SessionRowBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody,
-    TAIL_MAX_BYTES, TAIL_MAX_ENTRIES, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
-    WireEntry, wire_entry,
+    AppletRowBody, AppletRowsBody, ContextUsageBody, DeltaField, EntriesPageBody, EntryDeltaBody,
+    EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody,
+    McpRowBody, McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody,
+    PersonaRowBody, PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody,
+    PromptTemplatesBody, SessionRowBody, SessionRowOrigin, SessionsBody, SkillRowBody,
+    SkillRowsBody, SnapshotBody, TAIL_MAX_BYTES, TAIL_MAX_ENTRIES, TextRunBody, ThemeBody,
+    TitleBody, ToolRowBody, ToolRowsBody, WireEntry, wire_entry,
 };
 pub use server::ServerMsg;
 
@@ -33,4 +33,4 @@ mod wire_tests;
 ///
 /// A page built against a different major version refuses to apply a
 /// snapshot rather than half-render it; the browser checks it on connect.
-pub const WEBUI2_PROTOCOL_VERSION: u16 = 2;
+pub const WEBUI2_PROTOCOL_VERSION: u16 = 3;

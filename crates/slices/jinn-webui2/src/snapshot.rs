@@ -14,7 +14,10 @@
 use crate::{page, revision::RevisionTracker, settle::SettleTracker};
 use jinn_core_types::SessionId;
 use jinn_kernel::{State, StateReadGuard};
-use jinn_webui2_msg::{PhaseBody, SessionRowBody, SnapshotBody, WEBUI2_PROTOCOL_VERSION};
+use jinn_session_msg::SessionOrigin;
+use jinn_webui2_msg::{
+    PhaseBody, SessionRowBody, SessionRowOrigin, SnapshotBody, WEBUI2_PROTOCOL_VERSION,
+};
 use std::collections::HashSet;
 
 /// The title a session row shows when the session has none.
@@ -63,6 +66,7 @@ pub fn snapshot(
                 },
                 model_label: String::new(),
                 title: String::new(),
+                persona: String::new(),
                 revision,
                 entries: Vec::new(),
                 entries_before: 0,
@@ -89,6 +93,7 @@ pub fn snapshot(
         },
         model_label: active.model_selection().to_string(),
         title: active.title().unwrap_or(UNTITLED).to_owned(),
+        persona: active.persona_name().to_owned(),
         revision,
         entries: window.entries.clone(),
         entries_before,
@@ -102,17 +107,26 @@ pub fn snapshot(
 }
 
 /// Builds both sidebar lists from live state: the loaded sessions that are
-/// not library members, and the loaded library members. The third element
-/// is whether startup hydration is still running — read in the same
-/// instant as the rows, so a frame can never say "complete" beside a partial
-/// list, or "loading" beside the final one.
+/// not library members, as a tree, and the loaded library members, as a flat
+/// list. The third element is whether startup hydration is still running —
+/// read in the same instant as the rows, so a frame can never say "complete"
+/// beside a partial list, or "loading" beside the final one.
+///
+/// The Sessions list is the terminal sidebar's tree, through the same
+/// builder: roots newest-first, every child under its parent — a fork, a
+/// subagent, or a bot alike, because what nests a row is its parent link,
+/// not how it was made. Each row carries its depth so the page indents it
+/// without building a tree of its own.
+///
+/// One builder, one order: the page is sent the tree the terminal would
+/// draw, and never re-derives it.
 fn rows_from(
     guard: &StateReadGuard<'_>,
     active_id: &SessionId,
     settles: &SettleTracker,
     tearing_down: &HashSet<SessionId>,
 ) -> (Vec<SessionRowBody>, Vec<SessionRowBody>, bool) {
-    let mut sessions = Vec::new();
+    let mut listed = ListedRows::default();
     let mut library = Vec::new();
     for (id, session) in guard.session.iter() {
         let row = SessionRowBody {
@@ -123,16 +137,111 @@ fn rows_from(
             is_tearing_down: tearing_down.contains(id),
             in_library: session.in_library(),
             last_settled_at: settles.last_settled(id),
+            parent_session: session.parent_session().clone(),
+            origin: row_origin(session.origin()),
+            depth: 0,
         };
-        if session.in_library() {
-            library.push(row);
-        } else {
-            sessions.push(row);
+        // Two lists, one rule: a member is the Library's and never the
+        // tree's, and the tree takes every other loaded session. An archived
+        // session still in the map is in neither, and is not sent.
+        match (session.is_listed(), session.in_library()) {
+            (true, _) => listed.push(session, id, row),
+            (false, true) => library.push(row),
+            (false, false) => {}
         }
     }
     // The flag the terminal's throbber reads on every tick. A push-only page
     // cannot poll it, so it rides on every list frame instead.
-    (sessions, library, guard.session.is_startup_hydrating())
+    (
+        listed.in_tree_order(),
+        library,
+        guard.session.is_startup_hydrating(),
+    )
+}
+
+/// The wire's spelling of a session's kind.
+///
+/// The contract crate cannot name the session crate's origin (a message
+/// crate never depends on another), so the twin is written here, variant for
+/// variant, and the two spellings are pinned to each other by a test.
+fn row_origin(origin: SessionOrigin) -> SessionRowOrigin {
+    match origin {
+        SessionOrigin::User => SessionRowOrigin::User,
+        SessionOrigin::Fork => SessionRowOrigin::Fork,
+        SessionOrigin::Subagent => SessionRowOrigin::Subagent,
+        SessionOrigin::Bot => SessionRowOrigin::Bot,
+    }
+}
+
+/// The listed sessions on their way into the tree: one tree entry and one
+/// wire row each, paired by id.
+#[derive(Default)]
+struct ListedRows {
+    /// What the tree builder orders by: identity, creation time, and the
+    /// parent link.
+    entries: Vec<jinn_session_list::SessionEntry>,
+    /// The rows to send, keyed by the session each describes.
+    rows: std::collections::HashMap<SessionId, SessionRowBody>,
+}
+
+impl ListedRows {
+    /// Adds one listed session.
+    fn push(
+        &mut self,
+        session: &jinn_session_state::ChatSessionState,
+        id: &SessionId,
+        row: SessionRowBody,
+    ) {
+        self.entries.push(jinn_session_list::SessionEntry {
+            kind: jinn_session_list::SessionEntryKind::Session,
+            id: id.clone(),
+            title: String::new(),
+            is_active: row.is_active,
+            created_at: *session.created_at(),
+            is_idle: !row.is_busy,
+            // The builder reads none of the display flags below; they are
+            // the tree vocabulary's shape, not facts this surface uses.
+            last_entry_is_error: false,
+            parent_id: row.parent_session.clone(),
+            depth: 0,
+            ancestor_continuations: Vec::new(),
+            is_last_child: false,
+            is_subagent: row.origin == SessionRowOrigin::Subagent,
+            is_bot: row.origin == SessionRowOrigin::Bot,
+            is_bot_prepping: false,
+            bot_fires_on_parent_completion: false,
+            has_live_term: false,
+            is_in_flight: false,
+        });
+        self.rows.insert(id.clone(), row);
+    }
+
+    /// The rows in the tree's order, each stamped with its depth.
+    ///
+    /// The visual-parent map is empty. The terminal sidebar repairs a child
+    /// off a removed parent by walking it to a loaded ancestor, and keeps the
+    /// overrides in its own slice cell — which this crate cannot read. So
+    /// here a row whose parent is not listed is a root, where the terminal
+    /// would have nested it under a grandparent. That is the one place this
+    /// list and the terminal's disagree, and it is why the map is empty
+    /// rather than the builder being used wrong.
+    fn in_tree_order(mut self) -> Vec<SessionRowBody> {
+        let ordered = jinn_session_list::visible_session_tree(
+            self.entries,
+            &std::collections::HashMap::new(),
+        );
+        ordered
+            .into_iter()
+            // Every entry was pushed beside its row, so the pairing always
+            // holds; a lookup that missed would be a row the frame silently
+            // dropped, which is the one failure a list must never hide.
+            .filter_map(|entry| {
+                let depth = u32::try_from(entry.depth).unwrap_or(u32::MAX);
+                let row = self.rows.remove(&entry.id)?;
+                Some(SessionRowBody { depth, ..row })
+            })
+            .collect()
+    }
 }
 
 /// The persisted color mode: `light`, `dark`, or `system`. An unset or

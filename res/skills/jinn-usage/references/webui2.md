@@ -52,6 +52,14 @@ but nothing coordinates them.
   ends with a muted **loading sessions…** row — a spinner, below the rows
   already loaded. It has no timeout: it clears when the server says the
   list is complete.
+
+  The **Sessions** list is a tree: a session forked from, spawned under, or
+  bootstrapped as a bot under another is indented one level under its
+  parent, as the terminal's sidebar draws it. A **subagent**'s or a **bot**'s
+  row also carries a second line under its title — `subagent` or `bot`, in
+  that kind's colour — and the viewed session's kind is named the same way
+  above the composer (`[subagent]` / `[bot]`, at the right edge, idle or
+  busy). The **Library** list stays flat.
 - **Session loading** — clicking a session row, or picking one from the
   **Archive** picker, raises a full-page **Loading session…** overlay at
   once: a card with a spinner, over everything. It clears when that
@@ -127,6 +135,13 @@ but nothing coordinates them.
   fresh rows arrive.
 - **Title** — click the title to rename the session in place; `Enter`
   commits and `Esc` cancels.
+- **Status bar** — the row under the title bar, shown while a session is
+  active. On the left, the session's persona: click the name to open the
+  persona picker (the same modal the menu's **Persona** item opens). On
+  the right, the context usage figure — the terminal's own, so the two
+  surfaces always agree: `used%/max` when the model's context window is
+  known, `used/???` when it is not. It is text only, and follows every
+  history change, pin, context toggle and model switch without a reload.
 - **Entry menu** — every transcript entry has a `⋮` at its bottom-right,
   always visible at every width. It opens the session row's popup with the
   things you can do to that one entry.
@@ -195,7 +210,8 @@ but nothing coordinates them.
   - `+` loads the skill's body into context as a pinned tool result,
     enabling the skill first if it was off. A skill already in context
     has its `+` disabled, so nothing is loaded twice.
-- **Persona** — the menu's **Persona** item opens the personas, in their
+- **Persona** — the menu's **Persona** item, or the persona name in the
+  status bar under the title bar, opens the personas, in their
   own name-sorted order: a `●` on the session's current persona and a
   `○` on the rest, the name and description. The current persona's row
   is highlighted.

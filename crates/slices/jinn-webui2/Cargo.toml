@@ -18,6 +18,11 @@ jinn-kernel = { workspace = true }
 jinn-core-types = { workspace = true }
 jinn-app-state = { workspace = true }
 jinn-session-state = { workspace = true }
+# The rail's Sessions list is the terminal sidebar's own tree: one builder
+# orders roots newest-first and children under their parent, so the two
+# surfaces cannot disagree about where a child belongs. Kernel-free shared
+# vocabulary.
+jinn-session-list = { workspace = true }
 jinn-session-store-msg = { workspace = true }
 jinn-session-history-msg = { workspace = true }
 jinn-context-assembly-msg = { workspace = true }
@@ -39,6 +44,10 @@ jinn-mcp-msg = { workspace = true }
 # persona msg crate. Contract crate only: never the persona implementation
 # slice.
 jinn-persona-msg = { workspace = true }
+# The status bar's context figure is the terminal status bar's own, so the two
+# surfaces cannot disagree. Contract crate only: never the status-bar
+# implementation slice.
+jinn-status-bar-msg = { workspace = true }
 # The applets modal's rows are the saved-app catalog the applets store actor
 # writes into its cell, and the open gesture publishes that crate's rescan
 # and wake commands. Contract crate only: never the applets implementation

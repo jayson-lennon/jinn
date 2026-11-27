@@ -17,7 +17,9 @@ import { isUnread, listHasUnread } from './unread';
 import { Runs } from './pickers';
 import { beginSessionLoad } from './store';
 
-/** How far each tree level indents a stored-session row. */
+/** How far each tree level indents a stored-session row — and, at the same
+ *  step, a child in the rail's Sessions list, so the two trees on the page
+ *  read as one design. */
 const PICKER_INDENT_PX = 14;
 
 /**
@@ -148,71 +150,94 @@ export function SessionRail(props: RailProps): JSX.Element {
         </button>
         <ul class="sessions" data-testid="rail-rows">
           <For each={rows()}>
-            {(row) => (
-              <li>
-                <div class="session-row" data-testid="session-row-wrap" data-session-id={row.session_id}>
-                  <button
-                    class={`session${row.is_active ? ' active' : ''}${isUnread(row, props.store.state.lastSeen) ? ' unread' : ''}`}
-                    data-testid="session-row"
+            {(row) => {
+              // The server sends the tree: each row carries its depth, and
+              // the page indents by it. `?? 0` because a frame from an older
+              // server omits the field, and `undefined * 14` is `NaN`.
+              const depth = row.depth ?? 0;
+              const kind = row.origin === 'subagent' || row.origin === 'bot' ? row.origin : null;
+              return (
+                <li>
+                  <div
+                    class="session-row"
+                    data-testid="session-row-wrap"
                     data-session-id={row.session_id}
-                    onClick={() => activate(row.session_id)}
+                    data-depth={depth}
+                    style={{ 'padding-left': `${depth * PICKER_INDENT_PX}px` }}
                   >
-                    <span class="session-title">{row.title || 'Untitled Session'}</span>
-                    <Show when={row.is_busy || row.is_tearing_down}>
-                      <span class="session-busy" data-testid="session-busy" aria-label="running" />
-                    </Show>
-                  </button>
-                  <div class="row-menu">
                     <button
-                      type="button"
-                      class="row-menu-button"
-                      data-testid="row-menu"
-                      aria-label="row actions"
-                      aria-haspopup="true"
-                      aria-expanded={menuFor() === row.session_id ? 'true' : 'false'}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMenuFor(menuFor() === row.session_id ? null : row.session_id);
-                      }}
+                      class={`session${row.is_active ? ' active' : ''}${isUnread(row, props.store.state.lastSeen) ? ' unread' : ''}`}
+                      data-testid="session-row"
+                      data-session-id={row.session_id}
+                      onClick={() => activate(row.session_id)}
                     >
-                      ⋮
+                      <span class="session-text">
+                        <span class="session-title">{row.title || 'Untitled Session'}</span>
+                        {/* The kind line carries the colour; the title keeps
+                            its own. A user or fork session is an ordinary
+                            conversation and gets no second line. */}
+                        <Show when={kind !== null}>
+                          <span class="session-kind" data-kind={kind} data-testid="session-kind">
+                            {kind}
+                          </span>
+                        </Show>
+                      </span>
+                      <Show when={row.is_busy || row.is_tearing_down}>
+                        <span class="session-busy" data-testid="session-busy" aria-label="running" />
+                      </Show>
                     </button>
-                    <Show when={menuFor() === row.session_id}>
-                      <div
-                        class="row-menu-popup"
-                        data-testid="row-menu-popup"
-                        onClick={(e) => e.stopPropagation()}
+                    <div class="row-menu">
+                      <button
+                        type="button"
+                        class="row-menu-button"
+                        data-testid="row-menu"
+                        aria-label="row actions"
+                        aria-haspopup="true"
+                        aria-expanded={menuFor() === row.session_id ? 'true' : 'false'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuFor(menuFor() === row.session_id ? null : row.session_id);
+                        }}
                       >
-                        <button
-                          type="button"
-                          class="row-menu-item"
-                          data-testid="row-menu-library"
-                          onClick={() => setLibrary(row.session_id, !row.in_library)}
+                        ⋮
+                      </button>
+                      <Show when={menuFor() === row.session_id}>
+                        <div
+                          class="row-menu-popup"
+                          data-testid="row-menu-popup"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          {row.in_library ? 'remove from library' : 'add to library'}
-                        </button>
-                        <button
-                          type="button"
-                          class="row-menu-item"
-                          data-testid="row-menu-teardown"
-                          onClick={() => teardown(row.session_id)}
-                        >
-                          teardown + archive
-                        </button>
-                        <button
-                          type="button"
-                          class="row-menu-item"
-                          data-testid="row-menu-archive"
-                          onClick={() => archive(row.session_id)}
-                        >
-                          archive
-                        </button>
-                      </div>
-                    </Show>
+                          <button
+                            type="button"
+                            class="row-menu-item"
+                            data-testid="row-menu-library"
+                            onClick={() => setLibrary(row.session_id, !row.in_library)}
+                          >
+                            {row.in_library ? 'remove from library' : 'add to library'}
+                          </button>
+                          <button
+                            type="button"
+                            class="row-menu-item"
+                            data-testid="row-menu-teardown"
+                            onClick={() => teardown(row.session_id)}
+                          >
+                            teardown + archive
+                          </button>
+                          <button
+                            type="button"
+                            class="row-menu-item"
+                            data-testid="row-menu-archive"
+                            onClick={() => archive(row.session_id)}
+                          >
+                            archive
+                          </button>
+                        </div>
+                      </Show>
+                    </div>
                   </div>
-                </div>
-              </li>
-            )}
+                </li>
+              );
+            }}
           </For>
           <Show when={!props.store.state.synced || props.store.state.hydrating}>
             <li class="rail-loading" data-testid="rail-loading" role="status" aria-live="polite">
