@@ -21,8 +21,8 @@ use crate::payload::{
     ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody,
     ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody,
     PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody, PromptTemplatesBody,
-    SessionRowBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody,
-    TitleBody, ToolRowBody, ToolRowsBody,
+    SessionRowBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody,
+    ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 

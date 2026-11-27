@@ -6472,8 +6472,12 @@ async fn the_launch_note_describes_the_row() {
 /// `(name, description)`, in the order given.
 fn seed_prompts(h: &Harness, templates: &[(&str, &str)]) {
     let id = active_id(&h.state);
-    h.state.write().session.get_mut(&id).expect("the active session is in memory").set_discovered_prompt_templates(
-        jinn_kernel::PromptTemplateStore::from_vec(
+    h.state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("the active session is in memory")
+        .set_discovered_prompt_templates(jinn_kernel::PromptTemplateStore::from_vec(
             templates
                 .iter()
                 .map(|(name, description)| jinn_kernel::PromptTemplate {
@@ -6482,8 +6486,7 @@ fn seed_prompts(h: &Harness, templates: &[(&str, &str)]) {
                     body: format!("{name} body"),
                 })
                 .collect(),
-        ),
-    );
+        ));
 }
 
 /// Runs the real `PromptTemplatesLoaded` push, as the actor would.
@@ -6572,7 +6575,7 @@ fn a_templates_scan_for_an_unknown_session_pushes_an_empty_list() {
         unreachable!("one prompt-templates frame expected");
     };
     assert_eq!(body.session_id, stranger);
-    assert!(body.templates.is_empty());
+    assert_eq!(body.templates, Vec::new());
 }
 
 #[rstest::rstest]
@@ -6650,7 +6653,7 @@ async fn hello_snapshot_of_no_active_session_carries_no_prompt_templates() {
     let [ServerMsg::Snapshot(body)] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
-    assert!(body.prompt_templates.is_empty());
+    assert_eq!(body.prompt_templates, Vec::new());
 }
 
 #[rstest::rstest]
@@ -6664,13 +6667,13 @@ async fn a_sent_hash_token_from_the_web_expands() {
         .session
         .get_mut(&id)
         .expect("the active session is in memory")
-        .set_discovered_prompt_templates(jinn_kernel::PromptTemplateStore::from_vec(
-            vec![jinn_kernel::PromptTemplate {
+        .set_discovered_prompt_templates(jinn_kernel::PromptTemplateStore::from_vec(vec![
+            jinn_kernel::PromptTemplate {
                 name: "plan".to_owned(),
                 description: String::new(),
                 body: "PLAN_BODY_MARKER".to_owned(),
-            }],
-        ));
+            },
+        ]));
 
     // When the page sends `#plan` as its message.
     say(
@@ -6685,6 +6688,11 @@ async fn a_sent_hash_token_from_the_web_expands() {
     // Then the enqueued entry, run through the same expansion `push_entry`
     // applies, reads as the template body.
     let mut entry = h.audit.of_type::<EnqueueUserMessage>().remove(0).entry;
-    h.state.read().session.get(&id).expect("still in memory").expand_entry(&mut entry);
+    h.state
+        .read()
+        .session
+        .get(&id)
+        .expect("still in memory")
+        .expand_entry(&mut entry);
     assert_eq!(entry.prompt_text(), Some("PLAN_BODY_MARKER"));
 }

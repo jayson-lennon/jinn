@@ -173,20 +173,39 @@ test("enter with the popup open inserts a newline, not a pick", async ({ page })
 });
 
 test("moving the caret before the token closes the popup", async ({ page }) => {
-  // Given the popup open.
-  await openPromptPopup(page);
+  // Given text before the token, so there is somewhere before it to go, and
+  // the popup open at the token. A caret sitting on the `#` itself still
+  // counts as inside the token — the terminal's rule — so the caret has to
+  // move past the `#` to the left to leave it.
+  await page.locator(sel.DRAFT).click();
+  await page.keyboard.type("some text #plan");
+  await expect(page.locator(sel.PROMPT_POPUP)).toBeVisible();
 
-  // When moving the caret to the start of the draft with Home.
+  // When moving the caret to the start of the line with Home.
   await page.keyboard.press("Home");
 
   // Then the popup is gone.
   await expect(page.locator(sel.PROMPT_POPUP)).toHaveCount(0);
 });
 
+test("a caret on the hash itself stays in the completion", async ({ page }) => {
+  // Given the popup open on a lone `#`.
+  await openPromptPopup(page);
+
+  // When moving the caret back onto the `#` with Home.
+  await page.keyboard.press("Home");
+
+  // Then the popup stays open: the caret is still within the token, as in
+  // the terminal, where a caret on the trigger completes with no filter.
+  await expect(page.locator(sel.PROMPT_POPUP)).toBeVisible();
+});
+
 test("a click away from the token closes the popup", async ({ page }) => {
-  // Given the popup open over text that follows the token.
+  // Given text before the token with the popup open at the token — the caret
+  // ends the typed token, so the click has somewhere before the `#` to land.
   await page.locator(sel.DRAFT).click();
-  await page.keyboard.type("#plan then some more text");
+  await page.keyboard.type("some text #plan");
+  await expect(page.locator(sel.PROMPT_POPUP)).toBeVisible();
 
   // When clicking at the very start of the draft, before the `#`.
   await page.locator(sel.DRAFT).click({ position: { x: 1, y: 1 } });
