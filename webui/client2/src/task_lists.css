@@ -1,0 +1,8 @@
+/* ---- task lists ---- */
+/* The `- [ ]` checkboxes the task-list plugin emits. They are disabled:
+   a transcript is a record of what a model planned, not a to-do the reader
+   edits. */
+.contains-task-list { list-style: none; padding-left: 0; }
+.task-list-item { display: flex; align-items: baseline; gap: 8px; }
+.task-list-item-checkbox { margin: 0; accent-color: var(--accent); }
+
