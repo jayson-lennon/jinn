@@ -4,19 +4,30 @@
 // so a session switch — which replaces the transcript — leaves them where
 // they are and the user never loses unsent text. This component reads
 // them, writes them, and turns a submit into the one message a send or a
-// queue is. Nothing here holds state of its own.
+// queue is. Nothing here holds view state of its own — the one signal is
+// the draft textarea's ref, so the popup can read the caret.
+//
+// The `#` popup is the one thing it draws besides the draft. Whether it is
+// open is derived from the caret — re-read on every input, key, click, and
+// selection change — so a caret moved out of its token by any means closes
+// it. The popup is not a modal: it has no backdrop and never takes focus.
 
-import { For, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientMsg, ImageUpload } from './protocol';
+import type { ClientMsg, ImageUpload, PromptTemplate } from './protocol';
+import { filterPrompts, findPromptCompletion } from './prompts';
 import {
   type ClientStore,
   addChips,
   addOptimistic,
   clearComposer,
   isBusy,
+  movePromptHighlight,
+  pickPrompt,
+  promptHighlightOf,
   removeChip,
   setDraft,
+  setPromptCompletion,
 } from './store';
 
 export interface ComposerProps {
@@ -62,6 +73,38 @@ export function Composer(props: ComposerProps): JSX.Element {
       : `Queue a message — ${queueLen()} already queued`;
   };
 
+  // The draft's textarea, read for the caret. A signal so the popup, which
+  // is rendered beside the textarea, re-renders once the ref is set.
+  const [draftRef, setDraftRef] = createSignal<HTMLTextAreaElement | undefined>();
+  const caret = (): number => draftRef()?.selectionStart ?? 0;
+
+  // The popup's rows: the session's templates filtered by what follows the
+  // `#` the caret sits in. Derived, never stored, so a new list from the
+  // server re-filters an open popup in place.
+  const completion = () => props.store.state.promptCompletion;
+  const rows = (): PromptTemplate[] =>
+    filterPrompts(props.store.state.promptTemplates, completion()?.filter ?? '');
+  const highlight = (): number => promptHighlightOf(props.store, rows().length);
+
+  /** Re-derives the completion from where the caret is now. */
+  const syncCompletion = (): void => {
+    const textarea = draftRef();
+    if (textarea === undefined) return;
+    setPromptCompletion(
+      props.store,
+      findPromptCompletion(props.store.state.draft, textarea.selectionStart),
+    );
+  };
+
+  /** Picks a template and places the caret after the inserted name. */
+  const pick = (name: string): void => {
+    const at = pickPrompt(props.store, name);
+    const textarea = draftRef();
+    if (at === null || textarea === undefined) return;
+    textarea.setSelectionRange(at, at);
+    textarea.focus();
+  };
+
   const attach = (files: File[]): void => {
     for (const file of files) {
       readImage(file, file.name || 'pasted image')
@@ -82,8 +125,89 @@ export function Composer(props: ComposerProps): JSX.Element {
     props.send({ type: busy() ? 'queue' : 'send', text, images });
   };
 
+  // Set when keydown fully settled a key — Escape closed the popup, Tab
+  // picked, an arrow moved only the highlight. The keyup that follows must
+  // not re-derive the completion from the unmoved caret, or it would undo
+  // the close and the pick, and reset the highlight an arrow just moved.
+  let settledKey: string | undefined;
+
+  const onDraftKeyDown = (e: KeyboardEvent): void => {
+    // Enter sends; Shift+Enter is a newline. Never intercepted by the
+    // popup: an open completion does not turn Enter into a pick.
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+      return;
+    }
+    if (completion() === null) return;
+    const count = rows().length;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      settledKey = e.key;
+      setPromptCompletion(props.store, null);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      settledKey = e.key;
+      movePromptHighlight(props.store, count, -1);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      settledKey = e.key;
+      movePromptHighlight(props.store, count, 1);
+    } else if (e.key === 'Tab' && count > 0) {
+      // Tab with nothing to pick is left alone: focus moves on, as it
+      // would with no popup open.
+      e.preventDefault();
+      settledKey = e.key;
+      pick(rows()[highlight()]?.name ?? '');
+    }
+  };
+
+  /** Re-derives the completion once a key has landed — unless keydown
+   *  already settled that key, in which case there is nothing to re-read. */
+  const onDraftKeyUp = (e: KeyboardEvent): void => {
+    if (settledKey !== undefined) {
+      const settled = settledKey === e.key;
+      settledKey = undefined;
+      if (settled) return;
+    }
+    syncCompletion();
+  };
+
   return (
     <footer class="composer" data-testid="composer">
+      <Show when={completion() !== null}>
+        <ul class="prompt-popup" role="listbox" data-testid="prompt-popup">
+          <Show when={rows().length === 0}>
+            <li class="prompt-row muted" data-testid="prompt-empty">
+              no prompts found
+            </li>
+          </Show>
+          <For each={rows()}>
+            {(template, index) => (
+              <li
+                class={`prompt-row${index() === highlight() ? ' active' : ''}`}
+                data-testid="prompt-row"
+                data-prompt={template.name}
+                role="option"
+                aria-selected={index() === highlight() ? 'true' : 'false'}
+                // pointerdown, not click: the textarea must keep focus and
+                // the caret must not move before the pick lands. Preventing
+                // the pointer's default is what stops the browser from
+                // blurring the textarea to focus the row.
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  pick(template.name);
+                }}
+              >
+                <span class="prompt-name">{template.name}</span>
+                <Show when={template.description}>
+                  <span class="prompt-desc"> - {template.description}</span>
+                </Show>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Show>
       <Show when={chips().length > 0}>
         <div class="chips" data-testid="chips">
           <For each={chips()}>
@@ -110,18 +234,25 @@ export function Composer(props: ComposerProps): JSX.Element {
       </Show>
       <div class="composer-row">
         <textarea
+          ref={setDraftRef}
           class="draft"
           data-testid="draft"
           placeholder={placeholder()}
           value={draft()}
-          onInput={(e) => setDraft(props.store, e.currentTarget.value)}
-          onKeyDown={(e) => {
-            // Enter sends; Shift+Enter is a newline.
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
+          onInput={(e) => {
+            setDraft(props.store, e.currentTarget.value);
+            syncCompletion();
           }}
+          onKeyDown={onDraftKeyDown}
+          // The keys the popup does not intercept still move the caret, and
+          // the browser applies them after keydown — so the completion is
+          // re-read once the key has landed.
+          onKeyUp={onDraftKeyUp}
+          onClick={syncCompletion}
+          onSelect={syncCompletion}
+          // Losing focus closes the popup: there is no caret in the draft
+          // to complete at anymore.
+          onBlur={() => setPromptCompletion(props.store, null)}
           onPaste={(e) => {
             const images = pastedImages(e);
             if (images.length === 0) return;

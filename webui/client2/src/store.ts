@@ -13,6 +13,7 @@
 import { createStore as createStoreValue } from 'solid-js';
 import type { Store, StoreSetter } from 'solid-js';
 import type { LastSeen } from './unread';
+import { applyPromptPick, type PromptCompletion } from './prompts';
 import type {
   AppletRow,
   DeltaField,
@@ -22,6 +23,7 @@ import type {
   PersonaRow,
   Phase,
   PickerRow,
+  PromptTemplate,
   ServerMsg,
   SessionRow,
   SkillRow,
@@ -87,6 +89,17 @@ export interface ViewState {
   appletFilter: string;
   /** The applets server's serving phase, as the last rows frame carried it. */
   appletServing: { serving: boolean; bind: string };
+  /** The viewed session's prompt templates, name and description — the
+   * composer's `#` popup filters these in the browser. */
+  promptTemplates: PromptTemplate[];
+  /** The open `#` completion at the composer's caret, or null when the
+   * caret sits in no token. */
+  promptCompletion: PromptCompletion | null;
+  /** Where the user moved the `#` popup's highlight with the arrow keys, as
+   * an index into its filtered rows. Null means the default — the last row,
+   * the best match — which is where it starts and where it returns on any
+   * keystroke or list change. */
+  promptHighlight: number | null;
   /** Transient notices, newest last. A toast dismisses itself, and a tap
    *  dismisses it at once. Not the session's: a snapshot leaves them. */
   toasts: Toast[];
@@ -143,6 +156,9 @@ const INITIAL_STATE: ViewState = {
   appletRows: [],
   appletFilter: '',
   appletServing: { serving: false, bind: '' },
+  promptTemplates: [],
+  promptCompletion: null,
+  promptHighlight: null,
   toasts: [],
   loadingSessionId: null,
   synced: false,
@@ -294,6 +310,12 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         s.theme = msg.theme;
         s.synced = true;
         s.hydrating = msg.hydrating;
+        // The viewed session's templates. The draft stays — it is the
+        // user's — but any open `#` completion closes: the list it was
+        // filtering belonged to the session the page just left.
+        s.promptTemplates = msg.prompt_templates;
+        s.promptCompletion = null;
+        s.promptHighlight = null;
         // Not the draft or the chips: they belong to the user, not to the
         // session, and a switch must not take unsent text with it.
         // A different session's picker rows are not the ones the page was
@@ -498,6 +520,18 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       });
       return;
     }
+    case 'prompt_templates': {
+      // A frame for a session the page has left is not the list it shows.
+      // The completion itself is left alone: an open popup re-filters
+      // against the new list in place, and its highlight returns to the
+      // best match of that new list.
+      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
+      store.set((s) => {
+        s.promptTemplates = msg.templates;
+        s.promptHighlight = null;
+      });
+      return;
+    }
     case 'error': {
       // Every refusal and every failure the server reports is one notice,
       // and it ends any wait: the request it answers will never bring a
@@ -651,6 +685,55 @@ export function clearComposer(store: ClientStore): void {
     s.draft = '';
     s.chips = [];
   });
+}
+
+/** Re-derives the `#` completion from the draft and the caret. A null
+ * completion closes the popup. The highlight returns to the best match
+ * only when the completion actually changed — a re-read over an unmoved
+ * caret (a click in place, a selection event) keeps an arrow's move. */
+export function setPromptCompletion(store: ClientStore, completion: PromptCompletion | null): void {
+  store.set((s) => {
+    const current = s.promptCompletion;
+    const same =
+      current !== null &&
+      completion !== null &&
+      current.start === completion.start &&
+      current.filter === completion.filter;
+    s.promptCompletion = completion;
+    if (!same) s.promptHighlight = null;
+  });
+}
+
+/** Moves the popup's highlight by `delta` from wherever it sits — the
+ * default last row, or a row the user already moved to — clamped to `rows`. */
+export function movePromptHighlight(store: ClientStore, rows: number, delta: 1 | -1): void {
+  store.set((s) => {
+    const from = s.promptHighlight ?? Math.max(rows - 1, 0);
+    s.promptHighlight = Math.min(Math.max(from + delta, 0), Math.max(rows - 1, 0));
+  });
+}
+
+/** The row the `#` popup highlights: the one the user moved to, or the
+ * last row — the best match — by default. Always in range of `rows`. */
+export function promptHighlightOf(store: ClientStore, rows: number): number {
+  const moved = store.state.promptHighlight;
+  if (moved === null) return Math.max(rows - 1, 0);
+  return Math.min(moved, Math.max(rows - 1, 0));
+}
+
+/** Picks a template: the token at the caret becomes `#name`, the popup
+ * closes, and the new caret position is returned for the composer to
+ * place. Nothing happens when no completion is open. */
+export function pickPrompt(store: ClientStore, name: string): number | null {
+  const completion = store.state.promptCompletion;
+  if (completion === null) return null;
+  const picked = applyPromptPick(store.state.draft, completion, name);
+  store.set((s) => {
+    s.draft = picked.draft;
+    s.promptCompletion = null;
+    s.promptHighlight = null;
+  });
+  return picked.caret;
 }
 
 let toastCounter = 0;

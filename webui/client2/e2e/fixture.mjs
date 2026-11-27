@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import crypto, { randomUUID } from "node:crypto";
 import path from "node:path";
-import { bootJinn, restartJinn, scratchApplet, scratchSkill, teardownJinn } from "./harness.mjs";
+import { bootJinn, restartJinn, scratchApplet, scratchPrompt, scratchSkill, teardownJinn } from "./harness.mjs";
 
 /** How long a reply from a running jinn may take. */
 const REPLY_TIMEOUT_MS = 15_000;
@@ -78,6 +78,12 @@ export const sel = {
   /** One applet row, by its id (`data-applet`). */
   APPLET_ROW_NAMED: (id) => `[data-testid="applet-row"][data-applet="${id}"]`,
   APPLET_STATUS: '[data-testid="applet-status"]',
+  /** The composer's `#` prompt popup, its rows, and its one empty-state row. */
+  PROMPT_POPUP: '[data-testid="prompt-popup"]',
+  PROMPT_ROW: '[data-testid="prompt-row"]',
+  /** One prompt row, by its template name (`data-prompt`). */
+  PROMPT_ROW_NAMED: (name) => `[data-testid="prompt-row"][data-prompt="${name}"]`,
+  PROMPT_EMPTY: '[data-testid="prompt-empty"]',
   SESSION_ROW: '[data-testid="session-row"]',
   ACTIVE_SESSION_ROW: '.session.active[data-testid="session-row"]',
   /** One rail row's wrapper, by session id. The row button inside also
@@ -199,6 +205,20 @@ export const BLOCKLESS_PERSONA = "blockless-e2e";
 /** The staged applet the applets spec pivots on. */
 export const APPLET_ID = scratchApplet.id;
 export const APPLET_TITLE = scratchApplet.title;
+
+/** The staged prompt template every prompt-popup spec pivots on. */
+export const PROMPT_NAME = scratchPrompt.name;
+/** A filter that matches the staged prompt's name and nothing else about it. */
+export const PROMPT_FILTER = "e2e-scra";
+/** The staged prompt's description, as the popup lists it beside the name. */
+export const PROMPT_DESCRIPTION = scratchPrompt.description;
+
+/** Reaches the popup open with `filter` typed after its `#`. */
+export async function openPromptPopup(page, filter = "") {
+  await page.locator(sel.DRAFT).click();
+  await page.keyboard.type(`#${filter}`);
+  await expect(page.locator(sel.PROMPT_POPUP)).toBeVisible();
+}
 
 /** The one prompt the sample model streams slowly. */
 export const SLOW_PROMPT = "!response";
@@ -771,6 +791,7 @@ const test = base.extend({
       mcp: stage.mcp === true,
       textOnly: stage.textOnly === true,
       applet: stage.applet === true,
+      prompt: stage.prompt === true,
     });
     await use(run);
     await teardownJinn(run);
@@ -807,5 +828,25 @@ const withStage =
   };
 
 test.with = withStage;
+
+/**
+ * Declares one test that runs on a phone: a touch-enabled page at a
+ * phone-width viewport, so `tap` is real and the phone layout applies.
+ * `test.onPhone` is how a test asks for it, the same shape `test.with`
+ * uses — the context is scoped to that one test alone — and it takes the
+ * same staging object, so a phone test can stage its resources too:
+ *
+ *     test.onPhone({ prompt: true })("…", async ({ page }) => { … })
+ */
+const onPhone =
+  (stage = {}) =>
+  (title, fn) => {
+    test.describe("", () => {
+      test.use({ hasTouch: true, viewport: { width: 390, height: 844 }, stage });
+      test(title, fn);
+    });
+  };
+
+test.onPhone = onPhone;
 
 export { test, expect };

@@ -253,6 +253,7 @@ impl PromptTemplateStore {
             }
 
             if path.extension().is_none_or(|ext| ext != "md") {
+                tracing::debug!(path = %path, "prompt template skipped: not .md");
                 continue;
             }
 
@@ -262,6 +263,7 @@ impl PromptTemplateStore {
                 .and_then(|s| s.to_str())
                 .is_some_and(|stem| stem.starts_with('_'))
             {
+                tracing::debug!(path = %path, "prompt template skipped: underscore-prefixed");
                 continue;
             }
 
@@ -319,6 +321,31 @@ mod tests {
             content,
         )
         .expect("write template");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn load_finds_every_parseable_template_in_the_user_dir() {
+        // Given a user dir holding two well-formed templates — one with a
+        // hyphenated name and a `#` inside its quoted description, the
+        // shape the `/web2` e2e harness stages.
+        let user_dir = jinn_testutil::tempdir();
+        write_template(&user_dir.path, "plan.md", "plan", "Discuss a plan.");
+        write_template(
+            &user_dir.path,
+            "e2e-scratch-prompt.md",
+            "e2e-scratch-prompt",
+            "scratch prompt for the webui2 # popup",
+        );
+
+        // When loading with no project dirs.
+        let store = PromptTemplateStore::load_from_dirs_ordered(&user_dir.path, &[])
+            .expect("load user dir");
+
+        // Then both templates are in the store.
+        assert_eq!(store.len(), 2);
+        let names: Vec<&str> = store.templates().iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"e2e-scratch-prompt"), "names: {names:?}");
     }
 
     #[rstest::rstest]

@@ -652,6 +652,38 @@ body { background: var(--bg); color: var(--fg); }
 .composer-actions .primary { background: var(--accent); color: var(--on-fill); border-color: var(--accent); font-weight: 600; }
 .composer-actions .danger { color: var(--danger); border-color: var(--danger); }
 
+/* The composer's `#` prompt popup: a list above the draft, anchored to the
+   composer. The composer is its containing block, so the popup's bottom
+   sits at the composer's top edge. Tokens only, like every other surface. */
+.composer { position: relative; }
+.prompt-popup {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 100%;
+  margin: 0 0 4px;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px var(--shadow);
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 5;
+}
+.prompt-row {
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prompt-row.active { background: var(--bg-active); color: var(--fg); }
+.prompt-row.muted { color: var(--fg-faint); cursor: default; }
+.prompt-name { color: var(--fg); }
+.prompt-desc { color: var(--fg-dim); }
+
 /* A user entry's images, beneath its text. */
 .entry-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border: 1px solid var(--border); display: block; }
@@ -1160,6 +1192,10 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
      own height. */
   .composer { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
   .draft { font-size: 16px; }
+  /* The prompt popup keeps the composer's side margins and the 40px touch
+     floor the composer's other controls use. */
+  .prompt-popup { left: 12px; right: 12px; }
+  .prompt-row { min-height: 40px; }
   .composer-actions { flex: none; }
   .composer-actions button, .attach { min-height: 40px; padding-left: 10px; padding-right: 10px; }
   /* The jump buttons keep the phone's 40px touch floor, square. */

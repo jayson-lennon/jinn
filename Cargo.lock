@@ -6004,6 +6004,7 @@ dependencies = [
  "jinn-provider-selection-msg",
  "jinn-selection-widget",
  "jinn-session-history-msg",
+ "jinn-session-init-msg",
  "jinn-session-lifecycle-msg",
  "jinn-session-msg",
  "jinn-session-state",

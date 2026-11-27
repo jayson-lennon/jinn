@@ -6168,3 +6168,228 @@ async fn the_launch_note_describes_the_row() {
         "the row is told what the slice is"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Prompt templates: the composer's `#` popup
+// ---------------------------------------------------------------------------
+
+/// Seeds the active session's prompt store with one template per
+/// `(name, description)`, in the order given.
+fn seed_prompts(h: &Harness, templates: &[(&str, &str)]) {
+    let id = active_id(&h.state);
+    h.state.write().session.get_mut(&id).expect("the active session is in memory").set_discovered_prompt_templates(
+        jinn_kernel::PromptTemplateStore::from_vec(
+            templates
+                .iter()
+                .map(|(name, description)| jinn_kernel::PromptTemplate {
+                    name: (*name).to_owned(),
+                    description: (*description).to_owned(),
+                    body: format!("{name} body"),
+                })
+                .collect(),
+        ),
+    );
+}
+
+/// Runs the real `PromptTemplatesLoaded` push, as the actor would.
+fn templates_loaded(h: &Harness, session_id: &jinn_core_types::SessionId) {
+    crate::outbound::prompt_templates_loaded(
+        &h.handle,
+        &jinn_session_init_msg::PromptTemplatesLoaded {
+            session_id: session_id.clone(),
+            templates: Vec::new(),
+            error: None,
+        },
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_templates_scan_pushes_the_sessions_templates_to_every_page() {
+    // Given a connected page, and an active session whose store holds two
+    // templates in a known order.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    seed_prompts(&h, &[("plan", "plan it"), ("approve-plan", "judge it")]);
+    let _ = drain(&mut inbox);
+
+    // When a prompt scan lands for that session.
+    templates_loaded(&h, &active_id(&h.state));
+
+    // Then the page receives one frame naming the session, with both
+    // templates in store order.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::PromptTemplates(body)] = frames.as_slice() else {
+        unreachable!("one prompt-templates frame expected");
+    };
+    assert_eq!(body.session_id, active_id(&h.state));
+    let names: Vec<_> = body.templates.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["plan", "approve-plan"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_templates_scan_pushes_the_store_never_the_event() {
+    // Given a session whose store holds one template.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    seed_prompts(&h, &[("plan", "plan it")]);
+    let _ = drain(&mut inbox);
+
+    // When the event arrives carrying a template the store does not hold.
+    crate::outbound::prompt_templates_loaded(
+        &h.handle,
+        &jinn_session_init_msg::PromptTemplatesLoaded {
+            session_id: active_id(&h.state),
+            templates: vec![jinn_kernel::PromptTemplate {
+                name: "ghost".to_owned(),
+                description: String::new(),
+                body: String::new(),
+            }],
+            error: None,
+        },
+    );
+
+    // Then the frame carries the store's template, not the event's.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::PromptTemplates(body)] = frames.as_slice() else {
+        unreachable!("one prompt-templates frame expected");
+    };
+    let names: Vec<_> = body.templates.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["plan"]);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_templates_scan_for_an_unknown_session_pushes_an_empty_list() {
+    // Given a connected page.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    let _ = drain(&mut inbox);
+
+    // When a prompt scan lands for a session that is not in memory.
+    let stranger = jinn_core_types::SessionId::new();
+    templates_loaded(&h, &stranger);
+
+    // Then the frame names that session and carries no templates.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::PromptTemplates(body)] = frames.as_slice() else {
+        unreachable!("one prompt-templates frame expected");
+    };
+    assert_eq!(body.session_id, stranger);
+    assert!(body.templates.is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_templates_scan_pushes_to_every_connected_page() {
+    // Given two connected pages.
+    let h = harness();
+    let (_a, mut inbox_a, _conn_a) = h.handle.register();
+    let (_b, mut inbox_b, _conn_b) = h.handle.register();
+    seed_prompts(&h, &[("plan", "plan it")]);
+    let _ = drain(&mut inbox_a);
+    let _ = drain(&mut inbox_b);
+
+    // When a prompt scan lands for the active session.
+    templates_loaded(&h, &active_id(&h.state));
+
+    // Then each page receives one prompt-templates frame.
+    assert_eq!(drain(&mut inbox_a).len(), 1);
+    assert_eq!(drain(&mut inbox_b).len(), 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn snapshot_carries_the_active_sessions_prompt_templates() {
+    // Given an active session whose store holds a template.
+    let h = harness();
+    seed_prompts(&h, &[("plan", "Discuss and plan.")]);
+    let (_id, _inbox, _connection) = h.handle.register();
+
+    // When the page connects and is answered with a snapshot.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot carries the template with its name and description.
+    let [ServerMsg::Snapshot(body)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    let [template] = body.prompt_templates.as_slice() else {
+        unreachable!("one template expected");
+    };
+    assert_eq!(template.name, "plan");
+    assert_eq!(template.description, "Discuss and plan.");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_snapshot_of_no_active_session_carries_no_prompt_templates() {
+    // Given an instance with no active session.
+    let h = harness();
+    let (_id, _inbox, _connection) = h.handle.register();
+    // The harness always has an active session; removing it without a
+    // replacement leaves the active id naming a session that is no longer
+    // in memory — the one route to the no-session snapshot. (`remove`
+    // would mint a fresh session instead.)
+    let id = active_id(&h.state);
+    h.state.write().session.remove_without_replacement(&id);
+
+    // When the page connects.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot carries an empty template list.
+    let [ServerMsg::Snapshot(body)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert!(body.prompt_templates.is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_sent_hash_token_from_the_web_expands() {
+    // Given a session whose store holds `plan`, with a body of its own.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("the active session is in memory")
+        .set_discovered_prompt_templates(jinn_kernel::PromptTemplateStore::from_vec(
+            vec![jinn_kernel::PromptTemplate {
+                name: "plan".to_owned(),
+                description: String::new(),
+                body: "PLAN_BODY_MARKER".to_owned(),
+            }],
+        ));
+
+    // When the page sends `#plan` as its message.
+    say(
+        &h,
+        ClientMsg::Send {
+            text: "#plan".to_owned(),
+            images: Vec::new(),
+        },
+    )
+    .await;
+
+    // Then the enqueued entry, run through the same expansion `push_entry`
+    // applies, reads as the template body.
+    let mut entry = h.audit.of_type::<EnqueueUserMessage>().remove(0).entry;
+    h.state.read().session.get(&id).expect("still in memory").expand_entry(&mut entry);
+    assert_eq!(entry.prompt_text(), Some("PLAN_BODY_MARKER"));
+}

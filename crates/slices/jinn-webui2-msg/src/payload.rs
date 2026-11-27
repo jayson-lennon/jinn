@@ -100,6 +100,10 @@ pub struct SnapshotBody {
     /// The persisted color mode — `light`, `dark`, or `system` — applied
     /// before the transcript's first paint.
     pub theme: String,
+    /// The active session's prompt templates, in the store's own order —
+    /// what the composer's `#` popup filters as the user types. Empty when
+    /// no session is active or none has been discovered.
+    pub prompt_templates: Vec<PromptTemplateBody>,
 }
 
 /// One transcript entry on the wire.
@@ -498,6 +502,34 @@ pub struct SkillRowsBody {
     pub filter: String,
     /// The rows, sorted by skill name, filtered by the shared filter.
     pub rows: Vec<SkillRowBody>,
+}
+
+/// One prompt template, as the composer's `#` popup lists it.
+///
+/// The name is what a `#name` token spells; the description sits beside it.
+/// Never the body: the body reaches the model through the expansion every
+/// user entry gets at send time, so the page has no use for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptTemplateBody {
+    /// The template's name, as the `#name` token spells it.
+    pub name: String,
+    /// The template's description.
+    pub description: String,
+}
+
+/// A session's prompt templates, in the store's own order.
+///
+/// Carries the session it describes: a page must ignore it for a session
+/// it has left. It rides every snapshot and is pushed again when the
+/// session's scan finishes, so a page always holds the list of the session
+/// it views. Nothing is filtered here — the page filters as the user
+/// types, so the server is asked nothing per keystroke.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptTemplatesBody {
+    /// The session whose templates these are.
+    pub session_id: SessionId,
+    /// The templates, name and description, in the store's own order.
+    pub templates: Vec<PromptTemplateBody>,
 }
 
 /// One row of the tools modal.

@@ -20,8 +20,9 @@ use crate::payload::{
     AppletRowBody, AppletRowsBody, DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody,
     ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody,
     ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody,
-    PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody, SkillRowBody,
-    SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
+    PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody, PromptTemplatesBody,
+    SessionRowBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody,
+    TitleBody, ToolRowBody, ToolRowsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 
@@ -404,6 +405,7 @@ fn server_snapshot_round_trips() {
         library: Vec::new(),
         hydrating: false,
         theme: String::new(),
+        prompt_templates: Vec::new(),
     }));
 
     // When it round-trips.
@@ -435,6 +437,7 @@ fn server_snapshot_without_active_session_round_trips() {
         library: Vec::new(),
         hydrating: false,
         theme: String::new(),
+        prompt_templates: Vec::new(),
     }));
 
     // When it round-trips.
@@ -707,6 +710,79 @@ fn server_skill_rows_round_trips() {
 
 #[rstest]
 #[test]
+fn prompt_templates_round_trips_with_its_session_and_templates() {
+    // Given a session's two templates, each with a name and a description.
+    let session = SessionId::new();
+    let msg = ServerMsg::PromptTemplates(PromptTemplatesBody {
+        session_id: session.clone(),
+        templates: vec![
+            PromptTemplateBody {
+                name: "plan".to_owned(),
+                description: "Discuss and plan software implementation.".to_owned(),
+            },
+            PromptTemplateBody {
+                name: "approve-plan".to_owned(),
+                description: "Judge a plan.".to_owned(),
+            },
+        ],
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then the session and both templates survive.
+    let ServerMsg::PromptTemplates(body) = back else {
+        unreachable!("a prompt-templates frame expected");
+    };
+    assert_eq!(body.session_id, session);
+    let names: Vec<_> = body.templates.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["plan", "approve-plan"]);
+}
+
+#[rstest]
+#[test]
+fn snapshot_carries_prompt_templates() {
+    // Given a snapshot whose active session has one template.
+    let msg = ServerMsg::Snapshot(Box::new(SnapshotBody {
+        protocol: WEBUI2_PROTOCOL_VERSION,
+        session_id: Some(SessionId::new()),
+        phase: PhaseBody {
+            session_id: SessionId::new(),
+            phase: PhaseView::Idle,
+            queue_len: 0,
+        },
+        model_label: String::new(),
+        title: String::new(),
+        revision: 0,
+        entries_before: 0,
+        entries: Vec::new(),
+        sessions: Vec::new(),
+        library: Vec::new(),
+        hydrating: false,
+        theme: String::new(),
+        prompt_templates: vec![PromptTemplateBody {
+            name: "plan".to_owned(),
+            description: "Discuss and plan software implementation.".to_owned(),
+        }],
+    }));
+
+    // When serialized to its wire form.
+    let json = json_of(&msg);
+
+    // Then the template rides the snapshot with its name and description.
+    let templates = json["prompt_templates"]
+        .as_array()
+        .expect("prompt_templates is an array on the wire");
+    assert_eq!(templates.len(), 1);
+    assert_eq!(templates[0]["name"], "plan");
+    assert_eq!(
+        templates[0]["description"],
+        "Discuss and plan software implementation."
+    );
+}
+
+#[rstest]
+#[test]
 fn client_tool_rows_round_trips() {
     // Given a tools-rows request carrying a filter.
     let msg = ClientMsg::ToolRows {
@@ -968,6 +1044,7 @@ fn server_variant_carries_its_snake_case_tag() {
                 library: Vec::new(),
                 hydrating: false,
                 theme: String::new(),
+                prompt_templates: Vec::new(),
             })),
             "snapshot",
         ),
@@ -1066,6 +1143,13 @@ fn server_variant_carries_its_snake_case_tag() {
                 rows: Vec::new(),
             }),
             "applet_rows",
+        ),
+        (
+            ServerMsg::PromptTemplates(PromptTemplatesBody {
+                session_id: SessionId::new(),
+                templates: Vec::new(),
+            }),
+            "prompt_templates",
         ),
         (
             ServerMsg::NewSessionOptions(NewSessionOptionsBody {
@@ -1276,6 +1360,7 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
         library: Vec::new(),
         hydrating: false,
         theme: String::new(),
+        prompt_templates: Vec::new(),
     }));
 
     // When it round-trips.
@@ -1768,6 +1853,7 @@ fn snapshot_carries_its_library_rows_and_theme() {
         library: vec![row("kept")],
         hydrating: false,
         theme: "dark".to_owned(),
+        prompt_templates: Vec::new(),
     }));
 
     // When it round-trips.
@@ -1819,6 +1905,7 @@ fn snapshot_carries_its_hydrating_flag() {
         library: Vec::new(),
         hydrating: true,
         theme: String::new(),
+        prompt_templates: Vec::new(),
     }));
 
     // When it is serialized.

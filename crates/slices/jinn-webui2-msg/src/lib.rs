@@ -19,9 +19,10 @@ pub use payload::{
     AppletRowBody, AppletRowsBody, DeltaField, EntriesPageBody, EntryDeltaBody, EntryEnvelope,
     EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody,
     McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody,
-    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
-    SkillRowBody, SkillRowsBody, SnapshotBody, TAIL_MAX_BYTES, TAIL_MAX_ENTRIES, TextRunBody,
-    ThemeBody, TitleBody, ToolRowBody, ToolRowsBody, WireEntry, wire_entry,
+    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody,
+    PromptTemplatesBody, SessionRowBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody,
+    TAIL_MAX_BYTES, TAIL_MAX_ENTRIES, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
+    WireEntry, wire_entry,
 };
 pub use server::ServerMsg;
 

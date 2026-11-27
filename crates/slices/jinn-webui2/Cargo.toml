@@ -44,6 +44,10 @@ jinn-persona-msg = { workspace = true }
 # and wake commands. Contract crate only: never the applets implementation
 # slice.
 jinn-applets-msg = { workspace = true }
+# The composer's `#` popup re-filters when a session's prompt scan finishes:
+# the outbound actor subscribes that crate's `PromptTemplatesLoaded`.
+# Contract crate only: never the session-init implementation slice.
+jinn-session-init-msg = { workspace = true }
 # `TextRun` — the matched/plain split the shared skill filter returns.
 jinn-selection-widget = { workspace = true }
 # The composer's image attachments ingest through the `read_image` tool's
