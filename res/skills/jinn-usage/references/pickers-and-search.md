@@ -59,44 +59,6 @@ highlights:
   pinned tool-result pair. The picker stays open so you can load several, and
   loading auto-enables a disabled skill. `<c-u>`/`<c-d>` scroll the markdown
   preview; `<c-r>` re-scans skill directories.
-- **Skill, in the web UI**: the menu button's **Skills** item (while a
-  session is active) opens the same list for the active session —
-  the `●` / `○` mark, name, description, a `project` badge on a
-  project-scoped skill, and a `+` on each row, with the filter bar
-  narrowing it and highlighting the matches. A row click toggles the
-  skill at once, with no staging. Each row's `+` loads the body into context,
-  enabling the skill first if it was off; once loaded, the row is not a
-  toggle and its `+` is disabled. The modal refreshes itself when a
-  skill scan lands. The markdown preview and the context-cost footer
-  are TUI-only.
-- **Tool, in the web UI**: the menu button's **Tools** item (while a
-  session is active) opens the active session's tools — a `✓` / `✗`
-  enabled mark, the name, the description's first sentence — with the
-  filter bar narrowing it and highlighting the matches. Clicking a row
-  commits at once, the TUI `<Tab>` + `<enter>` result with no staging,
-  and the modal stays open. Dismissing with `Esc` or a backdrop click
-  only closes it — there is **no revert**; undo a
-  mis-click by clicking the row again.
-- **MCP servers, in the web UI**: the menu button's **MCP servers** item
-  (while a session is active) opens one row per `[mcp.<name>]` in
-  `jinn.toml` — a `●` / `○` enabled mark, the name, the launch summary,
-  and a status badge (`off` / `starting` / `running` / `dead`). Clicking
-  a row toggles that server for the session at once and the modal stays
-  open; the badge updates live on its own. No stderr/log pane and no
-  tool list — those are TUI-only.
-- **Persona, in the web UI**: the menu button's **Persona** item (while a
-  session is active) opens the personas in their own name-sorted order
-  — a `●` / `○` mark, the name, the description. Clicking a row
-  switches the session's persona and **closes the modal**. A persona
-  without a `<compaction>` handoff block pushes an error entry into the
-  transcript, the same warning the TUI shows.
-- **Applets, in the web UI**: the menu button's **Applets** item (at every
-  time — it depends on no session) opens the saved applets, newest first,
-  with a status line naming the applets server's bind and the filter bar
-  narrowing by title and highlighting the matches. Each row is a link that
-  opens the applet in a new tab while the server is serving, and a
-  disabled line while it is offline. Rename, delete, and kiosk are the
-  TUI's — the web UI opens, nothing more.
 - **MCP server**: `<Tab>` stages enable/disable. `<enter>` applies the staged
   toggles (enabling spawns the server, disabling kills it); `<esc>` reverts
   to how the picker opened. `<c-r>` restarts, `<c-t>` flips the preview pane
@@ -112,6 +74,14 @@ highlights:
   one, `<c-enter>` starts a session there with a lifecycle recipe.
 - **Workflow**: `<c-r>` re-scans the workflows directory.
 - **Task list**: `<c-n>` starts a new session.
+- **In the web UI** there are no `<leader>s` keys. The `☰` menu opens the
+  same Skill, Persona, Tool, and MCP server lists as modals — each a filter
+  bar over rows the TUI picker's own builder made, and a row click applies
+  at once with no staging — and its **Applets** item opens the saved
+  applets. The persona list is also reached by clicking the persona name in
+  the status bar, and the MCP list by clicking the dash's MCP section.
+  The markdown preview, the inspector panes, and the context-cost footer
+  are the TUI's. Each modal: `webui.md` → [Pickers](webui.md#pickers).
 
 ### Context-cost footers
 

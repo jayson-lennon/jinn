@@ -1,6 +1,6 @@
 ---
 name: jinn-usage
-description: Explain and configure jinn, the terminal agent harness: keybindings, workflows (pinning, forking, subagents, MCP, terminal overlay, dictation, Discord, canvas/applets, providers), the web UI (the browser page a running jinn serves: sessions, transcript, composer, pickers), browser automation (headed Chrome via the browser MCP or Lua host functions), the embedded Luau scripting runtime (`jinn luau`), adding new capability (MCP servers, skills, prompts, personas, themes), system prompt assembly, and jinn.toml/providers.toml configuration. Answers "what is this on screen / where is feature X" UI-identification questions via the ui-map reference, for the terminal and the web UI. Use when the user asks how to do something in jinn, what a key does, how a feature works, what a UI element is or where it lives on screen, how to open or use the web UI in a browser, wants to add or extend a feature, or wants a behavior changed via configuration. Offer to edit the user's config when an ask maps to a TOML setting; config edits reload when saved, and the skill says when each change takes effect.
+description: Explain and configure jinn, the terminal agent harness: keybindings, workflows (pinning, forking, subagents, MCP, terminal overlay, dictation, Discord, canvas/applets, providers), the web UI (the browser page a running jinn serves: its sidebar and `⋮` row menu, transcript and `⋮` entry menu, composer, status bar with persona and context figure, the session dash behind the context figure, `☰` menu, pickers), browser automation (headed Chrome via the browser MCP or Lua host functions), the embedded Luau scripting runtime (`jinn luau`), adding new capability (MCP servers, skills, prompts, personas, themes), system prompt assembly, and jinn.toml/providers.toml configuration. Answers "what is this on screen / where is feature X" UI-identification questions via the ui-map reference, for the terminal and the web UI. Use when the user asks how to do something in jinn, what a key does, how a feature works, what a UI element is or where it lives on screen, how to open or use the web UI in a browser, wants to add or extend a feature, or wants a behavior changed via configuration. Offer to edit the user's config when an ask maps to a TOML setting; config edits reload when saved, and the skill says when each change takes effect.
 ---
 
 # jinn Usage Guide
@@ -24,14 +24,18 @@ page onto the same sessions — so most features have a TUI and a web way.
    serves both from one instance — same sessions, same active session. The
    web UI (a browser page, served at the root of its own port) has few keybinds: almost every
    action is a click. Say "browser", "web UI", or a URL, or name a
-   web-only element (the `#` drawer button, **Switch session…**, the
-   **Queue** / **Cancel** / **Send** buttons, its **Skills**, **Persona**,
+   web-only element (the `#` drawer button, the **Archive** button, the
+   **Q** / **Cancel** / **Send** buttons, the `☰` menu, a `⋮` on a
+   session row or on a message, the persona name or context figure in the
+   status bar, the session dash, or its **Skills**, **Persona**,
    **Tools**, or **MCP servers** modal)
    → read `references/webui.md` first. Unsaid → answer for the TUI, and when the feature also exists on
-   the web add one line for it (each feature reference carries its web
-   passage beside the TUI one). A feature the web lacks is listed under
-   "What the web UI does not do" there — say it is TUI-only; never describe a
-   web control that does not exist.
+   the web, its reference names the web control and points at the section
+   of `webui.md` that describes it — follow that pointer rather than
+   answering from the feature reference alone, because a web behavior is
+   described in exactly one place. A feature the web lacks is listed under
+   "What the web UI does not do" there — say it is TUI-only; never
+   describe a web control that does not exist.
 4. **Answer with real keybinds.** Every instruction cites a concrete binding:
    "press `p` in normal mode to pin", never "use the pin command". What's
    written here is the **defaults**; the user may be running different ones.
@@ -79,7 +83,7 @@ the current truth) and echo that.
 | File                                   | Covers                                                                                     |
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `references/ui-map.md`                 | The on-screen surfaces, TUI and web UI: layout diagrams, what each element is, where it sits, its keys |
-| `references/webui.md`                  | The web UI (the browser page served at the root of its own port): how to open it, its sessions / transcript / composer / model picker, its `☰` menu and its five pickers (Skills, Persona, Tools, MCP servers, Applets), its keys, reconnecting, what it does not do |
+| `references/webui.md`                  | The web UI (the browser page served at the root of its own port): how to open it, its sidebar (Sessions / Library, the `⋮` row menu, the **Archive** picker), its transcript and `⋮` entry menu, its status bar (persona, context figure) and the session dash behind the figure, its `☰` menu and its pickers (Skills, Persona, Tools, MCP servers, Applets, the model picker), its composer keys, reconnecting, what it does not do. The one place a web behavior is described |
 | `references/keybindings.md`            | Every scope's default bindings, categorized                                                |
 | `references/context-management.md`     | Pinning, context toggles, isolate, compaction/pruning tuning                               |
 | `references/sessions-and-subagents.md` | Sessions (create, switch, rename), the Library, forks, the session tree, subagents/tasks |
