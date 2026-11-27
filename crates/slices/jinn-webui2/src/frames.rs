@@ -76,9 +76,8 @@ pub fn snapshot(
     revisions: &crate::revision::RevisionTracker,
     settles: &crate::settle::SettleTracker,
     tearing_down: &std::collections::HashSet<SessionId>,
-) -> (ServerMsg, crate::page::EntryWindow) {
-    let frame = crate::snapshot::snapshot(state, revisions, settles, tearing_down);
-    (ServerMsg::Snapshot(Box::new(frame.body)), frame.window)
+) -> crate::snapshot::SnapshotFrame {
+    crate::snapshot::snapshot(state, revisions, settles, tearing_down)
 }
 
 /// One session's whole history, as (index, entry) pairs.

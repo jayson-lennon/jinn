@@ -312,9 +312,12 @@ export type ServerMsg =
       model_label: string;
       title: string;
       /** The session's persona, as the status bar shows it. Empty when no
-       *  session is active. The context figure beside it is not the
-       *  snapshot's: it arrives as its own frame on the first tick. */
+       *  session is active. */
       persona: string;
+      /** The active session's context usage figure, the terminal's own
+       *  (empty when no session is active). The snapshot carries it so the
+       *  status bar is whole on arrival; the tick pushes it only on change. */
+      context_label: string;
       revision: number;
       entries: EntryEnvelope[];
       /** How many entries of the session precede the oldest one carried. */

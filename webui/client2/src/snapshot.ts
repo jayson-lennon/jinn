@@ -37,9 +37,9 @@ export function applySnapshot(store: ClientStore, msg: Extract<ServerMsg, { type
     s.modelLabel = msg.model_label;
     s.title = msg.title;
     s.persona = msg.persona;
-    // The figure is not the snapshot's; the tick pushes it within one
-    // interval. Cleared here so the previous session's never lingers.
-    s.contextLabel = '';
+    // The figure is the snapshot's own, so the bar is whole on arrival: the
+    // tick pushes it only when it changes, and an idle session never does.
+    s.contextLabel = msg.context_label;
     s.revision = msg.revision;
     s.entries = msg.entries;
     s.entriesBefore = msg.entries_before;

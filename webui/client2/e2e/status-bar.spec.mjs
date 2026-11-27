@@ -56,15 +56,22 @@ test.with({ persona: true })("clicking the persona opens the picker, and a pick 
   await expect(page.locator(sel.STATUS_PERSONA)).toHaveText(BLOCKLESS_PERSONA);
 });
 
-test("the context figure appears once the history changes", async ({ page }) => {
-  // Given the boot session, idle: its first tick recorded a baseline and
-  // pushed no figure.
-  await expect(page.locator(sel.STATUS_CONTEXT)).toHaveText("");
+test("the context figure is shown on an idle session the moment the page lands", async ({ page }) => {
+  // Given the boot session, idle, and no turn ever sent. The figure is the
+  // snapshot's own: the tick that pushes it only speaks when it changes, and
+  // an idle session never does, so the page must not have to wait for one.
+  // Then it is already on the bar in one of the terminal's two shapes.
+  await expect(page.locator(sel.STATUS_CONTEXT)).toHaveText(FIGURE);
+});
+
+test("the context figure stays well-formed once the history changes", async ({ page }) => {
+  // Given the boot session's figure already on the bar.
+  await expect(page.locator(sel.STATUS_CONTEXT)).toHaveText(FIGURE);
 
   // When a turn lands in the history.
   await sendAndWaitForEcho(page, "hello");
 
-  // Then the figure arrives on the next tick, in one of the terminal's two
-  // shapes — the page re-shows the server's own string, whatever it became.
+  // Then the figure still reads in one of the terminal's two shapes — the
+  // page re-shows the server's own string, whatever it became.
   await expect(page.locator(sel.STATUS_CONTEXT)).toHaveText(FIGURE);
 });

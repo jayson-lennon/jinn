@@ -357,7 +357,10 @@ fn snapshot_reply(out: &OutboundHandle) -> Reply {
     );
     let session_id = frame.body.session_id.clone().unwrap_or_default();
     out.mark_delivered(&session_id, &frame.window);
-    Reply::one(ServerMsg::Snapshot(Box::new(frame.body)))
+    let crate::snapshot::SnapshotFrame { body, .. } = frame;
+    let mut body = body;
+    crate::outbound::with_status_figure(out, &mut body);
+    Reply::one(ServerMsg::Snapshot(Box::new(body)))
 }
 
 // ---------------------------------------------------------------------------

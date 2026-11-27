@@ -44,6 +44,7 @@ function snapshot(overrides: Partial<Extract<ServerMsg, { type: 'snapshot' }>> =
     model_label: 'model',
     title: 'Title',
     persona: 'persona',
+    context_label: '',
     revision: 1,
     entries: [],
     entries_before: 0,
@@ -73,6 +74,7 @@ describe('snapshot', () => {
       model_label: 'sonnet',
       title: 'A title',
       persona: 'reviewer',
+      context_label: '41.2k/200k',
       revision: 7,
       entries: [entry('e1')],
       entries_before: 40,
@@ -89,6 +91,7 @@ describe('snapshot', () => {
     expect(s.modelLabel).toBe('sonnet');
     expect(s.title).toBe('A title');
     expect(s.persona).toBe('reviewer');
+    expect(s.contextLabel).toBe('41.2k/200k');
     expect(s.revision).toBe(7);
     expect(s.entries.map((e) => e.entry.id)).toEqual(['e1']);
     expect(s.entriesBefore).toBe(40);
@@ -149,19 +152,35 @@ describe('snapshot', () => {
     expect(store.state.chips).toHaveLength(1);
   });
 
-  it('clears the context figure, which the snapshot does not carry', async () => {
-    // Given a context figure from the previous session's tick.
+  it('lands the context figure the snapshot carries', async () => {
+    // Given a page showing a previous session's figure.
     const store = createStore();
     store.set((s) => {
       s.contextLabel = '41%';
     });
     await settled();
 
-    // When a snapshot lands.
-    apply(store, snapshot());
+    // When a snapshot for an idle session lands, carrying its own figure.
+    apply(store, snapshot({ session_id: 's2', context_label: '0/200k' }));
     await settled();
 
-    // Then the figure is cleared, so the old one never lingers.
+    // Then the bar shows the snapshot's figure at once, with no tick needed.
+    expect(store.state.contextLabel).toBe('0/200k');
+  });
+
+  it('shows an empty figure when the snapshot is for no session', async () => {
+    // Given a page showing a previous session's figure.
+    const store = createStore();
+    store.set((s) => {
+      s.contextLabel = '41%';
+    });
+    await settled();
+
+    // When a snapshot for no active session lands.
+    apply(store, snapshot({ session_id: null, context_label: '' }));
+    await settled();
+
+    // Then the bar is empty, so the old figure never lingers.
     expect(store.state.contextLabel).toBe('');
   });
 

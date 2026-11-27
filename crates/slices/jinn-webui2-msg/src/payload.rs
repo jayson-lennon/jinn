@@ -119,9 +119,13 @@ pub struct SnapshotBody {
     /// The active session's title (empty when no session is active).
     pub title: String,
     /// The active session's persona name (empty when no session is active).
-    /// The status bar shows it; the context figure beside it is not the
-    /// snapshot's — it arrives as its own frame on the first tick.
     pub persona: String,
+    /// The active session's context usage figure, as the terminal's own
+    /// function formats it (empty when no session is active). The status bar
+    /// shows it beside the persona. The snapshot carries it so the bar is
+    /// whole the moment a page lands or switches: the tick that pushes the
+    /// figure only speaks when it changes, and an idle session never does.
+    pub context_label: String,
     /// The active session's history revision. The page echoes it back
     /// in `Hello` so the server can tell a safe incremental resume from
     /// one that needs the whole transcript again.

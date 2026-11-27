@@ -807,14 +807,17 @@ pub(crate) async fn follow_active_session(
     msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
 ) {
     crate::actions::wait_for_activation(&handle.deps.state, &msg.session_id).await;
-    let (frame, window) = crate::frames::snapshot(
+    let crate::snapshot::SnapshotFrame { mut body, window } = crate::frames::snapshot(
         &handle.deps.state,
         &handle.deps.revisions,
         handle.settles(),
         &handle.tearing_down(),
     );
     handle.mark_delivered(&msg.session_id, &window);
-    handle.broadcast(&frame);
+    // The page resets its status bar with this frame; the figure rides on it
+    // so the bar is whole on arrival rather than waiting on a change.
+    with_status_figure(handle, &mut body);
+    handle.broadcast(&ServerMsg::Snapshot(Box::new(body)));
 }
 
 impl MsgHandler<jinn_mcp_msg::McpRuntimeStored> for OutboundActor {
@@ -942,7 +945,7 @@ fn serving_from_cell(handle: &super::OutboundHandle) -> (bool, String) {
 
 /// The status-bar facts for the active session: its persona and the context
 /// figure, as the terminal's own shared function formats it.
-fn status_facts(handle: &super::OutboundHandle) -> Option<(SessionId, String, String)> {
+pub(crate) fn status_facts(handle: &super::OutboundHandle) -> Option<(SessionId, String, String)> {
     // State guard first, then the provider cell — the order every other
     // path takes them in. Both drop before this returns.
     let guard = handle.state().read();
@@ -955,6 +958,35 @@ fn status_facts(handle: &super::OutboundHandle) -> Option<(SessionId, String, St
         session.persona_name().to_owned(),
         jinn_status_bar_msg::format_context_figure(&figure),
     ))
+}
+
+/// Fills the context figure into a snapshot the page is about to receive,
+/// and records that figure as what the page was told.
+///
+/// A snapshot replaces the page's view wholesale, and the page resets the
+/// status bar's figure with it. Left to the tick alone, the figure would
+/// depend on a change that an idle session never has: the tick records a
+/// baseline on its first read and pushes nothing, so a fresh page — or one
+/// that just switched sessions — would show an empty figure for good. The
+/// snapshot carries the figure, and seeding the told-baseline here keeps
+/// the next tick from pushing the same one again.
+pub(crate) fn with_status_figure(
+    handle: &super::OutboundHandle,
+    body: &mut jinn_webui2_msg::SnapshotBody,
+) {
+    let Some((session_id, _persona, label)) = status_facts(handle) else {
+        return;
+    };
+    // Only the snapshot's own session: a switch may have moved the active
+    // session on between the body's build and this read.
+    if body.session_id.as_ref() != Some(&session_id) {
+        return;
+    }
+    handle
+        .told_status
+        .lock()
+        .insert(session_id, (body.persona.clone(), label.clone()));
+    body.context_label = label;
 }
 
 /// Reads the active session's persona and context figure and pushes one

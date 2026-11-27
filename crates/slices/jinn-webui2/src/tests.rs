@@ -1123,6 +1123,71 @@ async fn hello_on_a_fresh_page_answers_a_snapshot() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn hello_on_a_fresh_page_carries_the_context_figure() {
+    // Given a session with a transcript, and no tick having run yet.
+    let h = harness();
+    push(&h.state, ChatEntry::user("one"));
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot carries the figure, so the bar is whole on arrival
+    // with no tick to wait for — the bug left an idle session's bar empty.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert_ne!(snapshot.context_label, "");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_snapshot_seeds_the_tick_so_an_idle_tick_is_silent_until_the_figure_changes() {
+    // Given a session on a windowed model with an empty prompt, and a page
+    // whose hello answered a snapshot carrying the figure.
+    let mut page = connected_page();
+    seed_window(&page.handle);
+    put_session_on_empty_window(&page);
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &page.handle,
+    )
+    .await;
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert_eq!(snapshot.context_label, "0.0%/200k");
+
+    // When a tick runs with nothing changed, and then the figure changes and
+    // another tick runs.
+    let idle = flush_frames(&mut page);
+    put_session_at_half_window(&page);
+    let changed = flush_frames(&mut page);
+
+    // Then the idle tick said nothing and the changed one pushed the new
+    // figure: the snapshot seeded the baseline the tick diffs against.
+    assert!(
+        status_frames(&idle).is_empty(),
+        "the snapshot already told the page: {idle:?}"
+    );
+    let status = status_frames(&changed);
+    let [(_, label)] = status.as_slice() else {
+        unreachable!("one frame for the changed figure: {changed:?}");
+    };
+    assert_eq!(label, "50.0%/200k");
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn hello_with_a_matching_cursor_and_revision_sends_only_later_entries() {
     // Given a page that saw the first of two entries at the current revision.
     let h = harness();
@@ -7068,6 +7133,21 @@ fn put_session_at_half_window(page: &Page) {
         .set_context_sizes(100_000, 0);
 }
 
+/// Puts the active session on [`WINDOWED_MODEL`] with an empty prompt, so
+/// its figure reads `0.0%/200k` — the state a fresh session is in.
+fn put_session_on_empty_window(page: &Page) {
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_model(ModelSelection::Single(WINDOWED_MODEL.to_owned()));
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_context_sizes(0, 0);
+}
+
 /// The `ContextUsage` frames among `frames`, as their `(persona, label)`.
 fn status_frames(frames: &[ServerMsg]) -> Vec<(String, String)> {
     frames
@@ -7345,7 +7425,7 @@ fn a_working_time_the_session_accrued_is_pushed_to_an_open_dash() {
         cell.restore(
             id,
             vec![jinn_core_types::WorkingInterval::closed(start, end)],
-        )
+        );
     });
     crate::outbound::flush(&h.handle);
 

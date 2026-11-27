@@ -200,6 +200,11 @@ impl OutboundHandle {
 
 mod handlers;
 
+/// The one place a snapshot about to be sent gains the status bar's figure.
+/// Production callers are the reply and the session-switch push; both need
+/// it, so it is exported outside the test gate.
+pub(crate) use handlers::with_status_figure;
+
 #[cfg(test)]
 pub(crate) use handlers::{
     applets_rescanned, applets_serving_changed, archive_failed, context_override_changed, flush,
