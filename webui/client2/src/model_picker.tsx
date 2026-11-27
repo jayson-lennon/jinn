@@ -13,7 +13,7 @@ import { createEffect, For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg, ModelRow } from './protocol';
 import type { ClientStore } from './store';
-import { Runs } from './pickers';
+import { Runs } from './runs';
 
 /** Sends one command. */
 export type Send = (msg: ClientMsg) => void;

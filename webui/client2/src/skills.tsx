@@ -8,6 +8,7 @@
 import { For, Show, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { SkillRow } from './protocol';
+import { Runs } from './runs';
 
 export interface SkillsModalProps {
   /** The rows, as the store holds them. */
@@ -127,11 +128,3 @@ function SkillRowView(props: {
   );
 }
 
-/** A field's text, with the filter's matched runs highlighted. */
-function Runs(props: { runs: readonly import('./protocol').TextRun[] }): JSX.Element {
-  return (
-    <For each={props.runs}>
-      {(run) => (run.matched ? <mark>{run.text}</mark> : <span>{run.text}</span>)}
-    </For>
-  );
-}
