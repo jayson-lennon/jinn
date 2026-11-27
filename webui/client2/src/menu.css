@@ -1,0 +1,77 @@
+/* ---- hamburger menu ---- */
+.menu { position: relative; display: inline-flex; flex: none; }
+.menu-button {
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.menu-button:hover { border-color: var(--accent); }
+.menu-button:focus-visible { outline: 1px solid var(--accent); }
+/* Closed, the scrim and the panel are present but invisible and take no
+   pointer events; open, the panel slides in on its transform. `hidden`
+   would not do — `display: none` removes the transition's from. */
+.menu-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  z-index: 60;
+  visibility: hidden;
+  pointer-events: none;
+}
+.menu-scrim.open { visibility: visible; pointer-events: auto; }
+.menu-panel {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 280px;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 70;
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition: transform .25s ease, visibility .25s;
+}
+.menu-panel.open { transform: translateX(0); visibility: visible; }
+.menu-item {
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  border: 0;
+  border-radius: 5px;
+  padding: 8px 12px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.menu-item:hover { background: var(--bg-hover); }
+.menu-item:focus-visible { outline: 1px solid var(--accent); }
+.title, .title-edit, .model-chip {
+  background: transparent;
+  color: var(--fg);
+  border: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  font: inherit;
+}
+.title { cursor: text; }
+.title:hover { background: var(--bg-hover); }
+.title-edit { background: var(--bg-raised); border: 1px solid var(--accent); }
+.model-chip {
+  margin-left: auto;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 13px;
+}
+.model-chip:hover { color: var(--fg); border-color: var(--fg-faint); }
+

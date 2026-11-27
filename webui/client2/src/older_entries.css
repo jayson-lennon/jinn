@@ -1,0 +1,25 @@
+/* ---- older entries ---- */
+/* Above the transcript's first row: a spinner while a page loads, or the
+   affordance that asks for one. Both sit inside the scroll container so
+   they scroll away with the history they describe. */
+.older-spinner,
+.older-more {
+  display: block;
+  margin: 6px auto 10px;
+  color: var(--fg-dim);
+  font-size: 0.85em;
+  text-align: center;
+}
+.older-more {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  cursor: pointer;
+  color: var(--fg-dim);
+}
+.older-more:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+

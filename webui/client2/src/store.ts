@@ -5,18 +5,33 @@
 // rendered page is always a pure function of the store and can be rebuilt
 // from a snapshot after a reconnect without carrying anything else.
 //
-// The transcript is one array of envelopes in history order. An
-// `entry_upsert` carries the server's own index, so the client never
-// re-derives ordering; an `entry_delta` names its entry by id, resolved
-// through a positions map so a streamed token never scans the transcript.
+//
+// This file is the store's shape and its one dispatch. The transcript's
+// mutations live in `transcript_entries.ts`, the session lists in
+// `session_rows.ts`, the pickers' rows in `picker_rows.ts`, and so on — each
+// `apply*` arm below delegates to its topic; a frame kind is handled here or
+// nowhere.
 
 import { createStore as createStoreValue } from 'solid-js';
 import type { Store, StoreSetter } from 'solid-js';
-import type { LastSeen } from './unread';
-import { applyPromptPick, type PromptCompletion } from './prompts';
+import type { Toast } from './toast_state';
+import { loadLastSeen } from './last_seen';
+import type { PromptCompletion } from './prompts';
+import { applySnapshot } from './snapshot';
+import { applyEntriesPage, applyEntryDelta, applyEntryUpsert } from './transcript_entries';
+import { applySessions, applyTitle } from './session_rows';
+import {
+  applyAppletRows,
+  applyMcpRows,
+  applyModelRows,
+  applyPersonaRows,
+  applyPickerRows,
+  applySkillRows,
+  applyToolRows,
+} from './picker_rows';
+import { applyError } from './toast_state';
 import type {
   AppletRow,
-  DeltaField,
   EntryEnvelope,
   McpRow,
   ModelRow,
@@ -124,12 +139,6 @@ export interface ViewState {
   lastSeen: Record<string, string>;
 }
 
-/** One transient notice the page shows until it is dismissed. */
-export interface Toast {
-  readonly id: number;
-  readonly message: string;
-}
-
 const INITIAL_STATE: ViewState = {
   sessionId: null,
   phase: 'Idle',
@@ -181,84 +190,6 @@ export interface ClientStore {
   set: StoreSetter<ViewState>;
 }
 
-/**
- * One line on the console for an unread-mark decision. Off unless the
- * page is opened with `?debug=unread`: the mark is a quiet feature and
- * normal operation logs nothing, but a mark that will not clear is only
- * diagnosable from the two times behind it.
- */
-const UNREAD_DEBUG: boolean = (() => {
-  try {
-    return new URLSearchParams(window.location.search).get('debug') === 'unread';
-  } catch {
-    return false;
-  }
-})();
-
-function debugUnread(message: string, fields: Record<string, unknown>): void {
-  if (!UNREAD_DEBUG) return;
-  console.debug(`[unread] ${message}`, fields);
-}
-
-/** entry id -> its index in `entries`. Rebuilt on every structural change. */
-let positions = new Map<string, number>();
-
-function reindex(entries: readonly EntryEnvelope[]): void {
-  positions = new Map(entries.map((envelope, index) => [envelope.entry.id, index]));
-}
-
-/** Where the last-seen map persists, so a mark survives a reload. */
-const LAST_SEEN_KEY = 'jinn.web2.lastSeen';
-
-/**
- * The saved last-seen map, or an empty one. Storage can be refused
- * (private mode, a quota) and a saved value can be stale or corrupt;
- * either way the page starts with no memory and marks nothing as read
- * that it cannot prove it saw.
- */
-function loadLastSeen(): Record<string, string> {
-  try {
-    const raw = window.localStorage.getItem(LAST_SEEN_KEY);
-    if (raw === null) return {};
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter(
-        (entry): entry is [string, string] =>
-          typeof entry[1] === 'string' && Number.isFinite(Date.parse(entry[1])),
-      ),
-    );
-  } catch {
-    return {};
-  }
-}
-
-/** The row's settle time when it is the viewed session's, in either list. */
-function viewedRowSettledAt(
-  sessionId: string,
-  sessions: readonly SessionRow[],
-  library: readonly SessionRow[],
-): string | null {
-  const row = [...sessions, ...library].find((r) => r.session_id === sessionId);
-  return row === undefined || row.last_settled_at === null ? null : row.last_settled_at;
-}
-
-/**
- * Persists the map, less any session no longer listed: archived sessions
- * must not accumulate. A refused write leaves the in-memory map intact.
- */
-function saveLastSeen(lastSeen: LastSeen, sessions: readonly SessionRow[], library: readonly SessionRow[]): void {
-  const listed = new Set([...sessions, ...library].map((row) => row.session_id));
-  const kept = Object.fromEntries(
-    Object.entries(lastSeen).filter(([id]) => listed.has(id)),
-  );
-  try {
-    window.localStorage.setItem(LAST_SEEN_KEY, JSON.stringify(kept));
-  } catch {
-    // As `theme.ts`: the hint is an optimization, never a correctness need.
-  }
-}
-
 export function createStore(initial: ViewState = INITIAL_STATE): ClientStore {
   // A fresh object, never the shared default: the loaded map belongs to
   // this store alone.
@@ -271,120 +202,19 @@ export function isBusy(phase: Phase): boolean {
   return phase !== 'Idle';
 }
 
-/** The newest real entry id the page holds, for the next `hello`. */
-export function newestEntryId(entries: readonly EntryEnvelope[]): string | null {
-  for (let i = entries.length - 1; i >= 0; i -= 1) {
-    const id = entries[i]?.entry.id;
-    if (id !== undefined && !id.startsWith(OPTIMISTIC_PREFIX)) return id;
-  }
-  return null;
-}
-
-const OPTIMISTIC_PREFIX = 'optimistic-';
-
-/** Whether an entry id is the page's own placeholder for a just-sent message. */
-export function isOptimistic(id: string): boolean {
-  return id.startsWith(OPTIMISTIC_PREFIX);
-}
-let optimisticCounter = 0;
-
 /**
  * Applies one frame: the browser's single dispatch. Every `ServerMsg`
  * variant has exactly one arm and there is no fallback, so a new frame
  * kind is a type error until it is handled here.
  *
- * A snapshot is always applied. It replaces which session the page views
- * and that session's transcript; the draft and pending images are not
- * the transcript's and are left as they are, so following a switch made
- * elsewhere never discards what the user is typing.
+ * An arm with a body worth naming lives in its topic file and is a
+ * one-line delegation; the arms that stay inline set one or two fields
+ * and have no state of their own to carry.
  */
 export function apply(store: ClientStore, msg: ServerMsg): void {
   switch (msg.type) {
     case 'snapshot': {
-      // Read before the setter: whether this snapshot is the one the page
-      // is waiting on, and so must end the loading overlay.
-      const loadingId = store.state.loadingSessionId;
-      store.set((s) => {
-        s.sessionId = msg.session_id;
-        s.phase = msg.phase.phase;
-        s.queueLen = msg.phase.queue_len;
-        s.modelLabel = msg.model_label;
-        s.title = msg.title;
-        s.persona = msg.persona;
-        // The figure is not the snapshot's; the tick pushes it within one
-        // interval. Cleared here so the previous session's never lingers.
-        s.contextLabel = '';
-        s.revision = msg.revision;
-        s.entries = msg.entries;
-        s.entriesBefore = msg.entries_before;
-        s.loadingMore = false;
-        s.sessions = msg.sessions;
-        s.library = msg.library;
-        s.theme = msg.theme;
-        s.synced = true;
-        s.hydrating = msg.hydrating;
-        // The viewed session's templates. The draft stays — it is the
-        // user's — but any open `#` completion closes: the list it was
-        // filtering belonged to the session the page just left.
-        s.promptTemplates = msg.prompt_templates;
-        s.promptCompletion = null;
-        s.promptHighlight = null;
-        // Not the draft or the chips: they belong to the user, not to the
-        // session, and a switch must not take unsent text with it.
-        // A different session's picker rows are not the ones the page was
-        // looking at; an open modal re-asks for its own rows on open.
-        s.skillRows = [];
-        s.skillFilter = '';
-        s.toolRows = [];
-        s.toolFilter = '';
-        s.mcpRows = [];
-        s.mcpFilter = '';
-        s.personaRows = [];
-        s.personaFilter = '';
-        // The page is now viewing this session: whatever settled before
-        // this moment is seen. One arm covers a click on the page and a
-        // switch made elsewhere that the page follows — both land here.
-        // The page is now viewing this session: whatever settled before
-        // this moment is seen. One arm covers a click on the page and a
-        // switch made elsewhere that the page follows — both land here.
-        // The time recorded is the server's own settle time for the
-        // session, never the browser's clock: the two run on different
-        // machines and drift, and a browser that is behind would record
-        // a "seen" older than the settle and never clear the mark.
-        if (msg.session_id !== null) {
-          const settled = viewedRowSettledAt(msg.session_id, msg.sessions, msg.library);
-          const seen = settled ?? new Date().toISOString();
-          s.lastSeen[msg.session_id] = seen;
-          if (UNREAD_DEBUG) {
-            debugUnread('snapshot: marked seen', {
-              session: msg.session_id,
-              seenAt: seen,
-              rowSettledAt: settled,
-            });
-          }
-        }
-        if (loadingId === null) {
-          // No wait to end.
-        } else if (loadingId === FORK_PENDING) {
-          // A fork's child has no id the page could wait on; its snapshot is
-          // the first one naming a session other than the source. One naming
-          // the source leaves the overlay up: the fork has not landed yet.
-          if (msg.session_id !== forkSource) s.loadingSessionId = null;
-          if (s.loadingSessionId === null) forkSource = null;
-        } else if (msg.session_id === loadingId) {
-          // Only the snapshot the page is waiting for ends the wait. One
-          // naming another session — the old session's, answered when a disk
-          // load outlived the handler's own wait — leaves the overlay up until
-          // the real one lands.
-          s.loadingSessionId = null;
-        }
-      });
-      // Indexed from the frame's own array, not the store's. Reading the
-      // store's array here left the index naming the session just left,
-      // so an upsert for the new session was appended instead of
-      // replacing its copy from the snapshot, and the entry showed twice.
-      reindex(msg.entries);
-      if (msg.session_id !== null) saveLastSeen(store.state.lastSeen, msg.sessions, msg.library);
+      applySnapshot(store, msg);
       return;
     }
     case 'theme': {
@@ -400,18 +230,15 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
     case 'entries_page': {
-      if (store.state.sessionId !== msg.session_id) return;
-      prependPage(store, msg.entries, msg.entries_before);
+      applyEntriesPage(store, msg);
       return;
     }
     case 'entry_upsert': {
-      if (!belongsToViewedSession(store, msg.session_id)) return;
-      upsert(store, msg.index, msg.entry);
+      applyEntryUpsert(store, msg);
       return;
     }
     case 'entry_delta': {
-      if (!belongsToViewedSession(store, msg.session_id)) return;
-      appendDelta(store, msg.entry_id, msg.field, msg.chunk);
+      applyEntryDelta(store, msg);
       return;
     }
     case 'phase': {
@@ -423,27 +250,7 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
     case 'sessions': {
-      // While a session is viewed, each settle it reports is seen: copy
-      // the server's own time, so the comparison is exact rather than
-      // against the browser's clock. The viewed session's row is in
-      // whichever list holds it. A frame with no such settle changes
-      // nothing, and the hot path then skips the storage write.
-      const viewed = store.state.sessionId;
-      const settled = viewed === null ? null : viewedRowSettledAt(viewed, msg.rows, msg.library);
-      // Only a settle the map does not already hold is a change; the same
-      // time arrives on every history append of the viewed session.
-      const changed = settled !== null && store.state.lastSeen[viewed ?? ''] !== settled;
-      store.set((s) => {
-        s.sessions = msg.rows;
-        s.library = msg.library;
-        s.hydrating = msg.hydrating;
-        if (viewed !== null && settled !== null) {
-          s.lastSeen[viewed] = settled;
-        }
-      });
-      if (changed) {
-        saveLastSeen(store.state.lastSeen, msg.rows, msg.library);
-      }
+      applySessions(store, msg);
       return;
     }
     case 'model': {
@@ -454,15 +261,7 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
     case 'title': {
-      if (!belongsToViewedSession(store, msg.session_id)) return;
-      store.set((s) => {
-        s.title = msg.title;
-        // The sidebar row shows the same title; one message updates both
-        // places it is displayed, so they cannot disagree.
-        s.sessions = s.sessions.map((row) =>
-          row.session_id === msg.session_id ? { ...row, title: msg.title } : row,
-        );
-      });
+      applyTitle(store, msg);
       return;
     }
     case 'context_usage': {
@@ -474,71 +273,31 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
     case 'picker_rows': {
-      // A late answer to a filter the user has typed past is dropped.
-      if (msg.filter !== store.state.pickerFilter) return;
-      store.set((s) => {
-        s.pickerRows = msg.rows;
-      });
+      applyPickerRows(store, msg);
       return;
     }
     case 'model_rows': {
-      // A push for a session the page has left, or for text the user has
-      // typed past, is not the view the page is holding.
-      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
-      if (msg.filter !== store.state.modelFilter) return;
-      store.set((s) => {
-        s.modelRows = msg.rows;
-        // A push is how the page learns its refresh finished.
-        s.refreshing = false;
-      });
+      applyModelRows(store, msg);
       return;
     }
     case 'skill_rows': {
-      // A frame for a session the page has left, or for text the user
-      // has typed past, is not the view the page is holding.
-      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
-      if (msg.filter !== store.state.skillFilter) return;
-      store.set((s) => {
-        s.skillRows = msg.rows;
-      });
+      applySkillRows(store, msg);
       return;
     }
     case 'tool_rows': {
-      // The same two guards as the skills frame: the viewed session, and
-      // the filter the page is holding right now.
-      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
-      if (msg.filter !== store.state.toolFilter) return;
-      store.set((s) => {
-        s.toolRows = msg.rows;
-      });
+      applyToolRows(store, msg);
       return;
     }
     case 'mcp_rows': {
-      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
-      if (msg.filter !== store.state.mcpFilter) return;
-      store.set((s) => {
-        s.mcpRows = msg.rows;
-      });
+      applyMcpRows(store, msg);
       return;
     }
     case 'persona_rows': {
-      if (store.state.sessionId !== null && msg.session_id !== store.state.sessionId) return;
-      if (msg.filter !== store.state.personaFilter) return;
-      store.set((s) => {
-        s.personaRows = msg.rows;
-      });
+      applyPersonaRows(store, msg);
       return;
     }
     case 'applet_rows': {
-      // The saved-app catalog is instance-wide, so there is no session to
-      // match; the filter alone says whether this is the view the page is
-      // holding. A push from an open modal re-asks in the same filter, so
-      // it is never dropped by this guard.
-      if (msg.filter !== store.state.appletFilter) return;
-      store.set((s) => {
-        s.appletRows = msg.rows;
-        s.appletServing = { serving: msg.serving, bind: msg.bind };
-      });
+      applyAppletRows(store, msg);
       return;
     }
     case 'prompt_templates': {
@@ -554,14 +313,7 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
     case 'error': {
-      // Every refusal and every failure the server reports is one notice,
-      // and it ends any wait: the request it answers will never bring a
-      // snapshot, and the overlay must not outlive the answer.
-      pushToast(store, msg.message);
-      forkSource = null;
-      store.set((s) => {
-        s.loadingSessionId = null;
-      });
+      applyError(store, msg);
       return;
     }
     case 'current': {
@@ -587,270 +339,7 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
  * describes belongs to a transcript the user is no longer looking at. A
  * page with no session yet accepts anything.
  */
-function belongsToViewedSession(store: ClientStore, sessionId: string): boolean {
+export function belongsToViewedSession(store: ClientStore, sessionId: string): boolean {
   const viewed = store.state.sessionId;
   return viewed === null || viewed === sessionId;
-}
-
-function upsert(store: ClientStore, index: number, envelope: EntryEnvelope): void {
-  // The array that is installed, so the index below is rebuilt from the
-  // very array the transcript now holds and not from a read-back of the
-  // store, which can lag the write by one frame.
-  let installed: EntryEnvelope[] = [];
-  store.set((s) => {
-    // A real user entry is the server catching up with a sent message:
-    // that is the moment every optimistic placeholder is superseded.
-    const base = envelope.kind === 'user' ? dropOptimistic(s.entries) : s.entries;
-    const next = [...base];
-
-    // An entry is in the transcript exactly once, at the index the server
-    // names. A same-id copy is removed by search rather than through the
-    // index: the first real upsert drops the optimistic placeholder, and a
-    // second upsert for the same entry can arrive before the index
-    // catches up — gated on the index, it skipped the removal and appended
-    // a second copy, so one user entry with an image showed twice.
-    const at = next.findIndex((e) => e.entry.id === envelope.entry.id);
-    if (at !== -1) next.splice(at, 1);
-    // The index is live: it counts from the session's first entry, while
-    // the page holds only a tail. Shift it by what precedes the tail, and
-    // an entry inside the tail lands at its own slot while a new one at
-    // the end still lands at the end.
-    next.splice(clamp(index - s.entriesBefore, next.length), 0, envelope);
-    s.entries = next;
-    installed = next;
-  });
-  reindex(installed);
-}
-
-/** Prepends one page of older entries, keeping the index offset true. */
-function prependPage(store: ClientStore, page: EntryEnvelope[], entriesBefore: number): void {
-  let installed: EntryEnvelope[] = [];
-  store.set((s) => {
-    s.entries = [...page, ...s.entries];
-    s.entriesBefore = entriesBefore;
-    s.loadingMore = false;
-    installed = s.entries;
-  });
-  reindex(installed);
-}
-
-/** A copy of the transcript without optimistic placeholders. */
-function dropOptimistic(entries: EntryEnvelope[]): EntryEnvelope[] {
-  if (!entries.some((e) => e.entry.id.startsWith(OPTIMISTIC_PREFIX))) return entries;
-  return entries.filter((e) => !e.entry.id.startsWith(OPTIMISTIC_PREFIX));
-}
-
-function clamp(index: number, length: number): number {
-  return Math.max(0, Math.min(index, length));
-}
-
-/** Appends a streamed chunk to one of the four fields that grow. */
-function appendDelta(store: ClientStore, entryId: string, field: DeltaField, chunk: string): void {
-  const index = positions.get(entryId);
-  if (index === undefined) return;
-  const envelope = store.state.entries[index];
-  if (!envelope) return;
-
-  const inner = envelope.entry.kind as Record<string, Record<string, unknown> | undefined>;
-  const tag = Object.keys(inner)[0];
-  const body = tag === undefined ? undefined : inner[tag];
-  if (typeof body !== 'object' || body === null) return;
-
-  // Each streamed kind stores its growing text under a known key; the tag
-  // names which one, so a delta can never land on the wrong field.
-  const key = GROWING_FIELD[tag];
-  if (key === undefined || key !== WIRE_FIELD[field]) return;
-  const current = body[key];
-  if (typeof current !== 'string') return;
-
-  const grown = { ...body, [key]: current + chunk };
-  store.set((s) => {
-    s.entries[index] = { ...envelope, entry: { ...envelope.entry, kind: { [tag]: grown } } };
-  });
-}
-
-/** The wire's `field` -> the entry key it grows. */
-const WIRE_FIELD: Record<DeltaField, string> = {
-  text: 'text',
-  thinking: 'text',
-  args: 'arguments',
-  output: 'content',
-};
-
-/** The persisted map's tag -> the one field of it that streams. */
-const GROWING_FIELD: Record<string, string> = {
-  Assistant: 'text',
-  Thinking: 'text',
-  ToolCall: 'arguments',
-  ToolResult: 'content',
-};
-
-/** Replaces the composer's draft. */
-export function setDraft(store: ClientStore, text: string): void {
-  store.set((s) => {
-    s.draft = text;
-  });
-}
-
-/** Adds pending images to the composer, in the order given. */
-export function addChips(store: ClientStore, images: ImageUpload[]): void {
-  store.set((s) => {
-    s.chips = [...s.chips, ...images];
-  });
-}
-
-/** Removes one pending image, by its position in chip order. */
-export function removeChip(store: ClientStore, index: number): void {
-  store.set((s) => {
-    s.chips = s.chips.filter((_, at) => at !== index);
-  });
-}
-
-/** Clears the draft and every pending image — what a successful send does. */
-export function clearComposer(store: ClientStore): void {
-  store.set((s) => {
-    s.draft = '';
-    s.chips = [];
-  });
-}
-
-/** Re-derives the `#` completion from the draft and the caret. A null
- * completion closes the popup. The highlight returns to the best match
- * only when the completion actually changed — a re-read over an unmoved
- * caret (a click in place, a selection event) keeps an arrow's move. */
-export function setPromptCompletion(store: ClientStore, completion: PromptCompletion | null): void {
-  store.set((s) => {
-    const current = s.promptCompletion;
-    const same =
-      current !== null &&
-      completion !== null &&
-      current.start === completion.start &&
-      current.filter === completion.filter;
-    s.promptCompletion = completion;
-    if (!same) s.promptHighlight = null;
-  });
-}
-
-/** Moves the popup's highlight by `delta` from wherever it sits — the
- * default last row, or a row the user already moved to — clamped to `rows`. */
-export function movePromptHighlight(store: ClientStore, rows: number, delta: 1 | -1): void {
-  store.set((s) => {
-    const from = s.promptHighlight ?? Math.max(rows - 1, 0);
-    s.promptHighlight = Math.min(Math.max(from + delta, 0), Math.max(rows - 1, 0));
-  });
-}
-
-/** The row the `#` popup highlights: the one the user moved to, or the
- * last row — the best match — by default. Always in range of `rows`. */
-export function promptHighlightOf(store: ClientStore, rows: number): number {
-  const moved = store.state.promptHighlight;
-  if (moved === null) return Math.max(rows - 1, 0);
-  return Math.min(moved, Math.max(rows - 1, 0));
-}
-
-/** Picks a template: the token at the caret becomes `#name`, the popup
- * closes, and the new caret position is returned for the composer to
- * place. Nothing happens when no completion is open. */
-export function pickPrompt(store: ClientStore, name: string): number | null {
-  const completion = store.state.promptCompletion;
-  if (completion === null) return null;
-  const picked = applyPromptPick(store.state.draft, completion, name);
-  store.set((s) => {
-    s.draft = picked.draft;
-    s.promptCompletion = null;
-    s.promptHighlight = null;
-  });
-  return picked.caret;
-}
-
-let toastCounter = 0;
-
-/** The loading id while the page waits on a fork it asked for. The child's
- *  id does not exist until the store mints it, so no session id can be
- *  waited on; a string that can never be a session id marks the wait. */
-const FORK_PENDING = '\u0000fork';
-
-/** The session the pending fork was taken from, or null when none is. */
-let forkSource: string | null = null;
-
-/** Stacks one notice. The toast component owns its lifetime. */
-export function pushToast(store: ClientStore, message: string): void {
-  const id = toastCounter++;
-  store.set((s) => {
-    s.toasts = [...s.toasts, { id, message }];
-  });
-}
-
-/** Removes one notice, by id. */
-export function dismissToast(store: ClientStore, id: number): void {
-  store.set((s) => {
-    s.toasts = s.toasts.filter((t) => t.id !== id);
-  });
-}
-
-/** Marks `id` as the session the page is waiting on — the loading overlay's cause. */
-export function beginSessionLoad(store: ClientStore, id: string): void {
-  store.set((s) => {
-    s.loadingSessionId = id;
-  });
-}
-
-/** Raises the loading overlay for a fork of `source`. It ends when a snapshot
- *  names a session other than `source` — the fork's own — or by a refusal or
- *  the stall timeout, like any other wait. */
-export function beginFork(store: ClientStore, source: string | null): void {
-  forkSource = source;
-  store.set((s) => {
-    s.loadingSessionId = FORK_PENDING;
-  });
-}
-
-/** Ends the wait, whatever ended it. */
-export function clearSessionLoad(store: ClientStore): void {
-  forkSource = null;
-  store.set((s) => {
-    s.loadingSessionId = null;
-  });
-}
-
-/**
- * Adds an optimistic user entry so a message appears the instant it is
- * sent. It has no real id; the server's own entry replaces it.
- */
-export function addOptimistic(store: ClientStore, text: string): void {
-  const envelope: EntryEnvelope = {
-    kind: 'user',
-    entry: {
-      id: `${OPTIMISTIC_PREFIX}${optimisticCounter++}`,
-      kind: { User: { display: text, expanded: text } },
-      context_override: 'default',
-      context_history: [],
-    },
-  };
-  let installed: EntryEnvelope[] = [];
-  store.set((s) => {
-    s.entries = [...s.entries, envelope];
-    installed = s.entries;
-  });
-  reindex(installed);
-}
-
-/** The text a user entry displays. */
-export function readUserText(envelope: EntryEnvelope): string {
-  const inner = envelope.entry.kind as { User?: { display?: string } };
-  return inner.User?.display ?? '';
-}
-
-/** The text a single-string entry displays (system, error, assistant...). */
-export function readText(envelope: EntryEnvelope): string {
-  const inner = envelope.entry.kind as Record<string, unknown>;
-  const tag = Object.keys(inner)[0];
-  if (tag === undefined) return '';
-  const body = inner[tag];
-  if (typeof body === 'string') return body;
-  if (typeof body === 'object' && body !== null) {
-    const text = (body as { text?: unknown }).text;
-    if (typeof text === 'string') return text;
-  }
-  return '';
 }

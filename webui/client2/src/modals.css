@@ -1,0 +1,49 @@
+/* ---- modals ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  display: grid;
+  place-items: start center;
+  padding-top: 10vh;
+  /* Above the menu scrim (60) and panel (70): every modal here is opened
+     from a menu item, and must paint over the panel it came from. */
+  z-index: 80;
+}
+.modal {
+  width: min(560px, 90vw);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: 0 12px 40px var(--shadow);
+}
+.modal-filter {
+  width: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font: inherit;
+  margin-bottom: 8px;
+}
+.modal-filter:focus { outline: none; border-color: var(--accent); }
+.modal-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+.modal-list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--fg);
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.modal-list button:hover:not(:disabled) { background: var(--bg-hover); }
+.modal-list button:disabled { color: var(--fg-faint); cursor: not-allowed; }
+
