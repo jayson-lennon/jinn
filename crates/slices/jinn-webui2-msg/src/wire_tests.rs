@@ -53,6 +53,7 @@ fn row(title: &str) -> SessionRowBody {
         title: title.to_owned(),
         is_active: false,
         is_busy: false,
+        is_tearing_down: false,
         in_library: false,
         last_settled_at: None,
     }
@@ -976,6 +977,20 @@ fn server_ping_round_trips_as_a_bare_tag() {
 
 #[rstest]
 #[test]
+fn server_current_round_trips_as_a_bare_tag() {
+    // Given the answer to a `hello` that missed nothing.
+    let msg = ServerMsg::Current;
+
+    // When it is serialized.
+    let json = serde_json::to_value(&msg).expect("current serializes");
+
+    // Then it is the type tag alone, and reads back unchanged.
+    assert_eq!(json, serde_json::json!({ "type": "current" }));
+    assert_eq!(json_of(&roundtrip_server(&msg)), json_of(&msg));
+}
+
+#[rstest]
+#[test]
 fn server_variant_carries_its_snake_case_tag() {
     // Given one message of every server variant.
     let session = SessionId::new();
@@ -1126,6 +1141,7 @@ fn server_variant_carries_its_snake_case_tag() {
             }),
             "error",
         ),
+        (ServerMsg::Current, "current"),
         (ServerMsg::Ping, "ping"),
     ];
 
@@ -1273,6 +1289,12 @@ fn client_variant_carries_its_snake_case_tag() {
                 session_id: SessionId::new(),
             },
             "archive_session",
+        ),
+        (
+            ClientMsg::TeardownSession {
+                session_id: SessionId::new(),
+            },
+            "teardown_session",
         ),
         (ClientMsg::NewSessionOptions, "new_session_options"),
         (
@@ -1661,6 +1683,21 @@ fn client_set_library_round_trips() {
 fn client_archive_session_round_trips() {
     // Given an archive request.
     let msg = ClientMsg::ArchiveSession {
+        session_id: SessionId::new(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_teardown_session_round_trips() {
+    // Given a request to tear down and archive a session.
+    let msg = ClientMsg::TeardownSession {
         session_id: SessionId::new(),
     };
 

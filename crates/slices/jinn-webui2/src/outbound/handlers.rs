@@ -189,6 +189,7 @@ pub(crate) fn phase_changed(
     handle.broadcast(&crate::frames::sessions(
         &handle.deps.state,
         handle.settles(),
+        &handle.tearing_down(),
     ));
 }
 
@@ -286,6 +287,7 @@ impl OutboundActor {
         self.push(&crate::frames::sessions(
             &self.handle.deps.state,
             self.handle.settles(),
+            &self.handle.tearing_down(),
         ));
     }
 }
@@ -422,6 +424,7 @@ impl OutboundActor {
         self.push(&crate::frames::sessions(
             &self.handle.deps.state,
             self.handle.settles(),
+            &self.handle.tearing_down(),
         ));
     }
 }
@@ -532,6 +535,7 @@ pub(crate) fn library_membership_changed(handle: &super::OutboundHandle) {
     handle.broadcast(&crate::frames::sessions(
         &handle.deps.state,
         handle.settles(),
+        &handle.tearing_down(),
     ));
 }
 
@@ -549,6 +553,7 @@ pub(crate) fn sessions_changed(handle: &super::OutboundHandle) {
     handle.broadcast(&crate::frames::sessions(
         &handle.deps.state,
         handle.settles(),
+        &handle.tearing_down(),
     ));
 }
 
@@ -577,6 +582,7 @@ pub(crate) fn startup_hydration_finished(handle: &super::OutboundHandle) {
     handle.broadcast(&crate::frames::sessions(
         &handle.deps.state,
         handle.settles(),
+        &handle.tearing_down(),
     ));
 }
 
@@ -604,6 +610,61 @@ pub(crate) fn archive_failed(
             ),
         },
     ));
+}
+
+impl MsgHandler<jinn_session_lifecycle_msg::SessionTeardownStarted> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionTeardownStarted,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        teardown_started(&self.handle, msg);
+    }
+}
+
+/// Turns one `SessionTeardownStarted` into the frame the rail needs: the
+/// row's busy dot lights while the teardown command runs.
+///
+/// A running teardown does not change the session's phase, so `is_busy`
+/// stays false and the dot needs this flag of its own. The id joins the
+/// handle's tearing-down set first, then the session list is pushed — so a
+/// frame built at any later instant, including a fresh page's snapshot,
+/// carries the flag.
+///
+/// A free function over the handle so a test drives the real push, with
+/// nothing spawned.
+pub(crate) fn teardown_started(
+    handle: &super::OutboundHandle,
+    msg: &jinn_session_lifecycle_msg::SessionTeardownStarted,
+) {
+    handle.mark_tearing_down(&msg.session_id);
+    sessions_changed(handle);
+}
+
+impl MsgHandler<jinn_session_lifecycle_msg::SessionTeardownFinished> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionTeardownFinished,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        teardown_finished(&self.handle, msg);
+    }
+}
+
+/// Turns one `SessionTeardownFinished` into the frame the rail needs: the
+/// busy dot drops.
+///
+/// The lifecycle actor publishes this on every outcome — success, failure,
+/// a refusal before anything spawned, a cancel — so the id is removed
+/// whether or not it was ever marked. A successful teardown-and-archive
+/// clears the dot here a moment before the archive removes the row; that
+/// is the actor's own publish order.
+pub(crate) fn teardown_finished(
+    handle: &super::OutboundHandle,
+    msg: &jinn_session_lifecycle_msg::SessionTeardownFinished,
+) {
+    handle.clear_tearing_down(&msg.session_id);
+    sessions_changed(handle);
 }
 
 impl MsgHandler<jinn_kernel::protocol::system::ActiveSessionChanged> for OutboundActor {
@@ -638,8 +699,12 @@ pub(crate) async fn follow_active_session(
     msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
 ) {
     crate::actions::wait_for_activation(&handle.deps.state, &msg.session_id).await;
-    let (frame, window) =
-        crate::frames::snapshot(&handle.deps.state, &handle.deps.revisions, handle.settles());
+    let (frame, window) = crate::frames::snapshot(
+        &handle.deps.state,
+        &handle.deps.revisions,
+        handle.settles(),
+        &handle.tearing_down(),
+    );
     handle.mark_delivered(&msg.session_id, &window);
     handle.broadcast(&frame);
 }

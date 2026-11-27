@@ -63,8 +63,9 @@ model not confirmed image-capable blocks the attachment (mark it via
 web UI honors the marker even before the first model refresh).
 
 The three `#` / `@` / `/` tokens above do not exist in the web composer
-(`/web2`): text is sent verbatim. `Enter` sends when the session is idle
-and queues while a turn is running (`Shift+Enter` inserts a newline),
+(`/web2`): text is sent verbatim. `Ctrl+Enter` and `Shift+Enter` send
+when the session is idle and queue while a turn is running (`Enter`
+inserts a newline — the reverse of the TUI's `<enter>` / `<s-enter>`),
 and the `+` beside the draft attaches an image — the web counterpart of
 `@path`. An `https://` image URL in the text is fetched and attached too
 (`webui2.md`).
