@@ -5,7 +5,7 @@
 // it reads the result — a same-tick read returns the value before the write.
 
 import { describe, it, expect } from 'vitest';
-import { createStore } from './store';
+import { createStore } from './store/store';
 import {
   addChips,
   clearComposer,
@@ -16,7 +16,7 @@ import {
   setDraft,
   setPromptCompletion,
 } from './composer_state';
-import type { ImageUpload } from './protocol';
+import type { ImageUpload } from './protocol/protocol';
 
 /** A pending image with a name that tells it apart in an assertion. */
 function image(name: string): ImageUpload {

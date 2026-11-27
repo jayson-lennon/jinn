@@ -7,9 +7,9 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { apply, belongsToViewedSession, createStore, isBusy, type ClientStore } from './store';
-import { cancelJump, clearJump, jumpToEntry } from './dash';
-import { BUNDLE_PROTOCOL_VERSION, setReload } from './protocol_version';
-import type { ClientMsg, EntryEnvelope, Phase, PromptTemplate, ServerMsg, SessionRow } from './protocol';
+import { cancelJump, clearJump, jumpToEntry } from '../dash';
+import { BUNDLE_PROTOCOL_VERSION, setReload } from '../protocol/protocol_version';
+import type { ClientMsg, EntryEnvelope, Phase, PromptTemplate, ServerMsg, SessionRow } from '../protocol/protocol';
 
 /** Awaits the microtask a store write needs before it can be read back. */
 async function settled(): Promise<void> {

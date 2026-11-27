@@ -8,7 +8,7 @@
 
 import { For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { AppletRow, TextRun } from './protocol';
+import type { AppletRow, TextRun } from './protocol/protocol';
 import { FilterableModal } from './filterable_modal';
 import { Runs } from './runs';
 

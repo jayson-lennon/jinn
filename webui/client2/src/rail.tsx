@@ -12,7 +12,7 @@
 
 import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientStore } from './store';
+import type { ClientStore } from './store/store';
 import { isUnread, listHasUnread } from './unread';
 import { Runs } from './runs';
 import { beginSessionLoad } from './session_load';
@@ -36,7 +36,7 @@ function formatLocal(iso: string): string {
 export interface RailProps {
   store: ClientStore;
   /** Sends one command; a row click activates, a kebab item sets membership. */
-  send: (msg: import('./protocol').ClientMsg) => void;
+  send: (msg: import('./protocol/protocol').ClientMsg) => void;
   /** Whether the drawer is slid in, and the setter that slides it. */
   open: () => boolean;
   setOpen: (open: boolean) => void;
@@ -106,7 +106,7 @@ export function SessionRail(props: RailProps): JSX.Element {
   document.addEventListener('click', onClick);
   onCleanup(() => document.removeEventListener('click', onClick));
 
-  const rows = (): import('./protocol').SessionRow[] =>
+  const rows = (): import('./protocol/protocol').SessionRow[] =>
     props.store.state.railView === 'library' ? props.store.state.library : props.store.state.sessions;
 
   // A tab is marked when its own list holds an unread row, so the mark
@@ -263,7 +263,7 @@ function SessionPicker(props: { store: ClientStore; send: RailProps['send']; onC
     if (timer !== null) window.clearTimeout(timer);
     timer = window.setTimeout(() => props.send({ type: 'picker_rows', filter: value }), 150);
   };
-  const pick = (row: import('./protocol').PickerRow): void => {
+  const pick = (row: import('./protocol/protocol').PickerRow): void => {
     // An archived session is read from disk here, so the wait is the longest
     // one the page has: the overlay goes up first, exactly as a row click's.
     beginSessionLoad(props.store, row.session_id);

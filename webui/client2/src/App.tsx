@@ -12,12 +12,12 @@
 import { render } from '@solidjs/web';
 import { For, Show, Switch, Match, createEffect, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientMsg } from './protocol';
-import { type ClientStore, apply, createStore } from './store';
+import type { ClientMsg } from './protocol/protocol';
+import { type ClientStore, apply, createStore } from './store/store';
 import { pushToast } from './toast_state';
 import { newestEntryId } from './transcript_entries';
 import { beginFork, clearSessionLoad } from './session_load';
-import { type ConnectionState, openSocket } from './socket';
+import { type ConnectionState, openSocket } from './protocol/socket';
 import { Transcript } from './transcript_scroll';
 import { useFilter, ModelPicker, type Send } from './model_picker';
 import { TitleBar } from './title_bar';

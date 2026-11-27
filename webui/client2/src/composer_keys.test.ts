@@ -13,7 +13,7 @@ import {
   TAP_SLOP_PX,
   type DraftKey,
 } from './composer_keys';
-import type { ImageUpload } from './protocol';
+import type { ImageUpload } from './protocol/protocol';
 
 /** A keystroke with no modifier held. */
 const key = (name: string): DraftKey => ({ key: name, ctrl: false, shift: false });

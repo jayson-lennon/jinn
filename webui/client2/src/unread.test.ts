@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { isUnread, listHasUnread, unreadCount } from './unread';
 import { loadLastSeen, markSeenOnSnapshot, saveLastSeen, viewedRowSettledAt } from './last_seen';
-import type { SessionRow } from './protocol';
+import type { SessionRow } from './protocol/protocol';
 
 /** A session row that settled at `settled`, with the name an assertion reads. */
 function row(id: string, settled: string | null): SessionRow {

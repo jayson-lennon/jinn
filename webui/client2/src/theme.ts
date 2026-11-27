@@ -9,7 +9,7 @@
 // otherwise see a dark flash on every load, because the bundle's own
 // stylesheet ships dark at `:root`.
 
-import type { Theme } from './protocol';
+import type { Theme } from './protocol/protocol';
 
 /** The local-storage key the pre-paint hint lives under. */
 const HINT_KEY = 'jinn.web2.theme';

@@ -6,9 +6,9 @@
 // they are and the user never loses unsent text. These helpers are the one
 // way the composer writes them.
 
-import type { ClientStore } from './store';
+import type { ClientStore } from './store/store';
 import { applyPromptPick, type PromptCompletion } from './prompts';
-import type { ImageUpload } from './protocol';
+import type { ImageUpload } from './protocol/protocol';
 
 /** Replaces the composer's draft. */
 export function setDraft(store: ClientStore, text: string): void {

@@ -8,7 +8,7 @@ import { BUNDLE_PROTOCOL_VERSION, reloadIfStale, setReload, type Reload } from '
 // place the two numbers can be seen to agree: a bumped server constant with
 // a stale client literal fails here, and this file runs inside `build.rs`,
 // so it fails the cargo build.
-import serversSource from '../../../crates/slices/jinn-webui2-msg/src/lib.rs?raw';
+import serversSource from '../../../../crates/slices/jinn-webui2-msg/src/lib.rs?raw';
 
 /** The server's protocol version, read from its source. */
 function serversProtocolVersion(): number {

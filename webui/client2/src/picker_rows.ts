@@ -7,9 +7,9 @@
 // the filter echo; the session-scoped pickers carry a session too, and a
 // frame for a session the page has left is not the view it is holding.
 
-import type { ClientStore } from './store';
-import type { ViewState } from './store';
-import type { ServerMsg } from './protocol';
+import type { ClientStore } from './store/store';
+import type { ViewState } from './store/store';
+import type { ServerMsg } from './protocol/protocol';
 
 /** A frame for a session the page has left is not the view it holds. A page
  *  with no session yet accepts anything. */

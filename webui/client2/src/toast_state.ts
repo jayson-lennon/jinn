@@ -6,9 +6,9 @@
 // about which session the page is viewing. The toast component owns each
 // notice's lifetime; this file only stacks and removes them.
 
-import type { ClientStore } from './store';
+import type { ClientStore } from './store/store';
 import { resolveLoadingAfterError } from './session_load';
-import type { ServerMsg } from './protocol';
+import type { ServerMsg } from './protocol/protocol';
 
 /** One transient notice the page shows until it is dismissed. */
 export interface Toast {

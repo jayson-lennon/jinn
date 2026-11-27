@@ -7,7 +7,7 @@
 
 import { For, Show, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { SkillRow } from './protocol';
+import type { SkillRow } from './protocol/protocol';
 import { Runs } from './runs';
 
 export interface SkillsModalProps {

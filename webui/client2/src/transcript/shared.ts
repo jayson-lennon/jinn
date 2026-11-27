@@ -3,7 +3,7 @@
 //
 // A kind file imports from here; nothing here imports from a kind file.
 
-import type { EntryEnvelope } from '../protocol';
+import type { EntryEnvelope } from '../protocol/protocol';
 
 export const ATTACHMENT_PREFIX = '/attachment/';
 export const TOOL_OUTPUT_PREFIX = '/tool-output/';

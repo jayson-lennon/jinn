@@ -9,7 +9,7 @@
 
 import { createSignal, Show, Switch, Match } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientStore } from './store';
+import type { ClientStore } from './store/store';
 import { Menu, type MenuGroup, type MenuItem } from './menu';
 import { ModelPicker, type Send, useFilter } from './model_picker';
 import { unreadCount } from './unread';

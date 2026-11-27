@@ -2,7 +2,7 @@
 
 import { For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { EntryEnvelope } from '../protocol';
+import type { EntryEnvelope } from '../protocol/protocol';
 import { renderMarkdown } from '../markdown';
 import { ATTACHMENT_PREFIX, body } from './shared';
 

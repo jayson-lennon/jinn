@@ -8,7 +8,7 @@
 
 import { For } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { McpBadge, McpRow, PersonaRow, ToolRow } from './protocol';
+import type { McpBadge, McpRow, PersonaRow, ToolRow } from './protocol/protocol';
 import { FilterableModal } from './filterable_modal';
 import { Runs } from './runs';
 

@@ -1,7 +1,7 @@
 // An assistant entry: prose, rendered as markdown.
 
 import type { JSX } from '@solidjs/web';
-import type { EntryEnvelope, EntryKind } from '../protocol';
+import type { EntryEnvelope, EntryKind } from '../protocol/protocol';
 import { renderMarkdown } from '../markdown';
 import { body, str } from './shared';
 

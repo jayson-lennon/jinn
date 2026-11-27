@@ -5,7 +5,7 @@
 // it reads the result — a same-tick read returns the value before the write.
 
 import { describe, it, expect } from 'vitest';
-import { createStore } from './store';
+import { createStore } from './store/store';
 import {
   addOptimistic,
   applyEntriesPage,
@@ -17,7 +17,7 @@ import {
   readText,
   readUserText,
 } from './transcript_entries';
-import type { DeltaField, EntryEnvelope, ServerMsg } from './protocol';
+import type { DeltaField, EntryEnvelope, ServerMsg } from './protocol/protocol';
 
 /** Awaits the microtask a store write needs before it can be read back. */
 async function settled(): Promise<void> {

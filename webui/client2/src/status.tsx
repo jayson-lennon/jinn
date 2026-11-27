@@ -15,8 +15,8 @@
 
 import { Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientStore } from './store';
-import { isBusy } from './store';
+import type { ClientStore } from './store/store';
+import { isBusy } from './store/store';
 
 export interface SessionStatusProps {
   store: ClientStore;

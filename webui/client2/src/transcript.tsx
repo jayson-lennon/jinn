@@ -11,7 +11,7 @@
 
 import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientMsg, EntryEnvelope, EntryKind } from './protocol';
+import type { ClientMsg, EntryEnvelope, EntryKind } from './protocol/protocol';
 import { ActorView } from './transcript/actor';
 import { AnnotationView } from './transcript/annotation';
 import { CompactionView } from './transcript/compaction';

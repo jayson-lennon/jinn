@@ -9,9 +9,9 @@
 // their own events and land whether or not a dash is open, so the next open
 // paints at once.
 
-import type { ClientStore } from './store';
-import { belongsToViewedSession } from './store';
-import type { ClientMsg, ServerMsg } from './protocol';
+import type { ClientStore } from './store/store';
+import { belongsToViewedSession } from './store/store';
+import type { ClientMsg, ServerMsg } from './protocol/protocol';
 
 type Send = (msg: ClientMsg) => void;
 

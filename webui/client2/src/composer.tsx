@@ -14,9 +14,9 @@
 
 import { createSignal, For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientMsg, ImageUpload, PromptTemplate } from './protocol';
+import type { ClientMsg, ImageUpload, PromptTemplate } from './protocol/protocol';
 import { filterPrompts, findPromptCompletion } from './prompts';
-import { type ClientStore, isBusy } from './store';
+import { type ClientStore, isBusy } from './store/store';
 import { addOptimistic } from './transcript_entries';
 import {
   addChips,

@@ -10,11 +10,11 @@
 
 import { For, Show, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientStore } from './store';
-import type { DashPinRow, DashTaskPhase, DashTasks, McpBadge, SessionStats, TaskStatus, TreeStats } from './protocol';
+import type { ClientStore } from './store/store';
+import type { DashPinRow, DashTaskPhase, DashTasks, McpBadge, SessionStats, TaskStatus, TreeStats } from './protocol/protocol';
 import { closeDash, jumpToEntry } from './dash';
 
-type Send = (msg: import('./protocol').ClientMsg) => void;
+type Send = (msg: import('./protocol/protocol').ClientMsg) => void;
 
 /** The two cache-hit bands the terminal status bar colours by. */
 const CACHE_HIT_HEALTHY = 95;

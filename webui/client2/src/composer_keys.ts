@@ -6,8 +6,8 @@
 // data — no store, no DOM, no events — and the component only carries out
 // what they decide. Moving them changed nothing about what a key does.
 
-import type { ImageUpload, Phase } from './protocol';
-import { isBusy } from './store';
+import type { ImageUpload, Phase } from './protocol/protocol';
+import { isBusy } from './store/store';
 
 /** One keystroke in the draft, as the key handler sees it. */
 export interface DraftKey {

@@ -12,13 +12,13 @@
 // persistence, the fork wait's source) are called from inside the setter.
 
 import type { ClientStore } from './store';
-import { indexSnapshot } from './transcript_entries';
-import { markSeenOnSnapshot, saveLastSeen } from './last_seen';
-import { resolveLoadingAfterSnapshot } from './session_load';
-import { resetSessionPickerRows } from './picker_rows';
-import { resetDash } from './dash';
-import type { ServerMsg } from './protocol';
-import { reloadIfStale } from './protocol_version';
+import { indexSnapshot } from '../transcript_entries';
+import { markSeenOnSnapshot, saveLastSeen } from '../last_seen';
+import { resolveLoadingAfterSnapshot } from '../session_load';
+import { resetSessionPickerRows } from '../picker_rows';
+import { resetDash } from '../dash';
+import type { ServerMsg } from '../protocol/protocol';
+import { reloadIfStale } from '../protocol/protocol_version';
 
 /** `snapshot`: the page's whole state for one session, from one frame. */
 export function applySnapshot(store: ClientStore, msg: Extract<ServerMsg, { type: 'snapshot' }>): void {

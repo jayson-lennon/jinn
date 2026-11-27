@@ -7,20 +7,20 @@
 //
 //
 // This file is the store's shape and its one dispatch. The transcript's
-// mutations live in `transcript_entries.ts`, the session lists in
-// `session_rows.ts`, the pickers' rows in `picker_rows.ts`, and so on — each
-// `apply*` arm below delegates to its topic; a frame kind is handled here or
-// nowhere.
+// mutations live in `transcript/transcript_entries.ts`, the session lists in
+// `rail/session_rows.ts`, the pickers' rows in `pickers/picker_rows.ts`, and
+// so on — each `apply*` arm below delegates to its topic's folder; a frame
+// kind is handled here or nowhere.
 
 import { createStore as createStoreValue } from 'solid-js';
 import type { Store, StoreSetter } from 'solid-js';
-import type { Toast } from './toast_state';
-import { loadLastSeen } from './last_seen';
-import type { PromptCompletion } from './prompts';
+import type { Toast } from '../toast_state';
+import { loadLastSeen } from '../last_seen';
+import type { PromptCompletion } from '../prompts';
 import { applySnapshot } from './snapshot';
-import { applyEntriesPage, applyEntryDelta, applyEntryUpsert } from './transcript_entries';
-import { applySessions, applyTitle } from './session_rows';
-import { applyDashMcpRows, applyDashPinRows, applyDashTasks, applySessionStats, clearJumpTarget } from './dash';
+import { applyEntriesPage, applyEntryDelta, applyEntryUpsert } from '../transcript_entries';
+import { applySessions, applyTitle } from '../session_rows';
+import { applyDashMcpRows, applyDashPinRows, applyDashTasks, applySessionStats, clearJumpTarget } from '../dash';
 import {
   applyAppletRows,
   applyMcpRows,
@@ -29,8 +29,8 @@ import {
   applyPickerRows,
   applySkillRows,
   applyToolRows,
-} from './picker_rows';
-import { applyError } from './toast_state';
+} from '../picker_rows';
+import { applyError } from '../toast_state';
 import type {
   AppletRow,
   DashMcpRow,
@@ -51,7 +51,7 @@ import type {
   ToolRow,
   ImageUpload,
   LifecycleOption,
-} from './protocol';
+} from '../protocol/protocol';
 
 export interface ViewState {
   /** The instance's active session, or null before the first snapshot. */
