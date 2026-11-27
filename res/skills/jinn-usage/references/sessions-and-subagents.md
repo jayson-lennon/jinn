@@ -19,35 +19,32 @@ One more slash command works the same way in the input box: `/export`
 (write the session to a self-contained file). Context summarization is
 handoff compaction's job — see `context-management.md`.
 
-The **web UI** creates sessions too: the menu button (top-left `☰`) carries a
-**New session** item that opens a modal over the page. Pick a project (the
+The **web UI** (`/web2`) creates sessions too: the `☰` menu's
+**New session** item opens a modal over the page. Pick a project (the
 curated `[[project.entry]]` list — required; with none configured the modal
 says so), a lifecycle recipe (blank first, its args input appears only when
-the recipe's setup takes parameters), and submit — the browser navigates to
-the created session's page, and every other open page's sidebar picks the
-new session up without a reload. It is the same creation path the TUI
-pickers and Discord `/new` ride, so the session looks identical everywhere.
+the recipe's setup takes parameters), and submit — the new session becomes
+the instance's active one and every `/web2` page moves to it, the same
+way the TUI and Discord `/new` do, so the session looks identical
+everywhere.
 
-Clicking a session row in the web UI navigates with targeted patches:
-the sidebar never blanks, the transcript resets and fills through the
-live SSE stream's catch-up a moment later, and the sidebar's
-highlighted row follows the page you are viewing. The list itself
-fetches once per page load; navigation costs no list retransmission
-(a session switch fetches nothing, and creating a session bumps the
-list's tick once so the surviving sidebar picks up the new row).
+Clicking a session row on `/web2` asks the server for that session: a
+**Loading session…** overlay covers the page until the session's snapshot
+arrives. The page follows the instance's active session wherever it
+changes — another `/web2` page or the TUI — and an unsent draft stays with
+the page, not the session.
 
 On a phone-width browser (under 768px) the session list is an off-canvas
-drawer, and the titlebar's sessions button (`#`, beside the menu button)
-opens it in one tap — no menu hop. The button turns yellow with a count
-badge when background sessions settled work you haven't viewed (the same
-unread mark that yellows the sidebar rows); activating a session clears its
-mark. At desktop widths the button is hidden — the sidebar is already on
-screen. (`/web2` has the same marks; see `webui2.md`.)
+drawer, and the titlebar's `#` button (beside the menu button) opens it
+in one tap. The button turns gold with a count when sessions settled work
+you have not viewed (the same unread mark that golds the sidebar rows);
+viewing a session clears its mark. At desktop widths the button is hidden
+— the sidebar is already on screen.
 
-The web UI renames a session too: click the title in the session page's
-titlebar, edit it, and press `Enter` (`Esc` or clicking away cancels). The
-title is the only session action on the web — archiving, closing, and
-tearing down are TUI-only, as is forking.
+`/web2` renames a session too: click the title in the titlebar, edit it,
+and press `Enter` (`Esc` cancels). Archiving is on the web as well — the
+menu's **Archive session** item, or a row's `⋮` menu. Closing, tearing
+down, and forking are TUI-only.
 
 The sidebar's **Sessions | Library** toggle switches the list between
 loaded sessions and Library members. The Sessions list carries only

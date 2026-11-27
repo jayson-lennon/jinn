@@ -39,7 +39,7 @@ type List = jinn_mcp_msg::McpPickerState;
 /// enabled set.
 ///
 /// Delegates to the shared builder in `jinn-mcp-msg`
-/// ([`jinn_mcp_msg::build_rows`]) — the same builder the web modal
+/// ([`jinn_mcp_msg::build_rows`]) — the same builder the `/web2` MCP modal
 /// consumes, so the two surfaces cannot drift in order or enabled
 /// marks — and lifts the rows into theme-carrying entries. Entries are
 /// marked enabled per the session's `enabled_mcp_servers` and sorted

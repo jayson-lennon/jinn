@@ -330,7 +330,7 @@ impl SessionStoreActor {
     /// cursor last occupied — clamped to the shortened list — or the first
     /// visible row when no row was ever captured. That is the row the TUI's
     /// own removal repair lands on, so the TUI's later reconcile computes the
-    /// same answer and every surface (the TUI, both web UIs, Discord) ends up
+    /// same answer and every surface (the TUI, `/web2`, Discord) ends up
     /// on the same session after one archive. It is always a listed session,
     /// never a library member or a hidden resident.
     ///

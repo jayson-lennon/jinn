@@ -130,7 +130,7 @@ pub fn committed_tool_filter(rows: &[WebToolRow]) -> NameFilter {
 impl WebToolRow {
     /// The row's search text: name then description — the TUI tool
     /// picker's own search closure (`"{name} {description}"`), so a query
-    /// filters the web modal identically.
+    /// filters the `/web2` tool picker identically.
     #[must_use]
     pub fn search_text(&self) -> String {
         format!("{} {}", self.name, self.description)

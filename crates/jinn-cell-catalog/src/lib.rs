@@ -76,7 +76,7 @@ pub fn register_all_cells(slices: &Slices) {
 /// The `jinn-slices` infrastructure slots are not counted: they are
 /// registered lazily by the first caller that resolves one, and a harness
 /// that never renders never creates them.
-const EXPECTED_CELL_COUNT: usize = 50;
+const EXPECTED_CELL_COUNT: usize = 49;
 
 // ── The catalog ─────────────────────────────────────────────────────
 //
@@ -476,17 +476,6 @@ fn register_catalog(slices: &Slices) -> usize {
         count,
         jinn_dictation_msg::dictation_level_slot(),
         jinn_dictation_msg::DictationLevel::default()
-    );
-
-    // jinn-webui — the unread-session marks. Written only by the
-    // webui fan-out actor (set on a settle the user has not viewed,
-    // cleared when the session activates); the sessions-list render
-    // paths resolve read handles.
-    register!(
-        slices,
-        count,
-        jinn_webui_msg::webui_unread_slot(),
-        jinn_webui_msg::UnreadSessionMarks::default()
     );
 
     count

@@ -110,7 +110,7 @@ mod tests {
         let clone = tracker.clone();
         let id = jinn_core_types::SessionId::new();
 
-        // When the original records a settle.
+        // When the tracker records a settle.
         tracker.record(&id, at(10));
 
         // Then the clone reads it.

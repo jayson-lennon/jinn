@@ -1,7 +1,7 @@
 //! The listener: binds the `[webui2]` socket and serves `/web2` on it.
 //!
 //! A service actor whose spawn is the readiness point — once it returns,
-//! the port accepts connections. Like the original web UI, the bind is
+//! the port accepts connections. The bind is
 //! read once and frozen for the process's lifetime; a live `[webui2]`
 //! edit applies at the next restart, because a rebind would strand every
 //! open page's socket with no way to learn the new port.
@@ -86,7 +86,7 @@ impl jinn_kernel::common::actor_deps::BusPublish for ListenerActor {
 pub(crate) const PAGE_PATH: &str = "/web2";
 
 /// What the dashboard row calls the slice.
-pub(crate) const WEBUI2_ROW_DESCRIPTION: &str = "Web UI 2 (browser transcript, send, cancel)";
+pub(crate) const WEBUI2_ROW_DESCRIPTION: &str = "Web UI (browser transcript, send, cancel)";
 
 /// The address the listener bound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,7 +149,7 @@ fn is_unspecified(ip: IpAddr) -> bool {
 /// # Errors
 ///
 /// Returns [`ListenerError::Bind`] when the address cannot be bound;
-/// activation treats that as stop-and-report, like the original web UI.
+/// activation treats that as stop-and-report.
 pub async fn spawn(
     system: &ActorSystem,
     deps: &ListenerDeps,
@@ -157,7 +157,7 @@ pub async fn spawn(
     let listener = tokio::net::TcpListener::bind(&deps.bind)
         .await
         .change_context(WebUi2BindError)
-        .attach(format!("failed to bind the second web UI on {}", deps.bind))
+        .attach(format!("failed to bind the web UI on {}", deps.bind))
         .change_context(ListenerError::Bind)?;
     let addr = listener
         .local_addr()
@@ -172,7 +172,7 @@ pub async fn spawn(
     let router = crate::server::router(deps.shared.clone());
     let serve_task = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, router).await {
-            tracing::warn!("second web UI serve task ended: {e}");
+            tracing::warn!("web UI serve task ended: {e}");
         }
     });
 

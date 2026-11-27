@@ -4,9 +4,9 @@ A persona is the session's identity: the `<persona>` block of the system
 prompt. Every session runs one: sessions default to `coding-assistant`
 and fall back to it if their persona is deleted. Select with the persona
 picker (`<leader>se`, or `c` in the sidebar's persona section), or in the
-web UI from the menu button's **Persona** item (session pages only): a
-modal listing the personas with a filter bar — the current one marked —
-where clicking a row switches at once. The file format and install path
+web UI (`/web2`) from the `☰` menu's **Persona** item (while a session is
+active): a modal listing the personas — the current one marked — where
+clicking a row switches at once. The file format and install path
 are in `extending-jinn.md`; `#generate-persona`
 builds a new one from a description.
 

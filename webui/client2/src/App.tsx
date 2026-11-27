@@ -577,8 +577,8 @@ function TitleBar(props: {
   return (
     <header class="title-bar">
       {/* Left of the hamburger, and only at phone widths: there the rail is an
-          off-canvas drawer and this is what opens it. Marked like /web's
-          button: a gold fill and the count of sessions that settled
+          off-canvas drawer and this is what opens it. Marked like an unread
+          row: a gold fill and the count of sessions that settled
           unseen, so a phone user knows the drawer is worth opening. */}
       <button
         type="button"

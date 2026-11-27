@@ -5,7 +5,6 @@ A TUI agent harness with multi-session support and Vim-style keybinds.
 [CHANGELOG](./CHANGELOG.md)
 
 ![Screenshot](doc/screenshots/full.png)
-![Screenshot](doc/screenshots/webui.png)
 
 ## Major Features
 
@@ -500,13 +499,12 @@ These are all baked into the binary and can be installed using `jinn install` _a
 - SQLite (Linux + Mac)
 - `clang`
 - `gcc-libs`
-- Node.js + npm (dev-only: builds the embedded web UI client once per checkout via `just webui-build`; nothing Node-built ships in the repo or the release)
+- Node.js + npm (build prerequisite of the `/web2` client: `cargo build` runs the client build itself, so nothing Node-built ships in the repo)
 - [`just`](https://github.com/casey/just) (recommended)
 
 ```sh
 git clone https://github.com/jayson-lennon/jinn.git
 cd jinn
-just webui-build
 cargo build --release
 ./target/release/jinn install --force
 ```

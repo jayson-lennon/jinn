@@ -495,7 +495,7 @@ pub async fn picker_rows(out: &OutboundHandle, filter: String) -> Reply {
     let rows = match stored_rows(out, &filter).await {
         Ok(rows) => rows,
         Err(report) => {
-            tracing::warn!(error = %report, "second web UI could not read stored sessions");
+            tracing::warn!(error = %report, "web UI could not read stored sessions");
             return refused(&Refusal::StoreUnavailable);
         }
     };
@@ -627,8 +627,8 @@ fn root_starts(rows: &[PickerRowBody]) -> Vec<usize> {
 /// The model picker's rows for a filter, from the shared row builder.
 ///
 /// The same `load_provider_entries` → `sorted_entries` → `filter_entries`
-/// path the original web UI runs, over the same search text the terminal's
-/// picker matches by — so all three surfaces list the same rows, in the
+/// path the terminal's picker runs, over the same search text it matches
+/// by — so both surfaces list the same rows, in the
 /// same score order, for the same filter. An empty filter keeps every row
 /// in the sorted order, the active one promoted to the top.
 pub fn model_rows(out: &OutboundHandle, filter: String) -> Reply {
@@ -1392,8 +1392,8 @@ fn tool_row_bodies(
 
 // ---------------------------------------------------------------------------
 // Applet rows
-// Parity: the original web UI's `regions/applets.rs` pull, and the TUI
-// `<leader>sa` picker's opener, which publishes the same rescan/wake pair
+// Same publish pair as the TUI `<leader>sa` picker's opener: the shared
+// rescan/wake pair, so both surfaces launch an applet the same way.
 // ---------------------------------------------------------------------------
 
 /// The applets modal's rows for a filter, with the applets server's serving
@@ -1464,9 +1464,8 @@ fn applet_row_body(
 ///
 /// An empty filter keeps the catalog's own order — the store actor has
 /// already sorted it newest first. Otherwise the shared fuzzy filter over the
-/// titles orders by score, exactly the original web UI's pull and the TUI
-/// picker's matcher; the matched runs are cut on grapheme boundaries so a
-/// `<mark>` never splits a cluster.
+/// titles orders by score, exactly the TUI picker's matcher; the matched
+/// runs are cut on grapheme boundaries so a `<mark>` never splits a cluster.
 pub(crate) fn applet_rows_body(
     catalog: &jinn_applets_msg::AppletsCatalog,
     serving: bool,
@@ -1669,8 +1668,8 @@ pub async fn toggle_pin(out: &OutboundHandle, entry_id: ChatEntryId) -> Reply {
 
 // ---------------------------------------------------------------------------
 // New session
-// Parity: the original web UI's `delivery::handle_create`, which is the
-// TUI project/lifecycle pickers' confirm and Discord `/new`
+// The same creation path as the TUI project/lifecycle pickers' confirm
+// and Discord `/new`
 // ---------------------------------------------------------------------------
 
 /// The new-session form's choices, read from the live configuration.
@@ -1724,8 +1723,7 @@ pub fn new_session_options(out: &OutboundHandle) -> Reply {
 
 /// Creates a session through the shared creation path.
 ///
-/// The original web UI's `handle_create`, message for message. Validates
-/// against the config layer (the project must name a configured
+/// Validates against the config layer (the project must name a configured
 /// `[[project.entry]]`; the lifecycle must be blank or a configured
 /// `[[session_lifecycle.script]]`; the args must meet the lifecycle's
 /// parameter minimum), then — under one state write guard — stashes the

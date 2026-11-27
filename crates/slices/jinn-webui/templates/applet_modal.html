@@ -1,7 +1,0 @@
-<div id="{{ modal_id }}" class="applet-modal"
-     data-attr:hidden="$appletsOpen ? null : true" hidden
-     data-effect__debounce.150ms="$appletsOpen && (${{ filter_signal }} + ' ' + $appletsOpen).trim() && @get('{{ rows_url }}', {selector: '{{ rows_selector }}', openWhenHidden: true})"
-     data-on:click="evt.target === evt.currentTarget && ($appletsOpen = false)"><div class="applet-modal-inner"
-     data-on:keydown__document="evt.key === 'Escape' && ($appletsOpen = false)"><div class="applet-modal-head"><input id="{{ filter_id }}" type="text" value="{{ filter }}" autocomplete="off" placeholder="filter applets…"
-           data-bind:{{ filter_signal }}>{% if online %}<span id="{{ status_id }}" class="applet-status-online">serving http://{{ bind }}</span>{% else %}<span id="{{ status_id }}">&lt;server offline&gt;</span>{% endif %}</div><div id="{{ rows_id }}"
-    >{% for row in rows %}{{ row|safe }}{% endfor %}</div></div></div>

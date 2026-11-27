@@ -1,22 +1,21 @@
-# Web UI 2 (`/web2`)
+# The web UI (`/web2`)
 
-A running jinn instance serves a **second** browser UI at `/web2`, beside
-the original at `/web`. It is a mirror of the TUI with web UX: the same
-sessions, the same transcript, the same single active session, and every
-action publishes the same message the TUI's keybind does.
+A running jinn instance serves a browser UI at `/web2`. It is a mirror of
+the TUI with web UX: the same sessions, the same transcript, the same
+single active session, and every action publishes the same message the
+TUI's keybind does.
 
-The original web UI is unchanged and still served. `/web2` is the newer
-surface; it covers the core loop — sessions and the library, images,
-themes, model refresh, and creating a session — and leaves out what
+It covers the core loop — sessions and the library, images, themes, model
+refresh, and creating a session — and leaves out what
 [What `/web2` does not do](#what-web2-does-not-do) lists.
 
-Like `/web`, it is a **single-user, unauthenticated** surface — reach it
-over loopback or a VPN you secure.
+It is a **single-user, unauthenticated** surface — reach it over loopback
+or a VPN you secure.
 
 ## Open it
 
 Point a browser at `http://127.0.0.1:8388/web2` (or the `[webui2]` bind
-you configured — see the **Web UI 2** entry under
+you configured — see the **Web UI** entry under
 [Common asks → settings](configuration.md#common-asks--settings)).
 
 The TUI's Dashboard tab names the address the server is actually running
@@ -68,7 +67,7 @@ but nothing coordinates them.
   `[[project.entry]]` configured the modal says so instead of showing a
   form.
 - **Follows the active session** — when the active session changes
-  anywhere (another `/web2` page, `/web`, the TUI), every `/web2` page
+  anywhere (another `/web2` page, the TUI), every `/web2` page
   switches to it. Nothing the user has typed holds the page back: an
   unsent draft and any pending images belong to the user, not to the
   session, and are still there after the switch.
@@ -257,9 +256,8 @@ as the page is open; there is no give-up state.
 
 ## What `/web2` does not do
 
-Everything below exists on the TUI, and most of it on `/web` too. When a
-user asks for one of these on `/web2`, say so and point at the surface
-that has it.
+Everything below exists on the TUI. When a user asks for one of these on
+`/web2`, say so and point at the surface that has it.
 
 - Forking, closing, or tearing down sessions, and archiving a whole
   subtree. `/web2` can *create*, *open*, and *archive* single sessions,

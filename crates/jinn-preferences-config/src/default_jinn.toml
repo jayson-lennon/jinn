@@ -307,36 +307,21 @@ noise_reduction = true
 # ###########################################################################
 # Web UI
 # ###########################################################################
-[webui]
-# > Where the web UI binds — the browser page that lists sessions,
-# > shows the live transcript, sends messages, switches models, and
-# > cancels a running turn. Host:port as one value.
-# >
-# > The default is a FIXED port (unlike the other servers): the page
-# > keeps a live stream open to the address it was loaded from, so a
-# > per-start ephemeral port would break every bookmark every restart.
-# > Port 0 still works if you prefer an ephemeral port per launch; the
-# > resolved URL is noted on the webui dashboard row.
-# >
-# > The bind is taken as configured — there is no authentication, so
-# > put jinn behind a VPN or an SSH tunnel before exposing it beyond
-# > loopback. Securing that endpoint is your responsibility. The bind
-# > is read once at launch; a live edit applies at the next restart.
-bind = "127.0.0.1:8387"
-
-# ###########################################################################
-# Second web UI
-# ###########################################################################
 [webui2]
-# > Where the second web UI (`/web2`) binds — the message-driven mirror of
-# > the terminal UI: it shares the instance's active session and streams
-# > the transcript over one WebSocket. Host:port as one value, on its own
-# > port so both web UIs run side by side.
+# > Where the web UI (`/web2`) binds — the message-driven mirror of the
+# > terminal UI: it shares the instance's active session and streams the
+# > transcript over one WebSocket. Host:port as one value.
 # >
-# > Same rules as `[webui]`: a fixed port keeps the URL bookmarkable, there
-# > is no authentication (put jinn behind a VPN or SSH tunnel before
-# > exposing it beyond loopback), and the bind is read once at launch — a
-# > live edit applies at the next restart.
+# > The default is a FIXED port (unlike the other servers): the page keeps
+# > a live connection open to the address it was loaded from, so a per-start
+# > ephemeral port would break every bookmark every restart. Port 0 still
+# > works if you prefer an ephemeral port per launch; the resolved URL is
+# > noted on the webui2 dashboard row.
+# >
+# > The bind is taken as configured — there is no authentication, so put
+# > jinn behind a VPN or an SSH tunnel before exposing it beyond loopback.
+# > Securing that endpoint is your responsibility. The bind is read once at
+# > launch; a live edit applies at the next restart.
 bind = "127.0.0.1:8388"
 
 # ###########################################################################
