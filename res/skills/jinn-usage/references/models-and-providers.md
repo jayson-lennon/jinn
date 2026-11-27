@@ -90,34 +90,8 @@ protocol.
 
 ## The web UI's model picker
 
-The web UI has its own model picker in the titlebar — the model
-chip naming the session's current model. Clicking it opens a modal over
-the page: type in the filter bar to narrow the list (the picker's own
-fuzzy match, run on the server, matches highlighted as you type), click a
-row to switch. Rows come from the TUI picker's own builder: available
-models first alphabetically with the current pick promoted to the top,
-`✗` marks unavailable providers (missing API key — those rows are inert),
-`→` marks aliases, `*` marks remote-discovered models. **Refresh models**
-re-runs discovery (the same `<c-r>` pipeline as the TUI); the button is
-disabled and busy until the fresh rows land, and the list updates in
-place without losing the typed filter. Alloys and multi-select are
-TUI-only — the web picker switches single models.
-
-## The web UI's session list
-
-The web UI's left sidebar has a **Sessions | Library** control: the
-Sessions list holds every session — loaded and archived — except Library
-members, which the Library list shows instead. Either list follows the
-TUI session picker's tree order. Row states are **fills**, not borders:
-
-- **Blue fill** — the session this page is viewing.
-- **Gold fill** — a session that settled while the page was viewing
-  another one (work the user has not viewed; subagent sessions never
-  do). Viewing it — clicking the row, or the page following a switch
-  made elsewhere — clears the mark. The mark is this browser's own
-  record: it survives a reload, and a jinn restart forgets every mark.
-- `· bot` after the title tags a bot session; a small spinner before
-  the title means that session is working right now.
-
-The page follows the instance's active session, which another web UI
-page or the TUI can change at any time.
+The title bar's model chip opens the web UI's model picker: a filter bar
+over rows the TUI picker's own builder made, a row click to switch, and a
+**Refresh models** button that reruns discovery. Alloys and multi-select
+are the TUI's. `webui.md` → [What it does](webui.md#what-it-does), the
+**Model** entry.
