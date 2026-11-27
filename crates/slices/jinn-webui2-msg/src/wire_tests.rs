@@ -51,6 +51,7 @@ fn row(title: &str) -> SessionRowBody {
         is_active: false,
         is_busy: false,
         in_library: false,
+        last_settled_at: None,
     }
 }
 
@@ -511,6 +512,42 @@ fn server_sessions_round_trips() {
 
     // Then the rows are unchanged.
     assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_sessions_carries_a_rows_settle_time() {
+    // Given a session list whose row settled at a known time.
+    let settled = "2026-11-26T10:00:00Z".parse().expect("a valid timestamp");
+    let msg = ServerMsg::Sessions(SessionsBody {
+        rows: vec![SessionRowBody {
+            last_settled_at: Some(settled),
+            ..row("one")
+        }],
+        library: vec![],
+    });
+
+    // When it is serialized.
+    let json = json_of(&msg);
+
+    // Then the row's settle time rides as that RFC 3339 string.
+    assert_eq!(json["rows"][0]["last_settled_at"], "2026-11-26T10:00:00Z");
+}
+
+#[rstest]
+#[test]
+fn server_sessions_carries_an_unsettle_rows_time_as_null() {
+    // Given a session list whose row never settled.
+    let msg = ServerMsg::Sessions(SessionsBody {
+        rows: vec![row("one")],
+        library: vec![],
+    });
+
+    // When it is serialized.
+    let json = json_of(&msg);
+
+    // Then the field is JSON null, not an absent key.
+    assert_eq!(json["rows"][0]["last_settled_at"], serde_json::Value::Null);
 }
 
 #[rstest]

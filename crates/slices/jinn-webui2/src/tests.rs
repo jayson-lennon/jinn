@@ -376,6 +376,7 @@ fn harness_seeded(
         bus,
         connections: ConnectionRegistry::default(),
         revisions: RevisionTracker::default(),
+        settles: crate::settle::SettleTracker::default(),
         session_store: jinn_session_state::SessionStoreService::new(store),
         config: services.config.clone(),
         services,
@@ -5284,7 +5285,8 @@ fn a_library_member_is_listed_under_library_and_not_sessions() {
         .set_in_library(true);
 
     // When the sidebar's rows are built.
-    let (sessions, library) = crate::snapshot::session_rows(&h.state);
+    let (sessions, library) =
+        crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
 
     // Then the session is in the library list and not the sessions list.
     assert_eq!(library[0].session_id, id);
@@ -5298,7 +5300,8 @@ fn a_non_member_is_listed_under_sessions_and_not_library() {
     let h = harness();
 
     // When the sidebar's rows are built.
-    let (sessions, library) = crate::snapshot::session_rows(&h.state);
+    let (sessions, library) =
+        crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
 
     // Then the session is in the sessions list and the library list is empty.
     assert_eq!(sessions[0].session_id, active_id(&h.state));
@@ -5318,6 +5321,203 @@ fn membership_changed_pushes_a_sessions_frame() {
     // Then the page receives one sessions frame.
     let frames = drain(&mut inbox);
     assert!(matches!(frames.as_slice(), [ServerMsg::Sessions(_)]));
+}
+
+// ---------------------------------------------------------------------------
+// The settle time on a session row
+// ---------------------------------------------------------------------------
+
+/// A phase change to `new_phase` at a fixed moment, as the session actor
+/// publishes it.
+fn phase_change(
+    session_id: &jinn_core_types::SessionId,
+    old_phase: jinn_slices::PhaseView,
+    new_phase: jinn_slices::PhaseView,
+    at: jiff::Timestamp,
+) -> jinn_session_msg::SessionPhaseChanged {
+    jinn_session_msg::SessionPhaseChanged {
+        session_id: session_id.clone(),
+        old_phase,
+        new_phase,
+        at,
+    }
+}
+
+/// The one session row a pushed `Sessions` frame carries, in a harness
+/// whose state holds exactly one session.
+fn only_row(frame: &ServerMsg) -> &jinn_webui2_msg::SessionRowBody {
+    let ServerMsg::Sessions(body) = frame else {
+        panic!("a sessions frame expected, got {frame:?}");
+    };
+    let [row] = body.rows.as_slice() else {
+        panic!("one row expected, got {:?}", body.rows);
+    };
+    row
+}
+
+/// A fixed moment, so a settle time can be asserted exactly.
+fn settled_at() -> jiff::Timestamp {
+    moment("2026-11-26T10:00:00Z")
+}
+
+/// An RFC 3339 moment, parsed the way the wire round-trip parses one.
+fn moment(rfc3339: &str) -> jiff::Timestamp {
+    rfc3339.parse().expect("a valid timestamp")
+}
+
+#[rstest::rstest]
+#[test]
+fn a_landing_on_idle_stamps_the_settle_time_on_the_row() {
+    // Given a page, and a session in its working phase.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    let id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
+
+    // When the session lands on Idle.
+    crate::outbound::phase_changed(
+        &h.handle,
+        &phase_change(
+            &id,
+            jinn_slices::PhaseView::Streaming,
+            jinn_slices::PhaseView::Idle,
+            settled_at(),
+        ),
+    );
+
+    // Then the row the page receives carries that moment.
+    let frames = drain(&mut inbox);
+    let [_, ServerMsg::Sessions(_)] = frames.as_slice() else {
+        panic!("a phase frame then a sessions frame expected, got {frames:?}");
+    };
+    assert_eq!(only_row(&frames[1]).last_settled_at, Some(settled_at()));
+}
+
+#[rstest::rstest]
+#[test]
+fn a_phase_change_that_stays_working_leaves_the_row_unstamped() {
+    // Given a page, and a session in its streaming phase.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    let id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
+
+    // When the phase changes without landing on Idle.
+    crate::outbound::phase_changed(
+        &h.handle,
+        &phase_change(
+            &id,
+            jinn_slices::PhaseView::Idle,
+            jinn_slices::PhaseView::Streaming,
+            settled_at(),
+        ),
+    );
+
+    // Then the row carries no settle time.
+    let frames = drain(&mut inbox);
+    let [_, ServerMsg::Sessions(_)] = frames.as_slice() else {
+        panic!("a phase frame then a sessions frame expected, got {frames:?}");
+    };
+    assert_eq!(only_row(&frames[1]).last_settled_at, None);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_subagent_landing_on_idle_leaves_its_row_unstamped() {
+    // Given a page, and a subagent session in its working phase.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    let id = active_id(&h.state);
+    {
+        let mut guard = h.state.write();
+        let session = guard.session.active_session_mut();
+        session.set_origin(jinn_session_msg::SessionOrigin::Subagent);
+        session.begin_streaming();
+    }
+
+    // When the subagent lands on Idle.
+    crate::outbound::phase_changed(
+        &h.handle,
+        &phase_change(
+            &id,
+            jinn_slices::PhaseView::Streaming,
+            jinn_slices::PhaseView::Idle,
+            settled_at(),
+        ),
+    );
+
+    // Then its row carries no settle time.
+    let frames = drain(&mut inbox);
+    let [_, ServerMsg::Sessions(_)] = frames.as_slice() else {
+        panic!("a phase frame then a sessions frame expected, got {frames:?}");
+    };
+    assert_eq!(only_row(&frames[1]).last_settled_at, None);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_session_that_never_settled_carries_no_settle_time() {
+    // Given a page, and a session that has run no turn.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the session list is pushed for an unrelated reason.
+    crate::outbound::library_membership_changed(&h.handle);
+
+    // Then the row carries no settle time.
+    let frames = drain(&mut inbox);
+    assert_eq!(
+        only_row(&frames[0]).last_settled_at,
+        None,
+        "frames: {frames:?}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_later_settle_replaces_the_rows_earlier_time() {
+    // Given a page, and a session that settled once.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    let id = active_id(&h.state);
+    let first = moment("2026-11-26T10:00:00Z");
+    let later = moment("2026-11-26T10:05:00Z");
+    crate::outbound::phase_changed(
+        &h.handle,
+        &phase_change(
+            &id,
+            jinn_slices::PhaseView::Streaming,
+            jinn_slices::PhaseView::Idle,
+            first,
+        ),
+    );
+    let _ = drain(&mut inbox);
+
+    // When the session settles again.
+    crate::outbound::phase_changed(
+        &h.handle,
+        &phase_change(
+            &id,
+            jinn_slices::PhaseView::Streaming,
+            jinn_slices::PhaseView::Idle,
+            later,
+        ),
+    );
+
+    // Then the row carries the later moment.
+    let frames = drain(&mut inbox);
+    let [_, ServerMsg::Sessions(_)] = frames.as_slice() else {
+        panic!("a phase frame then a sessions frame expected, got {frames:?}");
+    };
+    assert_eq!(only_row(&frames[1]).last_settled_at, Some(later));
 }
 
 #[rstest::rstest]

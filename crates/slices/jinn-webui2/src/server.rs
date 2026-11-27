@@ -47,7 +47,7 @@ pub struct ServerShared {
 const PAGE_SHELL_TEMPLATE: &str = include_str!("../templates/page.html");
 
 /// The client bundle, embedded at compile time from the build script's
-/// inventory: one row per built file, gzip-committed and sha256-pinned.
+/// inventory: one row per built file, gzip-compressed by the build.
 mod vendor_assets {
     include!(concat!(env!("OUT_DIR"), "/vendor_assets.rs"));
 }
@@ -540,6 +540,7 @@ mod attachment_route_tests {
                 bus,
                 connections: crate::connections::ConnectionRegistry::default(),
                 revisions: crate::revision::RevisionTracker::default(),
+                settles: crate::settle::SettleTracker::default(),
                 session_store: jinn_session_state::SessionStoreService::new(Arc::new(
                     jinn_kernel::common::services::test_services::FakeSessionStore,
                 )),

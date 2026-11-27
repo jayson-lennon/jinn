@@ -1,19 +1,24 @@
-//! Build script: embeds the /web2 client bundle, pinning it two ways.
+//! Build script: builds the /web2 client bundle and embeds it.
 //!
 //! Unlike the original web UI's bundle — vendored input nothing in-repo
-//! regenerates — this one is build **output** of `webui/client2`. So the
-//! manifest pins both halves:
+//! regenerates — this one is build **output** of `webui/client2`. So this
+//! script produces it rather than reading a committed copy: it installs the
+//! client's dependencies when the lock file is newer than them, type-checks,
+//! runs `vite build`, gzips the output into `OUT_DIR`, and generates the
+//! `include_bytes!` table the server embeds.
 //!
-//! - each asset's **sha256**, so the bytes compiled into the binary are
-//!   exactly the ones verified (the same pin gate the other slices use);
-//! - the **source_sha256** of the client tree at build time, so a bundle
-//!   older than its sources fails the build. A stale bundle is a compile
-//!   error, never a runtime surprise: `just webui2-build` rebuilds and
-//!   rewrites the manifest, and cargo never runs Node itself.
+//! The build runs on every compile, unconditionally — the client's type-check
+//! and bundle take well under a second, and that is the price of the one
+//! property this design buys: the bundle cannot be stale, because it is
+//! always built from the sources being compiled. There is no committed
+//! bundle to drift, no pin to refresh, and no merge conflict on build output.
 //!
-//! A build script's panic is its failure channel: every pin violation must
-//! fail the build loudly, not quietly produce a binary serving unverified
-//! or stale bytes.
+//! Node and npm are therefore build prerequisites of this crate. A missing
+//! `npm` fails the build with a message naming the requirement rather than
+//! surfacing as a bare exec error.
+//!
+//! A build script's panic is its failure channel: every failure must fail
+//! the build loudly, not quietly produce a binary serving broken bytes.
 
 #![allow(clippy::panic, reason = "build script: panic is the failure channel")]
 #![allow(
@@ -28,76 +33,55 @@
 use std::env;
 use std::fmt::Write as _;
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use sha2::Digest as _;
 
-/// The manifest's name, under `resources/vendor/`.
-const MANIFEST: &str = "vendor-manifest.toml";
+/// The client's directory relative to the repository root.
+const CLIENT_DIR: &str = "webui/client2";
+
+/// The fixed output names `vite.config.mjs` pins, in the order the embedded
+/// table lists them. The page shell links these exact paths under
+/// `/vendor2/`; freshness never rides a hashed filename.
+const ASSETS: [(&str, &str); 2] = [
+    ("client2.js", "text/javascript; charset=utf-8"),
+    ("client2.css", "text/css; charset=utf-8"),
+];
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    // `<repo>/webui/client2`: this crate sits at crates/slices/<name>, so
-    // the repository root is three levels up.
-    let client_dir = manifest_dir.join("../../../webui/client2");
-    assert!(client_dir.is_dir(), "webui/client2 is missing");
-    let vendor_dir = manifest_dir.join("resources/vendor");
-    let manifest_path = vendor_dir.join(MANIFEST);
+    // `<repo>/webui/client2`: this crate sits at crates/slices/<name>, so the
+    // repository root is three levels up.
+    let client_dir = manifest_dir.join("../../../").join(CLIENT_DIR);
+    assert!(client_dir.is_dir(), "{CLIENT_DIR} is missing");
 
-    // Re-run when anything that could change the verdict changes.
-    println!("cargo:rerun-if-changed={}", manifest_path.display());
-    println!("cargo:rerun-if-changed={}", vendor_dir.display());
+    // Re-run when anything that could change the bundle changes. The lock
+    // file is listed explicitly: Cargo never sees `node_modules`, so a
+    // dependency bump would otherwise leave a cached build in place.
     for name in source_files(&client_dir) {
         println!("cargo:rerun-if-changed={}", client_dir.join(name).display());
     }
 
-    let manifest_text = fs::read_to_string(&manifest_path)
-        .unwrap_or_else(|e| panic!("reading {}: {e}", manifest_path.display()));
+    install_dependencies(&client_dir);
+    build_client(&client_dir);
 
-    let current_source = source_hash(&client_dir);
-
-    // `just webui2-build` sets this after rebuilding the bundle: the build
-    // script then records the hashes it is about to verify instead of
-    // asserting on the old ones. One implementation computes every pin and
-    // verifies it, so the two can never disagree. The run then continues
-    // like any other — it embeds and checks exactly what it just pinned, so
-    // the recipe ends with a binary that was built from a current pin.
-    let pinning = env::var_os("JINN_WEBUI2_PIN").is_some();
-    let manifest_text = if pinning {
-        pin_manifest(&manifest_path, &manifest_text, &current_source, &vendor_dir);
-        fs::read_to_string(&manifest_path)
-            .unwrap_or_else(|e| panic!("re-reading {}: {e}", manifest_path.display()))
-    } else {
-        manifest_text
-    };
-    let manifest: toml::Value = toml::from_str(&manifest_text)
-        .unwrap_or_else(|e| panic!("{MANIFEST} must parse as TOML: {e}"));
-
-    // ---- Gate 1: the bundle is not older than its sources. ----
-    let pinned_source = manifest
-        .get("source_sha256")
-        .and_then(toml::Value::as_str)
-        .unwrap_or_else(|| panic!("{MANIFEST} has no `source_sha256` — run `just webui2-build`"));
-    assert!(
-        current_source == pinned_source,
-        "the /web2 client bundle is stale: its sources changed since it was built.\n  \
-         pinned  {pinned_source}\n  current {current_source}\n  \
-         run `just webui2-build` to rebuild it and refresh the pin"
-    );
-
-    // ---- Gate 2: every asset matches its sha256. ----
-    let assets = manifest
-        .get("assets")
-        .and_then(toml::Value::as_array)
-        .unwrap_or_else(|| panic!("{MANIFEST} must carry an `[[assets]]` array"));
-
+    // `include_bytes!` must name a path the compiler can resolve at compile
+    // time. `OUT_DIR` is an absolute path cargo supplies, so the generated
+    // file reaches it through `env!`/`concat!` — the same way the server
+    // reaches this file — rather than through a rendered absolute path,
+    // which would carry backslashes on Windows.
+    let bundle_dir = out_dir.join("client2");
     let mut table = String::from(
-        "// @generated by build.rs from resources/vendor/vendor-manifest.toml — do not edit.\n\
-         // One row per client asset; `include_bytes!` is emitted relative to CARGO_MANIFEST_DIR.\n\n\
+        "// @generated by build.rs from the /web2 client build — do not edit.\n\
+         // One row per built client asset; `include_bytes!` is emitted relative to OUT_DIR.\n\n\
          /// The complete client inventory: `path` is the `/vendor2/`-relative served\n\
-         /// path, `sha256` the pin the hashed URL carries, `bytes` the gzip-committed\n\
-         /// file, and `content_type` its MIME type.\n\
+         /// path, `sha256` the pin the hashed URL carries, `bytes` the gzip-compressed\n\
+         /// build output, and `content_type` its MIME type.\n\
          #[derive(Clone, Copy)]\n\
          pub struct VendorAsset {\n    \
              pub path: &'static str,\n    \
@@ -107,187 +91,182 @@ fn main() {
          }\n\n\
          pub const VENDOR_ASSETS: &[VendorAsset] = &[\n",
     );
-    let mut seen: Vec<String> = Vec::new();
-    for asset in assets {
-        let _ = writeln!(table, "{}", embed_asset(asset, &vendor_dir, &mut seen));
-    }
-    let _ = writeln!(table, "];");
-
-    // Every file on disk must be vouched for by a row: a stray file cannot
-    // ride into the binary unverified.
-    let mut on_disk: Vec<String> = Vec::new();
-    collect_files(&vendor_dir, &vendor_dir, &mut on_disk);
-    for path in &on_disk {
-        let row_key = path.strip_suffix(".gz").unwrap_or(path);
-        assert!(
-            seen.iter().any(|s| s == row_key),
-            "vendor file {} has no manifest row",
-            vendor_dir.join(path).display()
+    for (served, content_type) in ASSETS {
+        // The hash is of the exact bytes embedded below, so the URL the
+        // shell names and the bytes it is served can never disagree.
+        let sha256 = gzip_asset(
+            &client_dir.join("dist").join(served),
+            &bundle_dir.join(format!("{served}.gz")),
+        );
+        let _ = writeln!(
+            table,
+            "    VendorAsset {{\n        path: \"{served}\",\n        sha256: \"{sha256}\",\n        \
+             bytes: include_bytes!(concat!(env!(\"OUT_DIR\"), \"/client2/{served}.gz\")),\n        \
+             content_type: \"{content_type}\",\n    }},"
         );
     }
+    let _ = writeln!(table, "];");
 
     fs::write(out_dir.join("vendor_assets.rs"), table)
         .expect("writing vendor_assets.rs into OUT_DIR cannot fail");
 }
 
-/// Records the current source hash and every asset's sha256, in place.
-///
-/// Rewrites the individual `key = "..."` lines rather than re-serializing
-/// the document, so the file's comments and row order survive — the same
-/// comment-preserving rule the user-editable TOMLs follow.
+/// `npm ci` when the installed dependencies are absent or older than the
+/// lock file. The same rule the e2e recipes use, so one lock-file edit
+/// re-installs everywhere and never anywhere twice in a row.
 ///
 /// # Panics
 ///
-/// Panics when the manifest has no `source_sha256` line, or an `[[assets]]`
-/// row names a file that is not on disk (or is not gzip): a row must name
-/// a real build output to be pinned.
-fn pin_manifest(manifest_path: &Path, manifest_text: &str, source_sha256: &str, vendor_dir: &Path) {
-    let parsed = toml::from_str::<toml::Value>(manifest_text).expect("the manifest parses");
-    let assets = parsed
-        .get("assets")
-        .and_then(toml::Value::as_array)
-        .expect("the manifest carries an [[assets]] array");
-
-    let mut lines: Vec<String> = manifest_text.lines().map(ToOwned::to_owned).collect();
-    let mut source_done = false;
-    // Rows are rewritten in order: the n-th `sha256 = ...` line belongs to
-    // the n-th `[[assets]]` row, which is the order they are declared in.
-    let mut asset_index = 0usize;
-
-    for line in &mut lines {
-        let trimmed = line.trim_start();
-        if !source_done && trimmed.starts_with("source_sha256") {
-            *line = format!("source_sha256 = \"{source_sha256}\"");
-            source_done = true;
-        } else if trimmed.starts_with("sha256") {
-            let asset = assets.get(asset_index).unwrap_or_else(|| {
-                panic!(
-                    "{} has more sha256 lines than asset rows",
-                    manifest_path.display()
-                )
-            });
-            let served = asset
-                .get("served")
-                .and_then(toml::Value::as_str)
-                .expect("row has a served path");
-            let bytes = fs::read(vendor_dir.join(format!("{served}.gz"))).unwrap_or_else(|e| {
-                panic!(
-                    "{} was not produced by the build ({e})",
-                    vendor_dir.join(format!("{served}.gz")).display()
-                )
-            });
-            assert!(bytes.starts_with(&[0x1f, 0x8b]), "{served} is not gzip");
-            let mut hex = String::with_capacity(64);
-            for byte in sha2::Sha256::digest(&bytes) {
-                let _ = write!(hex, "{byte:02x}");
-            }
-            let indent = line
-                .chars()
-                .take_while(char::is_ascii_whitespace)
-                .collect::<String>();
-            *line = format!("{indent}sha256 = \"{hex}\"");
-            asset_index += 1;
-        } else {
-            // Any other line — a table header, a served path — is kept.
-        }
+/// Panics when `npm` is not on `PATH`, or the install exits non-zero: the
+/// client cannot be built without its dependencies, and a half-installed
+/// tree must not be built against.
+fn install_dependencies(client_dir: &Path) {
+    let node_modules = client_dir.join("node_modules");
+    let lock = client_dir.join("package-lock.json");
+    let stale = !node_modules.is_dir() || lock_is_newer(&lock, &node_modules);
+    if !stale {
+        return;
     }
-    assert!(
-        source_done,
-        "{} has no `source_sha256` line to refresh",
-        manifest_path.display()
-    );
-    assert!(
-        asset_index == assets.len(),
-        "{} names {} asset rows but has {} sha256 lines",
-        manifest_path.display(),
-        assets.len(),
-        asset_index
-    );
-    let mut manifest_text = lines.join("\n");
-    manifest_text.push('\n');
-    fs::write(manifest_path, manifest_text)
-        .unwrap_or_else(|e| panic!("writing {}: {e}", manifest_path.display()));
+    println!("cargo:warning=/web2 client: installing dependencies (npm ci)");
+    run(Command::new("npm")
+        .args(["ci", "--no-fund", "--no-audit"])
+        .current_dir(client_dir));
 }
 
-/// Verifies one row against disk and returns its `VendorAsset` table line.
-fn embed_asset(asset: &toml::Value, vendor_dir: &Path, seen: &mut Vec<String>) -> String {
-    let served = str_field(asset, "served");
-    let sha = str_field(asset, "sha256");
-    assert!(
-        !served.contains('\\'),
-        "served paths must use forward slashes: {served}"
-    );
-    assert!(
-        !seen.iter().any(|s| s == served),
-        "vendor manifest names {served} twice"
-    );
-    seen.push(served.to_owned());
+/// Whether `lock` was modified after `dir` was — the install is stale when so.
+fn lock_is_newer(lock: &Path, dir: &Path) -> bool {
+    let (Ok(lock_time), Ok(dir_time)) = (fs::metadata(lock), fs::metadata(dir)) else {
+        // Unreadable metadata is treated as stale: an install that was not
+        // needed costs a second, a build against an unknown tree costs a
+        // debugging session.
+        return true;
+    };
+    let (Ok(lock_time), Ok(dir_time)) = (lock_time.modified(), dir_time.modified()) else {
+        return true;
+    };
+    lock_time > dir_time
+}
 
-    // Every client asset is served gzip-committed: one convention.
-    let disk_name = format!("{served}.gz");
-    let file_path = vendor_dir.join(&disk_name);
-    let bytes = fs::read(&file_path).unwrap_or_else(|e| {
+/// Type-checks and bundles the client. `tsc` runs first so a type error
+/// fails the cargo build by its own name instead of surfacing later as a
+/// misbehaving page.
+///
+/// # Panics
+///
+/// Panics when `tsc` or `vite` exits non-zero, naming the tool and the
+/// captured output.
+fn build_client(client_dir: &Path) {
+    let bin = client_dir.join("node_modules").join(".bin");
+    run(Command::new(bin.join("tsc"))
+        .args(["--noEmit", "-p", "tsconfig.json"])
+        .current_dir(client_dir));
+    run(Command::new(bin.join("vite"))
+        .arg("build")
+        .current_dir(client_dir));
+}
+
+/// Runs a command and panics with its captured output when it fails.
+///
+/// # Panics
+///
+/// Panics when the program cannot be spawned — naming the likely cause, a
+/// missing Node toolchain — or when it exits non-zero, with stdout and
+/// stderr so the build log carries the real error.
+fn run(command: &mut Command) {
+    let program = command.get_program().to_string_lossy().into_owned();
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            panic!(
+                "`{program}` was not found: building the /web2 client needs Node and npm on PATH \
+                 (this crate's build.rs runs the client build itself)"
+            )
+        }
+        Err(error) => panic!("running `{program}`: {error}"),
+    };
+    if !output.status.success() {
+        let mut message = format!("`{program}` failed ({})", output.status);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stdout.trim().is_empty() {
+            let _ = write!(message, "\n--- stdout ---\n{}", stdout.trim_end());
+        }
+        if !stderr.trim().is_empty() {
+            let _ = write!(message, "\n--- stderr ---\n{}", stderr.trim_end());
+        }
+        panic!("{message}");
+    }
+}
+
+/// Gzips one built asset into the bundle directory, verifying the bytes on
+/// the way: the build output must exist, be non-empty, and the compressed
+/// result must carry the gzip magic the server's `Content-Encoding: gzip`
+/// promises. Returns the compressed bytes' sha256 as hex — the pin the
+/// page shell names the asset by.
+///
+/// # Panics
+///
+/// Panics when the built asset is missing or empty, or when the gzip
+/// encoder fails — the bundle is the thing this script exists to produce,
+/// so any of those is a broken build, never a degraded one.
+fn gzip_asset(built: &Path, gzipped: &Path) -> String {
+    let bytes = fs::read(built).unwrap_or_else(|error| {
         panic!(
-            "client asset {} missing from disk ({e}) — run `just webui2-build`, then re-compile",
-            file_path.display()
+            "the /web2 client build did not produce {} ({error}) — check the vite output above",
+            built.display()
         )
     });
+    assert!(!bytes.is_empty(), "{} is empty", built.display());
+    if let Some(parent) = gzipped.parent() {
+        fs::create_dir_all(parent)
+            .unwrap_or_else(|error| panic!("creating {}: {error}", parent.display()));
+    }
+    let file = fs::File::create(gzipped)
+        .unwrap_or_else(|error| panic!("creating {}: {error}", gzipped.display()));
+    let mut encoder = GzEncoder::new(file, Compression::new(9));
+    encoder
+        .write_all(&bytes)
+        .unwrap_or_else(|error| panic!("gzipping {}: {error}", built.display()));
+    encoder
+        .finish()
+        .unwrap_or_else(|error| panic!("finishing {}: {error}", gzipped.display()));
+    let compressed = fs::read(gzipped)
+        .unwrap_or_else(|error| panic!("re-reading {}: {error}", gzipped.display()));
     assert!(
-        sha.len() == 64,
-        "asset {served}'s sha256 must be 64 hex chars"
-    );
-    assert!(
-        bytes.starts_with(&[0x1f, 0x8b]),
-        "asset {served} is not gzip (missing the 1f 8b magic prefix)"
+        compressed.starts_with(&[0x1f, 0x8b]),
+        "{} is not gzip (missing the 1f 8b magic prefix)",
+        gzipped.display()
     );
     let mut hex = String::with_capacity(64);
-    for byte in sha2::Sha256::digest(&bytes) {
+    for byte in sha2::Sha256::digest(&compressed) {
         let _ = write!(hex, "{byte:02x}");
     }
-    assert!(
-        hex == sha,
-        "asset {served} does not match its pin (expected {sha}, got {hex}) — run `just webui2-build`"
-    );
-
-    format!(
-        "    VendorAsset {{\n        path: \"{served}\",\n        sha256: \"{sha}\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/{disk_name}\")),\n        content_type: \"{}\",\n    }},",
-        content_type_for(served)
-    )
-}
-
-fn str_field<'a>(asset: &'a toml::Value, key: &str) -> &'a str {
-    asset
-        .get(key)
-        .and_then(toml::Value::as_str)
-        .unwrap_or_else(|| panic!("asset row missing {key}: {asset}"))
+    hex
 }
 
 /// Every regular file under `root`, as `base`-relative forward-slash paths.
 fn collect_files(root: &Path, base: &Path, out: &mut Vec<String>) {
-    let entries = fs::read_dir(root).unwrap_or_else(|e| panic!("reading {}: {e}", root.display()));
+    let entries =
+        fs::read_dir(root).unwrap_or_else(|error| panic!("reading {}: {error}", root.display()));
     for entry in entries {
-        let entry = entry.unwrap_or_else(|e| panic!("reading {}: {e}", root.display()));
+        let entry = entry.unwrap_or_else(|error| panic!("reading {}: {error}", root.display()));
         let path = entry.path();
         if path.is_dir() {
             collect_files(&path, base, out);
         } else {
-            // A plain file, minus the manifest — it is the record of the
-            // tree, not part of it.
-            if path.file_name().is_some_and(|name| name != MANIFEST) {
-                let rel = path
-                    .strip_prefix(base)
-                    .expect("collected under base")
-                    .to_string_lossy()
-                    .replace(std::path::MAIN_SEPARATOR, "/");
-                out.push(rel);
-            }
+            let rel = path
+                .strip_prefix(base)
+                .expect("collected under base")
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            out.push(rel);
         }
     }
 }
 
 /// The files whose content defines the client, as client-dir-relative
 /// forward-slash paths, sorted: exactly the bundle's inputs — the sources,
-/// the page the bundle is built into, the build config, and the lock file.
+/// the build config, and the lock file.
 ///
 /// `e2e/`, `dist/` and `node_modules/` are deliberately excluded: a spec
 /// never changes one byte of the bundle, the dist is the output itself, and
@@ -311,34 +290,4 @@ fn source_files(client_dir: &Path) -> Vec<String> {
     }
     names.sort();
     names
-}
-
-/// sha256 over every source file's path and content, in sorted order — the
-/// same function `just webui2-build` runs to write the pin.
-fn source_hash(client_dir: &Path) -> String {
-    let mut hasher = sha2::Sha256::new();
-    for name in source_files(client_dir) {
-        hasher.update(name.as_bytes());
-        hasher.update([0]);
-        let bytes = fs::read(client_dir.join(&name))
-            .unwrap_or_else(|e| panic!("reading {}: {e}", client_dir.join(name).display()));
-        hasher.update(bytes);
-        hasher.update([0]);
-    }
-    let mut hex = String::with_capacity(64);
-    for byte in hasher.finalize() {
-        let _ = write!(hex, "{byte:02x}");
-    }
-    hex
-}
-
-fn content_type_for(path: &str) -> &'static str {
-    match path.rsplit('.').next().unwrap_or(path) {
-        "js" | "mjs" => "text/javascript; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "json" | "webmanifest" => "application/manifest+json",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        _ => "application/octet-stream",
-    }
 }

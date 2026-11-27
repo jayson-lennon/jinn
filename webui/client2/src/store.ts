@@ -12,6 +12,7 @@
 
 import { createStore as createStoreValue } from 'solid-js';
 import type { Store, StoreSetter } from 'solid-js';
+import type { LastSeen } from './unread';
 import type {
   AppletRow,
   DeltaField,
@@ -94,6 +95,9 @@ export interface ViewState {
   loadingSessionId: string | null;
   /** True once a snapshot or a resume has landed on this connection. */
   synced: boolean;
+  /** When the page last saw each session (RFC 3339), for the unread mark.
+   *  A row is unread when its settle time is newer than its entry here. */
+  lastSeen: Record<string, string>;
 }
 
 /** One transient notice the page shows until it is dismissed. */
@@ -138,12 +142,32 @@ const INITIAL_STATE: ViewState = {
   toasts: [],
   loadingSessionId: null,
   synced: false,
+  lastSeen: {},
 };
 
 /** The reactive store: read `state` as a plain object; write through `set`. */
 export interface ClientStore {
   state: Store<ViewState>;
   set: StoreSetter<ViewState>;
+}
+
+/**
+ * One line on the console for an unread-mark decision. Off unless the
+ * page is opened with `?debug=unread`: the mark is a quiet feature and
+ * normal operation logs nothing, but a mark that will not clear is only
+ * diagnosable from the two times behind it.
+ */
+const UNREAD_DEBUG: boolean = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('debug') === 'unread';
+  } catch {
+    return false;
+  }
+})();
+
+function debugUnread(message: string, fields: Record<string, unknown>): void {
+  if (!UNREAD_DEBUG) return;
+  console.debug(`[unread] ${message}`, fields);
 }
 
 /** entry id -> its index in `entries`. Rebuilt on every structural change. */
@@ -153,8 +177,62 @@ function reindex(entries: readonly EntryEnvelope[]): void {
   positions = new Map(entries.map((envelope, index) => [envelope.entry.id, index]));
 }
 
+/** Where the last-seen map persists, so a mark survives a reload. */
+const LAST_SEEN_KEY = 'jinn.web2.lastSeen';
+
+/**
+ * The saved last-seen map, or an empty one. Storage can be refused
+ * (private mode, a quota) and a saved value can be stale or corrupt;
+ * either way the page starts with no memory and marks nothing as read
+ * that it cannot prove it saw.
+ */
+function loadLastSeen(): Record<string, string> {
+  try {
+    const raw = window.localStorage.getItem(LAST_SEEN_KEY);
+    if (raw === null) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === 'string' && Number.isFinite(Date.parse(entry[1])),
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+/** The row's settle time when it is the viewed session's, in either list. */
+function viewedRowSettledAt(
+  sessionId: string,
+  sessions: readonly SessionRow[],
+  library: readonly SessionRow[],
+): string | null {
+  const row = [...sessions, ...library].find((r) => r.session_id === sessionId);
+  return row === undefined || row.last_settled_at === null ? null : row.last_settled_at;
+}
+
+/**
+ * Persists the map, less any session no longer listed: archived sessions
+ * must not accumulate. A refused write leaves the in-memory map intact.
+ */
+function saveLastSeen(lastSeen: LastSeen, sessions: readonly SessionRow[], library: readonly SessionRow[]): void {
+  const listed = new Set([...sessions, ...library].map((row) => row.session_id));
+  const kept = Object.fromEntries(
+    Object.entries(lastSeen).filter(([id]) => listed.has(id)),
+  );
+  try {
+    window.localStorage.setItem(LAST_SEEN_KEY, JSON.stringify(kept));
+  } catch {
+    // As `theme.ts`: the hint is an optimization, never a correctness need.
+  }
+}
+
 export function createStore(initial: ViewState = INITIAL_STATE): ClientStore {
-  const [state, set] = createStoreValue(initial);
+  // A fresh object, never the shared default: the loaded map belongs to
+  // this store alone.
+  const [state, set] = createStoreValue({ ...initial, lastSeen: loadLastSeen() });
   return { state, set };
 }
 
@@ -222,6 +300,28 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         s.mcpFilter = '';
         s.personaRows = [];
         s.personaFilter = '';
+        // The page is now viewing this session: whatever settled before
+        // this moment is seen. One arm covers a click on the page and a
+        // switch made elsewhere that the page follows — both land here.
+        // The page is now viewing this session: whatever settled before
+        // this moment is seen. One arm covers a click on the page and a
+        // switch made elsewhere that the page follows — both land here.
+        // The time recorded is the server's own settle time for the
+        // session, never the browser's clock: the two run on different
+        // machines and drift, and a browser that is behind would record
+        // a "seen" older than the settle and never clear the mark.
+        if (msg.session_id !== null) {
+          const settled = viewedRowSettledAt(msg.session_id, msg.sessions, msg.library);
+          const seen = settled ?? new Date().toISOString();
+          s.lastSeen[msg.session_id] = seen;
+          if (UNREAD_DEBUG) {
+            debugUnread('snapshot: marked seen', {
+              session: msg.session_id,
+              seenAt: seen,
+              rowSettledAt: settled,
+            });
+          }
+        }
         // Only the snapshot the page is waiting for ends the wait. One
         // naming another session — the old session's, answered when a disk
         // load outlived the handler's own wait — leaves the overlay up until
@@ -235,6 +335,7 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       // so an upsert for the new session was appended instead of
       // replacing its copy from the snapshot, and the entry showed twice.
       reindex(msg.entries);
+      if (msg.session_id !== null) saveLastSeen(store.state.lastSeen, msg.sessions, msg.library);
       return;
     }
     case 'theme': {
@@ -273,10 +374,26 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     }
     case 'sessions': {
+      // While a session is viewed, each settle it reports is seen: copy
+      // the server's own time, so the comparison is exact rather than
+      // against the browser's clock. The viewed session's row is in
+      // whichever list holds it. A frame with no such settle changes
+      // nothing, and the hot path then skips the storage write.
+      const viewed = store.state.sessionId;
+      const settled = viewed === null ? null : viewedRowSettledAt(viewed, msg.rows, msg.library);
+      // Only a settle the map does not already hold is a change; the same
+      // time arrives on every history append of the viewed session.
+      const changed = settled !== null && store.state.lastSeen[viewed ?? ''] !== settled;
       store.set((s) => {
         s.sessions = msg.rows;
         s.library = msg.library;
+        if (viewed !== null && settled !== null) {
+          s.lastSeen[viewed] = settled;
+        }
       });
+      if (changed) {
+        saveLastSeen(store.state.lastSeen, msg.rows, msg.library);
+      }
       return;
     }
     case 'model': {

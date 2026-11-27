@@ -29,10 +29,17 @@
   --danger: #ed8796;
   /* sonokai success */
   --ok: #a9d89d;
+  /* warning text and its block tint: Nord13 yellow for the text, a
+     low-alpha wash of it for the block */
+  --warn: #ebcb8b;
+  --warn-bg: rgba(235, 203, 139, .10);
+  --warn-border: rgba(235, 203, 139, .45);
   /* the modal/overlay scrim: black at the shipped opacity */
   --scrim: rgba(0, 0, 0, .55);
   /* text on an accent or error fill: near-black */
   --on-fill: #2c2e34;
+  /* the unread fill: the warm gold /web's unread rows carry */
+  --mark: #ebdca0;
   /* the shadow a raised card casts */
   --shadow: rgba(0, 0, 0, .5);
   --radius: 8px;
@@ -66,10 +73,17 @@
   --danger: #a8404a;
   /* nord-light success (Aurora green, Nord14), deepened */
   --ok: #3d6b2a;
+  /* warning text and its block tint: Nord13 yellow, deepened to hold on
+     a pale page */
+  --warn: #8a6d1f;
+  --warn-bg: rgba(235, 203, 139, .22);
+  --warn-border: rgba(138, 109, 31, .45);
   /* the scrim keeps its dark wash over the pale palette */
   --scrim: rgba(0, 0, 0, .55);
   /* on fills: the dark ink */
   --on-fill: #2e3440;
+  /* the unread fill: /web's light-mode unread gold */
+  --mark: #ebcb8b;
   /* the shadow a raised card casts, lighter over a pale page */
   --shadow: rgba(46, 52, 64, .18);
   color-scheme: light;
@@ -89,8 +103,12 @@
     --accent: #4a6e95;
     --danger: #a8404a;
     --ok: #3d6b2a;
+    --warn: #8a6d1f;
+    --warn-bg: rgba(235, 203, 139, .22);
+    --warn-border: rgba(138, 109, 31, .45);
     --scrim: rgba(0, 0, 0, .55);
     --on-fill: #2e3440;
+    --mark: #ebcb8b;
     --shadow: rgba(46, 52, 64, .18);
     color-scheme: light;
   }
@@ -144,7 +162,25 @@ body { background: var(--bg); color: var(--fg); }
 }
 .rail-tab + .rail-tab { border-left: 1px solid var(--border); }
 .rail-tab:hover { color: var(--fg); }
+/* Selection is the same shape whatever the tab's fill: a thick accent
+   underline, on the selected tab and only there. It reads over the plain
+   fill, the selection fill, and the unread mark alike, so which list is
+   showing never depends on telling two similar fills apart. */
 .rail-tab[aria-selected="true"] { background: var(--bg-active); color: var(--fg); }
+.rail-tab[aria-selected="true"]::after {
+  content: "";
+  display: block;
+  height: 3px;
+  margin: 4px -8px -6px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+/* An unread row under a tab marks the tab, so a `#` count always points
+   at a marked row in the drawer. After the selected rule, and wins over
+   its fill: the tab being looked at is usually the selected one, and a
+   selection fill must not hide the mark. The underline above still names
+   the selected tab. */
+.rail-tab.unread { background: var(--mark); color: var(--on-fill); font-weight: 700; }
 /* A row and its kebab sit on one line; the session button takes the rest. */
 .session-row { display: flex; align-items: center; gap: 2px; }
 .session-row .session { flex: 1 1 0; min-width: 0; }
@@ -234,6 +270,11 @@ body { background: var(--bg); color: var(--fg); }
   text-align: left;
 }
 .session:hover { background: var(--bg-hover); color: var(--fg); }
+/* A session that settled while the page looked elsewhere. Before the
+   active rule: for the one frame a row is both, the active fill wins,
+   and the snapshot that follows clears the mark. */
+.session.unread { background: var(--mark); color: var(--on-fill); }
+.session.unread:hover { background: var(--mark); color: var(--on-fill); filter: brightness(1.05); }
 .session.active { background: var(--bg-hover); color: var(--fg); }
 /* Shared by the sidebar's rows and the pickers' rows, which stack the
    title above its meta line in a column. There a zero flex-basis is a
@@ -349,7 +390,38 @@ body { background: var(--bg); color: var(--fg); }
 .model-chip:hover { color: var(--fg); border-color: var(--fg-faint); }
 
 /* ---- transcript ---- */
-.transcript { min-height: 0; overflow-y: auto; padding: 16px 20px; }
+/* The transcript's row in `.main`: a wrapper that fills the row and is the
+   containing block for the two floating jump buttons. */
+.transcript-wrap { position: relative; min-height: 0; display: flex; }
+.transcript { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 16px 20px; }
+/* The two jump buttons: floating over the transcript's right edge, the
+   start one at its top-right corner and the end one at its bottom-right.
+   Opaque, so an entry underneath never shows through the glyph. They sit
+   below every overlay, so a modal, the menu, or the reconnect notice always
+   covers them. */
+.jump {
+  position: absolute;
+  right: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 4px var(--shadow);
+  cursor: pointer;
+  user-select: none;
+}
+.jump:hover { border-color: var(--accent); color: var(--accent); }
+.jump:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.jump-start { top: 10px; }
+.jump-end { bottom: 10px; }
+.jump-icon { display: block; }
 .entry { margin-bottom: 12px; }
 .entry-role {
   display: inline-block;
@@ -379,13 +451,54 @@ body { background: var(--bg); color: var(--fg); }
 
 .tool summary { cursor: pointer; color: var(--fg-dim); }
 .tool summary:hover { color: var(--fg); }
+
+/* ---- rule interrupts ---- */
+/* Guidance the harness injected mid-turn: a warning-tinted block with a
+   yellow left edge, so it never reads as something the user or the model
+   wrote. Collapsed to its header until the reader opens it. */
+.rule-interrupt {
+  background: var(--warn-bg);
+  border-left: 3px solid var(--warn-border);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 6px 10px;
+}
+.rule-interrupt summary { cursor: pointer; color: var(--warn); }
+.rule-interrupt summary:hover { filter: brightness(1.15); }
+.interrupt-reason { color: var(--fg-faint); font-size: 12px; }
+.rule-interrupt .entry-prose { margin-top: 6px; }
 .tool[open] > summary { margin-bottom: 6px; }
 .tool code { color: var(--accent); }
 .entry-status { margin-left: 8px; font-size: 11px; color: var(--fg-faint); }
 .result-failure .entry-status { color: var(--danger); }
 .entry-note { color: var(--fg-faint); font-size: 12px; }
-.citations { margin: 0; padding-left: 18px; font-size: 13px; }
-.citations a { color: var(--accent); }
+
+/* ---- the Sources disclosure ---- */
+/* A web-search entry's citations, collapsed to their count like a tool
+   block. Each row is a linked title with its address beside it in muted
+   text, so a reader can see where a claim came from without opening it. */
+.sources summary { cursor: pointer; color: var(--fg-dim); }
+.sources summary:hover { color: var(--fg); }
+.citation { margin: 4px 0 0; font-size: 13px; }
+.citation-title { color: var(--accent); }
+.citation-url { color: var(--fg-faint); margin-left: 6px; word-break: break-all; }
+
+/* ---- footnotes ---- */
+/* The `[^n]` references a web-search model writes. A reference is a small
+   accent-coloured marker; the notes themselves sit in a muted block under
+   the prose, each with a back-link to its reference. */
+.footnote-ref a { color: var(--accent); text-decoration: none; }
+.footnotes { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 0.92em; }
+.footnotes-list { margin: 0; padding-left: 20px; }
+.footnote-item { margin: 2px 0; }
+.footnote-backref { color: var(--fg-faint); text-decoration: none; margin-left: 4px; }
+
+/* ---- task lists ---- */
+/* The `- [ ]` checkboxes the task-list plugin emits. They are disabled:
+   a transcript is a record of what a model planned, not a to-do the reader
+   edits. */
+.contains-task-list { list-style: none; padding-left: 0; }
+.task-list-item { display: flex; align-items: baseline; gap: 8px; }
+.task-list-item-checkbox { margin: 0; accent-color: var(--accent); }
 
 /* ---- the entry menu and the pin mark ---- */
 /* A `⋮` at every entry's bottom-right, always visible: it overlaps only
@@ -1007,6 +1120,21 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   }
   .sessions-button:hover { border-color: var(--accent); }
   .sessions-button:focus-visible { outline: 1px solid var(--accent); }
+  /* The `#` button while sessions are unread: the gold fill, and the
+     count beside the glyph. The gap keeps `#` and the number apart. */
+  .sessions-button.unread {
+    background: var(--mark);
+    border-color: var(--mark);
+    color: var(--on-fill);
+    gap: 4px;
+    align-items: center;
+  }
+  .sessions-button.unread:hover { border-color: var(--on-fill); }
+  .sessions-button-count {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+  }
   /* The composer keeps its one row on a phone — the draft, `+` and the
      buttons on one line, the chips above — at the same height as at
      desktop. Only the touch sizes change: a 16px draft (no iOS
@@ -1016,6 +1144,8 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   .draft { font-size: 16px; }
   .composer-actions { flex: none; }
   .composer-actions button, .attach { min-height: 40px; padding-left: 10px; padding-right: 10px; }
+  /* The jump buttons keep the phone's 40px touch floor, square. */
+  .jump { width: 40px; height: 40px; }
 }
 
 /* The count beside Q: how many messages wait behind the running turn. A

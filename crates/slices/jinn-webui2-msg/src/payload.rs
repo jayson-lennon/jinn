@@ -5,6 +5,7 @@
 //! `kind` tag intact), the phase as the core `PhaseView`, and ids as the
 //! core newtypes.
 
+use jiff::Timestamp;
 use jinn_core_types::{ChatEntry, ChatEntryId, SessionId};
 use jinn_session_store_msg::SessionState;
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,12 @@ pub struct SessionRowBody {
     /// Whether the session is a library member. A member is listed under
     /// the Library view and hidden from the Sessions view.
     pub in_library: bool,
+    /// When the session last landed on Idle — the end of a turn.
+    ///
+    /// `None` when the session has not settled since the server started,
+    /// and always for a subagent session. The page compares it against
+    /// its own last-seen time to decide whether the row is unread.
+    pub last_settled_at: Option<Timestamp>,
 }
 
 /// The whole state a page needs on a fresh connect: the active session,

@@ -42,7 +42,7 @@ opens it in one tap — no menu hop. The button turns yellow with a count
 badge when background sessions settled work you haven't viewed (the same
 unread mark that yellows the sidebar rows); activating a session clears its
 mark. At desktop widths the button is hidden — the sidebar is already on
-screen.
+screen. (`/web2` has the same marks; see `webui2.md`.)
 
 The web UI renames a session too: click the title in the session page's
 titlebar, edit it, and press `Enter` (`Esc` or clicking away cancels). The

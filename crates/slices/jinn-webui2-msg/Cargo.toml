@@ -13,8 +13,9 @@ description = "The wire contract for the second web UI: the two tagged message e
 jinn-core-types = { workspace = true }
 jinn-session-store-msg = { workspace = true }
 jinn-slices = { workspace = true }
-# The stored-session picker's row carries the store's own timestamp, which
-# the browser formats in its zone.
+# The session row's last-settle time and the stored-session picker's row
+# both carry the core `jiff::Timestamp`, the type every entry timing
+# already has across this wire.
 jiff = { workspace = true }
 serde = { workspace = true }
 # The wire projection (`wire_entry`) is built as a JSON tree: the entry's

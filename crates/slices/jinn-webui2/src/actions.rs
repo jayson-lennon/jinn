@@ -269,7 +269,7 @@ pub fn more_entries(out: &OutboundHandle, before: &ChatEntryId) -> Reply {
 
 /// The bounded-tail snapshot for the active session, recorded as delivered.
 fn snapshot_reply(out: &OutboundHandle) -> Reply {
-    let frame = snapshot::snapshot(out.state(), out.revisions());
+    let frame = snapshot::snapshot(out.state(), out.revisions(), out.settles());
     let session_id = frame.body.session_id.clone().unwrap_or_default();
     out.mark_delivered(&session_id, &frame.window);
     Reply::one(ServerMsg::Snapshot(Box::new(frame.body)))

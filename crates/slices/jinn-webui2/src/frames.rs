@@ -26,8 +26,8 @@ pub fn phase(session_id: &SessionId, phase: jinn_slices::PhaseView, queue_len: u
 
 /// The session-list frame, re-read from state: both sidebar lists.
 #[must_use]
-pub fn sessions(state: &State) -> ServerMsg {
-    let (rows, library) = crate::snapshot::session_rows(state);
+pub fn sessions(state: &State, settles: &crate::settle::SettleTracker) -> ServerMsg {
+    let (rows, library) = crate::snapshot::session_rows(state, settles);
     ServerMsg::Sessions(jinn_webui2_msg::SessionsBody { rows, library })
 }
 
@@ -65,8 +65,9 @@ pub fn upsert_by_id(
 pub fn snapshot(
     state: &State,
     revisions: &crate::revision::RevisionTracker,
+    settles: &crate::settle::SettleTracker,
 ) -> (ServerMsg, crate::page::EntryWindow) {
-    let frame = crate::snapshot::snapshot(state, revisions);
+    let frame = crate::snapshot::snapshot(state, revisions, settles);
     (ServerMsg::Snapshot(Box::new(frame.body)), frame.window)
 }
 

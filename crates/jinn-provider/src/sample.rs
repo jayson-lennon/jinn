@@ -36,8 +36,42 @@ const HELP_TEXT: &str = "Sample LLM Provider - Available commands:\n\
     \n\
     !response - Stream a sample response with delays\n\
     !think    - Stream a thinking block followed by a response\n\
+    !markdown - Stream a markdown document exercising the renderer\n\
     \n\
     Any other input shows this help message.";
+
+/// Canned markdown document for `!markdown`.
+///
+/// Shaped like a real web-search reply, carrying every construct the
+/// `/web2` renderer's e2e tier asserts on: a footnote pair, a task list, a
+/// table, a bare address in each punctuation shape the linkifier handles
+/// differently, an address that must stay text, and an email. The prose
+/// between them is a model's own, so a failure reads as a sentence and not
+/// as a fixture.
+const MARKDOWN_TEXT: &str = "## Markdown showcase\n\
+    \n\
+    A web-search reply cites its sources[^docs] and keeps a plan.\n\
+    \n\
+    | field | meaning |\n\
+    |---|---|\n\
+    | `id` | the model's id |\n\
+    \n\
+    - [x] Read the docs\n\
+    - [ ] Call the endpoint\n\
+    \n\
+    The plain address is https://example.com/plain and it ends a sentence here https://example.com/dot.\n\
+    A comma follows this one https://example.com/comma, and a bracket follows this one https://example.com/bracket).\n\
+    The bracketed form is [https://example.com/wrapped] and a parenthesised address keeps its underscores https://en.wikipedia.org/wiki/Foo_(bar).\n\
+    These stay text: www.example.com, ftp://files.example.com/x, //cdn.example.com/x.js, and xhttps://example.com.\n\
+    A code span keeps its address literal `https://example.com/in-code`.\n\
+    \n\
+    ```text\n\
+    https://example.com/in-block\n\
+    ```\n\
+    \n\
+    Mail the author at dev@example.com about it.\n\
+    \n\
+    [^docs]: The OpenRouter API reference, https://openrouter.ai/docs";
 
 /// Minimum inter-token delay in milliseconds.
 const DELAY_MIN_MS: u64 = 10;
@@ -88,6 +122,7 @@ impl LlmService for SampleLlmService {
         let (tokens, with_delay) = match last_user_msg.as_str() {
             "!response" => (tokenize(RESPONSE_TEXT), true),
             "!think" => (tokenize_think(), true),
+            "!markdown" => (tokenize(MARKDOWN_TEXT), true),
             _ => (tokenize(HELP_TEXT), false),
         };
 
@@ -187,6 +222,32 @@ mod tests {
 
         // Then the output matches the canned response.
         assert_eq!(output, RESPONSE_TEXT);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn markdown_command_streams_the_markdown_document() {
+        tokio::time::pause();
+
+        // Given a sample service.
+        let service = SampleLlmServiceFactory.create().expect("create service");
+        let messages = vec![LlmMessage::User {
+            content: "!markdown".to_owned(),
+            attachments: Vec::new(),
+        }];
+
+        // When streaming.
+        let stream = service
+            .chat_stream(None, messages)
+            .await
+            .expect("chat_stream");
+        let output: String = StreamExt::map(stream, |r| r.expect("token"))
+            .collect::<Vec<_>>()
+            .await
+            .join("");
+
+        // Then the output is the canned markdown, with its newlines intact.
+        assert_eq!(output, MARKDOWN_TEXT);
     }
 
     #[rstest::rstest]

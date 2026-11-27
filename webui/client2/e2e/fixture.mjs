@@ -11,7 +11,8 @@
 
 import { test as base, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import crypto, { randomUUID } from "node:crypto";
 import path from "node:path";
 import { bootJinn, restartJinn, scratchApplet, scratchSkill, teardownJinn } from "./harness.mjs";
 
@@ -85,6 +86,8 @@ export const sel = {
   ROW_WRAP: (id) => `[data-testid="session-row-wrap"][data-session-id="${id}"]`,
   /** The title bar's `#`, shown only below 768px. */
   SESSIONS_BUTTON: '[data-testid="sessions-button"]',
+  /** The unread count on that button, present only while it is nonzero. */
+  SESSIONS_BUTTON_COUNT: '[data-testid="sessions-button-count"]',
   /** The off-canvas rail's scrim. */
   DRAWER_SCRIM: '[data-testid="drawer-scrim"]',
   RAIL: '[data-testid="rail"]',
@@ -298,6 +301,84 @@ export async function viewedSessionId(page) {
   return page.locator(sel.ACTIVE_SESSION_ROW).getAttribute("data-session-id");
 }
 
+/** The title of the session the page is viewing, as the rail shows it. */
+export async function viewedSessionTitle(page) {
+  return page.locator(`${sel.ACTIVE_SESSION_ROW} .session-title`).innerText();
+}
+
+/**
+ * Opens the session `sessionId`, and waits for it to become the one viewed.
+ *
+ * A restart lands the page on a fresh, empty session rather than the one it
+ * was on — and the rail only lists sessions the instance has in memory, so
+ * the one a test seeded may have no row to click. In that case it is picked
+ * from the Archive picker, which reads every stored session from disk; the
+ * picker's rows carry titles, not ids, so `title` names the row.
+ */
+export async function openSession(page, sessionId, title) {
+  const row = page.locator(`${sel.ROW_WRAP(sessionId)} ${sel.SESSION_ROW}`);
+  if (await row.count()) {
+    await row.click();
+  } else {
+    await page.locator(sel.OPEN_PICKER).click();
+    const pickerRow = page.locator(sel.PICKER_ROW).filter({ hasText: title });
+    await expect(pickerRow).toBeVisible({ timeout: 20_000 });
+    await pickerRow.click();
+  }
+  await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute(
+    "data-session-id",
+    sessionId,
+    { timeout: 10_000 },
+  );
+}
+
+/**
+ * One rail row's button, by session id. The wrapper carries the id so
+ * the lookup never matches a row from another session.
+ *
+ * @param {import('@playwright/test').Page} page the test's own page.
+ * @param {string} sessionId the row's session.
+ */
+export function rowOf(page, sessionId) {
+  return page.locator(`${sel.ROW_WRAP(sessionId)} ${sel.SESSION_ROW}`);
+}
+
+/**
+ * Runs a turn in a session the page is not viewing, without touching
+ * which session is active.
+ *
+ * Every `/web2` page follows the instance's active session, so a page
+ * cannot drive a background session itself: opening it would switch the
+ * instance. This goes around the page, through the instance's loopback
+ * control surface. The scratch instance binds it on an OS-assigned
+ * port and registers that port in its instance registry; the request
+ * is `POST /send`, which queues the text onto a live session, and a
+ * queue onto an idle session starts its turn at once.
+ *
+ * Returns once the instance acknowledges the request, not once the turn
+ * ends — the caller waits for the settle it expects to see.
+ *
+ * @param {{ root: string }} jinn the test's own instance.
+ * @param {string} sessionId the session to run the turn in.
+ * @returns {Promise<void>}
+ */
+export async function startBackgroundTurn(jinn, sessionId) {
+  const registryPath = path.join(jinn.root, "state", "jinn", "remote-instances.json");
+  const entries = JSON.parse(await fs.readFile(registryPath, "utf8"));
+  const entry = entries.find((candidate) => candidate.cwd.startsWith(jinn.root));
+  if (entry === undefined) {
+    throw new Error(`startBackgroundTurn: no instance under ${jinn.root} in ${registryPath}`);
+  }
+  const response = await fetch(`http://127.0.0.1:${entry.port}/send`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, text: SLOW_PROMPT }),
+  });
+  if (!response.ok) {
+    throw new Error(`startBackgroundTurn: /send answered ${response.status}`);
+  }
+}
+
 /**
  * Attaches an image through the composer's `+` and waits for its chip.
  *
@@ -440,7 +521,7 @@ export function seedOlderEntries(jinn, id, { copies, text = "older entry" }) {
   const run = (sql) =>
     execFileSync("sqlite3", [db, sql], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   // The first real entry, as the store persisted it.
-  const [, timing, kind] = run(
+  const [templateId, timing, kind] = run(
     `SELECT e.id, e.timing, e.kind FROM entries e
        JOIN session_history h ON h.entry_id = e.id
       WHERE h.session_id = '${id}' ORDER BY h.ordinal ASC LIMIT 1;`,
@@ -451,9 +532,15 @@ export function seedOlderEntries(jinn, id, { copies, text = "older entry" }) {
   // The persisted map is externally tagged: `{ "User": { display, ... } }`.
   const tag = Object.keys(template)[0];
   if (tag === undefined) throw new Error(`seedOlderEntries: entry has no kind: ${kind}`);
+  // The store orders a session's entries by id, so every clone's id must
+  // sort BEFORE the template's: the oldest clone sits `copies` milliseconds
+  // before it and each next one a millisecond later, so id order and
+  // ordinal order agree. (The real entry was sent seconds ago, so a span
+  // of `copies` ms never reaches another real entry.)
+  const templateMs = uuidV7Timestamp(templateId);
   run(`UPDATE session_history SET ordinal = ordinal + ${copies} WHERE session_id = '${id}';`);
   for (let i = 0; i < copies; i += 1) {
-    const cloneId = randomUUID();
+    const cloneId = uuidV7(templateMs - (copies - i));
     const body = { ...template[tag] };
     if (typeof body.display === "string") body.display = `${text} ${i}`;
     if (typeof body.expanded === "string") body.expanded = `${text} ${i}`;
@@ -496,7 +583,12 @@ export function seedTruncatedToolResult(jinn, id) {
   const next = Number(
     run(`SELECT COALESCE(MAX(ordinal), -1) + 1 FROM session_history WHERE session_id = '${id}';`).trim(),
   );
-  const entryId = randomUUID();
+  // The store orders a session's entries by id, so the seeded result must
+  // sort after the last one there — one millisecond later than it.
+  const lastId = run(
+    `SELECT entry_id FROM session_history WHERE session_id = '${id}' ORDER BY entry_id DESC LIMIT 1;`,
+  ).trim();
+  const entryId = uuidV7(lastId ? uuidV7Timestamp(lastId) + 1 : 0);
   const timing = JSON.stringify({ Instant: { at: new Date().toISOString() } });
   const kind = JSON.stringify({
     ToolResult: {
@@ -520,6 +612,84 @@ export function seedTruncatedToolResult(jinn, id) {
   run(
     `INSERT INTO session_history (session_id, entry_id, ordinal) VALUES ('${id}', '${entryId}', ${next});`,
   );
+}
+
+/**
+ * A UUIDv7, the format jinn mints for its own ids: 48 bits of millisecond
+ * timestamp, then the version and variant bits, then random. An entry id
+ * must be one of these, because the session store orders a session's entries
+ * by id and a v4 id (Node's `randomUUID`) does not sort after the entries
+ * already there.
+ *
+ * Two ids minted in the same millisecond do not sort in mint order — the
+ * first 48 bits are equal and ordering falls to the random tail — so a
+ * caller that needs to sort after an existing id passes `afterMs`.
+ */
+function uuidV7(afterMs = 0) {
+  const bytes = crypto.randomBytes(16);
+  const ms = BigInt(Math.max(Date.now(), afterMs));
+  // 48-bit big-endian millisecond timestamp across the first six bytes.
+  bytes[0] = Number((ms >> 40n) & 0xffn);
+  bytes[1] = Number((ms >> 32n) & 0xffn);
+  bytes[2] = Number((ms >> 24n) & 0xffn);
+  bytes[3] = Number((ms >> 16n) & 0xffn);
+  bytes[4] = Number((ms >> 8n) & 0xffn);
+  bytes[5] = Number(ms & 0xffn);
+  bytes[6] = (bytes[6] & 0x0f) | 0x70; // version 7
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 9562 variant
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** The 48-bit millisecond timestamp a UUIDv7 carries, as a number. */
+function uuidV7Timestamp(id) {
+  const hex = id.replace(/-/g, "").slice(0, 12);
+  return Number.parseInt(hex, 16);
+}
+
+/**
+ * Seeds one entry directly in the scratch store, at the end of `sessionId`'s
+ * history — the two rows jinn's own save writes: the entry, and its placement
+ * in the session. `/web2` has no gesture that produces an annotation entry
+ * (only a web-search tool result does), so the store is arranged the way such
+ * a result leaves it.
+ *
+ * A transient entry is never persisted, so it cannot be seeded this way; it
+ * arrives over the socket instead. A test that needs the seeded entry on the
+ * page follows this with `restartJinn`: a running instance has already
+ * loaded the session.
+ *
+ * @param {{ root: string }} jinn the test's own instance.
+ * @param {string} sessionId the session the entry joins.
+ * @param {string} kindJson the entry's kind, in its persisted serde form —
+ *   e.g. `{"Annotation":[{"url":"https://…","title":"…"}]}`. Single quotes in
+ *   any literal are doubled, as SQL requires.
+ * @returns {string} the entry's id.
+ */
+export function seedEntry(jinn, sessionId, kindJson) {
+  if (!/^[0-9a-f-]{36}$/i.test(sessionId)) {
+    throw new Error(`seedEntry: not a session id: ${sessionId}`);
+  }
+  const db = path.join(jinn.root, "db", "state.db");
+  const sql = (q) =>
+    execFileSync("sqlite3", [db, q], { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+  // The store orders a session's entries by id, so the seed's id must sort
+  // after the last one already there. One millisecond later guarantees it;
+  // the same millisecond would leave the order to the random tail.
+  const lastId = sql(
+    `SELECT entry_id FROM session_history WHERE session_id = '${sessionId}' ORDER BY entry_id DESC LIMIT 1;`,
+  ).trim();
+  const id = uuidV7(lastId ? uuidV7Timestamp(lastId) + 1 : 0);
+  const now = new Date().toISOString();
+  const ordinal = Number(
+    sql(
+      `SELECT COALESCE(MAX(ordinal), -1) + 1 FROM session_history WHERE session_id = '${sessionId}';`,
+    ).trim(),
+  );
+  const escaped = kindJson.replace(/'/g, "''");
+  sql(`INSERT INTO entries (id, timing, kind, context_history) VALUES ('${id}', '{"Instant":{"at":"${now}"}}', '${escaped}', '[]');`);
+  sql(`INSERT INTO session_history (session_id, entry_id, ordinal, pin_position, ignored, context_override) VALUES ('${sessionId}', '${id}', ${ordinal}, NULL, FALSE, 'default');`);
+  return id;
 }
 
 /**
