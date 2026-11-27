@@ -5,7 +5,7 @@
 // it reads the result — a same-tick read returns the value before the write.
 
 import { describe, it, expect } from 'vitest';
-import { createStore, type ClientStore } from './store/store';
+import { createStore, type ClientStore } from '../store/store';
 import {
   applyAppletRows,
   applyModelRows,
@@ -16,7 +16,7 @@ import {
   applyMcpRows,
   resetSessionPickerRows,
 } from './picker_rows';
-import type { PickerRow } from './protocol/protocol';
+import type { PickerRow } from '../protocol/protocol';
 
 /** Awaits the microtask a store write needs before it can be read back. */
 async function settled(): Promise<void> {

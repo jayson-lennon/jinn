@@ -9,8 +9,8 @@
 
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientMsg, LifecycleOption } from './protocol/protocol';
-import type { ClientStore } from './store/store';
+import type { ClientMsg, LifecycleOption } from '../protocol/protocol';
+import type { ClientStore } from '../store/store';
 
 export interface NewSessionModalProps {
   store: ClientStore;

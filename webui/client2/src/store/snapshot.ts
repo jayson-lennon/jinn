@@ -15,7 +15,7 @@ import type { ClientStore } from './store';
 import { indexSnapshot } from '../transcript/transcript_entries';
 import { markSeenOnSnapshot, saveLastSeen } from '../last_seen';
 import { resolveLoadingAfterSnapshot } from '../session_load';
-import { resetSessionPickerRows } from '../picker_rows';
+import { resetSessionPickerRows } from '../pickers/picker_rows';
 import { resetDash } from '../dash';
 import type { ServerMsg } from '../protocol/protocol';
 import { reloadIfStale } from '../protocol/protocol_version';

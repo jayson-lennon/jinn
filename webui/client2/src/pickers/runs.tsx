@@ -6,7 +6,7 @@
 
 import { For } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { TextRun } from './protocol/protocol';
+import type { TextRun } from '../protocol/protocol';
 
 /** A field's text, with the filter's matched runs highlighted. */
 export function Runs(props: { runs: readonly TextRun[] }): JSX.Element {

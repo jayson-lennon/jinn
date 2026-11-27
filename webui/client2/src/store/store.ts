@@ -29,7 +29,7 @@ import {
   applyPickerRows,
   applySkillRows,
   applyToolRows,
-} from '../picker_rows';
+} from '../pickers/picker_rows';
 import { applyError } from '../toast_state';
 import type {
   AppletRow,

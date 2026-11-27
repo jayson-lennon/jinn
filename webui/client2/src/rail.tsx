@@ -14,7 +14,7 @@ import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientStore } from './store/store';
 import { isUnread, listHasUnread } from './unread';
-import { Runs } from './runs';
+import { Runs } from './pickers/runs';
 import { beginSessionLoad } from './session_load';
 
 /** How far each tree level indents a stored-session row — and, at the same

@@ -11,8 +11,8 @@
 
 import { createEffect, For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientMsg, ModelRow } from './protocol/protocol';
-import type { ClientStore } from './store/store';
+import type { ClientMsg, ModelRow } from '../protocol/protocol';
+import type { ClientStore } from '../store/store';
 import { Runs } from './runs';
 
 /** Sends one command. */
