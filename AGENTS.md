@@ -695,7 +695,7 @@ Skills refer to commands by **role**; the table below resolves each role to this
 
 The web UI (`crates/slices/jinn-webui2`, served at the root of its own listener and bound per `[webui]`) is a slice that mirrors the terminal in a browser: **the browser owns all view state**. The server renders no HTML fragments and reads no client state back; it answers `ClientMsg`s by reading `State` and cells and by publishing existing commands, and pushes `ServerMsg`s — data, never markup — as the facts change. One WebSocket carries the two tagged enums `ClientMsg`/`ServerMsg` (`jinn-webui2-msg`). Its whole discipline is one rule, and every change must keep it:
 
-> Nothing enters the page except through `apply()` in `webui/client2/src/store.ts`; nothing leaves it except through `send()` in `webui/client2/src/socket.ts`; and neither dispatch gets a fallback arm — a new message kind must be a compile error on both sides until its one handler exists.
+> Nothing enters the page except through `apply()` in `webui/client2/src/store/store.ts`; nothing leaves it except through `send()` in `webui/client2/src/protocol/socket.ts`; and neither dispatch gets a fallback arm — a new message kind must be a compile error on both sides until its one handler exists.
 
 Server-side, the same rule holds as one exhaustive `match` per direction in `protocol.rs` and one handler arm in `outbound/handlers.rs`. Extending the UI is always: one enum variant (or two), the arms it forces into existence, and nothing routed around them.
 

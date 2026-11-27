@@ -7,7 +7,7 @@
 // page last asked for. This component only renders them.
 //
 // `useFilter` lives here too: it is the one debounced filter request the
-// page has, and every filterable modal in `App.tsx` reaches for it.
+// page has, and every filterable modal in `app/App.tsx` reaches for it.
 
 import { createEffect, For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';

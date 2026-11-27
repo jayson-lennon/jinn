@@ -6,8 +6,9 @@
 // updates when the store does, and every gesture leaves through the one
 // socket.
 //
-// The transcript's scroll box is `transcript_scroll.tsx`, the title bar is
-// `title_bar.tsx`, and the model picker is `model_picker.tsx`.
+// The transcript's scroll box is `transcript/transcript_scroll.tsx`, the
+// title bar is `title_bar.tsx`, and the model picker is
+// `pickers/model_picker.tsx`.
 
 import { render } from '@solidjs/web';
 import { For, Show, Switch, Match, createEffect, createSignal, onCleanup } from 'solid-js';

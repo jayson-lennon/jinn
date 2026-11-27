@@ -5,7 +5,7 @@
 // The title is written synchronously on the server and no bus event carries
 // it back, so the bar commits a rename by sending it and the sidebar row
 // follows from the one message. The model picker is reached from the chip
-// and lives in `model_picker.tsx`.
+// and lives in `pickers/model_picker.tsx`.
 
 import { createSignal, Show, Switch, Match } from 'solid-js';
 import type { JSX } from '@solidjs/web';
