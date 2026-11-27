@@ -26,8 +26,10 @@ correction you want enforced for the rest of the session.
 result too, so the pair stays intact in context.
 
 On the web UI, the same pin is the entry's `⋮` → **Pin** (the item reads
-**Unpin** once pinned); relative position only, with top/bottom left to the
-TUI's Pins sidebar.
+**Unpin** once pinned), and the same `⋮` carries the exclude/include
+toggle; relative position only, with top/bottom and the default-state
+reset left to the TUI's Pins sidebar (`webui.md` → [Entry
+menu](webui.md#entry-menu)).
 
 ### Choose where the pin sits
 

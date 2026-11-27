@@ -5,8 +5,9 @@ It is a mirror of the TUI with web UX: the same sessions, the same
 transcript, the same single active session, and every action publishes
 the same message the TUI's keybind does.
 
-It covers the core loop — sessions and the library, images, themes, model
-refresh, and creating a session — and leaves out what
+It covers the core loop — sessions and the library, the transcript and
+its entry menu, the status bar and its session dash, images, the pickers,
+themes, model refresh, and creating a session — and leaves out what
 [What the web UI does not do](#what-the-web-ui-does-not-do) lists.
 
 It is a **single-user, unauthenticated** surface — reach it over loopback
@@ -89,8 +90,11 @@ by reloading itself — see [Reconnecting](#reconnecting).
   indented under its parent, and a filter that matches a child keeps its
   parent listed above it. Each row shows its title over a smaller, muted
   `date · project` line (the browser's local time); an archived row is
-  dimmed. Choosing a row activates it; an archived session is loaded from
-  disk and leaves the archive.
+  dimmed. The list is capped at 50 rows, taken as whole trees in
+  rank order, so a filter never leaves a parent whose children were cut
+  off. Choosing a row activates it; an archived session is loaded from
+  disk and leaves the archive. It is the only way to reach an archived
+  session from the web — the sidebar lists loaded sessions only.
 - **New session** — the menu's **New session** item opens a modal with a
   Project select, a Lifecycle select (blank by default), and **Setup
   arguments** when the chosen lifecycle declares any. **Create session**
@@ -144,48 +148,78 @@ by reloading itself — see [Reconnecting](#reconnecting).
   `https://` image URL in the text — and each one shows as a chip above
   the draft, with an `✕` to remove it, until the message is sent. A sent
   image renders on its message.
-- **Model** — the titlebar's model chip opens a picker of the available
-  models. Choosing one switches the session's model. **Refresh models**
-  asks the registry to rediscover them; it is disabled and busy until the
-  fresh rows arrive.
+- **Model** — the title bar's model chip opens a picker of the available
+  models, built by the TUI picker's own row builder: available models
+  first alphabetically with the current one promoted to the top. Each row
+  is the model name over its provider name, with `· current` after the
+  one in use and `· unavailable` after one whose provider has no API
+  key — that row is disabled and cannot be clicked. (The TUI's `✗`,
+  `→`, and `*` marks are not drawn here.) The filter is the server-side
+  fuzzy match. Choosing a row switches the session's model and closes
+  the picker. **Refresh models** asks the registry to rediscover them;
+  it is disabled and busy until the fresh rows arrive, and the list then
+  updates in place without losing the typed filter. Alloys and
+  multi-select are the TUI's.
 - **Title** — click the title to rename the session in place; `Enter`
   commits and `Esc` cancels.
-- **Status bar** — the row under the title bar, shown while a session is
-  active. On the left, the session's persona: click the name to open the
-  persona picker (the same modal the menu's **Persona** item opens). On
-  the right, the context usage figure — the terminal's own, so the two
-  surfaces always agree: `used%/max` when the model's context window is
-  known, `used/???` when it is not. It follows every history change, pin,
-  context toggle and model switch without a reload, and clicking it opens
-  the **session dash**.
-- **Session dash** — a card under the context figure, with a scrim behind
-  it. Not the TUI's dashboard: it is the session's own facts, each computed
-  by the function the terminal uses, so every figure matches the TUI's.
-  - **Session** — the model, context figure, tokens sent and received,
-    cost, turns, working time, cache hit (when the provider reports one),
-    and the directory, one per line. While the session tree holds more
-    than one session, a **Tree** disclosure carries the whole tree's totals.
-    The figures update live while the dash is open.
-  - **MCP servers** — the session's enabled servers with their live
-    status. Clicking anywhere in the section closes the dash and opens the
-    MCP picker.
-  - **Tasks** — every phase with its tasks beneath it, the active phase
-    accented, completed tasks struck through.
-  - **Pinned** — the session's pinned entries, labeled as the TUI sidebar
-    labels them. Clicking one closes the dash and scrolls the transcript
-    to that entry, loading older history until it is held. A jump that
-    takes more than a moment covers the page with a **Navigating…** overlay
-    that blocks the UI until the entry is reached; its **Cancel** button
-    closes the overlay and stops the load, leaving the transcript where it
-    was. A jump that lands at once never shows the overlay.
-  - `Esc` or a click outside the card closes it; switching sessions closes
-    it too.
-- **Entry menu** — every transcript entry has a `⋮` at its bottom-right,
-  always visible at every width. It opens the session row's popup with the
-  things you can do to that one entry.
-  - **Pin / Unpin** — pins the entry at its relative position, the same
-    pin the TUI's `p` sets, and the entry shows a 📌 on its left edge.
-    Pinned, the item reads **Unpin**. A pin takes the whole tool loop:
+
+## Status bar
+
+The row under the title bar, shown while a session is active. It has
+two buttons, and each opens something.
+
+- **The persona name (left)** — the session's current persona. Click it
+  to open the persona picker, the same modal the menu's **Persona** item
+  opens: the shortest way to switch persona is one click on the name and
+  one click on a row.
+- **The context usage figure (right)** — `used%/max` when the model's
+  context window is known, `used/???` when it is not. It is the
+  terminal's own figure, so the two surfaces always agree. It follows
+  every history change, pin, context toggle and model switch without a
+  reload. Click it to open the [session dash](#session-dash).
+
+With no session active the whole bar is not rendered.
+
+## Session dash
+
+A card that drops down from the status bar's right edge, under the
+context figure, with a scrim behind it. Not the TUI's dashboard: it is
+the session's own facts, each computed by the function the terminal
+uses, so every figure matches the TUI's. From top to bottom:
+
+- **Session** — the model, context figure, tokens sent and received,
+  cost, turns, working time, cache hit rate (when the provider reports
+  one), and the directory, one per line. While the session tree holds
+  more than one session, a **Tree** disclosure carries the whole tree's
+  totals. The figures update live while the dash is open.
+- **MCP servers** — the session's enabled servers with their live
+  status, or **No MCP servers enabled**. Clicking anywhere in the
+  section closes the dash and opens the MCP picker.
+- **Pinned** — the session's pinned entries, labeled as the TUI sidebar
+  labels them, or **No pinned entries**. Clicking one closes the dash
+  and scrolls the transcript to that entry, loading older history until
+  it is held. A jump that takes more than a moment covers the page with
+  a **Navigating…** overlay that blocks the UI until the entry is
+  reached; its **Cancel** button closes the overlay and stops the load,
+  leaving the transcript where it was. A jump that lands at once never
+  shows the overlay.
+- **Tasks** — every phase with its tasks beneath it, the active phase
+  accented and completed tasks struck through, or **No tasks yet**.
+
+`Esc` or a click outside the card closes it; switching sessions closes
+it too.
+
+## Entry menu
+
+Every transcript entry has a `⋮` at its bottom-right, always visible at
+every width — there is no hover-reveal, so it works on a phone. It opens
+the popup with the things you can do to that one entry. `Esc`, a click
+outside, or picking an item closes it; the last entry's popup opens
+upward so the composer never cuts it off.
+
+- **Pin / Unpin** — pins the entry at its relative position, the same
+  pin the TUI's `p` sets, and the entry shows a 📌 on its left edge.
+  Pinned, the item reads **Unpin**. A pin takes the whole tool loop:
     pinning a tool call or result pins its loop, and each member shows the
     mark. Pins made in the TUI appear on the web UI at once. Top and bottom
     positioning stay in the TUI's Pins sidebar.
@@ -202,29 +236,44 @@ by reloading itself — see [Reconnecting](#reconnecting).
     the new session is linked as the source's child and every page moves
     onto it. A "Loading session…" overlay covers the page while it is
     created. Offered while a turn is running too, like the TUI's `f`.
-- **Menu** — the `☰` at the title bar's left opens a full-height panel
-  over a dimmed page. **New session** is its first item and the
-  **Light | Dark | System** color mode group its last, at every time.
-  Just above the group, at every time, is **Sessions**, which opens
-  the session list — on a phone the drawer, at wider widths nothing,
-  since the sidebar is already in place.
-  Between them, while a session is active, it lists **Archive session**,
-  **Skills**, **Persona**, **Tools**, and **MCP servers**, in that order.
-  **Archive session** archives the session in view; a session running a
-  turn is refused with a toast. Each of the four pickers opens
-  its picker. With no active session those five are omitted. **Applets**
-  sits between those five and **Sessions**, at every time — the saved-app
-  catalog depends on no session. A scrim
-  click, `Esc`, or picking an item closes it.
+
+The `⋮` on a **session row** in the sidebar is a different menu: see
+**Sessions | Library** under [What it does](#what-it-does).
+
+## Menu
+
+The `☰` at the title bar's left opens a full-height panel over a dimmed
+page. **New session** is its first item and the **Light | Dark | System**
+color mode group its last, at every time. Just above the group, at every
+time, is **Sessions**, which opens the session list — on a phone the
+drawer, at wider widths nothing, since the sidebar is already in place.
+Between them, while a session is active, it lists **Archive session**,
+**Skills**, **Persona**, **Tools**, and **MCP servers**, in that order.
+**Archive session** archives the session in view; a session running a
+turn is refused with a toast. Each of the four pickers opens its picker.
+With no active session those five are omitted. **Applets** sits between
+those five and **Sessions**, at every time — the saved-app catalog
+depends on no session. A scrim click, `Esc`, or picking an item closes
+it.
+
+## Pickers
+
+Every picker modal here covers the full viewport with a backdrop and a
+card: a filter input on top, a scrollable list below. `Esc` or a
+backdrop click closes it. The filter is the terminal's own — run on the
+server, with whitespace-separated terms each matched (so `gpt 4` finds
+`gpt-4`), the closest match ranked first, and the matched runs
+highlighted as you type (debounced).
+
 - **Applets** — the menu's **Applets** item (at every time) opens the
   saved applets, newest first, each a new-tab link to
   `http://<bind>/applets/<id>/` while the applets server is serving and a
   disabled line while it is offline. A status line above the list names
   the serving bind (`serving http://<bind>`) or reads `<server offline>`.
   A filter bar narrows the list by title as you type, with the matches
-  highlighted. An empty catalog says **No applets saved yet**. The modal
-  refreshes itself when an applet is saved or the server's serving phase
-  changes.
+  highlighted. An empty catalog says **No applets saved yet**. Opening
+  the modal wakes the applets server; its rows refresh by themselves
+  when the server's serving phase changes or an applet is saved.
 - **Color mode** — the menu's **Light | Dark | System** group. The choice
   is saved (`state.toml`) and survives a reload and a restart; **System**
   follows the browser. It is applied before the transcript's first paint.
@@ -253,8 +302,8 @@ by reloading itself — see [Reconnecting](#reconnecting).
     enabling the skill first if it was off. A skill already in context
     has its `+` disabled, so nothing is loaded twice.
 - **Persona** — the menu's **Persona** item, or the persona name in the
-  status bar under the title bar, opens the personas, in their
-  own name-sorted order: a `●` on the session's current persona and a
+  [status bar](#status-bar) under the title bar, opens the personas, in
+  their own name-sorted order: a `●` on the session's current persona and a
   `○` on the rest, the name and description. The current persona's row
   is highlighted.
   - Clicking a row switches the session's persona and **closes the
@@ -286,12 +335,11 @@ by reloading itself — see [Reconnecting](#reconnecting).
   - This is the simple toggle list — no stderr/log pane and no tool
     list. Those are in the TUI's inspector; the web UI does not have them.
 
-Every picker modal here covers the full viewport with a backdrop and a
-card: a filter input on top, a scrollable list below. `Esc` or a
-backdrop click closes it. The filter is the terminal's own — run on the
-server, with whitespace-separated terms each matched (so `gpt 4` finds
-`gpt-4`), the closest match ranked first, and the matched runs
-highlighted as you type (debounced).
+This is the one place the web UI's behavior is described. The other
+references name a web control and point back here; the web UI's settings
+— its `[webui]` bind, its theme persistence, its image limits — stay with
+the other settings in `configuration.md`, `extending-jinn.md`, and
+`chat-input-tokens.md`.
 
 ## Keys and buttons
 
@@ -305,7 +353,9 @@ There are no keybinds beyond these:
 | `Tab` with the `#` prompt popup open | Inserts the highlighted template as a bare `#name`. |
 | `↑` / `↓` with the `#` prompt popup open | Moves the highlight; the best match starts highlighted, at the bottom. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
-| `Esc` | Closes the top overlay: the menu, any of the five picker modals (Skills, Persona, Tools, MCP servers, Applets), the New session modal, another picker, the `#` prompt popup, the title editor, or the phone drawer. It does **not** close the **Loading session…** overlay — that ends only when the load ends. |
+| `Esc` | Closes the top overlay, one at a time: the `#` prompt popup, the title editor, an entry's `⋮` popup, a session row's `⋮` popup, the session dash, any picker modal (Skills, Persona, Tools, MCP servers, Applets, the model picker, the Archive picker), the New session modal, the `☰` menu, or the phone drawer. |
+| `Esc` on the **Loading session…** overlay | Does nothing. That overlay ends only when the load ends. |
+| `Esc` on the **Navigating…** overlay | Does nothing. Its **Cancel** button is the one way out. |
 
 The composer's buttons follow the session's phase:
 
@@ -324,11 +374,12 @@ every chip stay put.
 
 **Prompt templates.** Typing `#` at a word boundary in the draft — the
 start, or right after a space or newline — opens a popup above the
-composer listing the session's templates as `name - description`, narrowing
-as you type. `Tab` inserts the bare `#name`, which expands at send exactly
-as the TUI's does; a tap picks a row on a phone. Moving the caret out of
-the token closes it. The list is the session's own, delivered with the
-snapshot and refreshed when a rescan finishes.
+composer listing the session's templates as `name - description`, at most
+20 rows, narrowing as you type. `Tab` inserts the bare `#name`, which
+expands at send exactly as the TUI's does; a tap picks a row on a phone.
+Moving the caret out of the token closes it. The list is the session's
+own, delivered with the snapshot and refreshed when a rescan finishes,
+and filtered in the browser — the server is asked nothing per keystroke.
 
 **Cancel** stops the running turn. Queued work is dumped into the TUI's
 input box as an editable draft — not into the web composer.
@@ -365,8 +416,11 @@ the web UI, say so and point at the surface that has it.
 - Renaming, deleting, or opening an applet in kiosk mode. The web UI
   applets picker opens one in a new tab; those three gestures are the
   TUI's.
-- Exclusion, isolate, and the per-entry audit popup. (Pinning is on
-  the web UI: the entry's `⋮` → **Pin**. Top/bottom pin positioning is not.)
+- Returning an entry to its default context state, isolate, and the
+  per-entry audit popup. The web UI's entry `⋮` has a two-way
+  **Exclude from context / Include in context** toggle, and **Pin**;
+  the TUI's `r` reset, top/bottom pin positioning, and isolate are not
+  there.
 - Steer mode. A message sent while working is queued; to steer, cancel
   and send.
 - The `@path` and `/command` input tokens. That text is sent verbatim;
