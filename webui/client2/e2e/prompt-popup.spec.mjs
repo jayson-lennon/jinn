@@ -265,3 +265,49 @@ base
     );
     expect(caret).toBe(`#${PROMPT_NAME}`.length);
   });
+
+/** Drives a real touch gesture through CDP: finger down at `from`, drag
+ *  to `to` in small steps (so the browser sees a scroll, not a jump),
+ *  then lift. `page.touchscreen` can only tap, so a drag needs this. */
+async function touchDrag(page, from, to) {
+  const cdp = await page.context().newCDPSession(page);
+  const steps = 8;
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: from.x, y: from.y }],
+  });
+  for (let i = 1; i <= steps; i += 1) {
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [
+        { x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps },
+      ],
+    });
+  }
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await cdp.detach();
+}
+
+base
+  .onPhone({ prompt: true })
+  ("a finger drag on a phone scrolls the popup without picking", async ({ page }) => {
+    // Given the popup open on the whole list — more rows than fit, so the
+    // list scrolls — with the finger starting on a row.
+    await openPromptPopup(page);
+    const popup = page.locator(sel.PROMPT_POPUP);
+    const box = await page.locator(sel.PROMPT_ROW).first().boundingBox();
+    const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    const scrolledBefore = await popup.evaluate((el) => el.scrollTop);
+
+    // When the finger goes down on that row, drags upward, and lifts — the
+    // gesture that used to pick the row the finger landed on.
+    await touchDrag(page, from, { x: from.x, y: from.y - 120 });
+
+    // Then the list scrolled — the browser took the gesture — and nothing
+    // was picked: the draft still holds only the `#`, and the popup is
+    // still open.
+    const scrolledAfter = await popup.evaluate((el) => el.scrollTop);
+    expect(scrolledAfter).toBeGreaterThan(scrolledBefore);
+    await expect(page.locator(sel.DRAFT)).toHaveValue("#");
+    await expect(popup).toBeVisible();
+  });

@@ -97,12 +97,30 @@ export function Composer(props: ComposerProps): JSX.Element {
   };
 
   /** Picks a template and places the caret after the inserted name. */
+  // Set while a tap's pick is in flight. A touch ends with the browser
+  // moving focus off the textarea — after pointerup, on its own schedule —
+  // and a timer cannot be placed after that reliably. So the blur itself
+  // is what restores focus, when a pick caused it. Cleared once it has.
+  let picking = false;
+
   const pick = (name: string): void => {
     const at = pickPrompt(props.store, name);
     const textarea = draftRef();
     if (at === null || textarea === undefined) return;
     textarea.setSelectionRange(at, at);
     textarea.focus();
+    picking = true;
+  };
+
+  /** The draft's blur: a pick's own blur gives focus straight back; any
+   *  other blur closes the popup, since there is no caret to complete at. */
+  const onDraftBlur = (): void => {
+    if (picking) {
+      picking = false;
+      draftRef()?.focus();
+      return;
+    }
+    setPromptCompletion(props.store, null);
   };
 
   const attach = (files: File[]): void => {
@@ -174,6 +192,44 @@ export function Composer(props: ComposerProps): JSX.Element {
     syncCompletion();
   };
 
+  // A tap on a popup row picks it — but a finger that moves is a scroll,
+  // not a tap. The pointer's down position is remembered, and the pick
+  // happens on pointerup only when the pointer stayed within a few
+  // pixels of where it went down. Without this a phone's scroll gesture
+  // would pick whatever row the finger happened to land on.
+  let pressAt: { x: number; y: number } | undefined;
+  const TAP_SLOP_PX = 10;
+
+  const onRowPointerDown = (e: PointerEvent): void => {
+    pressAt = { x: e.clientX, y: e.clientY };
+    // For a mouse, preventing the default keeps the textarea focused: the
+    // browser would otherwise blur it to focus the row. A touch must keep
+    // its default so the browser can start a scroll from this row; the
+    // focus it loses is restored by the pick, once the gesture is over.
+    if (e.pointerType === 'mouse') e.preventDefault();
+  };
+
+  // A tap picks on pointerup. A touch ends with the browser moving focus
+  // off the textarea right after — and no click reaches the row on a
+  // phone — so the pick's own blur is what gives focus back (see
+  // `onDraftBlur`). For a mouse a click does follow, and the row swallows
+  // it so nothing underneath takes focus.
+  const onRowPointerUp = (e: PointerEvent, name: string): void => {
+    const at = pressAt;
+    pressAt = undefined;
+    if (at === undefined) return;
+    const moved = Math.hypot(e.clientX - at.x, e.clientY - at.y);
+    if (moved <= TAP_SLOP_PX) pick(name);
+  };
+
+  /** Swallows the click a mouse tap leaves behind: the popup has closed
+   *  and unmounted this row, so an unswallowed click would land on the
+   *  transcript and blur the draft. */
+  const onRowClick = (e: MouseEvent): void => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   return (
     <footer class="composer" data-testid="composer">
       <Show when={completion() !== null}>
@@ -191,14 +247,17 @@ export function Composer(props: ComposerProps): JSX.Element {
                 data-prompt={template.name}
                 role="option"
                 aria-selected={index() === highlight() ? 'true' : 'false'}
-                // pointerdown, not click: the textarea must keep focus and
-                // the caret must not move before the pick lands. Preventing
-                // the pointer's default is what stops the browser from
-                // blurring the textarea to focus the row.
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  pick(template.name);
-                }}
+                onPointerDown={onRowPointerDown}
+                onPointerUp={(e) => onRowPointerUp(e, template.name)}
+                // A pointer that left the row, or was cancelled, is no
+                // longer a tap on it.
+                onPointerLeave={() => (pressAt = undefined)}
+                onPointerCancel={() => (pressAt = undefined)}
+                // The pick on pointerup closes the popup, which unmounts
+                // this row before the browser dispatches its click — so the
+                // click lands on whatever is underneath and blurs the
+                // draft. Swallowing it here keeps the focus the pick set.
+                onClick={onRowClick}
               >
                 <span class="prompt-name">{template.name}</span>
                 <Show when={template.description}>
@@ -253,7 +312,7 @@ export function Composer(props: ComposerProps): JSX.Element {
           onSelect={syncCompletion}
           // Losing focus closes the popup: there is no caret in the draft
           // to complete at anymore.
-          onBlur={() => setPromptCompletion(props.store, null)}
+          onBlur={onDraftBlur}
           onPaste={(e) => {
             const images = pastedImages(e);
             if (images.length === 0) return;

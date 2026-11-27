@@ -670,6 +670,9 @@ body { background: var(--bg); color: var(--fg); }
   box-shadow: 0 6px 18px var(--shadow);
   max-height: 280px;
   overflow-y: auto;
+  /* A finger drags the list; the browser owns that scroll. Only a tap —
+     a pointer that goes down and up on one row without moving — picks. */
+  touch-action: pan-y;
   z-index: 5;
 }
 .prompt-row {
