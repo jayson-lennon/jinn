@@ -132,6 +132,14 @@ pub enum ClientMsg {
         /// The entry to toggle.
         entry_id: ChatEntryId,
     },
+    /// Flip one entry between forced-include and forced-exclude — the same
+    /// override the terminal's `x` resolves to, and never back to the
+    /// default. The entry is in the active session and takes its whole
+    /// tool loop. A pinned entry is refused: a pin overrides exclusion.
+    ToggleContext {
+        /// The entry to toggle.
+        entry_id: ChatEntryId,
+    },
     /// Fork the active session at one entry: a new session holding the
     /// history up to and including it, which becomes the active session.
     /// The entry is in the active session — the same command the
@@ -211,6 +219,7 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::PersonaRows { .. } => "persona_rows",
         ClientMsg::SwitchPersona { .. } => "switch_persona",
         ClientMsg::TogglePin { .. } => "toggle_pin",
+        ClientMsg::ToggleContext { .. } => "toggle_context",
         ClientMsg::Fork { .. } => "fork",
         ClientMsg::AppletRows { .. } => "applet_rows",
         ClientMsg::RefreshModels => "refresh_models",

@@ -42,6 +42,11 @@ export interface EntryEnvelope {
     model_used?: string | null;
     model_requested?: string | null;
   };
+  /** Whether the entry is in the model's context right now — the server's
+   * `is_in_context`, pin and override included. The page reads it and never
+   * re-derives it; a frame from before the field existed carries none and
+   * reads as in context. */
+  in_context?: boolean;
 }
 
 export interface SessionRow {
@@ -197,6 +202,7 @@ export type ClientMsg =
   | { type: 'persona_rows'; filter: string }
   | { type: 'switch_persona'; persona: string }
   | { type: 'toggle_pin'; entry_id: string }
+  | { type: 'toggle_context'; entry_id: string }
   | { type: 'fork'; entry_id: string }
   | { type: 'more_entries'; before: string }
   | { type: 'applet_rows'; filter: string }

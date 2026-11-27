@@ -64,30 +64,51 @@ function isPinned(envelope: EntryEnvelope): boolean {
   return envelope.entry.pin_position != null;
 }
 
+/** Whether the entry is in the model's context, as the server reports it.
+ * A frame that predates the field, or a just-sent optimistic entry, carries
+ * none and reads as in context — nothing is dimmed until the server says
+ * it is out. */
+function isInContext(envelope: EntryEnvelope): boolean {
+  return envelope.in_context !== false;
+}
+
 /**
  * Turns a freshly opened popup upward when opening it downward would leave
- * the transcript's scroll box. The kebab is at the entry's bottom-right, so
- * for the last entry — the one most often acted on — a downward popup
- * would open into the composer and be cut off.
+ * the visible area. The kebab is at the entry's bottom-right, so for the
+ * last entry — the one most often acted on — a downward popup would open
+ * into the composer and be cut off.
+ *
+ * The measurement waits one frame: the `ref` runs while the popup is still
+ * detached, before it has a parent or a layout, so an immediate read sees
+ * an empty box and never flips. The bound is the viewport, not only the
+ * transcript's scroll box — on a phone the scroller already ends at the
+ * screen's edge, and the viewport is the one the user actually sees.
  */
 function fitPopup(node: HTMLElement): void {
-  const scroller = node.closest('.transcript');
-  if (scroller === null) return;
-  const limit = scroller.getBoundingClientRect().bottom;
-  if (node.getBoundingClientRect().bottom > limit) node.classList.add('up');
+  requestAnimationFrame(() => {
+    const limit = Math.min(
+      window.innerHeight,
+      node.closest('.transcript')?.getBoundingClientRect().bottom ?? window.innerHeight,
+    );
+    if (node.getBoundingClientRect().bottom > limit) node.classList.add('up');
+  });
 }
 
 export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: string | null; menu: EntryMenuProps }): JSX.Element {
   const kind = (): EntryKind => props.envelope.kind;
   const id = (): string => props.envelope.entry.id;
   const pinned = (): boolean => isPinned(props.envelope);
+  const inContext = (): boolean => isInContext(props.envelope);
+  // A pin overrides exclusion, so a pinned entry is never drawn as out of
+  // context whatever its override says.
+  const excluded = (): boolean => !pinned() && !inContext();
   const open = (): boolean => props.menu.openFor() === id();
   // A just-sent message is shown before the server names it; its id is the
   // page's own, so it can carry no menu until the real entry replaces it.
   const real = (): boolean => !isOptimistic(id());
   return (
     <article
-      class={`entry entry-${kind()}${pinned() ? ' pinned' : ''}`}
+      class={`entry entry-${kind()}${pinned() ? ' pinned' : ''}${excluded() ? ' excluded' : ''}`}
       data-entry-id={id()}
     >
       <span class="pin-mark" aria-hidden="true">📌</span>
@@ -131,6 +152,23 @@ export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: str
               >
                 {pinned() ? 'Unpin' : 'Pin'}
               </button>
+              {/* A pin overrides exclusion, so a pinned entry offers no
+                  context toggle: it would silently do nothing. The label
+                  names the action, read from the effective state. */}
+              <Show when={!pinned()}>
+                <button
+                  type="button"
+                  class="entry-menu-item"
+                  role="menuitem"
+                  data-testid="entry-menu-context"
+                  onClick={() => {
+                    props.menu.send({ type: 'toggle_context', entry_id: id() });
+                    props.menu.toggle(id());
+                  }}
+                >
+                  {inContext() ? 'Exclude from context' : 'Include in context'}
+                </button>
+              </Show>
               <button
                 type="button"
                 class="entry-menu-item"

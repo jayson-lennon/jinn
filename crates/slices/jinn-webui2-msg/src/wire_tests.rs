@@ -10,7 +10,9 @@
 )]
 
 use jinn_core_types::chat_entry::ChatEntryKind;
-use jinn_core_types::{ChatEntry, ChatEntryId, ContextOverride, SessionId, ToolResultStatus};
+use jinn_core_types::{
+    ChatEntry, ChatEntryId, ContextOverride, PinPosition, SessionId, ToolResultStatus,
+};
 use jinn_slices::PhaseView;
 use rstest::rstest;
 
@@ -1389,6 +1391,69 @@ fn entry_envelope_names_every_kind_in_snake_case() {
 
 #[rstest]
 #[test]
+fn an_envelope_is_in_context_for_a_default_user_entry() {
+    // Given a user entry at the default override — a kind the context keeps.
+    let envelope = EntryEnvelope::new(&ChatEntry::user("hello"));
+
+    // Then the envelope reads as in context.
+    assert!(envelope.in_context);
+}
+
+#[rstest]
+#[test]
+fn an_envelope_is_out_of_context_for_a_forced_exclude_entry() {
+    // Given a user entry forced out of context.
+    let entry = ChatEntry::user("hello").with_context_override(ContextOverride::ForcedExclude);
+
+    // When it is wrapped for the wire.
+    let envelope = EntryEnvelope::new(&entry);
+
+    // Then the envelope reads as out of context.
+    assert!(!envelope.in_context);
+}
+
+#[rstest]
+#[test]
+fn an_envelope_is_in_context_for_a_pinned_forced_exclude_entry() {
+    // Given a user entry that is both forced out of context and pinned —
+    // the pin wins, exactly as the core's `is_in_context` decides.
+    let entry = ChatEntry::user("hello")
+        .with_context_override(ContextOverride::ForcedExclude)
+        .with_pin(PinPosition::Relative);
+
+    // When it is wrapped for the wire.
+    let envelope = EntryEnvelope::new(&entry);
+
+    // Then the envelope reads as in context.
+    assert!(envelope.in_context);
+}
+
+#[rstest]
+#[test]
+fn an_envelope_without_the_field_reads_as_in_context() {
+    // Given an upsert frame whose envelope predates the `in_context` field.
+    let json = serde_json::json!({
+        "type": "entry_upsert",
+        "session_id": SessionId::new(),
+        "index": 0,
+        "entry": {
+            "kind": "user",
+            "entry": serde_json::to_value(ChatEntry::user("hello")).expect("serialize")
+        }
+    });
+
+    // When it is deserialized.
+    let msg: ServerMsg = serde_json::from_value(json).expect("deserialize");
+
+    // Then the entry reads as in context, not as a parse failure.
+    let ServerMsg::EntryUpsert(body) = &msg else {
+        unreachable!("an entry_upsert deserializes as an upsert");
+    };
+    assert!(body.entry.in_context);
+}
+
+#[rstest]
+#[test]
 fn a_transient_entry_keeps_its_kind_name_through_the_wire() {
     // Given a transient entry — the one kind the core's persisted
     // deserializer deliberately has no arm for.
@@ -1632,6 +1697,23 @@ fn client_toggle_pin_round_trips() {
     // Then the entry id survives and the wire tag is `toggle_pin`.
     assert_eq!(back, msg);
     assert_eq!(json_of_client(&back)["type"], "toggle_pin");
+}
+
+#[rstest]
+#[test]
+fn client_toggle_context_round_trips() {
+    // Given a context toggle naming one entry.
+    let entry_id = ChatEntryId::new();
+    let msg = ClientMsg::ToggleContext {
+        entry_id: entry_id.clone(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the entry id survives and the wire tag is `toggle_context`.
+    assert_eq!(back, msg);
+    assert_eq!(json_of_client(&back)["type"], "toggle_context");
 }
 
 #[rstest]
