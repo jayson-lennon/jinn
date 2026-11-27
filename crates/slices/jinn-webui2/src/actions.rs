@@ -167,10 +167,12 @@ pub fn malformed() -> Reply {
 /// Incremental when the page's cursor is an entry of the active session,
 /// its revision is the session's current one (nothing but appends can have
 /// happened), **and** what came after the cursor fits one window: the
-/// reply is then just those entries, as upserts. Any other case — a fresh
-/// page, a cursor the session no longer holds, a revision from before a
-/// restart, or a gap larger than one window — answers with the bounded
-/// tail as a [`ServerMsg::Snapshot`]. The page's view is replaced
+/// reply is then just those entries, as upserts — or, when the cursor is
+/// the newest entry and nothing came after it, the one frame
+/// [`ServerMsg::Current`], so the answer is never silence. Any other case
+/// — a fresh page, a cursor the session no longer holds, a revision from
+/// before a restart, or a gap larger than one window — answers with the
+/// bounded tail as a [`ServerMsg::Snapshot`]. The page's view is replaced
 /// wholesale there, so a wrong guess can never leave a gap, and a
 /// reconnect can never replay an unbounded stretch of history.
 pub fn hello(
@@ -189,8 +191,11 @@ pub fn hello(
     match resumed {
         Some(window) => {
             out.mark_delivered(&session_id, &window);
-            Reply {
-                frames: upserts_of(out.state(), &session_id, &window),
+            let frames = upserts_of(out.state(), &session_id, &window);
+            if frames.is_empty() {
+                Reply::one(ServerMsg::Current)
+            } else {
+                Reply { frames }
             }
         }
         None => snapshot_reply(out),
