@@ -576,6 +576,13 @@ body { background: var(--bg); color: var(--fg); }
   visibility: hidden;
 }
 .entry.pinned .pin-mark { visibility: visible; }
+/* An entry the server reports as out of the model's context: its content
+   dims, and nothing else does. The kebab and its popup are direct children
+   of the entry too, and are left at full strength — "Include in context"
+   is the one action an excluded entry most needs, and it must stay
+   legible and clickable. Opacity on the entry itself would dim them along
+   with the content. */
+.entry.excluded > :not(.entry-menu) { opacity: .6; }
 
 /* ---- composer ---- */
 .composer { border-top: 1px solid var(--border); padding: 12px 18px; }

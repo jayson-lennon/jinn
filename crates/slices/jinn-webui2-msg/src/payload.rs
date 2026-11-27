@@ -117,6 +117,18 @@ pub struct EntryEnvelope {
     pub kind: String,
     /// The entry, in its wire projection (see [`wire_entry`]).
     pub entry: WireEntry,
+    /// Whether the entry is in the model's context right now: the core's
+    /// `is_in_context` — pin, override, and the kind's default together.
+    /// The browser reads it to dim an excluded entry and to word the
+    /// context toggle, and never re-derives it. A frame written before
+    /// this field existed deserializes as in context.
+    #[serde(default = "default_true")]
+    pub in_context: bool,
+}
+
+/// The `in_context` default for an envelope that predates the field.
+fn default_true() -> bool {
+    true
 }
 
 impl EntryEnvelope {
@@ -127,6 +139,7 @@ impl EntryEnvelope {
         Self {
             kind: entry.kind_str().to_owned(),
             entry: WireEntry::project(entry),
+            in_context: entry.is_in_context(),
         }
     }
 

@@ -182,9 +182,10 @@ mod handlers;
 
 #[cfg(test)]
 pub(crate) use handlers::{
-    applets_rescanned, applets_serving_changed, archive_failed, flush, follow_active_session,
-    library_membership_changed, mcp_runtime_stored, model_cache_stored, phase_changed, pin_changed,
-    reconcile, sessions_changed, skills_loaded, startup_hydration_finished,
+    applets_rescanned, applets_serving_changed, archive_failed, context_override_changed, flush,
+    follow_active_session, library_membership_changed, mcp_runtime_stored, model_cache_stored,
+    phase_changed, pin_changed, reconcile, sessions_changed, skills_loaded,
+    startup_hydration_finished,
 };
 
 /// The outbound actor.
@@ -392,6 +393,11 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         // without this a pin made in the terminal would reach the page
         // only at the next turn's settle.
         .handles::<jinn_session_history_msg::ChatEntryPinChanged>()
+        // An override rewrites entries in place too — the terminal's `x`,
+        // a prune, or the page's own context toggle — and no append
+        // announces it. Without this the page hears of it only at the
+        // next turn's settle.
+        .handles::<jinn_context_assembly_msg::ContextOverrideChanged>()
         .handles::<jinn_chat_input_msg::ChatEntrySubmitted>()
         .handles::<jinn_provider_selection_msg::ProviderSwitched>()
         .handles::<jinn_session_store_msg::SessionLoadCompleted>()

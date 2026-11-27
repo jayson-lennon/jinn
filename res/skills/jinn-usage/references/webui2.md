@@ -133,6 +133,14 @@ but nothing coordinates them.
     pinning a tool call or result pins its loop, and each member shows the
     mark. Pins made in the TUI appear on `/web2` at once. Top and bottom
     positioning stay in the TUI's Pins sidebar.
+  - **Exclude from context / Include in context** — flips the entry between
+    forced-exclude and forced-include, the same override the TUI's `x` sets,
+    and takes the whole tool loop like a pin does. The item names the action
+    it will take: an entry in context reads **Exclude from context**, one
+    out of it reads **Include in context**. An excluded entry is drawn
+    dimmed. Excludes made in the TUI appear on `/web2` at once. The item is
+    absent on a pinned entry, since a pin overrides exclusion, and the web
+    cannot return an entry to the default — the TUI's `r` does.
   - **Fork** — forks the session at that entry into a new session holding
     the history up to and including it, the same fork the TUI's `f` makes;
     the new session is linked as the source's child and every page moves

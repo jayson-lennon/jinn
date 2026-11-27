@@ -315,6 +315,34 @@ pub(crate) fn pin_changed(
     reconcile(handle, &msg.session_id);
 }
 
+impl MsgHandler<jinn_context_assembly_msg::ContextOverrideChanged> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_context_assembly_msg::ContextOverrideChanged,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        context_override_changed(&self.handle, msg);
+    }
+}
+
+/// On a context override change, sends every entry the page holds
+/// differently.
+///
+/// A toggle rewrites `context_override` in place — nothing is appended —
+/// and it takes a whole tool loop, while the event names only the entry
+/// the user acted on. So the event carries the session and one id, and the
+/// reconcile is what finds every changed member: each one's serialized
+/// form no longer matches what the page was last sent. Without this a
+/// toggle made in the terminal would reach the page only at the next
+/// turn's settle.
+pub(crate) fn context_override_changed(
+    handle: &super::OutboundHandle,
+    msg: &jinn_context_assembly_msg::ContextOverrideChanged,
+) {
+    handle.bump(&msg.session_id);
+    reconcile(handle, &msg.session_id);
+}
+
 impl MsgHandler<jinn_chat_input_msg::ChatEntrySubmitted> for OutboundActor {
     async fn handle(
         &mut self,

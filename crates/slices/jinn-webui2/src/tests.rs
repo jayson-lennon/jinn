@@ -16,12 +16,17 @@
 use std::sync::Arc;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_core_types::{ChatEntry, ChatEntryId, ChatEntryKind, ModelSelection, PinPosition};
+use jinn_context_assembly_msg::ContextOverrideChanged;
+use jinn_core_types::{
+    ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride, ModelSelection, PinPosition,
+};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::State;
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_provider_selection_msg::ProviderSwitch;
-use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, UnpinChatEntry};
+use jinn_session_history_msg::{
+    ChatEntryPinChanged, PinChatEntry, SetEntryContextOverride, UnpinChatEntry,
+};
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
     ArchiveSession, PersistSession, SessionForkRequested, SessionLoadRequested, SetSessionLibrary,
@@ -2827,6 +2832,282 @@ fn a_pin_changed_event_for_another_session_sends_nothing() {
 
     // Then the page receives nothing.
     assert_eq!(drain(&mut inbox).len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Context toggle
+// ---------------------------------------------------------------------------
+
+/// The single context-override command the page published, with its target.
+fn one_override_target(h: &Harness) -> ContextOverride {
+    let published = h.audit.of_type::<SetEntryContextOverride>();
+    assert_eq!(published.len(), 1, "exactly one override command");
+    published[0].value
+}
+
+/// Toggles the context of the active session's only entry.
+async fn toggle_only_entry(h: &Harness) {
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+    say(h, ClientMsg::ToggleContext { entry_id }).await;
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_default_entry_publishes_forced_exclude() {
+    // Given a session holding one user entry at the default override.
+    let h = harness();
+    push(&h.state, ChatEntry::user("hello"));
+
+    // When the page toggles that entry's context.
+    toggle_only_entry(&h).await;
+
+    // Then the override command forces the entry out of context.
+    assert_eq!(one_override_target(&h), ContextOverride::ForcedExclude);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_default_excluded_kind_publishes_forced_include() {
+    // Given a session holding one thinking entry — a kind the context
+    // leaves out by default.
+    let h = harness();
+    push(&h.state, ChatEntry::thinking("let me think"));
+
+    // When the page toggles that entry's context.
+    toggle_only_entry(&h).await;
+
+    // Then the override command forces the entry into context.
+    assert_eq!(one_override_target(&h), ContextOverride::ForcedInclude);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_worker_excluded_entry_publishes_forced_include() {
+    // Given a session holding one entry the auto-prune worker excluded.
+    let h = harness();
+    let mut entry = ChatEntry::user("hello");
+    entry.apply_context_override(
+        ContextOverride::ForcedExclude,
+        jinn_core_types::ChangeSource::Worker {
+            name: "trivial_assistant".to_owned(),
+        },
+    );
+    push(&h.state, entry);
+
+    // When the page toggles that entry's context.
+    toggle_only_entry(&h).await;
+
+    // Then the override command forces the entry back into context.
+    assert_eq!(one_override_target(&h), ContextOverride::ForcedInclude);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_forced_include_entry_publishes_forced_exclude() {
+    // Given a session holding one entry already forced into context.
+    let h = harness();
+    let mut entry = ChatEntry::user("hello");
+    entry.apply_context_override(
+        ContextOverride::ForcedInclude,
+        jinn_core_types::ChangeSource::User,
+    );
+    push(&h.state, entry);
+
+    // When the page toggles that entry's context.
+    toggle_only_entry(&h).await;
+
+    // Then the override command forces the entry out of context.
+    assert_eq!(one_override_target(&h), ContextOverride::ForcedExclude);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_forced_exclude_entry_publishes_forced_include() {
+    // Given a session holding one entry already forced out of context.
+    let h = harness();
+    let mut entry = ChatEntry::user("hello");
+    entry.apply_context_override(
+        ContextOverride::ForcedExclude,
+        jinn_core_types::ChangeSource::User,
+    );
+    push(&h.state, entry);
+
+    // When the page toggles that entry's context.
+    toggle_only_entry(&h).await;
+
+    // Then the override command forces the entry into context.
+    assert_eq!(one_override_target(&h), ContextOverride::ForcedInclude);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_a_pinned_entry_is_refused_and_publishes_nothing() {
+    // Given a session holding one entry already pinned to the top.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .pin_entry(&entry_id, PinPosition::Top);
+
+    // When the page toggles the context on the pinned entry.
+    let reply = dispatch(
+        ClientMsg::ToggleContext {
+            entry_id: entry_id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn toggling_context_on_an_unknown_entry_is_refused_and_publishes_nothing() {
+    // Given a session whose history holds no entry with the id the page names.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+
+    // When the page toggles the context on an id the session does not hold.
+    let reply = dispatch(
+        ClientMsg::ToggleContext {
+            entry_id: ChatEntryId::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+// ---------------------------------------------------------------------------
+// Context toggle: the live push
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_context_override_changed_event_upserts_the_entry_the_page_holds_differently() {
+    // Given a connected page that holds one entry as it stood in context.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+    let (_id, mut inbox, _connection) = h.handle.register();
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+
+    // When the entry is forced out of context — as the terminal's `x`
+    // does — and the override event reaches the outbound actor.
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_entry_context_override_by_id(&entry_id, ContextOverride::ForcedExclude);
+    crate::outbound::context_override_changed(
+        &h.handle,
+        &ContextOverrideChanged {
+            session_id: active_id(&h.state),
+            entry_id: entry_id.clone(),
+        },
+    );
+
+    // Then the page receives exactly one upsert, and it reads as out of
+    // context with the exclusion carried.
+    let frames = drain(&mut inbox);
+    assert!(matches!(frames.as_slice(), [ServerMsg::EntryUpsert(_)]));
+    let ServerMsg::EntryUpsert(upsert) = &frames[0] else {
+        unreachable!("matched above");
+    };
+    let entry: ChatEntry = serde_json::from_value(upsert.entry.entry.as_json().clone())
+        .expect("the projected entry deserializes back");
+    assert_eq!(entry.id, entry_id);
+    assert_eq!(entry.context_override(), ContextOverride::ForcedExclude);
+    assert!(!upsert.entry.in_context);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_context_override_changed_event_for_another_session_sends_nothing() {
+    // Given a connected page holding one entry, already delivered.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+    let (_id, mut inbox, _connection) = h.handle.register();
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+
+    // When an override event names a session the page is not viewing.
+    crate::outbound::context_override_changed(
+        &h.handle,
+        &ContextOverrideChanged {
+            session_id: jinn_core_types::SessionId::new(),
+            entry_id: ChatEntryId::new(),
+        },
+    );
+
+    // Then the page receives nothing.
+    assert_eq!(drain(&mut inbox).len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_context_override_changed_event_upserts_every_member_of_the_tool_loop() {
+    // Given a connected page holding a three-entry tool loop, delivered.
+    let h = harness();
+    push(&h.state, ChatEntry::assistant("checking the worker"));
+    push(
+        &h.state,
+        ChatEntry::tool_call("call-1", "bash", r#"{"command":"ls"}"#),
+    );
+    push(
+        &h.state,
+        ChatEntry::tool_result(
+            "call-1",
+            "bash",
+            "file.txt",
+            jinn_core_types::ToolResultStatus::Success,
+        ),
+    );
+    let (_id, mut inbox, _connection) = h.handle.register();
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+    let _ = drain(&mut inbox);
+    let result_id = h.state.read().session.active_session().history()[2]
+        .id
+        .clone();
+
+    // When the result is forced out of context — the write takes the whole
+    // loop — and the override event names only that result.
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_entry_context_override_by_id(&result_id, ContextOverride::ForcedExclude);
+    crate::outbound::context_override_changed(
+        &h.handle,
+        &ContextOverrideChanged {
+            session_id: active_id(&h.state),
+            entry_id: result_id.clone(),
+        },
+    );
+
+    // Then every member of the loop reaches the page as an upsert.
+    let frames = drain(&mut inbox);
+    let upserts = frames
+        .iter()
+        .filter(|f| matches!(f, ServerMsg::EntryUpsert(_)))
+        .count();
+    assert_eq!(upserts, 3);
 }
 
 // ---------------------------------------------------------------------------

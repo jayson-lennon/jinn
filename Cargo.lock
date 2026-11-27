@@ -5992,6 +5992,7 @@ dependencies = [
  "jinn-cell-catalog",
  "jinn-chat-input-msg",
  "jinn-config",
+ "jinn-context-assembly-msg",
  "jinn-core-types",
  "jinn-inference-msg",
  "jinn-kernel",
