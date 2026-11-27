@@ -62,7 +62,8 @@ by reloading itself — see [Reconnecting](#reconnecting).
   runs that session's teardown lifecycle and then archives it (the terminal's
   `x` — a session with nothing to tear down is archived at once); and
   **archive**, which archives without running the teardown lifecycle. While
-  the teardown runs, the row shows its busy dot.
+  the teardown runs, the row shows its busy mark — a dot with a halo
+  that expands out of it and fades.
   While the page is still waiting for its first list, and again while the server is
   still loading its saved sessions at startup, whichever list is showing
   ends with a muted **loading sessions…** row — a spinner, below the rows
@@ -360,7 +361,8 @@ There are no keybinds beyond these:
 The composer's buttons follow the session's phase:
 
 - **Idle** — **Send** only.
-- **Working** — **Q** and **Cancel**; there is no Send. `Q` queues the
+- **Working** — **Q** and **Cancel**, both filled buttons; there is no Send.
+  `Q` queues the
   draft behind the running turn, and any number of messages can wait
   there. A count beside the `Q` shows how many are queued, since a
   queued message does not appear in the transcript until its turn runs.

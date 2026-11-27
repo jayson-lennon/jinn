@@ -65,7 +65,7 @@ export function ToolResultView(props: { value: unknown; sessionId: string | null
             when={!loading()}
             fallback={
               <span class="tool-output-spinner" data-testid="tool-output-spinner">
-                <span class="spinner spinner-small" aria-hidden="true" /> loading full output…
+                <span class="spinner spinner-small" aria-hidden="true"><i /></span> loading full output…
               </span>
             }
           >

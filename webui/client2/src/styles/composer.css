@@ -63,8 +63,20 @@
 }
 .composer-actions button:hover:not(:disabled) { background: var(--bg-hover); }
 .composer-actions button:disabled { color: var(--fg-faint); cursor: not-allowed; }
-.composer-actions .primary { background: var(--accent); color: var(--on-fill); border-color: var(--accent); font-weight: 600; }
-.composer-actions .danger { color: var(--danger); border-color: var(--danger); }
+/* The filled buttons: Send and the busy Q on the accent, the busy Cancel on
+   the error colour. A filled button KEEPS its fill under the pointer and
+   only lightens it: the plain hover rule above would paint the page's hover
+   surface over the fill and leave the fill's dark ink on a dark surface. */
+.composer-actions .primary,
+.composer-actions .q { background: var(--accent); color: var(--on-fill); border-color: var(--accent); font-weight: 600; }
+.composer-actions .cancel { background: var(--danger); color: var(--on-fill); border-color: var(--danger); font-weight: 600; }
+.composer-actions .primary:hover:not(:disabled),
+.composer-actions .q:hover:not(:disabled),
+.composer-actions .cancel:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+.composer-actions .cancel:hover:not(:disabled) { background: var(--danger); }
+.composer-actions .primary:disabled { background: var(--accent); color: var(--on-fill); opacity: .5; border-color: var(--accent); }
+/* The count beside Q: on the accent fill it takes the page's own surface, so
+   it reads as a chip against the fill rather than a hole in it. */
 
 /* The composer's `#` prompt popup: a list above the draft, anchored to the
    composer. The composer is its containing block, so the popup's bottom
@@ -146,6 +158,8 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
   font-weight: 600;
   cursor: pointer;
 }
+/* As the composer's filled buttons: the fill stays under the pointer. */
+.new-session-submit:hover { background: var(--accent); filter: brightness(1.08); }
 
 /* The menu's segmented color-mode group. */
 .menu-group {

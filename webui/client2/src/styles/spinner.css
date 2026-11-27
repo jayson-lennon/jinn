@@ -1,23 +1,46 @@
 /* ---- spinner ---- */
-/* One spinner for both overlays: the reconnect banner and the session-load card. */
-@keyframes spin { to { transform: rotate(360deg); } }
+/* Three dots that breathe in turn — no rotation. One shape at every scale,
+   for every place the page waits: the reconnect banner, the session-load and
+   navigating cards, the busy status row, the older-entries row, and the
+   full-output disclosure. The dots take the text colour of whatever line they
+   sit in, so a muted row gets muted dots and the overlay gets light ones. */
 .spinner {
-  display: inline-block;
+  display: inline-flex;
   flex: none;
-  width: 18px;
+  align-items: center;
+  gap: 4px;
+  width: 28px;
   height: 18px;
-  border: 3px solid var(--accent);
-  border-top-color: transparent;
+}
+.spinner::before,
+.spinner::after,
+.spinner > i {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  animation: spin .8s linear infinite;
+  background: currentColor;
+  animation: breathe 1.2s ease-in-out infinite;
+}
+.spinner > i { animation-delay: .15s; }
+.spinner::after { animation-delay: .3s; content: ""; }
+@keyframes breathe {
+  0%, 80%, 100% { opacity: .25; transform: scale(.8); }
+  40% { opacity: 1; transform: scale(1); }
 }
 /* The inline size, for a spinner that sits inside a line of text: the
    full-output disclosure while it fetches, and the older-entries row. */
 .spinner-small {
-  width: 12px;
+  width: 22px;
   height: 12px;
-  border-width: 2px;
-  vertical-align: -2px;
+  gap: 3px;
   margin-right: 6px;
+  vertical-align: -1px;
 }
-
+.spinner-small::before,
+.spinner-small::after,
+.spinner-small > i {
+  width: 4px;
+  height: 4px;
+}

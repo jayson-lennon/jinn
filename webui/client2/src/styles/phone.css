@@ -42,11 +42,11 @@
   .sessions-button.unread {
     background: var(--mark);
     border-color: var(--mark);
-    color: var(--on-fill);
+    color: var(--on-mark);
     gap: 4px;
     align-items: center;
   }
-  .sessions-button.unread:hover { border-color: var(--on-fill); }
+  .sessions-button.unread:hover { border-color: var(--on-mark); }
   .sessions-button-count {
     font-size: 12px;
     font-weight: 700;
@@ -73,13 +73,14 @@
 
 /* The count beside Q: how many messages wait behind the running turn. A
    queued message is not in the transcript until its turn runs, so this is
-   the only sign it was taken. */
+   the only sign it was taken. On the accent fill it takes the page's own
+   surface and the fill's ink, so it reads as a chip on the fill. */
 .queue-depth {
   margin-left: 6px;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--bg-active);
-  color: var(--fg-dim);
+  background: var(--bg);
+  color: var(--on-fill);
   font-size: 12px;
   line-height: 18px;
 }

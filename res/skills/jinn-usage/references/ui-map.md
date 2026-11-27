@@ -74,8 +74,8 @@ pinning, exclusion, and the audit popup all operate here (see
 see Popups below.
 
 ### Streaming indicator
-The 1-row line between the chat log and the input box. A spinner plus
-"Working..." while the active session is sending/streaming/compacting; idle
+The 1-row line between the chat log and the input box. Three breathing
+dots plus "Working..." while the active session is sending/streaming/compacting; idle
 rows are blank. Shows a queued-message count when messages are waiting.
 The right edge names the session kind (subagent / bot) in its own color at
 all times, busy or idle alike.
