@@ -19,51 +19,13 @@ One more slash command works the same way in the input box: `/export`
 (write the session to a self-contained file). Context summarization is
 handoff compaction's job — see `context-management.md`.
 
-The **web UI** creates sessions too: the `☰` menu's
-**New session** item opens a modal over the page. Pick a project (the
-curated `[[project.entry]]` list — required; with none configured the modal
-says so), a lifecycle recipe (blank first, its args input appears only when
-the recipe's setup takes parameters), and submit — the new session becomes
-the instance's active one and every web UI page moves to it, the same
-way the TUI and Discord `/new` do, so the session looks identical
-everywhere.
-
-Clicking a session row on the web UI asks the server for that session: a
-**Loading session…** overlay covers the page until the session's snapshot
-arrives. The page follows the instance's active session wherever it
-changes — another web UI page or the TUI — and an unsent draft stays with
-the page, not the session.
-
-On a phone-width browser (under 768px) the session list is an off-canvas
-drawer, and the titlebar's `#` button (beside the menu button) opens it
-in one tap. The button turns gold with a count when sessions settled work
-you have not viewed (the same unread mark that golds the sidebar rows);
-viewing a session clears its mark. At desktop widths the button is hidden
-— the sidebar is already on screen.
-
-The web UI renames a session too: click the title in the titlebar, edit it,
-and press `Enter` (`Esc` cancels). Archiving and forking are on the web as
-well — the menu's **Archive session** item or a row's `⋮` menu for archiving,
-and the entry's `⋮` → **Fork** for forking. Closing and tearing down are
-TUI-only.
-
-The sidebar's **Sessions | Library** toggle switches the list between
-loaded sessions and Library members. The Sessions list carries only
-sessions that are loaded — never archived ones, however many the store
-holds — so it stays small. Membership is changed from the row's `⋮`
-menu — **add to library** / **remove from library** — and the row moves
-between the two lists on every open page without a reload. The Library
-view keeps a title filter box; the Sessions view carries an **Archive**
-button in its place.
-
-The **Archive** button opens a picker over every stored session, loaded
-and archived alike. It mirrors the TUI session picker: rows nest as a
-tree (subagent children under the session that spawned them), each
-with its project and a `loaded` / `archived` tag, and the filter box
-narrow them with the TUI picker's own fuzzy match. It shows at most the
-first 50 rows, so it stays fast on a large store. Clicking a row opens
-that session. It is the only way to reach an archived session from the
-web.
+**On the web UI**, sessions live in the sidebar's **Sessions | Library**
+lists and its **Archive** button; the `☰` menu's **New session** item
+creates one, a row's `⋮` adds to or removes from the Library, tears down
++ archives, or archives, and clicking the title renames. A `#` button
+opens the lists as a drawer on a phone. Every page follows the instance's
+active session. Each of these: `webui.md` → [What it
+does](webui.md#what-it-does).
 
 A **lifecycle recipe** is a named pair of setup/teardown commands configured
 in `jinn.toml` (`[[session_lifecycle.script]]`, e.g. open a fossil branch

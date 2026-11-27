@@ -50,10 +50,9 @@ build an applet from scratch. Either way:
   instead — `{url}`, `{profile}`, `{id}`, and `{title}` are substituted
   into your command verbatim). `<c-r>` renames, `<c-d>` deletes (removes
   the saved copy for good), `<esc>` closes.
-- In the web UI, the menu's **Applets** item opens the same picker as a
-  filterable list: each row is a new-tab link to the applet while the
-  applets server is serving, and disabled while it is offline. Rename,
-  delete, and kiosk are the TUI's.
+- In the web UI, the `☰` menu's **Applets** item opens the saved applets
+  as a filterable list of new-tab links; rename, delete, and kiosk are
+  the TUI's (`webui.md` → [Pickers](webui.md#pickers)).
 - An applet is a **snapshot**: later improvements to the canvas page it
   came from never change it, and it does not live-reload. Ask the agent
   to re-promote (a fresh copy) when you want the improvements.
@@ -61,15 +60,6 @@ build an applet from scratch. Either way:
   `index.html` plus any data files, cataloged in `applets.json` beside
   them. The picker rescans when opened, so external changes show up; an
   applet whose directory is deleted disappears from the list.
-
-**In the web UI**, the `☰` menu's **Applets** item (present at
-every time — it depends on no session) opens the same list as a modal:
-every saved applet, newest first, with a filter bar and the same status
-line (`<server offline>` until the server wakes, then `serving http://…`).
-Opening the modal wakes the server, and its rows refresh by themselves
-once it is up. Clicking a title opens the applet in a **new browser
-tab**; while the server is offline the rows are inert. There is no kiosk
-window, rename, or delete on the web — those stay in the TUI picker.
 
 Renaming and deleting in the picker rewrite the catalog: the picker,
 not the file, is the source of truth for titles and order.

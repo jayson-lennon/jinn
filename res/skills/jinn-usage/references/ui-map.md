@@ -206,7 +206,7 @@ fixed column drawn here, and the `#` is not shown.
 | `[img]` on a user message | An image the message carried. | `webui.md` |
 | `[⇱]` top-right of the transcript | **Jump to start** — an up arrow against a bar above it. Shown only while scrolled away from the top; click to land on the first entry. | `webui.md` |
 | `[⇲]` bottom-right of the transcript | **Jump to end** — a down arrow against a bar below it. Shown only while scrolled away from the end; click to land on the newest entry and follow the stream again. | `webui.md` |
-| `⋮` at an entry's bottom-right | Every transcript entry's menu, always visible at every width. **Pin** pins the entry at its relative position and it shows a 📌; pinned, the item reads **Unpin**. **Fork** forks the session at that entry, as the TUI's `f` does, and the page moves onto the new session. `Esc`, an outside click, or picking an item closes it. | `webui.md` |
+| `⋮` at an entry's bottom-right | Every transcript entry's menu, always visible at every width. **Pin** pins the entry at its relative position and it shows a 📌; pinned, the item reads **Unpin**. **Exclude from context / Include in context** flips the entry's override (absent on a pinned entry). **Fork** forks the session at that entry, as the TUI's `f` does, and the page moves onto the new session. `Esc`, an outside click, or picking an item closes it. | `webui.md` |
 | 📌 at an entry's left edge | A pinned entry — always in context, and pinned at its relative position. | `webui.md` |
 | `[Message jinn…]` | The composer's draft. `Enter` inserts a newline; `Ctrl+Enter` and `Shift+Enter` send. An image with no text sends. | `webui.md` |
 | The `name - description` list above the composer | The `#` prompt popup, open while the caret sits in a `#` token at a word boundary. `Tab` inserts the highlighted `#name`, `↑`/`↓` move, `Esc` or leaving the token closes it, a tap picks on a phone. | `webui.md` |
@@ -238,8 +238,6 @@ fixed column drawn here, and the `#` is not shown.
 | Token-density strip / the `>` arrow | Minimap column |
 | The colored vertical line | Border column (focus accent) |
 | Pinned entries / isolate / audit | Chat log (selection) + Pins sidebar section + audit popup; on the web UI, a 📌 at the entry's left edge and the entry's `⋮` → Pin |
-| The web UI page's per-entry `⋮` and its Pin / Unpin / Fork | Web UI transcript, at each entry's bottom-right |
-| A web-search reply's sources (`Sources (N)`) | Web UI transcript, the collapsed line under the reply |
 | A rule interrupt / watchdog guidance (`⚡ Rule fired: <rule>`) | Web UI transcript, the yellow-tinted collapsed block where the turn changed course; in the TUI the same entry is the yellow `⚡ Rule fired` block |
 | Task phases / task list | Task-list sidebar section + task-list browser (`s`) + tab |
 | Child bots / bot reports | Bots sidebar section + properties popup (`P`) |
@@ -254,15 +252,22 @@ fixed column drawn here, and the `#` is not shown.
 | The web UI's address | Dashboard tab, **webui** row |
 | The web UI page's `☰` / `#` / `[provider/model]` buttons | Web UI title bar |
 | The web UI page's title (click to rename) | Web UI title bar |
-| The web UI page's persona name and context usage figure | Web UI status bar, under the title bar |
+| The web UI page's persona name | Web UI status bar, under the title bar — click it for the persona picker |
+| The web UI page's context usage figure (`12.3k/???`) | Web UI status bar, under the title bar — click it for the session dash |
+| The web UI page's session dash (statistics, MCP servers, pins, tasks) | Web UI, the card under the status bar's context figure |
+| The web UI page's task list, pinned entries, or MCP server status | Web UI session dash (the TUI keeps them in its sidebar) |
 | The web UI page's `☰` button and its menu | Web UI title bar and menu |
-| A blue or gold session row, a `●` running row, a row's `⋮` | Web UI sidebar |
-| The web UI page's Archive button, model chip | Web UI title bar and sidebar |
-| The web UI page's unread session mark — gold row, gold tab, phone `#` count | Web UI sidebar and title bar |
-| The web UI page's Send / `Q` / Cancel buttons | Web UI composer |
-| The web UI page's per-entry `⋮` and its Pin / Unpin | Web UI transcript, at each entry's bottom-right |
+| The web UI page's **Archive** button and the session picker it opens | Web UI sidebar |
+| A blue or gold session row, a `●` running row | Web UI sidebar |
+| A session row's `⋮` — add to library / teardown + archive / archive | Web UI sidebar, at the row's right edge |
+| An entry's `⋮` — Pin / Unpin, Exclude from context, Fork | Web UI transcript, at each entry's bottom-right |
+| 📌 at an entry's left edge | Web UI transcript — a pinned entry |
 | A web-search reply's sources (`Sources (N)`) | Web UI transcript, the collapsed line under the reply |
-| The web UI page's skills list — filter, `●` / `○` marks, `+` | Web UI skills modal |
-| The web UI page's tools list — `✓` / `✗` marks | Web UI tools modal |
-| The web UI page's MCP servers list — `●` / `○` marks, status badge | Web UI MCP servers modal |
-| The web UI page's persona list — `●` / `○` marks | Web UI persona modal |
+| A rule interrupt (`⚡ Rule fired`) | Web UI transcript, the yellow-tinted collapsed block |
+| The **Loading session…** card, the **Navigating…** card | Web UI full-page overlays — the first clears on its own; the second has a **Cancel** button |
+| The web UI page's Send / `Q` / Cancel buttons | Web UI composer |
+| The `#` prompt popup | Web UI, above the composer, while the caret is in a `#` token |
+| The web UI page's skills / tools / MCP servers / persona / applets modals | Web UI pickers, each opened from the `☰` menu |
+| The model picker and its **Refresh models** | Web UI, opened from the title bar's model chip |
+| A toast (bottom right) | Web UI — every refusal and failure the server reports |
+| `disconnected — reconnecting…` | Web UI full-page overlay while the connection is down |

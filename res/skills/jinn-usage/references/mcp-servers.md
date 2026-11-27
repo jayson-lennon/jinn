@@ -225,15 +225,12 @@ preview. The agent can also restart a dead server itself via its built-in
 
 ### The web UI's MCP servers view
 
-The web UI mirrors enablement and status: open the `☰` menu
-and pick **MCP servers** (listed while a session is active). The modal
-lists every server declared in `[mcp.<name>]` — name, launch summary, an
-enabled mark, and a live status badge (`off` / `starting` / `running` /
-`dead`); the badge updates on its own while the modal is open. Clicking a
-row applies the toggle immediately for the active session — no staging, no
-confirm (unlike the TUI's `<Tab>` + `<enter>` flow); enabling spawns the
-connection, disabling kills it. Staging, previews, restarts, and per-server
-detail panes stay TUI-only.
+The `☰` menu's **MCP servers** item (while a session is active) opens a
+modal of every `[mcp.<name>]` entry with its live status badge; a row
+click applies the toggle at once, with no staging. The session dash's
+MCP section opens the same modal. Staging, previews, restarts, and
+per-server detail panes are the TUI's. `webui.md` →
+[Pickers](webui.md#pickers).
 
 ## Tools in context
 
