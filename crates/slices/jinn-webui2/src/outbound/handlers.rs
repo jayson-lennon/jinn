@@ -535,7 +535,7 @@ impl MsgHandler<jinn_provider_selection_msg::ModelCacheStored> for OutboundActor
 ///   refresh's summary table into history as a transient entry and publishes
 ///   no history event for it — the terminal re-reads history on every tick,
 ///   so it shows; a page only shows what it is told. Without this the table
-///   the TUI shows would never reach `/web2`.
+///   the TUI shows would never reach the web UI.
 pub(crate) fn model_cache_stored(handle: &super::OutboundHandle) {
     for (session_id, filter) in handle.filters_for_kind(super::RowsKind::Model) {
         handle.broadcast(&jinn_webui2_msg::ServerMsg::ModelRows(

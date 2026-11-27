@@ -1,4 +1,4 @@
-//! Markdown, auto-links, and the Sources block on `/web2`.
+//! Markdown, auto-links, and the Sources block on the web UI.
 //!
 //! The sample model's `!markdown` command streams a canned document carrying
 //! every construct the renderer must handle; these specs read the page it

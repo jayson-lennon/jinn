@@ -2,7 +2,7 @@
 //! entries, older ones load a page at a time on scroll, and a tool result's
 //! full output loads on demand when its disclosure opens.
 //!
-//! No `/web2` gesture produces a long history or a truncated tool result,
+//! No web UI gesture produces a long history or a truncated tool result,
 //! so every test seeds the scratch store the way the store itself writes
 //! rows — clones of a real persisted entry, and a real `ToolResult` map —
 //! and restarts the instance to load it.

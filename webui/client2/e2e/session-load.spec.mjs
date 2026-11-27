@@ -34,7 +34,7 @@ const STALL_TEXT = "Session switch timed out. The session did not load.";
  * the route, and waits for it to reconnect.
  */
 async function holdActivate(page) {
-  await page.routeWebSocket(/\/web2\/ws$/, (ws) => {
+  await page.routeWebSocket(/\/ws$/, (ws) => {
     const server = ws.connectToServer();
     // Page -> server: the activation is swallowed, everything else passes.
     // Once this handler is set nothing forwards on its own, so `hello` and

@@ -225,7 +225,7 @@ preview. The agent can also restart a dead server itself via its built-in
 
 ### The web UI's MCP servers view
 
-The web UI (`/web2`) mirrors enablement and status: open the `☰` menu
+The web UI mirrors enablement and status: open the `☰` menu
 and pick **MCP servers** (listed while a session is active). The modal
 lists every server declared in `[mcp.<name>]` — name, launch summary, an
 enabled mark, and a live status badge (`off` / `starting` / `running` /

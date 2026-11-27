@@ -328,7 +328,7 @@ mod tests {
     fn load_finds_every_parseable_template_in_the_user_dir() {
         // Given a user dir holding two well-formed templates — one with a
         // hyphenated name and a `#` inside its quoted description, the
-        // shape the `/web2` e2e harness stages.
+        // shape the the web UI e2e harness stages.
         let user_dir = jinn_testutil::tempdir();
         write_template(&user_dir.path, "plan.md", "plan", "Discuss a plan.");
         write_template(

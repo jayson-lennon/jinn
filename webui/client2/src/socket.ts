@@ -68,7 +68,7 @@ export interface Socket {
 /** Builds the socket URL for the page it is served from. */
 export function socketUrl(): string {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${scheme}://${location.host}/web2/ws`;
+  return `${scheme}://${location.host}/ws`;
 }
 
 export function openSocket(handlers: SocketHandlers): Socket {

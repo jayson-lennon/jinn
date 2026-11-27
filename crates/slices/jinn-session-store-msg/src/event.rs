@@ -24,7 +24,7 @@ impl jinn_slices::BusMessage for SessionLoadCompleted {}
 ///
 /// Published strictly after the session map's hydration flag is cleared, on
 /// every path that clears it: every saved session landed, there were none to
-/// load, or the summary read failed. A push-only surface (the `/web2` rail)
+/// load, or the summary read failed. A push-only surface (the the web UI rail)
 /// cannot read that flag the way the terminal's every-tick render does, so
 /// this event is how it learns the loading indicator must come down.
 #[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]

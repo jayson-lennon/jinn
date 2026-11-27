@@ -590,9 +590,9 @@ gh-pr-close N COMMENT="":
     fi
     gh pr close {{N}} "${args[@]}"
 
-# Webui2 (the web UI, /web2).
+# Webui2 (the web UI).
 #
-# The /web2 client is build output of webui/client2, and nothing of it is
+# The web UI client is build output of webui/client2, and nothing of it is
 # committed: the slice's build.rs runs the client build itself on every cargo
 # compile (npm ci when the lock file is newer than node_modules, tsc, vite
 # build) and embeds the gzipped result from OUT_DIR. The bundle therefore
@@ -601,7 +601,7 @@ gh-pr-close N COMMENT="":
 #
 # Node and npm are build prerequisites of the jinn-webui2 crate.
 #
-#   webui2-e2e       — full-stack Playwright e2e for /web2 (shuffled)
+#   webui2-e2e       — full-stack Playwright e2e for the web UI (shuffled)
 #   webui2-e2e-one F [G] — only the spec files matching F, titles matching G
 #   webui2-e2e-clean — kill stray e2e jinn runs
 
@@ -928,7 +928,7 @@ release TAG:
         exit 1
     fi
 
-    # --- Pre-flight: the /web2 client must build from the committed sources ---
+    # --- Pre-flight: the web UI client must build from the committed sources ---
     # Nothing of the client is committed: the slice's build.rs builds it on
     # every cargo compile, so a binary is always built from the sources beside
     # it. Building it here, BEFORE the push, proves the committed sources

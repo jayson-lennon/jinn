@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The /web2 browser client: a Solid 2 app that speaks only ClientMsg and ServerMsg over one WebSocket.",
+  "description": "The web UI browser client: a Solid 2 app that speaks only ClientMsg and ServerMsg over one WebSocket.",
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json"

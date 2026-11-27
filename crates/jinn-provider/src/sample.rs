@@ -43,7 +43,7 @@ const HELP_TEXT: &str = "Sample LLM Provider - Available commands:\n\
 /// Canned markdown document for `!markdown`.
 ///
 /// Shaped like a real web-search reply, carrying every construct the
-/// `/web2` renderer's e2e tier asserts on: a footnote pair, a task list, a
+/// the web UI renderer's e2e tier asserts on: a footnote pair, a task list, a
 /// table, a bare address in each punctuation shape the linkifier handles
 /// differently, an address that must stay text, and an email. The prose
 /// between them is a model's own, so a failure reads as a sentence and not

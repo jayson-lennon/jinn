@@ -1,7 +1,7 @@
 //! The web UI slice — the message-driven mirror of the terminal UI.
 //!
-//! A live instance serves a browser page at `/web2`, bound per the
-//! `[webui2]` config section, that mirrors the terminal: it shares the
+//! A live instance serves the web UI at the root of its own listener,
+//! bound per the `[webui]` config section, that mirrors the terminal: it shares the
 //! instance's single active session, streams the transcript, and sends,
 //! queues, cancels, switches, closes and archives sessions, switches models,
 //! and renames — each by publishing the same bus messages the terminal
@@ -43,7 +43,7 @@ mod tests;
 #[derive(Debug, wherror::Error)]
 #[error(debug)]
 pub enum WebUi2ActivationError {
-    /// The `[webui2]` section failed to read or the bind failed to parse.
+    /// The `[webui]` section failed to read or the bind failed to parse.
     #[error(debug)]
     Startup,
     /// The configured address could not be bound.
@@ -51,15 +51,15 @@ pub enum WebUi2ActivationError {
     Bind,
 }
 
-/// Installs the web UI: spawns its outbound actor and binds `/web2`.
+/// Installs the web UI: spawns its outbound actor and binds its listener.
 ///
 /// Activation is fail-fast: a broken bind cannot serve anything. The
-/// bind is read **once**; a live `[webui2]` edit applies at the next
+/// bind is read **once**; a live `[webui]` edit applies at the next
 /// restart.
 ///
 /// # Errors
 ///
-/// Returns [`WebUi2ActivationError::Startup`] when the `[webui2]` section
+/// Returns [`WebUi2ActivationError::Startup`] when the `[webui]` section
 /// is unreadable or the bind unparseable, and
 /// [`WebUi2ActivationError::Bind`] when the address is taken.
 ///
@@ -79,7 +79,7 @@ pub async fn activate(
     let webui2_config = config
         .get::<jinn_preferences_config::schemas::WebUi2Config>()
         .change_context(WebUi2ActivationError::Startup)
-        .attach("failed to read the [webui2] config section")?;
+        .attach("failed to read the [webui] config section")?;
     let bind = webui2_config
         .parse_bind()
         .map_err(|report| report.change_context(WebUi2ActivationError::Startup))?

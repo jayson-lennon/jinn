@@ -1,7 +1,7 @@
 //! The context figure the status bar shows for a session: how full the
 //! model's window is, as `<used>/<max>` in whatever form the two numbers take.
 //!
-//! One implementation for the terminal status bar and `/web2`, so the two
+//! One implementation for the terminal status bar and the web UI, so the two
 //! surfaces cannot disagree. The used side follows one fallback chain: the
 //! freshly assembled prompt size when the context-size actor has one for this
 //! session, otherwise the size recorded at the last dispatch, otherwise
