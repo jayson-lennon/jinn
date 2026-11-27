@@ -9,6 +9,7 @@
 - (webui) Add "jump to end" and "jump to start" buttons.
 - (webui) Add ability to archive sessions (kebab menu + hamburger menu)
 - (webui) Add messaging pinning functionality.
+- Add instructions to `canvas` skill to encourage agent to flesh out specs on its own while creating.
 
 
 ## 2026-11-24 v.27.2
