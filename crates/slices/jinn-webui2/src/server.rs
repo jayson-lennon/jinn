@@ -106,12 +106,15 @@ fn render_manifest() -> String {
     ]
     .into_iter()
     // Seeded with an owned `String`, so each replacement is owned in turn.
-    .fold(MANIFEST_TEMPLATE.to_owned(), |manifest, (placeholder, served)| {
-        manifest.replace(
-            placeholder,
-            &format!("/vendor/{}", hashed_vendor_url(served)),
-        )
-    })
+    .fold(
+        MANIFEST_TEMPLATE.to_owned(),
+        |manifest, (placeholder, served)| {
+            manifest.replace(
+                placeholder,
+                &format!("/vendor/{}", hashed_vendor_url(served)),
+            )
+        },
+    )
 }
 
 /// `client2.js` as the hashed path the shell names it by, or its plain
