@@ -10,7 +10,10 @@ import { For, Show, Switch, Match, createEffect, createRenderEffect, createSigna
 import { render } from '@solidjs/web';
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg, ModelRow } from './protocol';
-import { type ClientStore, apply, beginFork, clearSessionLoad, newestEntryId, createStore, pushToast } from './store';
+import { type ClientStore, apply, createStore } from './store';
+import { pushToast } from './toast_state';
+import { newestEntryId } from './transcript_entries';
+import { beginFork, clearSessionLoad } from './session_load';
 import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry, useEntryMenuDismiss } from './transcript';
 import { Menu, type MenuItem, type MenuGroup } from './menu';

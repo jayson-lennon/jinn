@@ -13,7 +13,7 @@ import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg, EntryEnvelope, EntryKind } from './protocol';
 import { renderMarkdown, safeHref } from './markdown';
-import { isOptimistic } from './store';
+import { isOptimistic } from './transcript_entries';
 
 /** The route prefix an attachment's `<img>` is served from. */
 const ATTACHMENT_PREFIX = '/attachment/';

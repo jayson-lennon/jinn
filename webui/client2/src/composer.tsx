@@ -16,19 +16,18 @@ import { createSignal, For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg, ImageUpload, PromptTemplate } from './protocol';
 import { filterPrompts, findPromptCompletion } from './prompts';
+import { type ClientStore, isBusy } from './store';
+import { addOptimistic } from './transcript_entries';
 import {
-  type ClientStore,
   addChips,
-  addOptimistic,
   clearComposer,
-  isBusy,
   movePromptHighlight,
   pickPrompt,
   promptHighlightOf,
   removeChip,
   setDraft,
   setPromptCompletion,
-} from './store';
+} from './composer_state';
 
 export interface ComposerProps {
   store: ClientStore;

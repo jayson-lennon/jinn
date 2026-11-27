@@ -15,7 +15,7 @@ import type { JSX } from '@solidjs/web';
 import type { ClientStore } from './store';
 import { isUnread, listHasUnread } from './unread';
 import { Runs } from './pickers';
-import { beginSessionLoad } from './store';
+import { beginSessionLoad } from './session_load';
 
 /** How far each tree level indents a stored-session row — and, at the same
  *  step, a child in the rail's Sessions list, so the two trees on the page
