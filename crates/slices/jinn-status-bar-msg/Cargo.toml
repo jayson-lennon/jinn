@@ -6,7 +6,7 @@ edition.workspace = true
 jinn-core-types = { workspace = true }
 jinn-slices = { workspace = true }
 # The context figure reads a session's assembled size and token ledger, and
-# the model cache for the window. Shared by the terminal status bar and /web2.
+# the model cache for the window. Shared by the terminal status bar and the web UI.
 jinn-session-state = { workspace = true }
 jinn-provider-config = { workspace = true }
 serde = { workspace = true }

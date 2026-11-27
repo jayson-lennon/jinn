@@ -272,7 +272,7 @@ impl<'de> Deserialize<'de> for WireEntry {
     }
 }
 
-/// Projects one entry onto the `/web2` wire: the entry's persisted serde
+/// Projects one entry onto the web UI's wire: the entry's persisted serde
 /// form minus the two fields the browser never reads from the socket.
 ///
 /// - `ToolResult.full_content` — a tool result's full untruncated output,

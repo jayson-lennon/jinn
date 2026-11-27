@@ -190,7 +190,7 @@ impl McpCoordinatorActor {
             // when a reconcile finds a singleton absent from (or back in) a
             // session's enabled set.
             .emits::<jinn_tools_msg::ProviderVisibilityChanged>()
-            // `/web2`'s push trigger: one stored event strictly
+            // the web UI's push trigger: one stored event strictly
             // after each runtime-cell STATUS write (never the stderr
             // writes — the MCP modal renders no stderr). A type absent
             // from this list is dropped silently at runtime, so the
@@ -465,7 +465,7 @@ impl McpCoordinatorActor {
         // died and only the map entry remained (a failed spawn leaves
         // exactly that). Otherwise the cell keeps saying `running` for
         // a server the session just disabled, and every row surface
-        // (`/web2` MCP modal, inspector preview) renders a connection that no
+        // (the web UI MCP modal, inspector preview) renders a connection that no
         // longer exists. Session close wipes the whole session bucket
         // right after its own kill-all; this per-server clear is the
         // disable-toggle path, where the bucket stays.
@@ -473,7 +473,7 @@ impl McpCoordinatorActor {
         self.runtime
             .update(|runtime| runtime.clear_server(session_id, server));
         // Strictly after the cell write lands — same contract as the
-        // status handler's emit (`/web2`'s push trigger; a
+        // status handler's emit (the web UI's push trigger; a
         // re-pull after this push reads the cleared cell).
         self.publish(McpRuntimeStored {
             stored_at: jiff::Timestamp::now(),
@@ -890,7 +890,7 @@ impl MsgHandler<McpServerStatus> for McpCoordinatorActor {
             }
         });
         // Strictly after the cell write lands: the stored event is
-        // `/web2`'s push trigger, and emitting it anywhere the
+        // the web UI's push trigger, and emitting it anywhere the
         // cell write has not happened would let a re-pull read stale
         // rows (the race ModelCacheStored closed for the model cache).
         // Raw `McpServerStatus` is deliberately NOT this trigger — it
@@ -2246,7 +2246,7 @@ mod status_tests {
             .await;
 
         // Then the cell holds the status BEFORE the stored event
-        // arrives — the ordering `/web2`'s re-pull correctness depends
+        // arrives — the ordering the web UI's re-pull correctness depends
         // on (a push that precedes the write would re-pull stale rows).
         jinn_testutil::wait::await_cell(&runtime, std::time::Duration::from_secs(10), |state| {
             state.status(&session_id, "excalimate") == Some(McpConnectionStatus::Running)

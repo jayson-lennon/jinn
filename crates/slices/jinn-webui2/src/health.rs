@@ -1,4 +1,4 @@
-//! The dashboard's `webui2` row: how the web UI is doing, not only
+//! The dashboard's `webui` row: how the web UI is doing, not only
 //! where it is.
 //!
 //! The row's note is republished whenever a fact changes — a page connects
@@ -9,7 +9,7 @@
 //!
 //! The row is the one place service health lives in the TUI, and the
 //! launch note already publishes through the listener's bus. Every note
-//! here goes out the same way, under the same `webui2` name, so the
+//! here goes out the same way, under the same `webui` name, so the
 //! dashboard sees one row with a changing note rather than two rows.
 
 use std::{
@@ -42,7 +42,7 @@ struct Health {
     stalled: Option<String>,
 }
 
-/// The `webui2` row's state and the bus its notes leave through.
+/// The `webui` row's state and the bus its notes leave through.
 #[derive(Debug, Clone)]
 pub struct WebUi2Health {
     inner: Arc<Inner>,
@@ -148,7 +148,7 @@ impl WebUi2Health {
             .map(|_| NoteTone::Warning)
     }
 
-    /// Republishes the row under the `webui2` name, the way the launch
+    /// Republishes the row under the `webui` name, the way the launch
     /// note did, so the dashboard shows the new state in place.
     ///
     /// Every mutator is a plain state change; this is the one step that
@@ -191,7 +191,7 @@ mod tests {
     fn health() -> (WebUi2Health, jinn_slices::bus::BusAudit) {
         let (bus, audit) = BusService::new_recording();
         let health = WebUi2Health::new(bus);
-        health.bound("serving on http://x/web2".to_owned());
+        health.bound("serving on http://x:8388".to_owned());
         (health, audit)
     }
 
@@ -205,7 +205,7 @@ mod tests {
         let note = health.note();
 
         // Then it is the address alone.
-        assert_eq!(note, "serving on http://x/web2");
+        assert_eq!(note, "serving on http://x:8388");
     }
 
     #[rstest::rstest]
@@ -232,7 +232,7 @@ mod tests {
         health.disconnected();
 
         // Then the note names no page again.
-        assert_eq!(health.note(), "serving on http://x/web2");
+        assert_eq!(health.note(), "serving on http://x:8388");
     }
 
     #[rstest::rstest]
@@ -302,14 +302,14 @@ mod tests {
         health.connected();
         health.publish().await;
 
-        // Then one status update for webui2 was published, naming the page.
+        // Then one status update for webui was published, naming the page.
         let updates = audit
             .of_type::<ServiceStatusUpdate>()
             .into_iter()
-            .filter(|update| update.name == "webui2")
+            .filter(|update| update.name == "webui")
             .collect::<Vec<_>>();
         let [update]: [ServiceStatusUpdate; 1] =
-            updates.try_into().expect("exactly one webui2 update");
+            updates.try_into().expect("exactly one webui update");
         assert!(
             update
                 .status_message

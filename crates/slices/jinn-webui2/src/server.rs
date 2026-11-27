@@ -1,14 +1,15 @@
-//! The HTTP surface of `/web2`: the page shell, the client bundle, and the
-//! one WebSocket every message rides.
+//! The HTTP surface of the web UI: the page shell, the client bundle, and
+//! the one WebSocket every message rides.
 //!
-//! There are exactly six routes and no others: the page, the vendored
-//! client assets, a health probe, one attachment's bytes, one tool
-//! result's full output, and the socket upgrade. The server renders no
-//! HTML beyond the shell and answers no action with a page — every fact
-//! crosses the socket as a `ServerMsg`. The two exceptions are the
-//! on-demand routes: a transcript's `<img>` needs an address to fetch, and
-//! a tool result's full untruncated output is too heavy to ride every
-//! snapshot, so the page fetches it when its disclosure opens.
+//! The page is served at the root of the listener. There are exactly six
+//! routes and no others: the page, the vendored client assets, a health
+//! probe, one attachment's bytes, one tool result's full output, and the
+//! socket upgrade. The server renders no HTML beyond the shell and
+//! answers no action with a page — every fact crosses the socket as a
+//! `ServerMsg`. The two exceptions are the on-demand routes: a
+//! transcript's `<img>` needs an address to fetch, and a tool result's
+//! full untruncated output is too heavy to ride every snapshot, so the
+//! page fetches it when its disclosure opens.
 
 use std::{
     sync::{Arc, LazyLock},
@@ -99,18 +100,17 @@ fn split_hashed_vendor_path(path: &str) -> Option<(String, &str)> {
     Some((format!("{name}.{ext}"), sha))
 }
 
-/// Builds the router.
+/// Builds the router: the page at the root, the socket and the two
+/// on-demand routes at the top level, the assets and the health probe
+/// beside them.
 pub fn router(shared: Arc<ServerShared>) -> Router {
     Router::new()
-        .route("/web2", get(page))
-        .route("/web2/ws", get(ws_handler))
-        .route("/vendor2/{*path}", get(vendor))
-        .route(
-            "/web2/attachment/{session}/{entry}/{ordinal}",
-            get(attachment),
-        )
-        .route("/web2/tool-output/{session}/{entry}", get(tool_output))
-        .route("/health2", get(health))
+        .route("/", get(page))
+        .route("/ws", get(ws_handler))
+        .route("/vendor/{*path}", get(vendor))
+        .route("/attachment/{session}/{entry}/{ordinal}", get(attachment))
+        .route("/tool-output/{session}/{entry}", get(tool_output))
+        .route("/health", get(health))
         .with_state(shared)
 }
 
@@ -133,7 +133,7 @@ async fn health(AxumState(shared): AxumState<Arc<ServerShared>>) -> Response {
 }
 
 async fn vendor(uri: Uri) -> Response {
-    let path = uri.path().trim_start_matches("/vendor2/");
+    let path = uri.path().trim_start_matches("/vendor/");
     // Only the hashed form is served: a path naming an asset without its
     // hash is a shell from before this bundle, or a hand-typed URL, and
     // answering it would hand a cached-stale page the bytes it expects.
@@ -219,7 +219,7 @@ where
         .and_then(|snapshot| snapshot.entries.iter().find_map(&find))
 }
 
-/// `GET /web2/attachment/{session}/{entry}/{ordinal}` — one attachment's
+/// `GET /attachment/{session}/{entry}/{ordinal}` — one attachment's
 /// bytes, for the transcript's `<img>`.
 ///
 /// Resolution order: live state first (a bounded
@@ -249,7 +249,7 @@ async fn attachment(
     }
 }
 
-/// `GET /web2/tool-output/{session}/{entry}` — one tool result's full,
+/// `GET /tool-output/{session}/{entry}` — one tool result's full,
 /// untruncated output, for the entry's "full output" disclosure.
 ///
 /// The full output is the heaviest field a tool result carries, so it does
@@ -497,7 +497,7 @@ mod attachment_route_tests {
 
     /// A shared server over a harness-shaped handle: a fresh state on a
     /// recording bus, nothing spawned.
-    fn shared() -> Arc<ServerShared> {
+    pub(super) fn shared() -> Arc<ServerShared> {
         let (bus, _audit) = jinn_slices::bus::BusService::new_recording();
         let note_bus = bus.clone();
         let slices = jinn_slices::Slices::new();
@@ -918,7 +918,7 @@ mod vendor_route_tests {
     }
 
     async fn vendor_status(path: &str) -> (StatusCode, String) {
-        let uri: Uri = format!("/vendor2/{path}").parse().expect("a valid uri");
+        let uri: Uri = format!("/vendor/{path}").parse().expect("a valid uri");
         let response = vendor(uri).await;
         let cache = response
             .headers()
@@ -939,14 +939,14 @@ mod vendor_route_tests {
         // bundle can never be reached through a cached shell.
         assert!(
             shell.contains(&format!(
-                "/vendor2/client2.{sha}.css",
+                "/vendor/client2.{sha}.css",
                 sha = pinned_sha("client2.css")
             )),
             "the shell does not name the hashed stylesheet"
         );
         // And so does its script URL.
         assert!(
-            shell.contains(&format!("/vendor2/client2.{sha}.js", sha = js_sha())),
+            shell.contains(&format!("/vendor/client2.{sha}.js", sha = js_sha())),
             "the shell does not name the hashed script"
         );
     }
@@ -987,5 +987,92 @@ mod vendor_route_tests {
 
         // Then nothing is served.
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+}
+
+/// The router as a whole: which paths serve the web UI and which do not,
+/// each answered through the real dispatch rather than a hand call.
+#[cfg(test)]
+mod router_tests {
+    #![allow(
+        clippy::expect_used,
+        reason = "test assertions need expect to state what went wrong"
+    )]
+
+    use super::*;
+    use crate::server::attachment_route_tests::shared;
+    use axum::body::to_bytes;
+    use tower::ServiceExt as _;
+
+    /// Builds the full router over `shared` and issues a GET through
+    /// axum's own tower stack.
+    async fn router_get(shared: &Arc<ServerShared>, path: &str) -> Response {
+        router(shared.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(path)
+                    .body(axum::body::Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("the router answers")
+    }
+
+    /// The response body as text, for asserting on what a route served.
+    async fn body_text(response: Response) -> String {
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body")
+            .to_vec();
+        String::from_utf8(bytes).expect("the body is UTF-8")
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_root_url_serves_the_page_shell() {
+        // Given a built router.
+        let shared = shared();
+
+        // When the root is requested.
+        let response = router_get(&shared, "/").await;
+
+        // Then the page shell answers, naming the bundle under `/vendor/`.
+        assert_eq!(response.status(), StatusCode::OK);
+        let shell = body_text(response).await;
+        let js_url = format!(
+            "/vendor/client2.{}.js",
+            pinned_sha("client2.js").expect("the bundle carries the script")
+        );
+        assert!(
+            shell.contains(&js_url),
+            "the root must serve the shell that names {js_url}: {shell}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_old_web2_path_is_not_served() {
+        // Given a built router.
+        let shared = shared();
+
+        // When the retired page path is requested.
+        let response = router_get(&shared, "/web2").await;
+
+        // Then nothing serves it: there is no alias and no redirect.
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_health_route_answers_the_version() {
+        // Given a built router.
+        let shared = shared();
+
+        // When the health probe is requested.
+        let response = router_get(&shared, "/health").await;
+
+        // Then it answers the serving binary's version as JSON.
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(body_text(response).await, "{\"version\":\"test\"}");
     }
 }

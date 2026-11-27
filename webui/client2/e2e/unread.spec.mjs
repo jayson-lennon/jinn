@@ -2,7 +2,7 @@
 //! elsewhere.
 //!
 //! A turn in a background session is run through the instance's control
-//! surface, not the page — every `/web2` page follows the instance's
+//! surface, not the page — every web UI page follows the instance's
 //! active session, so the page cannot drive a session it is not viewing.
 //! The mark itself is the browser's own: what it has seen is its own
 //! record, kept across reloads.

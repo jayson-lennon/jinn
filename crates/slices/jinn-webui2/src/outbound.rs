@@ -48,7 +48,7 @@ pub const FLUSH_INTERVAL: Duration = Duration::from_millis(150);
     trouper::schema::Command,
 )]
 #[schema(
-    description = "Flush queued stream chunks from the /web2 outbound actor to its connected pages."
+    description = "Flush queued stream chunks from the web UI outbound actor to its connected pages."
 )]
 pub struct OutboundFlushTick;
 

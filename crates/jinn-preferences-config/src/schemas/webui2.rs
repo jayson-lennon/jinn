@@ -1,4 +1,4 @@
-//! The `[webui2]` section — the web UI's (`/web2`) socket binding.
+//! The `[webui]` section — the web UI's socket binding.
 //!
 //! One key: `bind`, a host:port socket address (`127.0.0.1:8388`). The
 //! shipped default names a **fixed port** so the URL stays bookmarkable;
@@ -25,7 +25,7 @@ fn default_bind() -> String {
     DEFAULT_WEBUI2_BIND.to_owned()
 }
 
-/// `[webui2]` preferences.
+/// `[webui]` preferences.
 ///
 /// # Behavior: Event-Independent.
 ///
@@ -33,7 +33,7 @@ fn default_bind() -> String {
 /// this section at runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebUi2Config {
-    /// Host:port the web UI (`/web2`) binds, e.g. `"127.0.0.1:8388"`.
+    /// Host:port the web UI binds, e.g. `"127.0.0.1:8388"`.
     /// Port `0` binds an OS-assigned ephemeral port.
     #[serde(default = "default_bind")]
     pub bind: String,
@@ -48,7 +48,7 @@ impl Default for WebUi2Config {
 }
 
 impl jinn_config::Configurable for WebUi2Config {
-    const KEY: &'static str = "webui2";
+    const KEY: &'static str = "webui";
 }
 
 impl WebUi2Config {
@@ -64,7 +64,7 @@ impl WebUi2Config {
         self.bind
             .parse::<SocketAddr>()
             .change_context(WebUi2BindError)
-            .attach(format!("invalid [webui2] bind: {:?}", self.bind))
+            .attach(format!("invalid [webui] bind: {:?}", self.bind))
             .attach("expected a host:port socket address, e.g. 127.0.0.1:8388")
     }
 }
@@ -79,18 +79,18 @@ mod tests {
     fn from_table(raw: &str) -> WebUi2Config {
         #[derive(Deserialize)]
         struct Wrapper {
-            webui2: WebUi2Config,
+            webui: WebUi2Config,
         }
         toml::from_str::<Wrapper>(raw)
-            .expect("webui2 table parses")
-            .webui2
+            .expect("webui table parses")
+            .webui
     }
 
     #[rstest::rstest]
     #[test]
     fn absent_bind_deserializes_to_the_fixed_default_port() {
-        // Given an empty `[webui2]` table.
-        let config = from_table("[webui2]\n");
+        // Given an empty `[webui]` table.
+        let config = from_table("[webui]\n");
 
         // Then the bind is the fixed loopback default.
         assert_eq!(config.bind, DEFAULT_WEBUI2_BIND);
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn configured_bind_is_preserved_and_parses() {
         // Given a table with an explicit bind.
-        let config = from_table("[webui2]\nbind = \"0.0.0.0:9001\"\n");
+        let config = from_table("[webui]\nbind = \"0.0.0.0:9001\"\n");
 
         // When parsing the bind.
         let addr = config.parse_bind().expect("valid bind");
@@ -114,13 +114,19 @@ mod tests {
     #[test]
     fn malformed_bind_is_rejected_with_a_named_error() {
         // Given a table whose bind is not a host:port pair.
-        let config = from_table("[webui2]\nbind = \"localhost\"\n");
+        let config = from_table("[webui]\nbind = \"localhost\"\n");
 
         // When parsing the bind.
         let result = config.parse_bind();
 
-        // Then parsing fails (activation treats this as stop-and-report).
-        assert!(result.is_err());
+        // Then parsing fails, naming the section the bad value came from
+        // (activation treats this as stop-and-report).
+        assert!(result.is_err(), "a host without a port was accepted");
+        let report = result.expect_err("asserted an Err above");
+        assert!(
+            format!("{report:?}").contains("[webui]"),
+            "the error must name the [webui] section: {report:?}"
+        );
     }
 
     #[rstest::rstest]
@@ -128,7 +134,7 @@ mod tests {
     fn serializing_the_default_round_trips() {
         #[derive(Deserialize)]
         struct Repr {
-            webui2: WebUi2Config,
+            webui: WebUi2Config,
         }
 
         // Given the default config.
@@ -136,9 +142,9 @@ mod tests {
 
         // When serializing then re-parsing.
         let s = toml::to_string(&config).expect("serialize");
-        let reparsed: WebUi2Config = toml::from_str::<Repr>(&format!("[webui2]\n{s}"))
+        let reparsed: WebUi2Config = toml::from_str::<Repr>(&format!("[webui]\n{s}"))
             .expect("reparse")
-            .webui2;
+            .webui;
 
         // Then it equals the original.
         assert_eq!(config, reparsed);

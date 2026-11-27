@@ -510,7 +510,7 @@ async fn activate_remote(ctx: &mut Ctx<'_>) -> Result<(), ActivateError> {
     Ok(())
 }
 
-/// Binds the web UI (`/web2`).
+/// Binds the web UI.
 ///
 /// It reads the provider cell and the store and publishes on the bus, so
 /// it activates after the producers those depend on. Its bind is
@@ -518,7 +518,7 @@ async fn activate_remote(ctx: &mut Ctx<'_>) -> Result<(), ActivateError> {
 ///
 /// # Errors
 ///
-/// Returns an error when the `[webui2]` section is unreadable or its bind
+/// Returns an error when the `[webui]` section is unreadable or its bind
 /// is taken.
 async fn activate_webui2(ctx: &mut Ctx<'_>) -> Result<(), ActivateError> {
     let config_snapshot = ctx.services().config.clone();
@@ -709,7 +709,7 @@ pub enum ActivateError {
     /// discovery model, so launch stops where the cause is visible. The
     /// slice's report rides typed.
     Remote(error_stack::Report<jinn_remote::RemoteActivationError>),
-    /// The `[webui2]` section failed to read, its bind did not parse, or
+    /// The `[webui]` section failed to read, its bind did not parse, or
     /// the port was taken. Fatal with the same severity as remote: an
     /// instance whose browser surface cannot bind defeats the slice's
     /// whole purpose, so launch stops where the cause is visible. The

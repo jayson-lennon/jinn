@@ -19,19 +19,19 @@ One more slash command works the same way in the input box: `/export`
 (write the session to a self-contained file). Context summarization is
 handoff compaction's job — see `context-management.md`.
 
-The **web UI** (`/web2`) creates sessions too: the `☰` menu's
+The **web UI** creates sessions too: the `☰` menu's
 **New session** item opens a modal over the page. Pick a project (the
 curated `[[project.entry]]` list — required; with none configured the modal
 says so), a lifecycle recipe (blank first, its args input appears only when
 the recipe's setup takes parameters), and submit — the new session becomes
-the instance's active one and every `/web2` page moves to it, the same
+the instance's active one and every web UI page moves to it, the same
 way the TUI and Discord `/new` do, so the session looks identical
 everywhere.
 
-Clicking a session row on `/web2` asks the server for that session: a
+Clicking a session row on the web UI asks the server for that session: a
 **Loading session…** overlay covers the page until the session's snapshot
 arrives. The page follows the instance's active session wherever it
-changes — another `/web2` page or the TUI — and an unsent draft stays with
+changes — another web UI page or the TUI — and an unsent draft stays with
 the page, not the session.
 
 On a phone-width browser (under 768px) the session list is an off-canvas
@@ -41,7 +41,7 @@ you have not viewed (the same unread mark that golds the sidebar rows);
 viewing a session clears its mark. At desktop widths the button is hidden
 — the sidebar is already on screen.
 
-`/web2` renames a session too: click the title in the titlebar, edit it,
+The web UI renames a session too: click the title in the titlebar, edit it,
 and press `Enter` (`Esc` cancels). Archiving and forking are on the web as
 well — the menu's **Archive session** item or a row's `⋮` menu for archiving,
 and the entry's `⋮` → **Fork** for forking. Closing and tearing down are
@@ -144,7 +144,7 @@ branch a conversation at that point.
 3. `F` creates a **new session whose history is just that entry**; it
    works on user and assistant entries.
 
-On `/web2`, the same fork is the entry's `⋮` → **Fork**: the page moves
+On the web UI, the same fork is the entry's `⋮` → **Fork**: the page moves
 onto the new session and lists it as the source's child. (`F`'s
 new-session-from-entry stays in the TUI.)
 

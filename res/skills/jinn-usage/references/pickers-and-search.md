@@ -59,7 +59,7 @@ highlights:
   pinned tool-result pair. The picker stays open so you can load several, and
   loading auto-enables a disabled skill. `<c-u>`/`<c-d>` scroll the markdown
   preview; `<c-r>` re-scans skill directories.
-- **Skill, in `/web2`**: the menu button's **Skills** item (while a
+- **Skill, in the web UI**: the menu button's **Skills** item (while a
   session is active) opens the same list for the active session —
   the `●` / `○` mark, name, description, a `project` badge on a
   project-scoped skill, and a `+` on each row, with the filter bar
@@ -69,7 +69,7 @@ highlights:
   toggle and its `+` is disabled. The modal refreshes itself when a
   skill scan lands. The markdown preview and the context-cost footer
   are TUI-only.
-- **Tool, in `/web2`**: the menu button's **Tools** item (while a
+- **Tool, in the web UI**: the menu button's **Tools** item (while a
   session is active) opens the active session's tools — a `✓` / `✗`
   enabled mark, the name, the description's first sentence — with the
   filter bar narrowing it and highlighting the matches. Clicking a row
@@ -77,26 +77,26 @@ highlights:
   and the modal stays open. Dismissing with `Esc` or a backdrop click
   only closes it — there is **no revert**; undo a
   mis-click by clicking the row again.
-- **MCP servers, in `/web2`**: the menu button's **MCP servers** item
+- **MCP servers, in the web UI**: the menu button's **MCP servers** item
   (while a session is active) opens one row per `[mcp.<name>]` in
   `jinn.toml` — a `●` / `○` enabled mark, the name, the launch summary,
   and a status badge (`off` / `starting` / `running` / `dead`). Clicking
   a row toggles that server for the session at once and the modal stays
   open; the badge updates live on its own. No stderr/log pane and no
   tool list — those are TUI-only.
-- **Persona, in `/web2`**: the menu button's **Persona** item (while a
+- **Persona, in the web UI**: the menu button's **Persona** item (while a
   session is active) opens the personas in their own name-sorted order
   — a `●` / `○` mark, the name, the description. Clicking a row
   switches the session's persona and **closes the modal**. A persona
   without a `<compaction>` handoff block pushes an error entry into the
   transcript, the same warning the TUI shows.
-- **Applets, in `/web2`**: the menu button's **Applets** item (at every
+- **Applets, in the web UI**: the menu button's **Applets** item (at every
   time — it depends on no session) opens the saved applets, newest first,
   with a status line naming the applets server's bind and the filter bar
   narrowing by title and highlighting the matches. Each row is a link that
   opens the applet in a new tab while the server is serving, and a
   disabled line while it is offline. Rename, delete, and kiosk are the
-  TUI's — `/web2` opens, nothing more.
+  TUI's — the web UI opens, nothing more.
 - **MCP server**: `<Tab>` stages enable/disable. `<enter>` applies the staged
   toggles (enabling spawns the server, disabling kills it); `<esc>` reverts
   to how the picker opened. `<c-r>` restarts, `<c-t>` flips the preview pane

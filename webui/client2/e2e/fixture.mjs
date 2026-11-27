@@ -1,7 +1,7 @@
 //! The test fixture for the webui2 e2e tier.
 //!
 //! `test` boots one jinn per test — its own scratch database, config
-//! and data tree — opens a page on `/web2`, waits for its socket to
+//! and data tree — opens the web UI page, waits for its socket to
 //! connect and its first snapshot to land, and tears the instance down
 //! when the test ends, however it ends. A spec imports `test` and
 //! `expect` from here, never from `@playwright/test`.
@@ -242,7 +242,7 @@ export async function startBusyTurn(page) {
 }
 
 /**
- * Creates a second session on the test's instance through `/web2`'s
+ * Creates a second session on the test's instance through the web UI's
  * own New-session menu item and modal, and returns its id.
  *
  * The id is the `data-session-id` of the row the new session lands on
@@ -256,7 +256,7 @@ export async function createSession(page) {
 }
 
 /**
- * Creates a second session through `/web2`'s New-session modal with the
+ * Creates a second session through the web UI's New-session modal with the
  * named lifecycle selected, and returns its id. `null` leaves the blank
  * lifecycle — no setup runs and no teardown is ever due.
  *
@@ -412,7 +412,7 @@ export function rowOf(page, sessionId) {
  * Runs a turn in a session the page is not viewing, without touching
  * which session is active.
  *
- * Every `/web2` page follows the instance's active session, so a page
+ * Every web UI page follows the instance's active session, so a page
  * cannot drive a background session itself: opening it would switch the
  * instance. This goes around the page, through the instance's loopback
  * control surface. The scratch instance binds it on an OS-assigned
@@ -528,7 +528,7 @@ export function archiveSession(jinn, id) {
 /**
  * Seeds a session forked from `parentId` directly in the scratch store —
  * a row whose `parent_session` names its parent and whose metadata blob is
- * the parent's own, with the kind overwritten. `/web2` has no fork gesture,
+ * the parent's own, with the kind overwritten. The web UI has no fork gesture,
  * so the store is arranged the way a fork leaves it.
  *
  * The blob is copied rather than written: a session's title, kind and parent
@@ -730,7 +730,7 @@ function uuidV7Timestamp(id) {
 /**
  * Seeds one entry directly in the scratch store, at the end of `sessionId`'s
  * history — the two rows jinn's own save writes: the entry, and its placement
- * in the session. `/web2` has no gesture that produces an annotation entry
+ * in the session. The web UI has no gesture that produces an annotation entry
  * (only a web-search tool result does), so the store is arranged the way such
  * a result leaves it.
  *
@@ -850,7 +850,7 @@ const test = base.extend({
     await use(run);
     await teardownJinn(run);
   },
-  // The page a spec receives is on `/web2`, connected, with the sample
+  // The page a spec receives is the web UI, connected, with the sample
   // model already selected on the session.
   page: async ({ jinn, page }, use) => {
     await page.goto(jinn.baseUrl);

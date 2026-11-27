@@ -153,7 +153,7 @@ impl SessionStoreActor {
             .emits::<HydrateSession>()
             // The end of startup hydration is announced here, strictly after
             // the hydration flag is cleared. Without this declaration a
-            // push-only surface (the `/web2` rail) would spin forever: the
+            // push-only surface (the the web UI rail) would spin forever: the
             // flush gate drops an undeclared type silently.
             .emits::<StartupHydrationFinished>()
             .mailbox(

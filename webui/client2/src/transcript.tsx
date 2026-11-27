@@ -16,8 +16,8 @@ import { renderMarkdown, safeHref } from './markdown';
 import { isOptimistic } from './store';
 
 /** The route prefix an attachment's `<img>` is served from. */
-const ATTACHMENT_PREFIX = '/web2/attachment/';
-const TOOL_OUTPUT_PREFIX = '/web2/tool-output/';
+const ATTACHMENT_PREFIX = '/attachment/';
+const TOOL_OUTPUT_PREFIX = '/tool-output/';
 
 /** Full tool outputs already fetched, by entry id. An output never changes
  * once its entry lands, and re-opening a disclosure must be instant. */
