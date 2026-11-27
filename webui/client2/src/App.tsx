@@ -19,6 +19,7 @@ import { AppletsModal } from './applets';
 import { McpModal, PersonaModal, Runs, ToolsModal } from './pickers';
 import { Composer } from './composer';
 import { SessionRail } from './rail';
+import { SessionStatus } from './status';
 import { StatusBar } from './statusbar';
 import { NewSessionModal } from './new-session';
 import { Toasts } from './toast';
@@ -246,6 +247,7 @@ export function App(): JSX.Element {
           />
         </Show>
         <Transcript store={store} send={send} />
+        <SessionStatus store={store} />
         <Composer store={store} send={send} />
       </main>
       <Show when={newSessionOpen()}>

@@ -507,9 +507,16 @@ export function archiveSession(jinn, id) {
 
 /**
  * Seeds a session forked from `parentId` directly in the scratch store —
- * a row whose `parent_session` names its parent, and nothing else, which
- * is all the session tree reads. `/web2` has no fork gesture, so the
- * store is arranged the way a fork leaves it.
+ * a row whose `parent_session` names its parent and whose metadata blob is
+ * the parent's own, with the kind overwritten. `/web2` has no fork gesture,
+ * so the store is arranged the way a fork leaves it.
+ *
+ * The blob is copied rather than written: a session's title, kind and parent
+ * link live only in its `metadata` JSON, and a row with no blob loads back
+ * as an untitled ordinary root user session whatever its columns say. The
+ * parent's blob has every required field on this schema, so the copy is
+ * always a loadable session, and `title`, `origin`, `session_id` and
+ * `parent_session` are the child's own.
  *
  * A test that needs the row listed follows this with `restartJinn`: the
  * picker reads the store, and a running instance has already cached its
@@ -518,19 +525,27 @@ export function archiveSession(jinn, id) {
  * @param {{ root: string }} jinn the test's own instance.
  * @param {string} parentId the session the new one is forked from.
  * @param {string} title the child's title.
+ * @param {"fork" | "subagent" | "bot"} origin the child's kind; a fork by
+ *   default, which is what the tree alone needs.
  * @returns {string} the child's id.
  */
-export function seedChildSession(jinn, parentId, title) {
+export function seedChildSession(jinn, parentId, title, origin = "fork") {
   if (!/^[0-9a-f-]{36}$/i.test(parentId)) {
     throw new Error(`seedChildSession: not a session id: ${parentId}`);
   }
   const id = randomUUID();
   const now = new Date().toISOString();
+  // One quoting for both the column and the blob: SQL single-quote doubling.
+  // A JSON double-quoted string is an identifier to SQLite, not a literal.
+  const titleSql = `'${title.replace(/'/g, "''")}'`;
   execFileSync(
     "sqlite3",
     [
       path.join(jinn.root, "db", "state.db"),
-      `INSERT INTO sessions (id, title, updated_at, created_at, parent_session) VALUES ('${id}', '${title.replace(/'/g, "''")}', '${now}', '${now}', '${parentId}');`,
+      `INSERT INTO sessions (id, title, updated_at, created_at, parent_session, metadata)
+       SELECT '${id}', ${titleSql}, '${now}', '${now}', '${parentId}',
+              json_set(metadata, '$.origin', '${origin}', '$.session_id', '${id}', '$.parent_session', '${parentId}', '$.title', ${titleSql})
+       FROM sessions WHERE id = '${parentId}';`,
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
