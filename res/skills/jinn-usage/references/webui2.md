@@ -43,8 +43,11 @@ but nothing coordinates them.
   library members. Exactly one shows at a time. In either list the active
   session is highlighted and clicking a row activates that session (the
   TUI follows). Each row's `⋮` offers **add to library** or **remove from
-  library**, which moves it to the other list, and **archive**, which
-  archives that session without running its teardown lifecycle.
+  library**, which moves it to the other list; **teardown + archive**, which
+  runs that session's teardown lifecycle and then archives it (the terminal's
+  `x` — a session with nothing to tear down is archived at once); and
+  **archive**, which archives without running the teardown lifecycle. While
+  the teardown runs, the row shows its busy dot.
 - **Session loading** — clicking a session row, or picking one from the
   **Archive** picker, raises a full-page **Loading session…** overlay at
   once: a card with a spinner, over everything. It clears when that
@@ -261,9 +264,9 @@ Everything below exists on the TUI, and most of it on `/web` too. When a
 user asks for one of these on `/web2`, say so and point at the surface
 that has it.
 
-- Forking, closing, or tearing down sessions, and archiving a whole
-  subtree. `/web2` can *create*, *open*, and *archive* single sessions,
-  but has no fork, close, teardown, or archive-tree gesture.
+- Forking sessions, and archiving a whole subtree. `/web2` can *create*,
+  *open*, *teardown + archive*, and *archive* single sessions, but has no
+  fork or archive-tree gesture.
 - Renaming, deleting, or opening an applet in kiosk mode. The `/web2`
   applets picker opens one in a new tab; those three gestures are the
   TUI's.

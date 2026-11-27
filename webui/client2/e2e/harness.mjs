@@ -163,6 +163,18 @@ models = ["second-model"]
  * debug binary serving the scratch echo tool over stdio (`jinn luau
  * serve`, network-free), so the MCP modal has a real server whose
  * coordinator can reach `running`.
+ *
+ * Three more lifecycle scripts exist for the teardown specs, each with a
+ * setup command because a teardown is only due for a session whose setup
+ * has run — a lifecycle with a teardown and no setup never reaches that
+ * state, and a close archives without running anything:
+ *
+ * - `marker-teardown` writes a marker file under the instance's scratch
+ *   home, so a spec can assert the command actually ran.
+ * - `slow-teardown` sleeps before exiting, so a spec can observe the
+ *   row's busy dot and a reload while the teardown is in flight.
+ * - `failing-teardown` exits non-zero, so a spec can assert a failed
+ *   teardown leaves the session open.
  */
 function jinnTomlFor(port, webui2Port, mcp) {
   const mcpEntry = mcp
@@ -186,6 +198,22 @@ path = "~/e2e-scratch"
 [[session_lifecycle.script]]
 name = "echo-setup"
 setup_command = "echo <greeting>"
+
+[[session_lifecycle.script]]
+name = "marker-teardown"
+setup_command = "true"
+teardown_command = "touch ~/.teardown-marker"
+
+[[session_lifecycle.script]]
+name = "slow-teardown"
+setup_command = "true"
+teardown_command = "sleep 4; touch ~/.slow-teardown-done"
+
+[[session_lifecycle.script]]
+name = "failing-teardown"
+setup_command = "true"
+teardown_command = "exit 1"
+
 ${mcpEntry}`;
 }
 
@@ -207,9 +235,16 @@ function writeConfig(root, port, webui2Port, stage) {
   }
 }
 
-/** The empty trees every scratch root starts with. */
+/**
+ * The empty trees every scratch root starts with.
+ *
+ * `e2e-scratch` is the configured project's directory. It must exist:
+ * a lifecycle command is spawned with the session's cwd as its working
+ * directory, so a missing project fails the setup before it runs and the
+ * session's lifecycle state never advances past `nothing_ran`.
+ */
 function writeSkeleton(root) {
-  for (const dir of ["db", "tmp", "cwd"]) {
+  for (const dir of ["db", "tmp", "cwd", "e2e-scratch"]) {
     fs.mkdirSync(path.join(root, dir), { recursive: true });
   }
 }
