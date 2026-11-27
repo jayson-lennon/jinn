@@ -24,6 +24,15 @@ pub enum ClientMsg {
         /// match; anything else is a full snapshot.
         revision: Option<u64>,
     },
+    /// Ask for one page of entries older than the ones the page holds.
+    ///
+    /// `before` names the oldest entry the page holds; the page returned
+    /// ends just before it. Refused when `before` is not an entry of the
+    /// active session or is its first entry.
+    MoreEntries {
+        /// The oldest entry the page holds.
+        before: ChatEntryId,
+    },
     /// Send a message as a fresh turn (rejected while a turn runs).
     Send {
         /// The message text.
@@ -168,6 +177,7 @@ pub enum ClientMsg {
 pub const fn tag_of(msg: &ClientMsg) -> &'static str {
     match msg {
         ClientMsg::Hello { .. } => "hello",
+        ClientMsg::MoreEntries { .. } => "more_entries",
         ClientMsg::Send { .. } => "send",
         ClientMsg::Queue { .. } => "queue",
         ClientMsg::Cancel => "cancel",

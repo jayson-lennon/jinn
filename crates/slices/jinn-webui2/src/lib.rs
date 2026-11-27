@@ -26,8 +26,10 @@ mod actions;
 mod attachment;
 mod connections;
 mod frames;
+pub(crate) mod health;
 mod listener;
 mod outbound;
+mod page;
 mod protocol;
 mod revision;
 mod server;
@@ -156,6 +158,7 @@ pub async fn activate(
     let shared = std::sync::Arc::new(server::ServerShared {
         outbound: outbound.clone(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
+        health: health::WebUi2Health::new(bus.clone()),
     });
 
     let (bound, _outbound) = listener::spawn(

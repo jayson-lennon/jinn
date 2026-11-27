@@ -66,6 +66,8 @@ marked-path = { workspace = true }
 jiff = { workspace = true }
 trouper = { workspace = true }
 tokio = { workspace = true }
+# The socket's read and write halves run as two tasks over one connection.
+futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wherror = { workspace = true }
@@ -78,6 +80,8 @@ parking_lot = { workspace = true }
 # `tsc`, `vite build` — and gzips the output into OUT_DIR for embedding.
 # Node and npm are therefore build prerequisites of this crate.
 flate2 = "1"
+# Each built asset's sha256 is the pin the page shell names it by.
+sha2 = "0.10"
 
 [dev-dependencies]
 # The streaming-batch tests pause the clock so the window is asserted

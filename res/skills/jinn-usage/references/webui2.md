@@ -26,6 +26,13 @@ single address, so that row reads `serving on port <port> on all
 interfaces (http://<your-ip>:<port>/web2)` and you substitute your
 machine's IP.
 
+The same row is the slice's health line: after the address it carries
+`· N page(s) · last hello X ms` — how many browser pages are connected
+and how long the last connect took to be answered. The row turns to a
+warning tone and names the stall when a connect's reply runs past five
+seconds or a write to a page stalls, so a stuck `/web2` is visible from
+the TUI without opening a log.
+
 One browser tab is the supported model. Two tabs on `/web2` both work,
 but nothing coordinates them.
 
@@ -74,9 +81,14 @@ but nothing coordinates them.
   a switch made elsewhere. The mark is this browser's own record and
   survives a reload; a restart of jinn forgets every mark. A subagent's
   session is never marked.
-- **Transcript** — the full history, streamed live: markdown, thinking,
+- **Transcript** — a page of history, streamed live: markdown, thinking,
   tool calls and results, errors, and system messages all render as they
-  arrive. Markdown covers footnotes, task lists, and tables; a bare
+  arrive. The page opens on the **newest 200 entries or 1 MB** of the
+  session, whichever comes first, so a long session connects at once
+  instead of on its whole history. Scrolling to the top loads the page
+  before it — a spinner sits at the top of the transcript while it
+  loads, and the entry you were reading stays in place as the older ones
+  land above it. Markdown covers footnotes, task lists, and tables; a bare
   `http(s)` address or an email in the prose becomes a link that opens in
   a new tab, while `www.`, `ftp:`, and protocol-relative addresses stay
   text. Your own messages render as markdown too. A web-search reply's
@@ -91,6 +103,10 @@ but nothing coordinates them.
   down-arrow-to-line button in the bottom-right corner jumps to the end.
   At the end, the transcript follows a live stream on its own; scroll up
   and it holds still until you jump back.
+  - A tool result that was truncated carries a **full output** disclosure
+    under its text. Its full text is fetched from the server when the
+    disclosure is opened — a spinner while it loads — and kept for the
+    next open, so the untruncated output never rides on the connect path.
 - **Composer** — one row: the draft, a `+` to attach an image, and the
   buttons, all on the same line. Sends a message, queues one while a turn
   is running, or cancels the running turn. An image can arrive three
@@ -231,7 +247,13 @@ input box as an editable draft — not into the web composer.
 If the connection drops, a `disconnected — reconnecting…` overlay with a
 spinner covers the page and it retries on its own; the overlay clears when
 it is back. An unsent draft survives the reconnect. A restarted jinn is a
-normal event — the page comes back with the whole transcript.
+normal event — the page comes back on the newest page of the transcript,
+and the rest loads on scroll.
+
+The retry delay grows on every unanswered connect (250 ms doubling to 8 s)
+and resets only once a connect has been answered, so a server that is
+stalling is left alone rather than hammered. It keeps retrying for as long
+as the page is open; there is no give-up state.
 
 ## What `/web2` does not do
 
@@ -261,6 +283,11 @@ WebSocket using two message sets — one for commands the page sends, one
 for facts the server sends back. The server renders no HTML fragments and
 reads nothing back from the page, which is what keeps the two in step.
 
-On every (re)connect the page sends the newest entry id it holds. The
-server continues from there when it safely can and otherwise resends the
-whole transcript, so a restart can never leave a gap.
+On every (re)connect the page sends the newest entry id it holds and the
+revision it saw. The server continues from there when it safely can — the
+entries are still in the session, the revision still matches, and what was
+missed fits one page — and otherwise resends the newest page, so a restart
+or a long absence can never leave a gap or replay an unbounded history.
+Image bytes and a tool result's untruncated output never travel over the
+socket: the page fetches an image from its attachment route and a full
+output from its own route, on demand.

@@ -26,8 +26,19 @@ export interface SocketHandlers {
 /** Reconnect delays, tried in order; the last one repeats. */
 const BACKOFF_MS = [250, 500, 1000, 2000, 4000, 8000];
 
-/** How long to wait for `hello` to be answered before assuming a dead socket. */
+/** How long to wait for `hello` to be answered before assuming a dead socket.
+ *
+ * The answer is the first frame that carries transcript state — a snapshot
+ * or an upsert. A heartbeat is not an answer: a server that pings but never
+ * answers must still be given up on, so the wait is not ended by one. */
 const HANDSHAKE_TIMEOUT_MS = 10_000;
+
+/** Whether a frame is an answer to `hello`: the first transcript-bearing
+ * frame on a connection, which only a hello answer or a session-follow
+ * snapshot produces. */
+function answersHello(msg: ServerMsg): boolean {
+  return msg.type === 'snapshot' || msg.type === 'entry_upsert' || msg.type === 'entries_page';
+}
 
 /**
  * How long a connection may stay silent before the page decides it is dead.
@@ -56,6 +67,11 @@ export function socketUrl(): string {
 export function openSocket(handlers: SocketHandlers): Socket {
   let socket: WebSocket | null = null;
   let attempt = 0;
+  /** Whether this connection has been answered yet. The backoff resets only
+   *  when it is — never on open — so a socket that opens and stalls on its
+   *  first frame backs off instead of retrying at the shortest delay
+   *  forever. */
+  let answered = false;
   let closedByPage = false;
   let retryTimer: number | null = null;
   let handshakeTimer: number | null = null;
@@ -74,9 +90,9 @@ export function openSocket(handlers: SocketHandlers): Socket {
     handlers.onState('connecting');
     const ws = new WebSocket(socketUrl());
     socket = ws;
+    answered = false;
 
     ws.onopen = () => {
-      attempt = 0;
       handlers.onState('open');
       // The first frame on every connection, before anything else.
       const cursor = handlers.cursor();
@@ -95,9 +111,17 @@ export function openSocket(handlers: SocketHandlers): Socket {
         // A frame that is not JSON is not something the page can act on.
         return;
       }
-      if (handshakeTimer !== null) {
-        window.clearTimeout(handshakeTimer);
-        handshakeTimer = null;
+      if (answersHello(msg)) {
+        // Answered: end the handshake wait, and start the backoff over —
+        // the next drop is a fresh one, not another failed attempt.
+        if (handshakeTimer !== null) {
+          window.clearTimeout(handshakeTimer);
+          handshakeTimer = null;
+        }
+        if (!answered) {
+          answered = true;
+          attempt = 0;
+        }
       }
       armLiveness();
       handlers.onFrame(msg);
