@@ -262,4 +262,5 @@ export type ServerMsg =
   | { type: 'new_session_options'; projects: string[]; lifecycles: LifecycleOption[] }
   | { type: 'theme'; theme: Theme }
   | { type: 'error'; message: string }
+  | { type: 'current' }
   | { type: 'ping' };

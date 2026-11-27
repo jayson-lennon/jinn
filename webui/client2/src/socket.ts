@@ -28,16 +28,23 @@ const BACKOFF_MS = [250, 500, 1000, 2000, 4000, 8000];
 
 /** How long to wait for `hello` to be answered before assuming a dead socket.
  *
- * The answer is the first frame that carries transcript state — a snapshot
- * or an upsert. A heartbeat is not an answer: a server that pings but never
- * answers must still be given up on, so the wait is not ended by one. */
+ * The answer is the first frame the server sends for it — a snapshot, an
+ * upsert, or the `current` frame when the page missed nothing. A heartbeat
+ * is not an answer: a server that pings but never answers must still be
+ * given up on, so the wait is not ended by one. */
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 
-/** Whether a frame is an answer to `hello`: the first transcript-bearing
- * frame on a connection, which only a hello answer or a session-follow
- * snapshot produces. */
+/** Whether a frame is an answer to `hello`: the first frame the server
+ * sends for it, which only a hello answer or a session-follow snapshot
+ * produces. The `current` frame counts, so a page that missed nothing is
+ * answered rather than left to time out on an empty reply. */
 function answersHello(msg: ServerMsg): boolean {
-  return msg.type === 'snapshot' || msg.type === 'entry_upsert' || msg.type === 'entries_page';
+  return (
+    msg.type === 'snapshot' ||
+    msg.type === 'entry_upsert' ||
+    msg.type === 'entries_page' ||
+    msg.type === 'current'
+  );
 }
 
 /**
