@@ -7,7 +7,7 @@ const toolOutputs = new Map<string, string>();
 
 import { createSignal, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientMsg } from '../protocol';
+import type { ClientMsg } from '../protocol/protocol';
 import { TOOL_OUTPUT_PREFIX, body } from './shared';
 
 export function ToolResultView(props: { value: unknown; sessionId: string | null; entryId: string }): JSX.Element {

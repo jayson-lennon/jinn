@@ -2,8 +2,8 @@
 
 import { For, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { EntryEnvelope } from '../protocol';
-import { safeHref } from '../markdown';
+import type { EntryEnvelope } from '../protocol/protocol';
+import { safeHref } from '../markdown/markdown';
 import { body, citationTitle } from './shared';
 
 export function AnnotationView(props: { envelope: EntryEnvelope }): JSX.Element {

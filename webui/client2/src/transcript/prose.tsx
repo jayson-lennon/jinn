@@ -1,8 +1,8 @@
 // An assistant entry: prose, rendered as markdown.
 
 import type { JSX } from '@solidjs/web';
-import type { EntryEnvelope, EntryKind } from '../protocol';
-import { renderMarkdown } from '../markdown';
+import type { EntryEnvelope, EntryKind } from '../protocol/protocol';
+import { renderMarkdown } from '../markdown/markdown';
 import { body, str } from './shared';
 
 export function ProseView(props: { kind: EntryKind; envelope: EntryEnvelope }): JSX.Element {

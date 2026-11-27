@@ -1,7 +1,7 @@
 // A system, error, or thinking entry: plain text in the note style.
 
 import type { JSX } from '@solidjs/web';
-import type { EntryKind } from '../protocol';
+import type { EntryKind } from '../protocol/protocol';
 
 export function NoticeView(props: { kind: EntryKind; text: string }): JSX.Element {
   return (
