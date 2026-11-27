@@ -121,6 +121,7 @@ export const sel = {
   ENTRY_MENU: '[data-testid="entry-menu"]',
   ENTRY_MENU_POPUP: '[data-testid="entry-menu-popup"]',
   ENTRY_MENU_PIN: '[data-testid="entry-menu-pin"]',
+  ENTRY_MENU_CONTEXT: '[data-testid="entry-menu-context"]',
   /** The pin mark a pinned entry shows at its left edge. */
   PIN_MARK: '.pin-mark',
   /** The transcript's "loading older entries…" row, and the affordance

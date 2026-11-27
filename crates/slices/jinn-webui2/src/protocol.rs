@@ -69,6 +69,7 @@ pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
         ClientMsg::PersonaRows { filter } => actions::persona_rows(out, filter),
         ClientMsg::SwitchPersona { persona } => actions::switch_persona(out, &persona).await,
         ClientMsg::TogglePin { entry_id } => actions::toggle_pin(out, entry_id).await,
+        ClientMsg::ToggleContext { entry_id } => actions::toggle_context(out, entry_id).await,
         ClientMsg::AppletRows { filter } => actions::applet_rows(out, filter).await,
         ClientMsg::RefreshModels => actions::refresh_models(out).await,
         ClientMsg::SetTheme { theme } => actions::set_theme(out, theme).await,

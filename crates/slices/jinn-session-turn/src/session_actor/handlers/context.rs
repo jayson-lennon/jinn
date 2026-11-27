@@ -1,15 +1,20 @@
-//! Context-related handlers - pinning, caching, and persona management.
+//! Context-related handlers - pinning, context overrides, caching, and
+//! persona management.
 //!
-//! Handles entry pinning (PinChatEntry/UnpinChatEntry), prompt template
-//! caching (PromptTemplatesLoaded), persona selection (PersonasLoaded), and
-//! persona catalog refresh.
+//! Handles entry pinning (PinChatEntry/UnpinChatEntry), a user's context
+//! override (SetEntryContextOverride), prompt template caching
+//! (PromptTemplatesLoaded), persona selection (PersonasLoaded), and persona
+//! catalog refresh.
 
+use jinn_context_assembly_msg::ContextOverrideChanged;
 use jinn_core_types::DEFAULT_PERSONA_NAME;
 use jinn_kernel::PromptTemplatesLoaded;
 use jinn_kernel::common::actor_deps::BusPublish;
 use jinn_persona_msg::PersonasLoaded;
-use jinn_session_history_msg::ChatEntryPinChanged;
-use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
+use jinn_session_history_msg::{
+    ChatEntryPinChanged, PinChatEntry, SetEntryContextOverride, UnpinChatEntry,
+};
+use jinn_session_store_msg::PersistSession;
 
 use super::super::SessionPersistenceActor;
 
@@ -84,6 +89,43 @@ impl SessionPersistenceActor {
         }
         self.publish(ChatEntryPinChanged {
             session_id: payload.session_id.clone(),
+        })
+        .await;
+    }
+
+    /// SetEntryContextOverride: write one entry's override as a user
+    /// decision.
+    ///
+    /// The write takes the entry's whole tool loop and carries the user
+    /// change source, so the auto-prune workers defer to it. It is an
+    /// interaction like a pin, and the override is persisted at once the
+    /// way the terminal's `x` persists — a session that was never sent to
+    /// would otherwise drop the change at shutdown. Nothing changed — an
+    /// unknown entry, a pinned loop refusing an exclude, or a value the
+    /// entry already holds — publishes nothing.
+    pub(in crate::session_actor) async fn handle_set_entry_context_override(
+        &self,
+        payload: &SetEntryContextOverride,
+    ) {
+        let changed = self.state.with_session(|view| {
+            let session = view.session.map().get_or_create(&payload.session_id);
+            let changed =
+                session.set_entry_context_override_by_id(&payload.entry_id, payload.value);
+            if changed.is_some() {
+                session.mark_interacted();
+            }
+            changed
+        });
+        let Some(entry_id) = changed else {
+            return;
+        };
+        self.publish(PersistSession {
+            session_id: payload.session_id.clone(),
+        })
+        .await;
+        self.publish(ContextOverrideChanged {
+            session_id: payload.session_id.clone(),
+            entry_id,
         })
         .await;
     }
@@ -436,6 +478,217 @@ mod tests {
             store.last_saved_session(&session_id).is_some(),
             "pinning a chat entry must persist the session"
         );
+    }
+
+    /// Pushes one assistant step with a single tool call and its result —
+    /// the loop an override takes whole — and returns every member's id.
+    fn push_tool_loop(state: &State) -> Vec<ChatEntryId> {
+        let mut guard = state.write();
+        let session = guard.active_session_mut();
+        let loop_entries = [
+            jinn_core_types::ChatEntry::assistant("checking the worker"),
+            jinn_core_types::ChatEntry::tool_call("call-1", "bash", r#"{"command":"ls"}"#),
+            jinn_core_types::ChatEntry::tool_result(
+                "call-1",
+                "bash",
+                "file.txt",
+                jinn_core_types::ToolResultStatus::Success,
+            ),
+        ];
+        let ids = loop_entries.iter().map(|e| e.id.clone()).collect();
+        for entry in loop_entries {
+            session.push_entry(entry);
+        }
+        ids
+    }
+
+    /// The context override of every history entry, in order.
+    fn overrides(state: &State, session_id: &SessionId) -> Vec<jinn_core_types::ContextOverride> {
+        let guard = state.read();
+        let session = guard.session.get(session_id).expect("session");
+        session
+            .history()
+            .iter()
+            .map(jinn_core_types::ChatEntry::context_override)
+            .collect()
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn set_override_applies_to_the_whole_tool_loop() {
+        // Given a session whose history holds a tool loop of three entries.
+        let (actor, state, _audit) = create_actor().await;
+        let ids = push_tool_loop(&state);
+        let session_id = state.read().session.active_session_id().clone();
+
+        // When the page forces the loop's tool result out of context.
+        actor
+            .handle_set_entry_context_override(&SetEntryContextOverride {
+                session_id: session_id.clone(),
+                entry_id: ids[2].clone(),
+                value: jinn_core_types::ContextOverride::ForcedExclude,
+            })
+            .await;
+
+        // Then every member of the loop carries the exclusion.
+        assert!(
+            overrides(&state, &session_id)
+                .iter()
+                .all(|o| *o == jinn_core_types::ContextOverride::ForcedExclude)
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn set_override_marks_the_session_interacted() {
+        // Given a session that was never interacted with, holding one entry.
+        let (actor, state, _audit) = create_actor().await;
+        let entry_id = {
+            let mut guard = state.write();
+            let session = guard.active_session_mut();
+            let entry = jinn_core_types::ChatEntry::user("hello");
+            let id = entry.id.clone();
+            session.push_entry(entry);
+            id
+        };
+        let session_id = state.read().session.active_session_id().clone();
+        assert!(!state.read().active_session().has_interacted());
+
+        // When the page forces the entry out of context.
+        actor
+            .handle_set_entry_context_override(&SetEntryContextOverride {
+                session_id: session_id.clone(),
+                entry_id,
+                value: jinn_core_types::ContextOverride::ForcedExclude,
+            })
+            .await;
+
+        // Then the session counts as interacted with.
+        assert!(state.read().active_session().has_interacted());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn set_override_publishes_persist_session() {
+        // Given a session with a user entry.
+        let (actor, state, audit) = create_actor().await;
+        let entry_id = {
+            let mut guard = state.write();
+            let session = guard.active_session_mut();
+            let entry = jinn_core_types::ChatEntry::user("hello");
+            let id = entry.id.clone();
+            session.push_entry(entry);
+            id
+        };
+        let session_id = state.read().session.active_session_id().clone();
+
+        // When the page forces the entry out of context.
+        actor
+            .handle_set_entry_context_override(&SetEntryContextOverride {
+                session_id: session_id.clone(),
+                entry_id,
+                value: jinn_core_types::ContextOverride::ForcedExclude,
+            })
+            .await;
+
+        // Then a session persist is requested at once.
+        assert!(
+            audit.contains_name("PersistSession"),
+            "expected a PersistSession command"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn set_override_publishes_context_override_changed() {
+        // Given a session with a user entry.
+        let (actor, state, audit) = create_actor().await;
+        let entry_id = {
+            let mut guard = state.write();
+            let session = guard.active_session_mut();
+            let entry = jinn_core_types::ChatEntry::user("hello");
+            let id = entry.id.clone();
+            session.push_entry(entry);
+            id
+        };
+        let session_id = state.read().session.active_session_id().clone();
+
+        // When the page forces the entry out of context.
+        actor
+            .handle_set_entry_context_override(&SetEntryContextOverride {
+                session_id: session_id.clone(),
+                entry_id: entry_id.clone(),
+                value: jinn_core_types::ContextOverride::ForcedExclude,
+            })
+            .await;
+
+        // Then the override-changed event names the entry.
+        let events = audit.of_type::<ContextOverrideChanged>();
+        let named: Vec<_> = events.iter().map(|e| e.entry_id.clone()).collect();
+        assert_eq!(named, vec![entry_id]);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn set_override_on_a_pinned_entry_publishes_nothing() {
+        // Given a session holding one pinned entry.
+        let (actor, state, audit) = create_actor().await;
+        let entry_id = {
+            let mut guard = state.write();
+            let session = guard.active_session_mut();
+            let mut entry = jinn_core_types::ChatEntry::user("keep me");
+            entry.pin_position = Some(PinPosition::Top);
+            let id = entry.id.clone();
+            session.push_entry(entry);
+            id
+        };
+        let session_id = state.read().session.active_session_id().clone();
+
+        // When the page tries to force the pinned entry out of context.
+        actor
+            .handle_set_entry_context_override(&SetEntryContextOverride {
+                session_id: session_id.clone(),
+                entry_id,
+                value: jinn_core_types::ContextOverride::ForcedExclude,
+            })
+            .await;
+
+        // Then nothing is published: the pin wins and nothing changed.
+        assert!(!audit.contains_name("PersistSession"));
+        assert!(!audit.contains_name("ContextOverrideChanged"));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn set_override_already_at_target_publishes_nothing() {
+        // Given a session holding an entry already forced out of context.
+        let (actor, state, audit) = create_actor().await;
+        let entry_id = {
+            let mut guard = state.write();
+            let session = guard.active_session_mut();
+            let mut entry = jinn_core_types::ChatEntry::user("hello");
+            entry.apply_context_override(
+                jinn_core_types::ContextOverride::ForcedExclude,
+                jinn_core_types::ChangeSource::User,
+            );
+            let id = entry.id.clone();
+            session.push_entry(entry);
+            id
+        };
+        let session_id = state.read().session.active_session_id().clone();
+
+        // When the page forces it out of context again.
+        actor
+            .handle_set_entry_context_override(&SetEntryContextOverride {
+                session_id: session_id.clone(),
+                entry_id,
+                value: jinn_core_types::ContextOverride::ForcedExclude,
+            })
+            .await;
+
+        // Then nothing is published: nothing changed.
+        assert!(!audit.contains_name("PersistSession"));
+        assert!(!audit.contains_name("ContextOverrideChanged"));
     }
 
     /// Pushes `n` pinned entries (all `Top`, so display order = insertion order)

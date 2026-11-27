@@ -13,14 +13,16 @@
 use std::time::Duration;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_core_types::{ChatEntry, ChatEntryId, ModelSelection, NameFilter, PinPosition, SessionId};
+use jinn_core_types::{
+    ChatEntry, ChatEntryId, ContextOverride, ModelSelection, NameFilter, PinPosition, SessionId,
+};
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::common::actor_deps::BusPublish as _;
 use jinn_mcp_msg::McpRowBadge;
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_preferences_config::schemas::mcp::McpServersConfig;
 use jinn_provider_selection_msg::{ProviderSwitch, RefreshModels};
-use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
+use jinn_session_history_msg::{PinChatEntry, SetEntryContextOverride, UnpinChatEntry};
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
@@ -66,6 +68,8 @@ pub enum Refusal {
     UnknownPersona,
     /// The active session holds no entry with that id.
     UnknownEntry,
+    /// The entry is pinned, so a pin overrides any exclusion.
+    EntryIsPinned,
     /// The theme is not one of the three modes.
     UnknownTheme(String),
     /// No live session and nothing in the store carries that id.
@@ -105,6 +109,7 @@ impl Refusal {
             Self::UnknownMcpServer => "unknown mcp server".to_owned(),
             Self::UnknownPersona => "unknown persona".to_owned(),
             Self::UnknownEntry => "unknown entry".to_owned(),
+            Self::EntryIsPinned => "entry is pinned — unpin it to change its context".to_owned(),
             Self::UnknownTheme(theme) => {
                 format!("unknown theme `{theme}` (want light, dark, or system)")
             }
@@ -1664,6 +1669,65 @@ pub async fn toggle_pin(out: &OutboundHandle, entry_id: ChatEntryId) -> Reply {
         })
         .await;
     }
+    Reply::none()
+}
+
+// ---------------------------------------------------------------------------
+// Context toggle
+// Parity: the terminal's `x` on the selected entry
+// (`jinn_chat_log_view::chat_entry_selection::intent::handle_ignore_selected`)
+// ---------------------------------------------------------------------------
+
+/// Flips one entry of the active session between forced-include and
+/// forced-exclude.
+///
+/// A forced entry flips to the other forced value; an entry still at the
+/// default flips its *effective* state, exactly as the terminal's `x`
+/// does — an in-context entry is forced out, a kind that is out of context
+/// by default is forced in. The result is always a forced value: nothing
+/// here returns an entry to the default, which is the terminal's `r`. The
+/// page can only name an entry it was sent, so an unknown id is refused and
+/// never falls back to the store. A pinned entry is refused too, because a
+/// pin overrides exclusion and the write would silently do nothing. One
+/// message is published and nothing is replied; the session actor applies
+/// the override, persists the session, and publishes
+/// `ContextOverrideChanged`, which the outbound actor turns into the
+/// upserts the page sees.
+pub async fn toggle_context(out: &OutboundHandle, entry_id: ChatEntryId) -> Reply {
+    // Decided under one read guard, which drops before the publish: the
+    // state lock is never held across an await.
+    let decision = {
+        let state = out.state();
+        let guard = state.read();
+        let session_id = guard.session.active_session_id().clone();
+        let Some(session) = guard.session.get(&session_id) else {
+            return refused(&Refusal::NoActiveSession);
+        };
+        let Some(entry) = session
+            .find_entry_index_by_id(&entry_id)
+            .and_then(|index| session.history().get(index))
+        else {
+            return refused(&Refusal::UnknownEntry);
+        };
+        if entry.is_pinned() {
+            return refused(&Refusal::EntryIsPinned);
+        }
+        let target = match entry.context_override() {
+            ContextOverride::ForcedInclude => ContextOverride::ForcedExclude,
+            ContextOverride::Default if entry.is_in_context() => ContextOverride::ForcedExclude,
+            ContextOverride::ForcedExclude | ContextOverride::Default => {
+                ContextOverride::ForcedInclude
+            }
+        };
+        (session_id, target)
+    };
+    let (session_id, target) = decision;
+    out.publish(SetEntryContextOverride {
+        session_id,
+        entry_id,
+        value: target,
+    })
+    .await;
     Reply::none()
 }
 

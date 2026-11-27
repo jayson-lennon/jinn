@@ -20,6 +20,7 @@ jinn-app-state = { workspace = true }
 jinn-session-state = { workspace = true }
 jinn-session-store-msg = { workspace = true }
 jinn-session-history-msg = { workspace = true }
+jinn-context-assembly-msg = { workspace = true }
 jinn-inference-msg = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
 jinn-session-msg = { workspace = true }
