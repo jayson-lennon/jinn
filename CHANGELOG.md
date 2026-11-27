@@ -15,7 +15,8 @@
 - (webui) Subagent and bot sessions are now identified in session list and in session transcript.
 - (webui) Add teardown functionality to session list.
 - (webui) Add status bar showing persona + context usage
-- (webui) Premade prompts using `#prompt` now have a popup when typing nto the chat.
+- (webui) Premade prompts using `#prompt` now have a popup when typing into the chat.
+- (webui) Add dashboard for session stats by clicking on the "context usage" in the status bar.
 
 
 ## 2026-11-24 v.27.2
