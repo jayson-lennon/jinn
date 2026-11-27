@@ -24,7 +24,7 @@ use jinn_provider_selection_msg::ProviderSwitch;
 use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, UnpinChatEntry};
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
-    ArchiveSession, PersistSession, SessionLoadRequested, SetSessionLibrary,
+    ArchiveSession, PersistSession, SessionForkRequested, SessionLoadRequested, SetSessionLibrary,
 };
 use jinn_slices::bus::BusService;
 use jinn_webui2_msg::{ClientMsg, EntryEnvelope, ServerMsg};
@@ -2630,6 +2630,100 @@ async fn toggling_an_unknown_entry_is_refused_and_publishes_nothing() {
     // Then the page is refused and nothing is published.
     assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
     assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn forking_an_entry_publishes_the_fork_command_at_its_index() {
+    // Given a session whose history holds three entries.
+    let h = harness();
+    push(&h.state, ChatEntry::user("first"));
+    push(&h.state, ChatEntry::user("second"));
+    push(&h.state, ChatEntry::user("third"));
+    let second_id = h.state.read().session.active_session().history()[1]
+        .id
+        .clone();
+
+    // When the page forks at the second entry.
+    say(
+        &h,
+        ClientMsg::Fork {
+            entry_id: second_id,
+        },
+    )
+    .await;
+
+    // Then one fork command is published, naming the active session and the
+    // entry's index in its history — the ordinal the terminal's `f` sends.
+    let forks = h.audit.of_type::<SessionForkRequested>();
+    assert_eq!(forks.len(), 1);
+    assert_eq!(forks[0].source_session_id, active_id(&h.state));
+    assert_eq!(forks[0].at_ordinal, 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn forking_counts_a_leading_transient_as_no_ordinal() {
+    // Given a session whose history opens with a transient — skill
+    // discovery's table — ahead of a user entry and its reply.
+    let h = harness();
+    push(&h.state, ChatEntry::transient("skills discovered"));
+    push(&h.state, ChatEntry::user("hello"));
+    push(&h.state, ChatEntry::assistant("reply"));
+    let user_id = h.state.read().session.active_session().history()[1]
+        .id
+        .clone();
+
+    // When the page forks at the user entry.
+    say(&h, ClientMsg::Fork { entry_id: user_id }).await;
+
+    // Then the ordinal is 0 — the entry's place among the persisted entries
+    // the store slices, not its place in the live history where the
+    // transient counts as a slot.
+    let forks = h.audit.of_type::<SessionForkRequested>();
+    assert_eq!(forks[0].at_ordinal, 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn forking_an_unknown_entry_is_refused_and_publishes_nothing() {
+    // Given a session whose history holds no entry with the id the page names.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+
+    // When the page forks at an id the session does not hold.
+    let reply = dispatch(
+        ClientMsg::Fork {
+            entry_id: ChatEntryId::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn forking_an_entry_arms_the_loading_guard_for_the_source() {
+    // Given a session with one entry to fork at.
+    let h = harness();
+    push(&h.state, ChatEntry::user("fork from here"));
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+
+    // When the page forks at that entry.
+    say(&h, ClientMsg::Fork { entry_id }).await;
+
+    // Then the loading guard names the source — armed as the terminal arms
+    // it, so the store actor re-points it at the child it is about to mint.
+    let source = active_id(&h.state);
+    let guard = h.state.read();
+    let loading = guard.session.session_load_guard().expect("a load is armed");
+    assert_eq!(loading.session_id, source);
 }
 
 #[rstest::rstest]

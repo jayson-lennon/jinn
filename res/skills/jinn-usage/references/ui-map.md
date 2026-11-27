@@ -252,7 +252,7 @@ fixed column drawn here, and the `#` is not shown.
 | `[img]` on a user message | An image the message carried. | `webui2.md` |
 | `[⇱]` top-right of the transcript | **Jump to start** — an up arrow against a bar above it. Shown only while scrolled away from the top; click to land on the first entry. | `webui2.md` |
 | `[⇲]` bottom-right of the transcript | **Jump to end** — a down arrow against a bar below it. Shown only while scrolled away from the end; click to land on the newest entry and follow the stream again. | `webui2.md` |
-| `⋮` at an entry's bottom-right | Every transcript entry's menu, always visible at every width. **Pin** pins the entry at its relative position and it shows a 📌; pinned, the item reads **Unpin**. `Esc`, an outside click, or picking an item closes it. | `webui2.md` |
+| `⋮` at an entry's bottom-right | Every transcript entry's menu, always visible at every width. **Pin** pins the entry at its relative position and it shows a 📌; pinned, the item reads **Unpin**. **Fork** forks the session at that entry, as the TUI's `f` does, and the page moves onto the new session. `Esc`, an outside click, or picking an item closes it. | `webui2.md` |
 | 📌 at an entry's left edge | A pinned entry — always in context, and pinned at its relative position. | `webui2.md` |
 | `[Message jinn…]` | The composer's draft. `Enter` sends; `Shift+Enter` is a newline. An image with no text sends. | `webui2.md` |
 | `[+]` | Attach an image. Opens the file picker. | `webui2.md` |
@@ -283,7 +283,7 @@ fixed column drawn here, and the `#` is not shown.
 | Token-density strip / the `>` arrow | Minimap column |
 | The colored vertical line | Border column (focus accent) |
 | Pinned entries / isolate / audit | Chat log (selection) + Pins sidebar section + audit popup; on `/web2`, a 📌 at the entry's left edge and the entry's `⋮` → Pin |
-| The `/web2` page's per-entry `⋮` and its Pin / Unpin | Web UI 2 (`/web2`) transcript, at each entry's bottom-right |
+| The `/web2` page's per-entry `⋮` and its Pin / Unpin / Fork | Web UI 2 (`/web2`) transcript, at each entry's bottom-right |
 | A web-search reply's sources (`Sources (N)`) | Web UI 2 (`/web2`) transcript, the collapsed line under the reply; the original web UI shows the same disclosure under its reply |
 | A rule interrupt / watchdog guidance (`⚡ Rule fired: <rule>`) | Web UI 2 (`/web2`) transcript, the yellow-tinted collapsed block where the turn changed course; in the TUI the same entry is the yellow `⚡ Rule fired` block |
 | Task phases / task list | Task-list sidebar section + task-list browser (`s`) + tab |
