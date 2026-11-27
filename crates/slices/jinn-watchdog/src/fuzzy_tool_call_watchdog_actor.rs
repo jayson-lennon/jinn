@@ -472,10 +472,9 @@ mod tests {
         }
     }
 
-    const GREP_ARGS: &str = r#"grep -n "lrow" crates/slices/jinn-webui/src/regions/sessions.rs"#;
+    const GREP_ARGS: &str = r#"grep -n "lrow" crates/slices/jinn-webui2/src/server.rs"#;
     /// The drift phase's shape: the same grep with a small variation.
-    const GREP_ARGS_VARIANT: &str =
-        r#"grep -rn "lrow" crates/slices/jinn-webui/src/regions/sessions.rs"#;
+    const GREP_ARGS_VARIANT: &str = r#"grep -rn "lrow" crates/slices/jinn-webui2/src/server.rs"#;
     const GREP_RESULT: &str = "265:.srow, .lrow { position: relative; }";
 
     #[rstest::rstest]

@@ -222,7 +222,7 @@ where
 /// `GET /web2/attachment/{session}/{entry}/{ordinal}` — one attachment's
 /// bytes, for the transcript's `<img>`.
 ///
-/// Resolution order is the original web UI's: live state first (a bounded
+/// Resolution order: live state first (a bounded
 /// wait — a just-sent entry may still be crossing the bus), then the
 /// session store's persisted entry for a session no longer in memory, then
 /// 404. The response is immutable: entry ids never reuse and an

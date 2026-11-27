@@ -1,4 +1,4 @@
-//! The second web UI slice — the message-driven mirror of the terminal UI.
+//! The web UI slice — the message-driven mirror of the terminal UI.
 //!
 //! A live instance serves a browser page at `/web2`, bound per the
 //! `[webui2]` config section, that mirrors the terminal: it shares the
@@ -39,7 +39,7 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 
-/// Why the second web UI's activation failed.
+/// Why the web UI's activation failed.
 #[derive(Debug, wherror::Error)]
 #[error(debug)]
 pub enum WebUi2ActivationError {
@@ -51,11 +51,11 @@ pub enum WebUi2ActivationError {
     Bind,
 }
 
-/// Installs the second web UI: spawns its outbound actor and binds `/web2`.
+/// Installs the web UI: spawns its outbound actor and binds `/web2`.
 ///
-/// Activation is fail-fast, like the original web UI: a broken bind cannot
-/// serve anything. The bind is read **once**; a live `[webui2]` edit
-/// applies at the next restart.
+/// Activation is fail-fast: a broken bind cannot serve anything. The
+/// bind is read **once**; a live `[webui2]` edit applies at the next
+/// restart.
 ///
 /// # Errors
 ///
@@ -172,6 +172,6 @@ pub async fn activate(
     .await
     .map_err(|report| report.change_context(WebUi2ActivationError::Bind))?;
 
-    tracing::info!(url = %bound.connection_note(), "second web UI listening");
+    tracing::info!(url = %bound.connection_note(), "web UI listening");
     Ok(())
 }

@@ -25,7 +25,7 @@ use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, UnpinChatEntry
 use jinn_session_lifecycle_msg::{CloseSession, SessionTeardownFinished, SessionTeardownStarted};
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
-    ArchiveSession, PersistSession, SessionLoadRequested, SetSessionLibrary,
+    ArchiveSession, PersistSession, SessionForkRequested, SessionLoadRequested, SetSessionLibrary,
 };
 use jinn_slices::bus::BusService;
 use jinn_webui2_msg::{ClientMsg, EntryEnvelope, ServerMsg};
@@ -1181,6 +1181,53 @@ async fn hello_with_an_unknown_cursor_answers_a_snapshot() {
 
     // Then it receives the whole transcript.
     assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_snapshot_reports_hydration_while_startup_loads_are_outstanding() {
+    // Given an instance whose startup hydration is still running.
+    let h = harness();
+    h.state.write().session.begin_startup_hydration();
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot says the saved sessions are still loading.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert!(snapshot.hydrating);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_snapshot_reports_hydration_finished_once_it_is() {
+    // Given an instance whose startup hydration is not running.
+    let h = harness();
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot says nothing is loading.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert!(!snapshot.hydrating);
 }
 
 /// Pushes `count` user entries onto the active session, so its history
@@ -2584,6 +2631,100 @@ async fn toggling_an_unknown_entry_is_refused_and_publishes_nothing() {
     // Then the page is refused and nothing is published.
     assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
     assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn forking_an_entry_publishes_the_fork_command_at_its_index() {
+    // Given a session whose history holds three entries.
+    let h = harness();
+    push(&h.state, ChatEntry::user("first"));
+    push(&h.state, ChatEntry::user("second"));
+    push(&h.state, ChatEntry::user("third"));
+    let second_id = h.state.read().session.active_session().history()[1]
+        .id
+        .clone();
+
+    // When the page forks at the second entry.
+    say(
+        &h,
+        ClientMsg::Fork {
+            entry_id: second_id,
+        },
+    )
+    .await;
+
+    // Then one fork command is published, naming the active session and the
+    // entry's index in its history — the ordinal the terminal's `f` sends.
+    let forks = h.audit.of_type::<SessionForkRequested>();
+    assert_eq!(forks.len(), 1);
+    assert_eq!(forks[0].source_session_id, active_id(&h.state));
+    assert_eq!(forks[0].at_ordinal, 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn forking_counts_a_leading_transient_as_no_ordinal() {
+    // Given a session whose history opens with a transient — skill
+    // discovery's table — ahead of a user entry and its reply.
+    let h = harness();
+    push(&h.state, ChatEntry::transient("skills discovered"));
+    push(&h.state, ChatEntry::user("hello"));
+    push(&h.state, ChatEntry::assistant("reply"));
+    let user_id = h.state.read().session.active_session().history()[1]
+        .id
+        .clone();
+
+    // When the page forks at the user entry.
+    say(&h, ClientMsg::Fork { entry_id: user_id }).await;
+
+    // Then the ordinal is 0 — the entry's place among the persisted entries
+    // the store slices, not its place in the live history where the
+    // transient counts as a slot.
+    let forks = h.audit.of_type::<SessionForkRequested>();
+    assert_eq!(forks[0].at_ordinal, 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn forking_an_unknown_entry_is_refused_and_publishes_nothing() {
+    // Given a session whose history holds no entry with the id the page names.
+    let h = harness();
+    push(&h.state, ChatEntry::user("keep me"));
+
+    // When the page forks at an id the session does not hold.
+    let reply = dispatch(
+        ClientMsg::Fork {
+            entry_id: ChatEntryId::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names(), Vec::<&str>::new());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn forking_an_entry_arms_the_loading_guard_for_the_source() {
+    // Given a session with one entry to fork at.
+    let h = harness();
+    push(&h.state, ChatEntry::user("fork from here"));
+    let entry_id = h.state.read().session.active_session().history()[0]
+        .id
+        .clone();
+
+    // When the page forks at that entry.
+    say(&h, ClientMsg::Fork { entry_id }).await;
+
+    // Then the loading guard names the source — armed as the terminal arms
+    // it, so the store actor re-points it at the child it is about to mint.
+    let source = active_id(&h.state);
+    let guard = h.state.read();
+    let loading = guard.session.session_load_guard().expect("a load is armed");
+    assert_eq!(loading.session_id, source);
 }
 
 #[rstest::rstest]
@@ -5412,7 +5553,7 @@ fn a_library_member_is_listed_under_library_and_not_sessions() {
         .set_in_library(true);
 
     // When the sidebar's rows are built.
-    let (sessions, library) = crate::snapshot::session_rows(
+    let (sessions, library, _) = crate::snapshot::session_rows(
         &h.state,
         &crate::settle::SettleTracker::default(),
         &std::collections::HashSet::new(),
@@ -5430,7 +5571,7 @@ fn a_non_member_is_listed_under_sessions_and_not_library() {
     let h = harness();
 
     // When the sidebar's rows are built.
-    let (sessions, library) = crate::snapshot::session_rows(
+    let (sessions, library, _) = crate::snapshot::session_rows(
         &h.state,
         &crate::settle::SettleTracker::default(),
         &std::collections::HashSet::new(),
@@ -5454,6 +5595,47 @@ fn membership_changed_pushes_a_sessions_frame() {
     // Then the page receives one sessions frame.
     let frames = drain(&mut inbox);
     assert!(matches!(frames.as_slice(), [ServerMsg::Sessions(_)]));
+}
+
+#[rstest::rstest]
+#[test]
+fn a_sessions_frame_carries_the_hydration_flag() {
+    // Given an instance whose startup hydration is still running, and a page.
+    let h = harness();
+    h.state.write().session.begin_startup_hydration();
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When a session-list push is sent.
+    crate::outbound::sessions_changed(&h.handle);
+
+    // Then the frame tells the page the saved sessions are still loading.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::Sessions(body)] = frames.as_slice() else {
+        unreachable!("one sessions frame expected, got {frames:?}");
+    };
+    assert!(body.hydrating);
+}
+
+#[rstest::rstest]
+#[test]
+fn startup_hydration_finished_pushes_one_sessions_frame_that_is_not_hydrating() {
+    // Given an instance whose hydration has just ended — the store clears the
+    // flag before it publishes the event — and a page.
+    let h = harness();
+    h.state.write().session.begin_startup_hydration();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    h.state.write().session.finish_startup_hydration();
+
+    // When the end of hydration reaches the outbound actor.
+    crate::outbound::startup_hydration_finished(&h.handle);
+
+    // Then the page receives exactly one sessions frame, and it says nothing
+    // is loading — which is what brings the rail's loading row down.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::Sessions(body)] = frames.as_slice() else {
+        unreachable!("one sessions frame expected, got {frames:?}");
+    };
+    assert!(!body.hydrating);
 }
 
 // ---------------------------------------------------------------------------
@@ -5944,7 +6126,7 @@ async fn the_launch_note_describes_the_row() {
     // Then the note carries the row's description.
     assert_eq!(
         notes[0].description.as_deref(),
-        Some("Web UI 2 (browser transcript, send, cancel)"),
+        Some("Web UI (browser transcript, send, cancel)"),
         "the row is told what the slice is"
     );
 }

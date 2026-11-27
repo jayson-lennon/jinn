@@ -16,7 +16,7 @@ The full workspace suite takes minutes. Treat suite executions as expensive:
 2. Get failure details from the capture with `just test-failures` — instant, no rebuild. Or grep the log manually as needed.
 3. Iterate cheaply while fixing: `just test-one <test_name_filter>` runs only matching tests across the workspace.
 4. Before committing, confirm with one final `just test`.
-5. **DO NOT USE node/harness.mjs UNLESS SPECIFICALLY WORKING ON THE WEB UI.** A plain Rust test is the default way to verify a change. Booting the real binary for a check — through the e2e harness or a hand-rolled script — requires the user's explicit ask.
+5. **Booting the real binary for a check requires the user's explicit ask.** A plain Rust test is the default way to verify a change. Driving jinn through an e2e harness (`just webui2-e2e`, `just webui2-e2e-one`) or a hand-rolled script is the exception, and only when working on the web UI or when the user asks for it.
 
 ## 1. Overview
 
@@ -690,57 +690,22 @@ Skills refer to commands by **role**; the table below resolves each role to this
 | `commit`        | `just commit '<message>'` | Commit changes (uses `--dotfiles` so `.agents/` is included).                                                             |
 | `sync-trunk`    | `git merge main`          | Sync latest changes onto your branch — resolve conflicts, re-test, commit.                                                |
 
-## 8. WebUI Regions
+## 8. The Web UI (`/web2`)
 
-The web UI is **server-rendered**: askama templates in `crates/slices/jinn-webui/templates/` carrying declarative Datastar attributes, one vendored Datastar bundle, and a Playwright e2e tier. The UI is organized into **regions** — sessions, transcript, composer, model picker — each owning its template fragment, GET route, SSE event, and settle convergence inside one slice (`crates/slices/jinn-webui`). A region is the unit of parallel agent work: two region assignments share zero mutable files, so agents add webui features without merge collisions.
-
-A region is one trait object on the server plus its askama templates, paired by id:
-
-- **Server** — `src/regions/<name>.rs` implements `WebRegion` (`id`, `parts`, `event_kinds`, `pull`, `container_id`, `render`), registers in the static `regions()` list, and owns its fragment rendering + region-scoped tests.
-- **Browser behavior** — declarative Datastar attributes in the region's templates (`data-on:click`, `data-bind`, `data-effect__debounce.150ms`, `@get`/`@post`); there is no hand-written client module per region. Modal state rides named signals seeded on the page shell's `data-signals` line and re-seeded by the navigation patch in `server.rs`.
-
-**The parts — and the conformance gate.** Every region declares which parts it carries (settle render, pull route, SSE event, page fill), and `check_registry`/`check_region` (enforced by `region_tests.rs`) asserts each **declared** part exists. The declaration is the design: a region legitimately lacking a pull route or an SSE event declares only what it carries — never to satisfy a checklist.
-
-**The state boundary.** The backend is authoritative. Fragments render from `AppState` and cell readers on the server; the browser holds no state store — view state that must survive a reload is server-owned display state rendered into fragments. A template reading anything but its contract-declared signals is violating the contract, not extending it.
-
-**Build & test tiers.**
-
-- `just webui-build` is a **pure verifier** of the vendored bundle (`datastar.js.gz`: gzip integrity + sha256 pin). Nothing regenerates the bundle; there is no client build step. A fresh checkout needs no emit before `just check`.
-- The browser test tiers are: the env-gated headless-chromium Rust test (`JINN_WEBUI_SMOKE=1 just webui-smoke`), and the standalone Playwright tier under `webui/client/e2e/` (`just webui-e2e`).
-
-**The Playwright e2e tier — one jinn per test.** Every e2e test runs against its own freshly booted jinn with its own scratch database, config, and data tree, booted before the test and torn down after it however it ends. No test can observe state another test created, so the order the tests run in carries no meaning: `just webui-e2e` shuffles the files (`--shuffle`) and prints the seed, and a test that only passes in one order is a bug in the test.
-
-- **A test arranges its own precondition.** A spec imports `test` and `expect` from `./fixture.mjs`, never from `@playwright/test`. The fixture's `jinn` handle (`{ baseUrl, root, pid }`) is the test's own instance, and its setup verbs — `openSession`, `createSession`, `openMenu`, `openModal`, `sendAndWaitForEcho`, `setViewport`, `toggleLibrary`, and the rest — reach a starting state; a spec never re-derives them. Helpers that only *assert* stay in the spec that asserts them. A resource the harness stages (the block-less persona, the scratch skill, the scratch applet) is requested per test through `test.with({ persona: true })` and named through the fixture's `staged` export — a spec never spells an on-disk location, a port, or a base URL.
-- **The inner loop is `just webui-e2e-one <files> [titles]`**: `files` is a regex over spec paths (`skills`, `smoke|scroll`), and the optional `titles` narrows it to the tests whose title matches (`just webui-e2e-one skills "fresh session"`). Use it after every edit; run the full tier before committing.
-- **Both recipes build the binary on every invocation** (`cargo build --bin jinn`) and install the tier's Node dependencies only when `node_modules` is absent or older than its lock file. The binary embeds the templates and vendored assets at compile time, so a run outside the recipes is a run against a stale binary — which is why the recipes invoke Playwright directly from the tier's `node_modules/.bin` and the tier never runs it any other way.
-- **A failure prints the runner's full report** — expected and received values, the call log — and leaves a trace under `webui/client/e2e/test-results/<test>/trace.zip`, which `playwright show-trace` replays. Read the report whole; a bare timeout is a hung interaction, and the trace shows the page at every step.
-
-**Adding a webui region:**
-
-1. **Contract constants** — add the DOM/path constants to `src/contract.rs` and list them in `DOM_CONSTANTS`/`CLIENT_PATHS`; `contract_tests.rs` pins the drift.
-2. **Server region module** — `src/regions/<name>.rs`: the fragment renderer(s) as askama templates, the `WebRegion` impl with an honest `parts()` declaration, and region-scoped tests under `regions/<name>/`. The router and fan-out pick the region up from the registry — zero edits there.
-3. **Templates** — the region's fragment templates and CSS (every colour a `var(--token)`); the page-shell container for the region's `container_id`, if it fills one.
-4. **Conformance** — extend the id-vocabulary assertion in `region_tests.rs` to name the new region; the gate then holds it to its declaration.
-
-**Single-owner files** — these cross every region and are sequenced, never concurrent; every other webui file belongs to exactly one region or is region-local:
-
-| File | Why single-owner |
-|---|---|
-| `src/fanout.rs` | the batching cadence + registry-driven settle order (behavioral; existing tests pin the order) |
-| `src/server.rs` | router assembly + the SSE stream + page shell + the navigation patch's signal re-seed |
-| `src/region.rs` | the `WebRegion` trait + the static `regions()` registry |
-| `templates/page_root.html` | the page shell: signal seeds, modal hosts, inline-transcript wiring |
-| `templates/menu.html` | the hamburger menu every region hangs an item from |
-
-**Parallel-work etiquette:** assignments are by region; a task touching a single-owner file is sequenced after the in-flight one, not merged alongside it.
-
-**The second web UI's build (`/web2`, `crates/slices/jinn-webui2`).** Nothing of the `/web2` client is committed. The slice's `build.rs` runs the client build itself on every cargo compile — `npm ci` when `package-lock.json` is newer than `node_modules`, then `tsc --noEmit`, `vite build`, and a gzip of the output into `OUT_DIR`, from which the bytes are embedded. The bundle cannot be stale, because it is always built from the sources being compiled; there is no committed artifact to pin or to conflict on a merge. **Node and npm are therefore build prerequisites of the `jinn-webui2` crate** — a build without them fails with a message naming the requirement. A type error in the client fails the cargo build by its own name.
-
-**The second web UI (`/web2`, `crates/slices/jinn-webui2`).** A separate, independent slice: server-rendered nothing, browser-owned view state, one WebSocket carrying the two tagged enums `ClientMsg`/`ServerMsg` (`jinn-webui2-msg`). It shares no files, no templates, and no routes with the region system above; never add a `/web2` feature through a region. Its whole discipline is one rule, and every change must keep it:
+The web UI (`/web2`, `crates/slices/jinn-webui2`) is a slice that mirrors the terminal in a browser: **the browser owns all view state**. The server renders no HTML fragments and reads no client state back; it answers `ClientMsg`s by reading `State` and cells and by publishing existing commands, and pushes `ServerMsg`s — data, never markup — as the facts change. One WebSocket carries the two tagged enums `ClientMsg`/`ServerMsg` (`jinn-webui2-msg`). Its whole discipline is one rule, and every change must keep it:
 
 > Nothing enters the page except through `apply()` in `webui/client2/src/store.ts`; nothing leaves it except through `send()` in `webui/client2/src/socket.ts`; and neither dispatch gets a fallback arm — a new message kind must be a compile error on both sides until its one handler exists.
 
 Server-side, the same rule holds as one exhaustive `match` per direction in `protocol.rs` and one handler arm in `outbound/handlers.rs`. Extending the UI is always: one enum variant (or two), the arms it forces into existence, and nothing routed around them.
+
+**Build.** Nothing of the `/web2` client is committed. The slice's `build.rs` runs the client build itself on every cargo compile — `npm ci` when `package-lock.json` is newer than `node_modules`, then `tsc --noEmit`, `vite build`, and a gzip of the output into `OUT_DIR`, from which the bytes are embedded. The bundle cannot be stale, because it is always built from the sources being compiled; there is no committed artifact to pin or to conflict on a merge. **Node and npm are therefore build prerequisites of the `jinn-webui2` crate** — a build without them fails with a message naming the requirement. A type error in the client fails the cargo build by its own name.
+
+**The Playwright e2e tier — one jinn per test.** Every e2e test runs against its own freshly booted jinn with its own scratch database, config, and data tree, booted before the test and torn down after it however it ends. No test can observe state another test created, so the order the tests run in carries no meaning: `just webui2-e2e` shuffles the files (`--shuffle`) and prints the seed, and a test that only passes in one order is a bug in the test.
+
+- **A test arranges its own precondition.** A spec imports `test` and `expect` from `./fixture.mjs`, never from `@playwright/test`. The fixture's `jinn` handle (`{ baseUrl, root, pid }`) is the test's own instance, and its setup verbs — `openSession`, `createSession`, `openMenu`, `openModal`, `sendAndWaitForEcho`, `setViewport`, `toggleLibrary`, and the rest — reach a starting state; a spec never re-derives them. Helpers that only *assert* stay in the spec that asserts them. A resource the harness stages (the block-less persona, the scratch skill, the scratch applet) is requested per test through `test.with({ persona: true })` and named through the fixture's `staged` export — a spec never spells an on-disk location, a port, or a base URL.
+- **The inner loop is `just webui2-e2e-one <files> [titles]`**: `files` is a regex over spec paths (`skills`, `smoke|scroll`), and the optional `titles` narrows it to the tests whose title matches. Use it after every edit; run the full tier before committing.
+- **Both recipes build the binary on every invocation** (`cargo build --bin jinn`) and install the tier's Node dependencies only when `node_modules` is absent or older than its lock file. The binary embeds the client bundle at compile time, so a run outside the recipes is a run against a stale binary — which is why the recipes invoke Playwright directly from the tier's `node_modules/.bin` and the tier never runs it any other way.
+- **A failure prints the runner's full report** — expected and received values, the call log — and leaves a trace under `webui/client2/e2e/test-results/<test>/trace.zip`, which `playwright show-trace` replays. Read the report whole; a bare timeout is a hung interaction, and the trace shows the page at every step.
 
 ## 9. Misc
 

@@ -12,7 +12,7 @@
 //! presentation onto the fields.
 //!
 //! Why the msg crate: both consumers already depend on it (the TUI
-//! slice for the entry type, the webui for the provider cell), and a
+//! slice for the entry type, `/web2` for the provider cell), and a
 //! `-msg` crate never depends on an implementation crate — so placing
 //! the builder here is the only arrangement where the two surfaces
 //! cannot drift. The TUI-side ratatui row rendering that was already

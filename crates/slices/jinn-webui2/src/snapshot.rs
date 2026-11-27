@@ -46,7 +46,7 @@ pub fn snapshot(
 ) -> SnapshotFrame {
     let guard = state.read();
     let active_id = guard.session.active_session_id().clone();
-    let (sessions, library) = rows_from(&guard, &active_id, settles, tearing_down);
+    let (sessions, library, hydrating) = rows_from(&guard, &active_id, settles, tearing_down);
     let revision = revisions.current(&active_id);
     let theme = persisted_theme(&guard);
 
@@ -68,6 +68,7 @@ pub fn snapshot(
                 entries_before: 0,
                 sessions,
                 library,
+                hydrating,
                 theme,
             },
         };
@@ -92,19 +93,23 @@ pub fn snapshot(
         entries_before,
         sessions,
         library,
+        hydrating,
         theme,
     };
     SnapshotFrame { body, window }
 }
 
 /// Builds both sidebar lists from live state: the loaded sessions that are
-/// not library members, and the loaded library members.
+/// not library members, and the loaded library members. The third element
+/// is whether startup hydration is still running — read in the same
+/// instant as the rows, so a frame can never say "complete" beside a partial
+/// list, or "loading" beside the final one.
 fn rows_from(
     guard: &StateReadGuard<'_>,
     active_id: &SessionId,
     settles: &SettleTracker,
     tearing_down: &HashSet<SessionId>,
-) -> (Vec<SessionRowBody>, Vec<SessionRowBody>) {
+) -> (Vec<SessionRowBody>, Vec<SessionRowBody>, bool) {
     let mut sessions = Vec::new();
     let mut library = Vec::new();
     for (id, session) in guard.session.iter() {
@@ -123,7 +128,9 @@ fn rows_from(
             sessions.push(row);
         }
     }
-    (sessions, library)
+    // The flag the terminal's throbber reads on every tick. A push-only page
+    // cannot poll it, so it rides on every list frame instead.
+    (sessions, library, guard.session.is_startup_hydrating())
 }
 
 /// The persisted color mode: `light`, `dark`, or `system`. An unset or
@@ -136,13 +143,14 @@ pub fn persisted_theme(guard: &StateReadGuard<'_>) -> String {
     }
 }
 
-/// Reads the loaded-session rows on their own (for a `Sessions` push).
+/// Reads the loaded-session rows on their own (for a `Sessions` push), with
+/// the hydration flag read in the same instant as the rows.
 #[must_use]
 pub fn session_rows(
     state: &State,
     settles: &SettleTracker,
     tearing_down: &HashSet<SessionId>,
-) -> (Vec<SessionRowBody>, Vec<SessionRowBody>) {
+) -> (Vec<SessionRowBody>, Vec<SessionRowBody>, bool) {
     let guard = state.read();
     let active_id = guard.session.active_session_id().clone();
     rows_from(&guard, &active_id, settles, tearing_down)

@@ -24,15 +24,20 @@ pub fn phase(session_id: &SessionId, phase: jinn_slices::PhaseView, queue_len: u
     })
 }
 
-/// The session-list frame, re-read from state: both sidebar lists.
+/// The session-list frame, re-read from state: both sidebar lists and the
+/// hydration flag, read in one instant.
 #[must_use]
 pub fn sessions(
     state: &State,
     settles: &crate::settle::SettleTracker,
     tearing_down: &std::collections::HashSet<SessionId>,
 ) -> ServerMsg {
-    let (rows, library) = crate::snapshot::session_rows(state, settles, tearing_down);
-    ServerMsg::Sessions(jinn_webui2_msg::SessionsBody { rows, library })
+    let (rows, library, hydrating) = crate::snapshot::session_rows(state, settles, tearing_down);
+    ServerMsg::Sessions(jinn_webui2_msg::SessionsBody {
+        rows,
+        library,
+        hydrating,
+    })
 }
 
 /// The upsert for the entry at a history position.

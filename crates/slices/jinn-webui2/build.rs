@@ -1,9 +1,8 @@
 //! Build script: builds the /web2 client bundle and embeds it.
 //!
-//! Unlike the original web UI's bundle — vendored input nothing in-repo
-//! regenerates — this one is build **output** of `webui/client2`. So this
-//! script produces it rather than reading a committed copy: it installs the
-//! client's dependencies when the lock file is newer than them, type-checks,
+//! The bundle is build **output** of `webui/client2`. This script produces
+//! it rather than reading a committed copy: it installs the client's
+//! dependencies when the lock file is newer than them, type-checks,
 //! runs `vite build`, gzips the output into `OUT_DIR`, and generates the
 //! `include_bytes!` table the server embeds.
 //!

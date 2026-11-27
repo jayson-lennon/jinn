@@ -1,4 +1,4 @@
-//! The dashboard's `webui2` row: how the second web UI is doing, not only
+//! The dashboard's `webui2` row: how the web UI is doing, not only
 //! where it is.
 //!
 //! The row's note is republished whenever a fact changes — a page connects

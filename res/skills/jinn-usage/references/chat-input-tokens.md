@@ -60,11 +60,14 @@ refused with a message naming the offender. Images render inline on the
 sent message in the transcript, and the same vision gate applies: a
 model not confirmed image-capable blocks the attachment (mark it via
 `[[providers.model_info]]` `input_modalities` in providers.toml — the
-webui honors the marker even before the first model refresh).
+web UI honors the marker even before the first model refresh).
 
-The three `#` / `@` / `/` tokens above do not exist in the web composer:
-text is sent verbatim. And the message goes out only through the **Send**
-button — `Enter` inserts a newline (`webui.md`).
+The three `#` / `@` / `/` tokens above do not exist in the web composer
+(`/web2`): text is sent verbatim. `Enter` sends when the session is idle
+and queues while a turn is running (`Shift+Enter` inserts a newline),
+and the `+` beside the draft attaches an image — the web counterpart of
+`@path`. An `https://` image URL in the text is fetched and attached too
+(`webui2.md`).
 
 ## `/command`: command popup
 

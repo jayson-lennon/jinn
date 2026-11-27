@@ -31,6 +31,8 @@ export interface EntryMenuProps {
   toggle: (id: string) => void;
   /** Sends one command. */
   send: (msg: ClientMsg) => void;
+  /** Raises the loading overlay for a fork of the session `source`. */
+  beginFork: (source: string | null) => void;
 }
 
 /**
@@ -128,6 +130,19 @@ export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: str
                 }}
               >
                 {pinned() ? 'Unpin' : 'Pin'}
+              </button>
+              <button
+                type="button"
+                class="entry-menu-item"
+                role="menuitem"
+                data-testid="entry-menu-fork"
+                onClick={() => {
+                  props.menu.send({ type: 'fork', entry_id: id() });
+                  props.menu.beginFork(props.sessionId);
+                  props.menu.toggle(id());
+                }}
+              >
+                Fork
               </button>
             </div>
           </Show>
