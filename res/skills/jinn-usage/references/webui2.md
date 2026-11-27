@@ -43,7 +43,12 @@ but nothing coordinates them.
   session is highlighted and clicking a row activates that session (the
   TUI follows). Each row's `⋮` offers **add to library** or **remove from
   library**, which moves it to the other list, and **archive**, which
-  archives that session without running its teardown lifecycle.
+  archives that session without running its teardown lifecycle. While the
+  page is still waiting for its first list, and again while the server is
+  still loading its saved sessions at startup, whichever list is showing
+  ends with a muted **loading sessions…** row — a spinner, below the rows
+  already loaded. It has no timeout: it clears when the server says the
+  list is complete.
 - **Session loading** — clicking a session row, or picking one from the
   **Archive** picker, raises a full-page **Loading session…** overlay at
   once: a card with a spinner, over everything. It clears when that
@@ -128,6 +133,11 @@ but nothing coordinates them.
     pinning a tool call or result pins its loop, and each member shows the
     mark. Pins made in the TUI appear on `/web2` at once. Top and bottom
     positioning stay in the TUI's Pins sidebar.
+  - **Fork** — forks the session at that entry into a new session holding
+    the history up to and including it, the same fork the TUI's `f` makes;
+    the new session is linked as the source's child and every page moves
+    onto it. A "Loading session…" overlay covers the page while it is
+    created. Offered while a turn is running too, like the TUI's `f`.
 - **Menu** — the `☰` at the title bar's left opens a full-height panel
   over a dimmed page. **New session** is its first item and the
   **Light | Dark | System** color mode group its last, at every time.
@@ -259,9 +269,9 @@ as the page is open; there is no give-up state.
 Everything below exists on the TUI. When a user asks for one of these on
 `/web2`, say so and point at the surface that has it.
 
-- Forking, closing, or tearing down sessions, and archiving a whole
-  subtree. `/web2` can *create*, *open*, and *archive* single sessions,
-  but has no fork, close, teardown, or archive-tree gesture.
+- Closing or tearing down sessions, and archiving a whole subtree.
+  `/web2` can *create*, *open*, *fork*, and *archive* single sessions, but
+  has no close, teardown, or archive-tree gesture.
 - Renaming, deleting, or opening an applet in kiosk mode. The `/web2`
   applets picker opens one in a new tab; those three gestures are the
   TUI's.

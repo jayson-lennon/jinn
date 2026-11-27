@@ -10,7 +10,7 @@ import { For, Show, Switch, Match, createEffect, createRenderEffect, createSigna
 import { render } from '@solidjs/web';
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg, ModelRow } from './protocol';
-import { type ClientStore, apply, clearSessionLoad, newestEntryId, createStore, pushToast } from './store';
+import { type ClientStore, apply, beginFork, clearSessionLoad, newestEntryId, createStore, pushToast } from './store';
 import { type ConnectionState, openSocket } from './socket';
 import { TranscriptEntry, useEntryMenuDismiss } from './transcript';
 import { Menu, type MenuItem, type MenuGroup } from './menu';
@@ -467,7 +467,12 @@ function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) => void 
             <TranscriptEntry
               envelope={envelope}
               sessionId={props.store.state.sessionId}
-              menu={{ openFor: menuFor, toggle: toggleMenu, send: props.send }}
+              menu={{
+                openFor: menuFor,
+                toggle: toggleMenu,
+                send: props.send,
+                beginFork: (source) => beginFork(props.store, source),
+              }}
             />
           )}
         </For>

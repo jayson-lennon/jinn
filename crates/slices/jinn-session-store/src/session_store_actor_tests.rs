@@ -21,6 +21,7 @@ use jinn_session_state::{SessionStore, SessionStoreService};
 use jinn_session_store_msg::{
     ArchiveSession, ArchiveSessionTree, LoadLibraryEntries, LoadSessionPickerEntries,
     PersistSession, SessionLoadCompleted, SessionLoadRequested, SessionState, SetSessionLibrary,
+    StartupHydrationFinished,
 };
 use jinn_testutil::bus_harness::{Recorder, TestHarness, await_recorded};
 
@@ -619,6 +620,96 @@ async fn summary_query_failure_clears_hydration() {
 
     // Then hydration is inactive.
     assert!(!state.read().session.is_startup_hydrating());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn startup_with_no_saved_sessions_publishes_one_hydration_finished() {
+    // Given a store with no unarchived sessions, and a recorder on the bus.
+    let store = Arc::new(ControlledStartupStore::new(&[]));
+    let (harness, _state, _picker_cell, _actor_path) =
+        controlled_actor_fixture(store.clone()).await;
+    let finished = harness.spawn_recorder::<StartupHydrationFinished>().await;
+
+    // When startup hydration completes.
+    harness
+        .publish(EnvironmentLoaded {
+            config: empty_providers_config(),
+        })
+        .await;
+    let finished = await_recorded(&finished, 1, Duration::from_secs(1)).await;
+
+    // Then exactly one hydration-finished event is published.
+    assert_eq!(finished.len(), 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_failed_summary_read_publishes_one_hydration_finished() {
+    // Given a store whose unarchived summary query fails, and a recorder on the bus.
+    let store = Arc::new(ControlledStartupStore::new(&[]));
+    store.fail_summaries();
+    let (harness, _state, _picker_cell, _actor_path) =
+        controlled_actor_fixture(store.clone()).await;
+    let finished = harness.spawn_recorder::<StartupHydrationFinished>().await;
+
+    // When startup hydration is attempted.
+    harness
+        .publish(EnvironmentLoaded {
+            config: empty_providers_config(),
+        })
+        .await;
+    let finished = await_recorded(&finished, 1, Duration::from_secs(1)).await;
+
+    // Then exactly one hydration-finished event is published.
+    assert_eq!(finished.len(), 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_last_startup_load_publishes_one_hydration_finished() {
+    // Given two persisted sessions, both gated, and a recorder on the bus.
+    let first_id = SessionId::new();
+    let second_id = SessionId::new();
+    let store = Arc::new(ControlledStartupStore::new(&[
+        (
+            first_id.clone(),
+            jiff::Timestamp::from_second(1).expect("valid timestamp"),
+        ),
+        (
+            second_id.clone(),
+            jiff::Timestamp::from_second(2).expect("valid timestamp"),
+        ),
+    ]));
+    store.gate_session_load(first_id.clone());
+    store.gate_session_load(second_id.clone());
+    let (harness, state, _picker_cell, _actor_path) = controlled_actor_fixture(store.clone()).await;
+    let finished = harness.spawn_recorder::<StartupHydrationFinished>().await;
+
+    // When the newer session has landed and the older read is still pending.
+    harness
+        .publish(EnvironmentLoaded {
+            config: empty_providers_config(),
+        })
+        .await;
+    store.wait_for_session_load(&second_id).await;
+    store.release_session_load(&second_id);
+    let newer_visible =
+        jinn_testutil::wait::poll_until_async_fn(Duration::from_secs(2), || async {
+            state.read().session.contains(&second_id)
+        })
+        .await;
+    assert!(newer_visible);
+
+    // Then no hydration-finished event is published yet, because one read is
+    // still pending.
+    assert!(finished.drain().is_empty());
+
+    // And once the last session lands, exactly one is published.
+    store.wait_for_session_load(&first_id).await;
+    store.release_session_load(&first_id);
+    let finished = await_recorded(&finished, 1, Duration::from_secs(1)).await;
+    assert_eq!(finished.len(), 1);
 }
 
 #[rstest::rstest]

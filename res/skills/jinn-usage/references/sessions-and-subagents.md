@@ -42,9 +42,10 @@ viewing a session clears its mark. At desktop widths the button is hidden
 — the sidebar is already on screen.
 
 `/web2` renames a session too: click the title in the titlebar, edit it,
-and press `Enter` (`Esc` cancels). Archiving is on the web as well — the
-menu's **Archive session** item, or a row's `⋮` menu. Closing, tearing
-down, and forking are TUI-only.
+and press `Enter` (`Esc` cancels). Archiving and forking are on the web as
+well — the menu's **Archive session** item or a row's `⋮` menu for archiving,
+and the entry's `⋮` → **Fork** for forking. Closing and tearing down are
+TUI-only.
 
 The sidebar's **Sessions | Library** toggle switches the list between
 loaded sessions and Library members. The Sessions list carries only
@@ -142,6 +143,10 @@ branch a conversation at that point.
    linked as a sibling in the tree.
 3. `F` creates a **new session whose history is just that entry**; it
    works on user and assistant entries.
+
+On `/web2`, the same fork is the entry's `⋮` → **Fork**: the page moves
+onto the new session and lists it as the source's child. (`F`'s
+new-session-from-entry stays in the TUI.)
 
 Forks always get fork origin; a fork of a subagent always has the
 `spawn_subagent` tool enabled.
