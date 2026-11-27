@@ -6168,3 +6168,221 @@ async fn the_launch_note_describes_the_row() {
         "the row is told what the slice is"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The session status bar: the persona and the context figure, pushed on change
+// ---------------------------------------------------------------------------
+
+/// The model the status-bar tests run against: one whose window the cache
+/// records, so the figure has a denominator.
+const WINDOWED_MODEL: &str = "openrouter/anthropic/claude-sonnet-4";
+
+/// Stamps a 200k window for [`WINDOWED_MODEL`] into the provider cell, the
+/// way a model refresh leaves it, so a session on that model has a figure.
+fn seed_window(handle: &OutboundHandle) {
+    handle.provider_cell().update(|cell| {
+        cell.model_cache = Some(jinn_provider_config::ModelCache {
+            entries: [(
+                "openrouter".to_owned(),
+                vec![jinn_provider_config::ModelInfo {
+                    id: "anthropic/claude-sonnet-4".to_owned(),
+                    context_length: Some(200_000),
+                    input_modalities: jinn_provider_config::InputModalities::text(),
+                }],
+            )]
+            .into_iter()
+            .collect(),
+            last_updated_at: None,
+        });
+    });
+}
+
+/// Puts the active session on [`WINDOWED_MODEL`] with a 100k assembled
+/// prompt, so its figure reads `50.0%/200k`.
+fn put_session_at_half_window(page: &Page) {
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_model(ModelSelection::Single(WINDOWED_MODEL.to_owned()));
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_context_sizes(100_000, 0);
+}
+
+/// The `ContextUsage` frames among `frames`, as their `(persona, label)`.
+fn status_frames(frames: &[ServerMsg]) -> Vec<(String, String)> {
+    frames
+        .iter()
+        .filter_map(|frame| match frame {
+            ServerMsg::ContextUsage(body) => Some((body.persona.clone(), body.label.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_answers_a_snapshot_naming_the_sessions_persona() {
+    // Given a session running the reviewer persona.
+    let h = harness();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_persona_name("reviewer".to_owned());
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot names it.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert_eq!(snapshot.persona, "reviewer");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_snapshot_of_no_session_carries_no_persona() {
+    // Given a state whose active session has been removed from the map,
+    // leaving its id active and nothing behind it.
+    let h = harness();
+    let orphan = active_id(&h.state);
+    h.state.write().session.remove_without_replacement(&orphan);
+
+    // When a snapshot is taken of it.
+    let frame = crate::snapshot::snapshot(
+        &h.state,
+        &crate::revision::RevisionTracker::default(),
+        &crate::settle::SettleTracker::default(),
+    );
+
+    // Then the body carries no persona — there is no session to name.
+    assert_eq!(frame.body.persona, "");
+}
+
+#[rstest::rstest]
+#[test]
+fn an_idle_connection_receives_no_status_frame() {
+    // Given a connected page and nothing changed between two ticks.
+    let mut page = connected_page();
+
+    // When the tick runs twice.
+    let first = flush_frames(&mut page);
+    let second = flush_frames(&mut page);
+
+    // Then neither pushes: the first records a baseline, and the second has
+    // nothing new to say.
+    assert!(
+        status_frames(&first).is_empty(),
+        "the baseline tick is silent: {first:?}"
+    );
+    assert!(
+        status_frames(&second).is_empty(),
+        "an idle tick is silent: {second:?}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_changed_figure_is_pushed_on_the_next_tick() {
+    // Given a connected page whose baseline tick has been drained, and then
+    // the session put on a windowed model with a half-full prompt.
+    let mut page = connected_page();
+    seed_window(&page.handle);
+    let baseline = flush_frames(&mut page);
+    assert!(
+        status_frames(&baseline).is_empty(),
+        "the baseline tick is silent: {baseline:?}"
+    );
+
+    // When the session's figure changes and the next tick runs.
+    put_session_at_half_window(&page);
+    let frames = flush_frames(&mut page);
+
+    // Then exactly one frame arrives, carrying the new figure.
+    let status = status_frames(&frames);
+    let [(_, label)] = status.as_slice() else {
+        unreachable!("one frame for the changed figure: {frames:?}");
+    };
+    assert_eq!(label, "50.0%/200k");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_persona_change_is_pushed_on_the_next_tick() {
+    // Given a connected page whose baseline tick has been drained.
+    let mut page = connected_page();
+    let baseline = flush_frames(&mut page);
+    assert!(
+        status_frames(&baseline).is_empty(),
+        "the baseline tick is silent: {baseline:?}"
+    );
+
+    // When the session's persona changes and the next tick runs.
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_persona_name("reviewer".to_owned());
+    let frames = flush_frames(&mut page);
+
+    // Then exactly one frame arrives, naming the new persona.
+    let status = status_frames(&frames);
+    let [(persona, _)] = status.as_slice() else {
+        unreachable!("one frame for the changed persona: {frames:?}");
+    };
+    assert_eq!(persona, "reviewer");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_provider_switch_pushes_the_model_and_the_figure_at_once() {
+    // Given a connected page whose baseline tick has been drained, a session
+    // on a windowed model, and then a figure that differs from the baseline.
+    let mut page = connected_page();
+    seed_window(&page.handle);
+    let baseline = flush_frames(&mut page);
+    assert!(
+        status_frames(&baseline).is_empty(),
+        "the baseline tick is silent: {baseline:?}"
+    );
+    let session_id = active_id(&page.state);
+    put_session_at_half_window(&page);
+
+    // When the provider switch lands, outside the tick.
+    crate::outbound::provider_switched(
+        &page.handle,
+        &jinn_provider_selection_msg::ProviderSwitched {
+            session_id: session_id.clone(),
+            provider_name: "openrouter".to_owned(),
+        },
+    );
+
+    // Then one model frame and one figure frame arrive together, without
+    // waiting for the next tick.
+    let frames = drain(&mut page.inbox);
+    assert_eq!(
+        frames
+            .iter()
+            .filter(|frame| matches!(frame, ServerMsg::Model(_)))
+            .count(),
+        1,
+        "one model frame: {frames:?}"
+    );
+    let status = status_frames(&frames);
+    let [(_, label)] = status.as_slice() else {
+        unreachable!("one figure frame beside the model frame: {frames:?}");
+    };
+    assert_eq!(label, "50.0%/200k");
+}

@@ -5,9 +5,9 @@
 //! variant is a compile error until it has a handler.
 
 use crate::payload::{
-    AppletRowsBody, EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody,
-    ModelBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody, PickerRowsBody,
-    SessionsBody, SkillRowsBody, SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
+    AppletRowsBody, ContextUsageBody, EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody,
+    McpRowsBody, ModelBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody,
+    PickerRowsBody, SessionsBody, SkillRowsBody, SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -62,6 +62,8 @@ pub enum ServerMsg {
     NewSessionOptions(NewSessionOptionsBody),
     /// The page's color mode changed.
     Theme(ThemeBody),
+    /// The session's persona and context usage figure, when either changed.
+    ContextUsage(ContextUsageBody),
     /// A request was refused.
     Error(ErrorBody),
     /// A heartbeat: the server is alive and the connection is still open.
@@ -94,6 +96,7 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::AppletRows(_) => "applet_rows",
         ServerMsg::NewSessionOptions(_) => "new_session_options",
         ServerMsg::Theme(_) => "theme",
+        ServerMsg::ContextUsage(_) => "context_usage",
         ServerMsg::Error(_) => "error",
         ServerMsg::Ping => "ping",
     }

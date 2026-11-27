@@ -5,9 +5,18 @@ edition.workspace = true
 [dependencies]
 jinn-core-types = { workspace = true }
 jinn-slices = { workspace = true }
+# The context figure reads a session's assembled size and token ledger, and
+# the model cache for the window. Shared by the terminal status bar and /web2.
+jinn-session-state = { workspace = true }
+jinn-provider-config = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+# The figure's tests stamp a token record with a real timestamp.
+jiff = { workspace = true }
+rstest = { workspace = true }
+# The ledger-fallback tests push real token records.
+jinn-token-count-msg = { workspace = true }
 
 [lints]
 workspace = true

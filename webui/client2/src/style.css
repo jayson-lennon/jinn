@@ -309,7 +309,8 @@ body { background: var(--bg); color: var(--fg); }
      than a phone (the busy composer's two buttons) pushed the column
      past the viewport and the draft off the left edge. */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* Title bar, status bar, transcript, composer. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -322,6 +323,38 @@ body { background: var(--bg); color: var(--fg); }
   gap: 12px;
   padding: 10px 18px;
   border-bottom: 1px solid var(--border);
+}
+
+/* ---- status bar: the persona, the context figure ---- */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+.status-persona {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: var(--radius);
+  font: inherit;
+  cursor: pointer;
+}
+.status-persona:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.status-persona:focus-visible {
+  outline: 1px solid var(--accent);
+}
+.status-context {
+  white-space: nowrap;
 }
 /* ---- hamburger menu ---- */
 .menu { position: relative; display: inline-flex; flex: none; }

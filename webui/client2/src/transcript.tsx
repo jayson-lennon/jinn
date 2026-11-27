@@ -77,12 +77,18 @@ function isInContext(envelope: EntryEnvelope): boolean {
  * the transcript's scroll box. The kebab is at the entry's bottom-right, so
  * for the last entry — the one most often acted on — a downward popup
  * would open into the composer and be cut off.
+ *
+ * Measured one microtask after the ref fires: the ref runs the moment the
+ * popup node exists, before its items have rendered, so a synchronous
+ * measurement sees an empty box that always "fits".
  */
 function fitPopup(node: HTMLElement): void {
-  const scroller = node.closest('.transcript');
-  if (scroller === null) return;
-  const limit = scroller.getBoundingClientRect().bottom;
-  if (node.getBoundingClientRect().bottom > limit) node.classList.add('up');
+  queueMicrotask(() => {
+    const scroller = node.closest('.transcript');
+    if (scroller === null) return;
+    const limit = scroller.getBoundingClientRect().bottom;
+    if (node.getBoundingClientRect().bottom > limit) node.classList.add('up');
+  });
 }
 
 export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: string | null; menu: EntryMenuProps }): JSX.Element {

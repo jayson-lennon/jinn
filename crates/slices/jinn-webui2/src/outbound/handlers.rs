@@ -380,13 +380,26 @@ impl MsgHandler<jinn_provider_selection_msg::ProviderSwitched> for OutboundActor
 
 impl OutboundActor {
     fn on_provider_switched(&mut self, msg: &jinn_provider_selection_msg::ProviderSwitched) {
-        self.push(&jinn_webui2_msg::ServerMsg::Model(
-            jinn_webui2_msg::ModelBody {
-                session_id: msg.session_id.clone(),
-                label: msg.provider_name.clone(),
-            },
-        ));
+        provider_switched(&self.handle, msg);
     }
+}
+
+/// Turns one provider switch into the frames a page needs: the new model's
+/// label, and the context figure recomputed against the new model's window.
+///
+/// The figure's own push is not left to the tick: the label changes this
+/// instant, so the figure beside it changes this instant too.
+pub(crate) fn provider_switched(
+    handle: &super::OutboundHandle,
+    msg: &jinn_provider_selection_msg::ProviderSwitched,
+) {
+    handle.broadcast(&jinn_webui2_msg::ServerMsg::Model(
+        jinn_webui2_msg::ModelBody {
+            session_id: msg.session_id.clone(),
+            label: msg.provider_name.clone(),
+        },
+    ));
+    push_status(handle);
 }
 
 impl MsgHandler<jinn_session_store_msg::SessionLoadCompleted> for OutboundActor {
@@ -731,7 +744,57 @@ fn serving_from_cell(handle: &super::OutboundHandle) -> (bool, String) {
         })
 }
 
-/// One flush: reads every streaming field and emits its unsent suffix.
+/// The status-bar facts for the active session: its persona and the context
+/// figure, as the terminal's own shared function formats it.
+fn status_facts(handle: &super::OutboundHandle) -> Option<(SessionId, String, String)> {
+    // State guard first, then the provider cell — the order every other
+    // path takes them in. Both drop before this returns.
+    let guard = handle.state().read();
+    let session_id = guard.session.active_session_id().clone();
+    let session = guard.session.get(&session_id)?;
+    let model_cache = handle.provider_cell().read().model_cache.clone();
+    let figure = jinn_status_bar_msg::context_figure(session, model_cache.as_ref());
+    Some((
+        session_id,
+        session.persona_name().to_owned(),
+        jinn_status_bar_msg::format_context_figure(&figure),
+    ))
+}
+
+/// Reads the active session's persona and context figure and pushes one
+/// `ContextUsage` frame only when either differs from what pages were last
+/// told.
+///
+/// The first read of a session records a baseline and pushes nothing, the
+/// way the queue depth does: the tick is silent until something has actually
+/// changed. An idle connection therefore never receives this frame.
+pub(crate) fn push_status(handle: &super::OutboundHandle) {
+    let Some((session_id, persona, label)) = status_facts(handle) else {
+        return;
+    };
+    let status = (persona, label);
+    let mut told = handle.told_status.lock();
+    match told.get(&session_id) {
+        Some(known) if *known == status => return,
+        None => {
+            told.insert(session_id, status);
+            return;
+        }
+        Some(_) => {}
+    }
+    told.insert(session_id.clone(), status.clone());
+    drop(told);
+    handle.broadcast(&jinn_webui2_msg::ServerMsg::ContextUsage(
+        jinn_webui2_msg::ContextUsageBody {
+            session_id,
+            persona: status.0,
+            label: status.1,
+        },
+    ));
+}
+
+/// One flush: reads every streaming field and emits its unsent suffix, and
+/// the status-bar facts if they have drifted.
 ///
 /// A free function over the handle so the tick's behaviour is driven
 /// directly in a test, with nothing spawned: the actor's tick calls it, and
@@ -741,6 +804,7 @@ pub(crate) fn flush(handle: &super::OutboundHandle) {
         return;
     }
     push_drifted_queue_depths(handle);
+    push_status(handle);
     let growing = growing_fields(handle);
     let mut sent = handle.sent.lock();
     for (session_id, index, entry, field, current) in growing {

@@ -224,6 +224,10 @@ export type ServerMsg =
       phase: { session_id: string; phase: Phase; queue_len: number };
       model_label: string;
       title: string;
+      /** The session's persona, as the status bar shows it. Empty when no
+       *  session is active. The context figure beside it is not the
+       *  snapshot's: it arrives as its own frame on the first tick. */
+      persona: string;
       revision: number;
       entries: EntryEnvelope[];
       /** How many entries of the session precede the oldest one carried. */
@@ -248,6 +252,10 @@ export type ServerMsg =
   | { type: 'sessions'; rows: SessionRow[]; library: SessionRow[]; hydrating: boolean }
   | { type: 'model'; session_id: string; label: string }
   | { type: 'title'; session_id: string; title: string }
+  /** The status bar's two facts, pushed when either changed. The figure is
+   *  the server's own formatted string — the terminal's — so the page
+   *  renders it and computes nothing. */
+  | { type: 'context_usage'; session_id: string; persona: string; label: string }
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }
   | { type: 'model_rows'; session_id: string; filter: string; rows: ModelRow[] }
   | { type: 'skill_rows'; session_id: string; filter: string; rows: SkillRow[] }
