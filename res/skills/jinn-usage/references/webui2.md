@@ -241,8 +241,9 @@ There are no keybinds beyond these:
 
 | Key | Does |
 | --- | --- |
-| `Enter` in the composer | Sends the message. |
-| `Shift+Enter` in the composer | Inserts a newline. |
+| `Enter` in the composer | Inserts a newline. |
+| `Ctrl+Enter` in the composer | Sends the message; queues it while a turn is running. |
+| `Shift+Enter` in the composer | Sends the message; queues it while a turn is running. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
 | `Esc` | Closes the top overlay: the menu, any of the five picker modals (Skills, Persona, Tools, MCP servers, Applets), the New session modal, another picker, the title editor, or the phone drawer. It does **not** close the **Loading session…** overlay — that ends only when the load ends. |
 
@@ -254,10 +255,12 @@ The composer's buttons follow the session's phase:
   there. A count beside the `Q` shows how many are queued, since a
   queued message does not appear in the transcript until its turn runs.
 
-`Enter` follows the same rule: idle it sends, working it queues. An
-empty draft with no image does nothing either way; an image with no text
-sends. Images are limited to 5 MB each, and a refused one is named in a
-toast while the draft and every chip stay put.
+`Ctrl+Enter` and `Shift+Enter` follow the same rule: idle they send,
+working they queue. `Enter` inserts a newline, so a phone's return key
+never sends — the **Send** button does. An empty draft with no image does
+nothing either way; an image with no text sends. Images are limited to
+5 MB each, and a refused one is named in a toast while the draft and
+every chip stay put.
 
 **Cancel** stops the running turn. Queued work is dumped into the TUI's
 input box as an editable draft — not into the web composer.
