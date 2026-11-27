@@ -54,6 +54,9 @@ export interface SessionRow {
   title: string;
   is_active: boolean;
   is_busy: boolean;
+  /** Whether the session's teardown command is running. Independent of
+   *  `is_busy`: a teardown does not change the session's phase. */
+  is_tearing_down: boolean;
   /** Whether the session is a library member (listed under Library). */
   in_library: boolean;
   /** When the session last landed on Idle, as RFC 3339 — or null when it
@@ -215,6 +218,7 @@ export type ClientMsg =
   | { type: 'set_theme'; theme: Theme }
   | { type: 'set_library'; session_id: string; in_library: boolean }
   | { type: 'archive_session'; session_id: string }
+  | { type: 'teardown_session'; session_id: string }
   | { type: 'new_session_options' }
   | {
       type: 'create_session';
@@ -270,4 +274,5 @@ export type ServerMsg =
   | { type: 'new_session_options'; projects: string[]; lifecycles: LifecycleOption[] }
   | { type: 'theme'; theme: Theme }
   | { type: 'error'; message: string }
+  | { type: 'current' }
   | { type: 'ping' };

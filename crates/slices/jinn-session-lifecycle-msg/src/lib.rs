@@ -81,6 +81,21 @@ pub struct SessionTeardownFinished {
 impl jinn_slices::BusMessage for SessionSetupCompleted {}
 impl jinn_slices::BusMessage for SessionTeardownFinished {}
 
+/// Teardown command started.
+///
+/// Emitted by the session-lifecycle actor once a teardown command has been
+/// spawned. Always followed by a `SessionTeardownFinished` when the command
+/// concludes; a teardown refused before anything spawns publishes no started
+/// event, only the finished one carrying the refusal.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
+#[schema(description = "A session's teardown command was spawned.")]
+pub struct SessionTeardownStarted {
+    /// The session being torn down.
+    pub session_id: SessionId,
+}
+
+impl jinn_slices::BusMessage for SessionTeardownStarted {}
+
 #[cfg(test)]
 mod tests {
     #![allow(

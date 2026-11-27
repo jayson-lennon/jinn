@@ -187,7 +187,7 @@ fixed column drawn here, and the `#` is not shown.
 | Element | What it is | See |
 | --- | --- | --- |
 | `Sessions` / `Library` | The sidebar's two-segment control. Chooses which list it shows: the loaded sessions that are not library members, or the library members. Exactly one shows at a time. | `webui2.md` |
-| `⋮` on a session row | The row's menu. **add to library** / **remove from library** moves the session to the other list; **archive** archives that session. | `webui2.md` |
+| `⋮` on a session row | The row's menu. **add to library** / **remove from library** moves the session to the other list; **teardown + archive** runs the session's teardown lifecycle and then archives it (the terminal's `x`); **archive** archives that session without the teardown. | `webui2.md` |
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui2.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui2.md` |
 | **Loading session…** card | A full-page overlay with a spinner, raised the instant a session row or an Archive row is picked and cleared when that session arrives. Covers everything; `Esc` does not close it. | `webui2.md` |
@@ -202,7 +202,7 @@ fixed column drawn here, and the `#` is not shown.
 | `[⇲]` bottom-right of the transcript | **Jump to end** — a down arrow against a bar below it. Shown only while scrolled away from the end; click to land on the newest entry and follow the stream again. | `webui2.md` |
 | `⋮` at an entry's bottom-right | Every transcript entry's menu, always visible at every width. **Pin** pins the entry at its relative position and it shows a 📌; pinned, the item reads **Unpin**. **Fork** forks the session at that entry, as the TUI's `f` does, and the page moves onto the new session. `Esc`, an outside click, or picking an item closes it. | `webui2.md` |
 | 📌 at an entry's left edge | A pinned entry — always in context, and pinned at its relative position. | `webui2.md` |
-| `[Message jinn…]` | The composer's draft. `Enter` sends; `Shift+Enter` is a newline. An image with no text sends. | `webui2.md` |
+| `[Message jinn…]` | The composer's draft. `Enter` inserts a newline; `Ctrl+Enter` and `Shift+Enter` send. An image with no text sends. | `webui2.md` |
 | `[+]` | Attach an image. Opens the file picker. | `webui2.md` |
 | `[Q]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
 | `[Send]` (while idle) | Send the message. | `webui2.md` |

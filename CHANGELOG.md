@@ -11,6 +11,7 @@
 - (webui) Add messaging pinning functionality.
 - Add instructions to `canvas` skill to encourage agent to flesh out specs on its own while creating.
 - (webui) Add spinner to session list while loading sessions.
+- (webui) Add teardown functionality to session list.
 
 
 ## 2026-11-24 v.27.2

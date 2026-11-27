@@ -543,6 +543,12 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       });
       return;
     }
+    case 'current': {
+      // The answer to a `hello` that missed nothing. It carries no fact —
+      // the transcript the page holds is already the server's — and its
+      // arrival is the whole effect: the socket ends its handshake wait.
+      return;
+    }
     case 'ping': {
       // A heartbeat carries no fact. Its arrival is the whole effect: the
       // socket's liveness timer resets on every frame.

@@ -132,9 +132,10 @@ export function Composer(props: ComposerProps): JSX.Element {
   let settledKey: string | undefined;
 
   const onDraftKeyDown = (e: KeyboardEvent): void => {
-    // Enter sends; Shift+Enter is a newline. Never intercepted by the
-    // popup: an open completion does not turn Enter into a pick.
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Ctrl+Enter and Shift+Enter send or queue; Enter inserts a newline.
+    // Neither is intercepted by the popup: an open completion never turns
+    // a key into a pick — only Tab picks.
+    if (e.key === 'Enter' && (e.ctrlKey || e.shiftKey)) {
       e.preventDefault();
       submit();
       return;

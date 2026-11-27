@@ -49,6 +49,11 @@ pub struct SessionRowBody {
     pub is_active: bool,
     /// Whether a turn is running (any phase other than idle).
     pub is_busy: bool,
+    /// Whether the session's teardown command is running.
+    ///
+    /// Independent of `is_busy`: a teardown does not change the session's
+    /// phase, so a session can be tearing down and not busy.
+    pub is_tearing_down: bool,
     /// Whether the session is a library member. A member is listed under
     /// the Library view and hidden from the Sessions view.
     pub in_library: bool,

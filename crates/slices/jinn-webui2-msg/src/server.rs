@@ -68,6 +68,15 @@ pub enum ServerMsg {
     Theme(ThemeBody),
     /// A request was refused.
     Error(ErrorBody),
+    /// A `hello` answered with nothing to send: the page's cursor is the
+    /// newest entry at the current revision, so it already holds
+    /// everything.
+    ///
+    /// Carries nothing. It is sent explicitly rather than as an empty
+    /// reply because the page cannot tell a server that answered with
+    /// nothing from one that never answered at all — silence tripped its
+    /// handshake wait and made it close a healthy connection.
+    Current,
     /// A heartbeat: the server is alive and the connection is still open.
     ///
     /// Carries nothing. It exists so an idle connection still has traffic
@@ -100,6 +109,7 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::NewSessionOptions(_) => "new_session_options",
         ServerMsg::Theme(_) => "theme",
         ServerMsg::Error(_) => "error",
+        ServerMsg::Current => "current",
         ServerMsg::Ping => "ping",
     }
 }

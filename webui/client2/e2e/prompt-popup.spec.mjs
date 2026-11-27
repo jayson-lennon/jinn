@@ -48,10 +48,10 @@ test("a hash after a space opens the popup", async ({ page }) => {
 
 test("a hash after a newline opens the popup", async ({ page }) => {
   // Given a connected page.
-  // When typing a line, a newline, then `#`.
+  // When typing a line, a newline, then `#`. Enter inserts the newline.
   await page.locator(sel.DRAFT).click();
   await page.keyboard.type("hello");
-  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.press("Enter");
   await page.keyboard.type("#");
 
   // Then the popup is open.
@@ -142,20 +142,34 @@ test("escape closes the popup and leaves the draft", async ({ page }) => {
   await expect(page.locator(sel.DRAFT)).toHaveValue("#");
 });
 
-test("enter with the popup open still sends", async ({ page }) => {
+test("ctrl+enter with the popup open still sends", async ({ page }) => {
   // Given the popup open with a whole template name typed after the `#`.
   await openPromptPopup(page, PROMPT_NAME);
 
-  // When pressing Enter.
-  await page.keyboard.press("Enter");
+  // When pressing Ctrl+Enter — the send key.
+  await page.keyboard.press("Control+Enter");
 
   // Then the message is sent — the draft clears and the turn settles — and the
-  // popup is gone. It did not become a pick: Enter is never intercepted.
+  // popup is gone. It did not become a pick: the send key is never intercepted.
   await expect(page.locator(sel.DRAFT)).toHaveValue("");
   await expect(page.locator(sel.PROMPT_POPUP)).toHaveCount(0);
   await expect(
     page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY("assistant")}`).last(),
   ).toBeVisible({ timeout: REPLY_TIMEOUT_MS });
+});
+
+test("enter with the popup open inserts a newline, not a pick", async ({ page }) => {
+  // Given the popup open on the staged template alone.
+  await openPromptPopup(page, PROMPT_FILTER);
+
+  // When pressing Enter — the newline key.
+  await page.keyboard.press("Enter");
+
+  // Then a newline was inserted after the token, and nothing was picked: the
+  // draft still holds the typed filter, and the popup closed as the caret
+  // left the token.
+  await expect(page.locator(sel.DRAFT)).toHaveValue(`#${PROMPT_FILTER}\n`);
+  await expect(page.locator(sel.PROMPT_POPUP)).toHaveCount(0);
 });
 
 test("moving the caret before the token closes the popup", async ({ page }) => {

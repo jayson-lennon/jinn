@@ -185,3 +185,19 @@ test("on a phone the kebab is visible and the popup stays on screen", async ({ p
   expect(box.y).toBeGreaterThanOrEqual(0);
   expect(box.y + box.height).toBeLessThanOrEqual(PHONE.height);
 });
+
+test("on a phone the last entry's popup opens upward", async ({ page }) => {
+  // Given a phone viewport with an assistant reply, whose kebab sits near
+  // the bottom of the transcript's scroll box.
+  await page.setViewportSize(PHONE);
+  await sendHello(page);
+
+  // When it opens its menu.
+  await entryMenu(page, "assistant").click();
+  const popup = page.locator(sel.ENTRY_MENU_POPUP);
+  await expect(popup).toBeVisible();
+
+  // Then the popup is turned upward, so it opens into the transcript
+  // rather than past its bottom edge.
+  await expect(popup).toHaveClass(/(^|\s)up(\s|$)/);
+});

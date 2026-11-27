@@ -42,9 +42,12 @@ but nothing coordinates them.
   library members. Exactly one shows at a time. In either list the active
   session is highlighted and clicking a row activates that session (the
   TUI follows). Each row's `⋮` offers **add to library** or **remove from
-  library**, which moves it to the other list, and **archive**, which
-  archives that session without running its teardown lifecycle. While the
-  page is still waiting for its first list, and again while the server is
+  library**, which moves it to the other list; **teardown + archive**, which
+  runs that session's teardown lifecycle and then archives it (the terminal's
+  `x` — a session with nothing to tear down is archived at once); and
+  **archive**, which archives without running the teardown lifecycle. While
+  the teardown runs, the row shows its busy dot.
+  While the page is still waiting for its first list, and again while the server is
   still loading its saved sessions at startup, whichever list is showing
   ends with a muted **loading sessions…** row — a spinner, below the rows
   already loaded. It has no timeout: it clears when the server says the
@@ -238,8 +241,9 @@ There are no keybinds beyond these:
 
 | Key | Does |
 | --- | --- |
-| `Enter` in the composer | Sends the message. |
-| `Shift+Enter` in the composer | Inserts a newline. |
+| `Enter` in the composer | Inserts a newline. |
+| `Ctrl+Enter` in the composer | Sends the message; queues it while a turn is running. |
+| `Shift+Enter` in the composer | Sends the message; queues it while a turn is running. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
 | `Esc` | Closes the top overlay: the menu, any of the five picker modals (Skills, Persona, Tools, MCP servers, Applets), the New session modal, another picker, the title editor, or the phone drawer. It does **not** close the **Loading session…** overlay — that ends only when the load ends. |
 
@@ -251,10 +255,12 @@ The composer's buttons follow the session's phase:
   there. A count beside the `Q` shows how many are queued, since a
   queued message does not appear in the transcript until its turn runs.
 
-`Enter` follows the same rule: idle it sends, working it queues. An
-empty draft with no image does nothing either way; an image with no text
-sends. Images are limited to 5 MB each, and a refused one is named in a
-toast while the draft and every chip stay put.
+`Ctrl+Enter` and `Shift+Enter` follow the same rule: idle they send,
+working they queue. `Enter` inserts a newline, so a phone's return key
+never sends — the **Send** button does. An empty draft with no image does
+nothing either way; an image with no text sends. Images are limited to
+5 MB each, and a refused one is named in a toast while the draft and
+every chip stay put.
 
 **Cancel** stops the running turn. Queued work is dumped into the TUI's
 input box as an editable draft — not into the web composer.
@@ -269,17 +275,18 @@ and the rest loads on scroll.
 
 The retry delay grows on every unanswered connect (250 ms doubling to 8 s)
 and resets only once a connect has been answered, so a server that is
-stalling is left alone rather than hammered. It keeps retrying for as long
-as the page is open; there is no give-up state.
+stalling is left alone rather than hammered. A reconnect that missed
+nothing is answered at once, so a brief drop on an idle page clears in a
+moment instead of returning. It keeps retrying for as long as the page is
+open; there is no give-up state.
 
 ## What `/web2` does not do
 
 Everything below exists on the TUI. When a user asks for one of these on
 `/web2`, say so and point at the surface that has it.
 
-- Closing or tearing down sessions, and archiving a whole subtree.
-  `/web2` can *create*, *open*, *fork*, and *archive* single sessions, but
-  has no close, teardown, or archive-tree gesture.
+- Archiving a whole subtree. `/web2` can *create*, *open*, *fork*, *teardown +
+  archive*, and *archive* single sessions, but has no archive-tree gesture.
 - Renaming, deleting, or opening an applet in kiosk mode. The `/web2`
   applets picker opens one in a new tab; those three gestures are the
   TUI's.

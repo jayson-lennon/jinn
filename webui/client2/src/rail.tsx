@@ -69,6 +69,13 @@ export function SessionRail(props: RailProps): JSX.Element {
     props.send({ type: 'archive_session', session_id: id });
     setMenuFor(null);
   };
+  // The terminal's `x`: the lifecycle actor runs the teardown and archives —
+  // or archives at once when nothing is due. Nothing is confirmed here: the
+  // item's label says exactly what it does.
+  const teardown = (id: string): void => {
+    props.send({ type: 'teardown_session', session_id: id });
+    setMenuFor(null);
+  };
 
   // Escape closes the top overlay: the kebab popup, then the drawer. The
   // menu and every modal register their own listener and stop the event
@@ -151,8 +158,8 @@ export function SessionRail(props: RailProps): JSX.Element {
                     onClick={() => activate(row.session_id)}
                   >
                     <span class="session-title">{row.title || 'Untitled Session'}</span>
-                    <Show when={row.is_busy}>
-                      <span class="session-busy" aria-label="running" />
+                    <Show when={row.is_busy || row.is_tearing_down}>
+                      <span class="session-busy" data-testid="session-busy" aria-label="running" />
                     </Show>
                   </button>
                   <div class="row-menu">
@@ -183,6 +190,14 @@ export function SessionRail(props: RailProps): JSX.Element {
                           onClick={() => setLibrary(row.session_id, !row.in_library)}
                         >
                           {row.in_library ? 'remove from library' : 'add to library'}
+                        </button>
+                        <button
+                          type="button"
+                          class="row-menu-item"
+                          data-testid="row-menu-teardown"
+                          onClick={() => teardown(row.session_id)}
+                        >
+                          teardown + archive
                         </button>
                         <button
                           type="button"
