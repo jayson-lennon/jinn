@@ -5,8 +5,9 @@
 // Every test builds a store, feeds it one frame, awaits one microtask for
 // the write to land, and reads the result back the way a component does.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { apply, belongsToViewedSession, createStore, isBusy, type ClientStore } from './store';
+import { BUNDLE_PROTOCOL_VERSION, setReload } from './protocol_version';
 import type { EntryEnvelope, Phase, PromptTemplate, ServerMsg, SessionRow } from './protocol';
 
 /** Awaits the microtask a store write needs before it can be read back. */
@@ -31,11 +32,13 @@ function sessionRow(overrides: Partial<SessionRow> = {}): SessionRow {
   } as SessionRow;
 }
 
-/** A `snapshot` frame with every field defaulted, overridable by name. */
+/** A `snapshot` frame with every field defaulted, overridable by name. The
+ *  protocol is the bundle's own, so a built snapshot is one the page applies
+ *  rather than one it reloads on. */
 function snapshot(overrides: Partial<Extract<ServerMsg, { type: 'snapshot' }>> = {}): Extract<ServerMsg, { type: 'snapshot' }> {
   return {
     type: 'snapshot',
-    protocol: 1,
+    protocol: BUNDLE_PROTOCOL_VERSION,
     session_id: 's1',
     phase: { session_id: 's1', phase: 'Idle', queue_len: 0 },
     model_label: 'model',
@@ -91,6 +94,24 @@ describe('snapshot', () => {
     expect(s.entriesBefore).toBe(40);
     expect(s.theme).toBe('light');
     expect(s.promptTemplates.map((t) => t.name)).toEqual(['plan']);
+  });
+
+  it('is not applied when the server speaks another protocol version', async () => {
+    // Given a store already viewing one session, and a reload the test can
+    // see in place of the real one — the node environment has no location.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+    const restoreReload = setReload(vi.fn());
+
+    // When a snapshot for another session arrives from a server speaking a
+    // protocol version this bundle is not.
+    apply(store, snapshot({ protocol: BUNDLE_PROTOCOL_VERSION + 1, session_id: 's2' }));
+    await settled();
+    setReload(restoreReload);
+
+    // Then nothing of it landed: the page still views the first session.
+    expect(store.state.sessionId).toBe('s1');
   });
 
   it('marks the page synced and ends the "loading more" state', async () => {

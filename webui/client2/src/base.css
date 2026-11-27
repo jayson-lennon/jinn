@@ -1,6 +1,10 @@
 * { box-sizing: border-box; }
 
-html, body { height: 100%; margin: 0; overflow: hidden; }
+/* The document never scrolls and never lets a touch drag become the
+   browser's pull-to-refresh: every fact arrives over the socket, so a
+   mid-session reload would only discard the in-memory draft. The inner
+   scrollers keep their own scroll, without the rubber-band at their top. */
+html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior-y: contain; }
 body { background: var(--bg); color: var(--fg); }
 
 #app, .app { height: 100%; min-height: 0; }
