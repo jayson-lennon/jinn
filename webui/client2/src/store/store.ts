@@ -18,7 +18,7 @@ import type { Toast } from '../toast_state';
 import { loadLastSeen } from '../last_seen';
 import type { PromptCompletion } from '../prompts';
 import { applySnapshot } from './snapshot';
-import { applyEntriesPage, applyEntryDelta, applyEntryUpsert } from '../transcript_entries';
+import { applyEntriesPage, applyEntryDelta, applyEntryUpsert } from '../transcript/transcript_entries';
 import { applySessions, applyTitle } from '../session_rows';
 import { applyDashMcpRows, applyDashPinRows, applyDashTasks, applySessionStats, clearJumpTarget } from '../dash';
 import {

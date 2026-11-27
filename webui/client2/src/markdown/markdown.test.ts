@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { renderMarkdown, safeHref } from './markdown';
-import showcase from '../../../crates/jinn-provider/src/resources/markdown_showcase.md?raw';
+import showcase from '../../../../crates/jinn-provider/src/resources/markdown_showcase.md?raw';
 
 /** The showcase rendered into a detached document. */
 function render(text: string = showcase, entryId?: string): Document {

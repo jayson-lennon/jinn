@@ -12,7 +12,7 @@
 // persistence, the fork wait's source) are called from inside the setter.
 
 import type { ClientStore } from './store';
-import { indexSnapshot } from '../transcript_entries';
+import { indexSnapshot } from '../transcript/transcript_entries';
 import { markSeenOnSnapshot, saveLastSeen } from '../last_seen';
 import { resolveLoadingAfterSnapshot } from '../session_load';
 import { resetSessionPickerRows } from '../picker_rows';

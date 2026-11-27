@@ -3,7 +3,7 @@
 import { Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { EntryEnvelope } from '../protocol/protocol';
-import { renderMarkdown } from '../markdown';
+import { renderMarkdown } from '../markdown/markdown';
 import { body, str } from './shared';
 
 export function TransientView(props: { envelope: EntryEnvelope }): JSX.Element {

@@ -2,7 +2,7 @@
 
 import { Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import { renderMarkdown } from '../markdown';
+import { renderMarkdown } from '../markdown/markdown';
 import { body, str } from './shared';
 
 export function CompactionView(props: { value: unknown; entryId: string }): JSX.Element {

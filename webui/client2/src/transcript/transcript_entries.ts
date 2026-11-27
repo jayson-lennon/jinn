@@ -10,9 +10,9 @@
 // rebuilds or reads it: the array that is installed and the index that
 // names it must be rebuilt together, or an upsert lands at the wrong slot.
 
-import type { ClientStore } from './store/store';
-import { belongsToViewedSession } from './store/store';
-import type { DeltaField, EntryEnvelope, ServerMsg } from './protocol/protocol';
+import type { ClientStore } from '../store/store';
+import { belongsToViewedSession } from '../store/store';
+import type { DeltaField, EntryEnvelope, ServerMsg } from '../protocol/protocol';
 
 /** entry id -> its index in `entries`. Rebuilt on every structural change. */
 let positions = new Map<string, number>();

@@ -11,19 +11,19 @@
 
 import { For, Show, createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientMsg, EntryEnvelope, EntryKind } from './protocol/protocol';
-import { ActorView } from './transcript/actor';
-import { AnnotationView } from './transcript/annotation';
-import { CompactionView } from './transcript/compaction';
-import { IntersessionView } from './transcript/intersession';
-import { NoticeView } from './transcript/notice';
-import { ProseView } from './transcript/prose';
-import { RuleInterruptView } from './transcript/rule_interrupt';
-import { ToolCallView } from './transcript/tool_call';
-import { ToolResultView } from './transcript/tool_result';
-import { TransientView } from './transcript/transient';
-import { UserView } from './transcript/user';
-import { body, str } from './transcript/shared';
+import type { ClientMsg, EntryEnvelope, EntryKind } from '../protocol/protocol';
+import { ActorView } from './actor';
+import { AnnotationView } from './annotation';
+import { CompactionView } from './compaction';
+import { IntersessionView } from './intersession';
+import { NoticeView } from './notice';
+import { ProseView } from './prose';
+import { RuleInterruptView } from './rule_interrupt';
+import { ToolCallView } from './tool_call';
+import { ToolResultView } from './tool_result';
+import { TransientView } from './transient';
+import { UserView } from './user';
+import { body, str } from './shared';
 import { isOptimistic } from './transcript_entries';
 
 /** The route prefix an attachment's `<img>` is served from. */
