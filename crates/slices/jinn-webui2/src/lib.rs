@@ -136,6 +136,15 @@ pub async fn activate(
         .reader::<jinn_applets_msg::AppletsPickerState>(&jinn_applets_msg::applets_picker_slot())
         .expect("the cell catalog registers the applets picker slot before any slice activates");
 
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: a missing work-time slot is a broken boot order and must abort launch, not continue degraded"
+    )]
+    let work_time_cell = host
+        .slices()
+        .reader::<jinn_work_time_msg::WorkingTimeState>(&jinn_work_time_msg::work_time_slot())
+        .expect("the cell catalog registers the work-time slot before any slice activates");
+
     let outbound = outbound::spawn(
         host.system(),
         outbound::OutboundActorDeps {
@@ -146,6 +155,7 @@ pub async fn activate(
             settles: settle::SettleTracker::default(),
             services: services.clone(),
             provider_cell,
+            work_time_cell,
             session_store,
             personas_cell,
             mcp_runtime_cell,

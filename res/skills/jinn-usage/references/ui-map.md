@@ -200,7 +200,8 @@ fixed column drawn here, and the `#` is not shown.
 | `●` after a session title | That session's turn is running. | `webui.md` |
 | The session title | Click to rename in place: `Enter` commits, `Esc` cancels. | `webui.md` |
 | `[provider/model]` | The model chip. Opens the model picker; its **Refresh models** button asks the registry to rediscover and stays busy until the fresh rows land. | `webui.md` |
-| The persona name / `12.3k/???` | The status bar, under the title bar. Left: the session's persona — click it to open the persona picker. Right: the context usage figure, the same one the TUI status bar shows (`used%/max` or `used/???` when the model's window is unknown). | `webui.md` |
+| The persona name / `12.3k/???` | The status bar, under the title bar. Left: the session's persona — click it to open the persona picker. Right: the context usage figure, the same one the TUI status bar shows (`used%/max` or `used/???` when the model's window is unknown) — click it to open the session dash. | `webui.md` |
+| The card under `12.3k/???` | The **session dash**: the session's statistics (model, context, tokens, cost, turns, working time, cache, directory), its enabled MCP servers, its task list, and its pinned entries — every figure the TUI's own. Click the MCP section to open the picker; click a pin to jump the transcript to it. `Esc` or a click outside closes it. | `webui.md` |
 | `[chip: … ✕]` | A pending image, one per chip, above the composer. Arrives from a paste, the `+`, or an `https://` image URL already sent. `✕` removes it. | `webui.md` |
 | `[img]` on a user message | An image the message carried. | `webui.md` |
 | `[⇱]` top-right of the transcript | **Jump to start** — an up arrow against a bar above it. Shown only while scrolled away from the top; click to land on the first entry. | `webui.md` |

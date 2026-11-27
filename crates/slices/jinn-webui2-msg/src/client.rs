@@ -33,6 +33,23 @@ pub enum ClientMsg {
         /// The oldest entry the page holds.
         before: ChatEntryId,
     },
+    /// A dash opened on the page. While any page has one open, the tick
+    /// pushes the statistics when they change; nothing is pushed while
+    /// none does.
+    DashOpen,
+    /// The dash on the page closed.
+    DashClose,
+    /// Load history until `entry_id` is held. The reply streams the page's
+    /// own older-entry pages, oldest first, until one includes the entry.
+    /// Refused when `entry_id` is not an entry of the active session.
+    JumpToEntry {
+        /// The entry to scroll the transcript to.
+        entry_id: ChatEntryId,
+    },
+    /// Stop the jump this page asked for. The server stops sending the pages
+    /// it has not yet sent; the ones already sent stay. A cancel that arrives
+    /// after the jump finished does nothing.
+    CancelJump,
     /// Send a message as a fresh turn (rejected while a turn runs).
     Send {
         /// The message text.
@@ -201,6 +218,10 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
     match msg {
         ClientMsg::Hello { .. } => "hello",
         ClientMsg::MoreEntries { .. } => "more_entries",
+        ClientMsg::DashOpen => "dash_open",
+        ClientMsg::DashClose => "dash_close",
+        ClientMsg::JumpToEntry { .. } => "jump_to_entry",
+        ClientMsg::CancelJump => "cancel_jump",
         ClientMsg::Send { .. } => "send",
         ClientMsg::Queue { .. } => "queue",
         ClientMsg::Cancel => "cancel",

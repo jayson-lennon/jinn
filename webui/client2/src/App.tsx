@@ -29,6 +29,8 @@ import { Composer } from './composer';
 import { SessionRail } from './rail';
 import { SessionStatus } from './status';
 import { StatusBar } from './statusbar';
+import { Dash } from './session_dash';
+import { cancelJump, openDash } from './dash';
 import { NewSessionModal } from './new-session';
 import { Toasts } from './toast';
 import { applyTheme, mirrorTheme } from './theme';
@@ -42,6 +44,10 @@ import { applyThemeBar } from './theme_bar';
  * can never clear is the one outcome the timeout exists to rule out.
  */
 const SESSION_LOAD_STALL_MS = 10_000;
+/** How long a jump must be under way before the navigating overlay shows, so
+ *  a jump that lands at once — the common case on a quick link — never
+ *  flashes it. */
+const NAVIGATING_DELAY_MS = 150;
 
 /** What the composer shows when a session load times out. */
 const SESSION_LOAD_STALL_MESSAGE = 'Session switch timed out. The session did not load.';
@@ -91,6 +97,19 @@ export function App(): JSX.Element {
     setToolsOpen(true);
   };
   const [mcpOpen, setMcpOpen] = createSignal(false);
+
+  // The dash's one close path. `closeDash` only drops the open flag; this
+  // effect is what tells the server, so every dismiss — the scrim, Escape, a
+  // pin, the MCP picker, a session switch's snapshot — reports the same way.
+  createEffect(
+    // Compute (tracked): whether the dash is open.
+    () => store.state.dashOpen,
+    // Effect (untracked): a fall from open to closed is reported, whatever
+    // dropped the flag.
+    (open, wasOpen) => {
+      if (wasOpen === true && open === false) send({ type: 'dash_close' });
+    }
+  );
   const onMcpFilter = useFilter(store, 'mcpFilter', send, (filter) => ({ type: 'mcp_rows', filter }));
   const openMcp = (): void => {
     store.set((s) => {
@@ -231,6 +250,35 @@ export function App(): JSX.Element {
     if (stallTimer !== null) window.clearTimeout(stallTimer);
   });
 
+  // The navigating overlay, and its beat. The store's `navigating` is the
+  // cause, and this effect watches it: a true arms one timer to show the
+  // overlay, and any later run clears the timer first — so a jump that ends
+  // inside the beat never shows it, and one that ends after hides it at once.
+  const [navigating, setNavigating] = createSignal(false);
+  let navigateTimer: number | null = null;
+  createEffect(
+    // Compute (tracked): is a jump under way?
+    () => store.state.navigating,
+    // Effect (untracked): show the overlay after a beat, or hide it now.
+    (underWay) => {
+      if (navigateTimer !== null) {
+        window.clearTimeout(navigateTimer);
+        navigateTimer = null;
+      }
+      if (!underWay) {
+        setNavigating(false);
+        return;
+      }
+      navigateTimer = window.setTimeout(() => {
+        navigateTimer = null;
+        setNavigating(true);
+      }, NAVIGATING_DELAY_MS);
+    },
+  );
+  onCleanup(() => {
+    if (navigateTimer !== null) window.clearTimeout(navigateTimer);
+  });
+
   return (
     <div class={`app${connection() === 'open' ? '' : ' disconnected'}`}>
       <SessionRail
@@ -258,6 +306,7 @@ export function App(): JSX.Element {
             persona={store.state.persona}
             contextLabel={store.state.contextLabel}
             onOpenPersona={openPersona}
+            onOpenDash={() => openDash(store, send)}
           />
         </Show>
         <Transcript store={store} send={send} />
@@ -295,6 +344,9 @@ export function App(): JSX.Element {
             setToolsOpen(false);
           }}
         />
+      </Show>
+      <Show when={store.state.dashOpen}>
+        <Dash store={store} send={send} onOpenMcp={openMcp} />
       </Show>
       <Show when={mcpOpen()}>
         <McpModal
@@ -336,6 +388,26 @@ export function App(): JSX.Element {
             setAppletsOpen(false);
           }}
         />
+      </Show>
+      {/* Raised while a pin's jump is under way, after a beat. It covers the
+          page and swallows the pointer like the session-load overlay, with
+          one way out: Cancel closes it and stops the server's stream. No
+          live role — it holds a button, so it is a plain region. */}
+      <Show when={navigating()}>
+        <div class="navigating-overlay" data-testid="navigating-overlay">
+          <div class="navigating-card">
+            <span class="spinner" aria-hidden="true" />
+            <span class="navigating-label">Navigating…</span>
+            <button
+              type="button"
+              class="navigating-cancel"
+              data-testid="navigating-cancel"
+              onClick={() => cancelJump(store, send)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       </Show>
       {/* Raised by the page when it asks for a session. Nothing dismisses it
           — no click handler, no key handler: it ends when the load ends, by

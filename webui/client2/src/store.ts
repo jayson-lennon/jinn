@@ -20,6 +20,7 @@ import type { PromptCompletion } from './prompts';
 import { applySnapshot } from './snapshot';
 import { applyEntriesPage, applyEntryDelta, applyEntryUpsert } from './transcript_entries';
 import { applySessions, applyTitle } from './session_rows';
+import { applyDashMcpRows, applyDashPinRows, applyDashTasks, applySessionStats, clearJumpTarget } from './dash';
 import {
   applyAppletRows,
   applyMcpRows,
@@ -32,6 +33,9 @@ import {
 import { applyError } from './toast_state';
 import type {
   AppletRow,
+  DashMcpRow,
+  DashPinRow,
+  DashTasks,
   EntryEnvelope,
   McpRow,
   ModelRow,
@@ -40,6 +44,7 @@ import type {
   PickerRow,
   PromptTemplate,
   ServerMsg,
+  SessionStats,
   SessionRow,
   SkillRow,
   Theme,
@@ -63,6 +68,26 @@ export interface ViewState {
    *  string. The page computes nothing; an empty string means no figure has
    *  arrived yet for this session. */
   contextLabel: string;
+  /** True while the dash is open. View state the page owns; the server is
+   *  told so its tick knows whether to push the statistics. */
+  dashOpen: boolean;
+  /** The dash's session statistics, as the last `session_stats` frame
+   *  carried them; null until one arrives. */
+  dashStats: SessionStats | null;
+  /** The dash's pinned rows, in the sidebar's order and labels. */
+  dashPins: DashPinRow[];
+  /** The dash's task list; null until a `dash_tasks` frame arrives. */
+  dashTasks: DashTasks | null;
+  /** The dash's enabled MCP servers with their live status. */
+  dashMcp: DashMcpRow[];
+  /** The entry a pin tap asked the transcript to scroll to once it is
+   *  held, or null. Cleared when the scroll happens, when the jump is
+   *  refused, or by a snapshot. */
+  jumpTarget: string | null;
+  /** True while a pin's jump is under way: the page asked for history up to
+   *  the entry and has not reached it. Raises the navigating overlay, which
+   *  blocks the page until the jump lands, is refused, or is cancelled. */
+  navigating: boolean;
   /** The history revision the page last saw, echoed back on reconnect. */
   revision: number;
   entries: EntryEnvelope[];
@@ -147,6 +172,13 @@ const INITIAL_STATE: ViewState = {
   title: '',
   persona: '',
   contextLabel: '',
+  dashOpen: false,
+  dashStats: null,
+  dashPins: [],
+  dashTasks: null,
+  dashMcp: [],
+  jumpTarget: null,
+  navigating: false,
   revision: 0,
   entries: [],
   entriesBefore: 0,
@@ -272,6 +304,18 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       });
       return;
     }
+    case 'session_stats':
+      applySessionStats(store, msg);
+      return;
+    case 'dash_pin_rows':
+      applyDashPinRows(store, msg);
+      return;
+    case 'dash_tasks':
+      applyDashTasks(store, msg);
+      return;
+    case 'dash_mcp_rows':
+      applyDashMcpRows(store, msg);
+      return;
     case 'picker_rows': {
       applyPickerRows(store, msg);
       return;
@@ -314,6 +358,9 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
     }
     case 'error': {
       applyError(store, msg);
+      // A jump the server could not serve must not leave the transcript
+      // waiting on an entry that will never arrive.
+      clearJumpTarget(store);
       return;
     }
     case 'current': {

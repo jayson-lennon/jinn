@@ -12,6 +12,9 @@ description = "The wire contract for the web UI: the two tagged message enums th
 # from the shared vocabulary crate.
 jinn-core-types = { workspace = true }
 jinn-session-store-msg = { workspace = true }
+# The dash's task rows carry the task list's own status vocabulary, so the
+# page and the todo tool never disagree about what a status is called.
+jinn-tools-msg = { workspace = true }
 jinn-slices = { workspace = true }
 # The session row's last-settle time and the stored-session picker's row
 # both carry the core `jiff::Timestamp`, the type every entry timing

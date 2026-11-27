@@ -9,6 +9,8 @@
 //! that asked, in order. Facts every open page must see are not replies;
 //! the outbound actor pushes those to every connection as they happen.
 
+use std::sync::{Arc, atomic::AtomicBool};
+
 use jinn_webui2_msg::ClientMsg;
 
 use crate::{actions, outbound::OutboundHandle};
@@ -18,6 +20,11 @@ use crate::{actions, outbound::OutboundHandle};
 pub struct Reply {
     /// The frames to send, in order.
     pub frames: Vec<jinn_webui2_msg::ServerMsg>,
+    /// Set on a jump's reply, and on no other: the connection's reader
+    /// checks it before sending each frame and drops the rest once it is
+    /// set, so a cancel stops the pages the page has not yet received.
+    /// `None` means the reply drains whole, as every reply but a jump's does.
+    pub cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 impl Reply {
@@ -32,6 +39,7 @@ impl Reply {
     pub fn one(frame: jinn_webui2_msg::ServerMsg) -> Self {
         Self {
             frames: vec![frame],
+            cancel_flag: None,
         }
     }
 }
@@ -40,15 +48,27 @@ impl Reply {
 ///
 /// The outbound handle carries the state every handler reads, the
 /// connection registry a snapshot reply is written to, and the
-/// revisions a resume is decided by.
+/// revisions a resume is decided by. The cancel flag is the asking
+/// connection's own: a jump's reply is stamped with it, and a cancel
+/// sets it, so a cancel on one page never reaches another page's jump.
 #[must_use]
-pub async fn dispatch(msg: ClientMsg, out: &OutboundHandle) -> Reply {
+pub async fn dispatch(
+    msg: ClientMsg,
+    out: &OutboundHandle,
+    jump_cancelled: &Arc<AtomicBool>,
+) -> Reply {
     match msg {
         ClientMsg::Hello {
             last_entry_id,
             revision,
         } => actions::hello(out, last_entry_id.as_ref(), revision),
         ClientMsg::MoreEntries { before } => actions::more_entries(out, &before),
+        ClientMsg::DashOpen => actions::dash_open(out),
+        ClientMsg::DashClose => actions::dash_close(out),
+        ClientMsg::JumpToEntry { entry_id } => {
+            actions::jump_to_entry(out, &entry_id, jump_cancelled)
+        }
+        ClientMsg::CancelJump => actions::cancel_jump(jump_cancelled),
         ClientMsg::Send { text, images } => actions::send(out, text, images).await,
         ClientMsg::Queue { text, images } => actions::queue(out, text, images).await,
         ClientMsg::Cancel => actions::cancel(out).await,

@@ -48,6 +48,10 @@ struct Harness {
     handle: OutboundHandle,
     audit: jinn_slices::bus::BusAudit,
     state: State,
+    /// The asking connection's cancel flag. A harness is one connection,
+    /// so one flag serves every dispatch the test makes, as the reader
+    /// would hand the real one to each of a connection's dispatches.
+    jump_cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn harness() -> Harness {
@@ -333,6 +337,9 @@ fn harness_seeded(
             &jinn_provider_selection_msg::provider_state_slot(),
         )
         .expect("the catalog registers the provider slot");
+    let work_time_cell = slices
+        .reader::<jinn_work_time_msg::WorkingTimeState>(&jinn_work_time_msg::work_time_slot())
+        .expect("the catalog registers the work-time slot");
     let personas_cell = slices
         .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
         .expect("the catalog registers the persona slot");
@@ -387,6 +394,7 @@ fn harness_seeded(
         config: services.config.clone(),
         services,
         provider_cell,
+        work_time_cell,
         personas_cell,
         mcp_runtime_cell,
         applets_catalog_cell,
@@ -396,6 +404,7 @@ fn harness_seeded(
         handle,
         audit,
         state,
+        jump_cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     }
 }
 
@@ -548,7 +557,7 @@ fn mark_tail_delivered(h: &Harness) {
 /// server refuses it: every caller here is exercising an action that must
 /// succeed. The one refusal under test sends its message by hand.
 async fn say(h: &Harness, msg: ClientMsg) {
-    let reply = dispatch(msg, &h.handle).await;
+    let reply = dispatch(msg, &h.handle, &h.jump_cancelled).await;
     assert!(
         !reply
             .frames
@@ -654,6 +663,7 @@ async fn send_while_busy_is_refused_with_an_error() {
             images: Vec::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -680,6 +690,7 @@ async fn send_while_busy_publishes_nothing() {
             images: Vec::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -702,6 +713,7 @@ async fn send_of_blank_text_is_refused() {
             images: Vec::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -799,6 +811,7 @@ async fn activate_replies_with_a_snapshot_of_the_activated_session() {
             session_id: second.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -828,6 +841,7 @@ async fn activate_replies_with_the_activated_sessions_transcript() {
             session_id: second.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -890,6 +904,7 @@ async fn activate_of_an_unknown_session_is_refused() {
             session_id: jinn_core_types::SessionId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -910,6 +925,7 @@ async fn activate_of_a_stored_session_loads_it_instead_of_refusing() {
             session_id: session_id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1029,6 +1045,7 @@ async fn rename_replies_with_the_new_title() {
             title: "  Road trip ".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1078,6 +1095,7 @@ async fn rename_to_blank_is_refused_and_leaves_the_title() {
             title: "  ".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1107,6 +1125,7 @@ async fn hello_on_a_fresh_page_answers_a_snapshot() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1115,6 +1134,73 @@ async fn hello_on_a_fresh_page_answers_a_snapshot() {
         unreachable!("a fresh hello answers a snapshot");
     };
     assert_eq!(snapshot.entries.len(), 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_on_a_fresh_page_carries_the_context_figure() {
+    // Given a session with a transcript, and no tick having run yet.
+    let h = harness();
+    push(&h.state, ChatEntry::user("one"));
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the snapshot carries the figure, so the bar is whole on arrival
+    // with no tick to wait for — the bug left an idle session's bar empty.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert_ne!(snapshot.context_label, "");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_snapshot_seeds_the_tick_so_an_idle_tick_is_silent_until_the_figure_changes() {
+    // Given a session on a windowed model with an empty prompt, and a page
+    // whose hello answered a snapshot carrying the figure.
+    let mut page = connected_page();
+    seed_window(&page.handle);
+    put_session_on_empty_window(&page);
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &page.handle,
+        &page.jump_cancelled,
+    )
+    .await;
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert_eq!(snapshot.context_label, "0.0%/200k");
+
+    // When a tick runs with nothing changed, and then the figure changes and
+    // another tick runs.
+    let idle = flush_frames(&mut page);
+    put_session_at_half_window(&page);
+    let changed = flush_frames(&mut page);
+
+    // Then the idle tick said nothing and the changed one pushed the new
+    // figure: the snapshot seeded the baseline the tick diffs against.
+    assert!(
+        status_frames(&idle).is_empty(),
+        "the snapshot already told the page: {idle:?}"
+    );
+    let status = status_frames(&changed);
+    let [(_, label)] = status.as_slice() else {
+        unreachable!("one frame for the changed figure: {changed:?}");
+    };
+    assert_eq!(label, "50.0%/200k");
 }
 
 #[rstest::rstest]
@@ -1134,6 +1220,7 @@ async fn hello_with_a_matching_cursor_and_revision_sends_only_later_entries() {
             revision: Some(revision),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1161,6 +1248,7 @@ async fn hello_with_a_cursor_at_the_newest_entry_answers_current() {
             revision: Some(revision),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1187,6 +1275,7 @@ async fn hello_with_a_gap_answers_upserts_and_no_current_frame() {
             revision: Some(revision),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1212,6 +1301,7 @@ async fn hello_with_a_stale_revision_answers_a_snapshot() {
             revision: Some(0),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1233,6 +1323,7 @@ async fn hello_with_an_unknown_cursor_answers_a_snapshot() {
             revision: Some(0),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1254,6 +1345,7 @@ async fn hello_snapshot_reports_hydration_while_startup_loads_are_outstanding() 
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1277,6 +1369,7 @@ async fn hello_snapshot_reports_hydration_finished_once_it_is() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1309,6 +1402,7 @@ async fn hello_on_a_fresh_page_carries_the_newest_entries_up_to_one_page() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1334,6 +1428,7 @@ async fn hello_on_a_fresh_page_carries_the_oldest_entry_of_the_tail_at_index_zer
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1367,6 +1462,7 @@ async fn hello_with_a_cursor_more_than_one_page_behind_answers_a_snapshot() {
             revision: Some(revision),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1385,6 +1481,7 @@ async fn more_before(h: &Harness, before: &jinn_core_types::ChatEntryId) -> Repl
             before: before.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await
 }
@@ -1814,6 +1911,7 @@ async fn picker_rows_on_an_empty_store_answers_no_rows() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1844,6 +1942,7 @@ async fn picker_rows_list_an_unarchived_session_once() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1870,6 +1969,7 @@ async fn model_rows_with_no_configured_providers_answers_no_rows() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1924,6 +2024,7 @@ async fn model_rows_with_an_empty_filter_name_every_provider() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1977,6 +2078,7 @@ async fn model_rows_filter_keeps_only_the_matching_provider() {
             filter: "deepseek".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1996,6 +2098,7 @@ async fn model_rows_filter_matches_the_provider_name_too() {
             filter: "aion".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2017,6 +2120,7 @@ async fn model_rows_filter_with_a_space_ands_each_term() {
             filter: "aion alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2056,6 +2160,7 @@ async fn model_rows_rank_the_closer_match_first() {
             filter: "gpt 4".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2075,6 +2180,7 @@ async fn model_rows_mark_the_letters_the_filter_hit_in_the_model() {
             filter: "chat".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2113,6 +2219,7 @@ async fn model_rows_mark_the_letters_the_filter_hit_in_the_provider() {
             filter: "zephyr".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2133,6 +2240,7 @@ async fn model_rows_with_an_empty_filter_carry_plain_runs() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2177,6 +2285,8 @@ struct Page {
     handle: OutboundHandle,
     inbox: tokio::sync::mpsc::UnboundedReceiver<ServerMsg>,
     state: State,
+    /// This page's own cancel flag, as a real connection's reader owns one.
+    jump_cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Held so the connection stays registered for the page's life: a
     /// dropped guard unregisters at once, and the flush skips a page
     /// nobody is connected to.
@@ -2190,6 +2300,7 @@ fn connected_page() -> Page {
         handle: h.handle,
         inbox,
         state: h.state,
+        jump_cancelled: h.jump_cancelled,
         _connection: connection,
     }
 }
@@ -2682,6 +2793,7 @@ async fn toggling_an_unknown_entry_is_refused_and_publishes_nothing() {
             entry_id: ChatEntryId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2755,6 +2867,7 @@ async fn forking_an_unknown_entry_is_refused_and_publishes_nothing() {
             entry_id: ChatEntryId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3015,6 +3128,7 @@ async fn toggling_context_on_a_pinned_entry_is_refused_and_publishes_nothing() {
             entry_id: entry_id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3036,6 +3150,7 @@ async fn toggling_context_on_an_unknown_entry_is_refused_and_publishes_nothing()
             entry_id: ChatEntryId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3224,6 +3339,7 @@ async fn skill_rows_list_the_discovered_skills_sorted_by_name() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3244,6 +3360,7 @@ async fn skill_rows_match_the_shared_filter() {
             filter: "zet".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3274,6 +3391,7 @@ async fn skill_rows_carry_each_skills_enablement() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3310,6 +3428,7 @@ async fn skill_rows_mark_a_skill_already_loaded_into_context() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3334,6 +3453,7 @@ async fn a_skill_rows_frame_names_the_session_and_echoes_the_filter() {
             filter: "alp".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3357,6 +3477,7 @@ async fn a_discovery_scan_pushes_rows_for_its_session_in_the_last_asked_filter()
             filter: "alp".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
     let _ = drain(&mut inbox);
@@ -3470,6 +3591,7 @@ async fn toggling_an_enabled_skill_withholds_it_on_the_session_filter() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3501,6 +3623,7 @@ async fn toggling_a_disabled_skill_permits_it_again() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3535,6 +3658,7 @@ async fn toggling_keeps_an_allow_mode_filter_in_allow_mode() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3564,6 +3688,7 @@ async fn toggling_a_loaded_skill_changes_nothing() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3590,6 +3715,7 @@ async fn toggling_a_skill_publishes_nothing() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3609,6 +3735,7 @@ async fn toggling_an_undiscovered_skill_is_refused() {
             skill: "phantom".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3643,6 +3770,7 @@ async fn loading_a_skill_pins_its_body_as_a_tool_call_and_result() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3683,6 +3811,7 @@ async fn loading_a_disabled_skill_enables_it_first() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3708,6 +3837,7 @@ async fn loading_a_skill_publishes_only_that_the_session_was_interacted_with() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3729,6 +3859,7 @@ async fn loading_an_already_loaded_skill_appends_a_notice_and_publishes_nothing(
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3758,6 +3889,7 @@ async fn loading_an_undiscovered_skill_is_refused() {
             skill: "phantom".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3814,6 +3946,7 @@ async fn tool_rows_list_the_registry_tools_sorted_case_insensitively() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3833,6 +3966,7 @@ async fn tool_rows_carry_the_descriptions_first_sentence() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3855,6 +3989,7 @@ async fn tool_rows_with_no_registry_answer_no_rows() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3874,6 +4009,7 @@ async fn tool_rows_match_the_shared_filter() {
             filter: "time".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3893,6 +4029,7 @@ async fn tool_rows_split_the_matched_run_for_the_filter() {
             filter: "time".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3990,6 +4127,7 @@ async fn toggling_a_tool_replies_with_rows_marking_it_disabled() {
             tool: "get_time".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4031,6 +4169,7 @@ async fn toggling_an_unknown_tool_is_refused() {
             tool: "phantom".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4088,6 +4227,7 @@ async fn mcp_rows_list_the_configured_servers_sorted_case_insensitively() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4107,6 +4247,7 @@ async fn mcp_rows_carry_the_launch_summary_as_the_description() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4129,6 +4270,7 @@ async fn mcp_rows_with_no_configured_servers_answer_no_rows() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4151,6 +4293,7 @@ async fn mcp_rows_match_the_shared_filter() {
             filter: "wea".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4179,6 +4322,7 @@ async fn mcp_rows_mark_a_disabled_server_off_whatever_the_cell_reports() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4215,6 +4359,7 @@ async fn mcp_rows_mark_an_enabled_server_running_when_the_cell_says_so() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4246,6 +4391,7 @@ async fn mcp_rows_read_a_singletons_status_for_any_session() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4376,6 +4522,7 @@ async fn toggling_an_unknown_server_is_refused() {
             server: "phantom".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4413,6 +4560,7 @@ async fn a_runtime_store_pushes_rows_in_the_last_asked_filter() {
             filter: "ec".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
     drain(&mut inbox);
@@ -4495,6 +4643,7 @@ async fn persona_rows_follow_the_catalogs_order() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4522,6 +4671,7 @@ async fn persona_rows_mark_the_sessions_persona_active() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4553,6 +4703,7 @@ async fn persona_rows_match_the_shared_filter() {
             filter: "revie".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4614,6 +4765,7 @@ async fn switching_persona_with_a_handoff_block_appends_no_entry() {
             persona: "reviewer".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4665,6 +4817,7 @@ async fn switching_to_a_blockless_persona_delivers_the_entry_in_the_reply() {
             persona: "blockless".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4688,6 +4841,7 @@ async fn switching_to_an_unknown_persona_is_refused() {
             persona: "phantom".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4778,6 +4932,7 @@ async fn send_of_a_non_image_is_refused_naming_its_position() {
             images: vec![upload("notes.txt", "aGVsbG8=")],
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4805,6 +4960,7 @@ async fn a_refused_image_send_publishes_nothing() {
             images: vec![upload("notes.txt", "aGVsbG8=")],
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4831,6 +4987,7 @@ async fn send_with_an_oversize_image_is_refused_naming_its_size() {
             images: vec![upload("big.bin", &oversize)],
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4890,6 +5047,7 @@ async fn send_with_an_image_while_busy_is_refused_before_ingestion() {
             images: vec![upload("dot.png", TINY_PNG)],
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4928,6 +5086,7 @@ async fn applet_rows_publish_the_rescan_then_the_wake() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4948,6 +5107,7 @@ async fn applet_rows_answer_one_frame_echoing_the_filter() {
             filter: "qui".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4973,6 +5133,7 @@ async fn applet_rows_link_each_row_to_the_serving_bind() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5007,6 +5168,7 @@ async fn applet_rows_while_offline_answer_rows_without_an_href() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5031,6 +5193,7 @@ async fn applet_rows_refuse_an_href_for_an_id_failing_the_gate() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5053,6 +5216,7 @@ async fn applet_rows_with_an_empty_filter_keep_the_catalog_order_unmarked() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5087,6 +5251,7 @@ async fn applet_rows_filter_by_title_and_mark_the_matched_run() {
             filter: "alp".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5114,6 +5279,7 @@ async fn applet_rows_remember_the_filter_for_a_later_push() {
             filter: "qui".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5134,6 +5300,7 @@ async fn applets_rescanned_pushes_the_events_catalog_not_the_cells() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
     drain(&mut inbox);
@@ -5168,6 +5335,7 @@ async fn applets_serving_changed_pushes_the_events_phase_over_the_cell_catalog()
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
     drain(&mut inbox);
@@ -5243,6 +5411,7 @@ async fn set_theme_replies_with_the_chosen_mode() {
             theme: "light".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5265,6 +5434,7 @@ async fn set_theme_of_an_unknown_mode_is_refused() {
             theme: "sepia".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5313,6 +5483,7 @@ async fn set_library_of_an_unknown_session_is_refused() {
             in_library: true,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5365,6 +5536,7 @@ async fn archive_of_a_busy_session_is_refused_and_publishes_nothing() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5391,6 +5563,7 @@ async fn archive_of_a_busy_session_names_the_busy_reason() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5413,6 +5586,7 @@ async fn archive_of_an_unknown_session_is_refused() {
             session_id: jinn_core_types::SessionId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5434,6 +5608,7 @@ async fn archive_of_a_stored_only_session_is_refused_as_already_archived() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5462,6 +5637,7 @@ async fn teardown_publishes_the_close_command() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5491,6 +5667,7 @@ async fn teardown_of_a_busy_session_is_refused_and_publishes_nothing() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5517,6 +5694,7 @@ async fn teardown_of_a_busy_session_names_the_busy_reason() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5539,6 +5717,7 @@ async fn teardown_of_an_unknown_session_is_refused() {
             session_id: jinn_core_types::SessionId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5560,6 +5739,7 @@ async fn teardown_of_a_stored_only_session_is_refused_as_already_archived() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5713,6 +5893,7 @@ async fn create_session_of_an_unconfigured_project_is_refused() {
             args: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5735,6 +5916,7 @@ async fn create_session_of_an_unknown_lifecycle_is_refused() {
             args: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5757,6 +5939,7 @@ async fn create_session_with_too_few_args_is_refused() {
             args: "only-one".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5786,6 +5969,7 @@ async fn create_session_with_the_blank_lifecycle_makes_the_new_session_active() 
             args: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5820,6 +6004,7 @@ async fn model_cache_stored_pushes_fresh_rows_to_an_open_model_picker() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5859,6 +6044,7 @@ async fn model_cache_stored_pushes_rows_naming_the_askers_session() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -6937,6 +7123,7 @@ async fn snapshot_carries_the_active_sessions_prompt_templates() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -6971,6 +7158,7 @@ async fn hello_snapshot_of_no_active_session_carries_no_prompt_templates() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -7064,6 +7252,21 @@ fn put_session_at_half_window(page: &Page) {
         .set_context_sizes(100_000, 0);
 }
 
+/// Puts the active session on [`WINDOWED_MODEL`] with an empty prompt, so
+/// its figure reads `0.0%/200k` — the state a fresh session is in.
+fn put_session_on_empty_window(page: &Page) {
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_model(ModelSelection::Single(WINDOWED_MODEL.to_owned()));
+    page.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_context_sizes(0, 0);
+}
+
 /// The `ContextUsage` frames among `frames`, as their `(persona, label)`.
 fn status_frames(frames: &[ServerMsg]) -> Vec<(String, String)> {
     frames
@@ -7093,6 +7296,7 @@ async fn hello_answers_a_snapshot_naming_the_sessions_persona() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -7238,4 +7442,611 @@ fn a_provider_switch_pushes_the_model_and_the_figure_at_once() {
         unreachable!("one figure frame beside the model frame: {frames:?}");
     };
     assert_eq!(label, "50.0%/200k");
+}
+
+// ---------------------------------------------------------------------------
+// The dash
+// ---------------------------------------------------------------------------
+
+/// A connected page, with whatever its connection already delivered drained.
+fn dash_page(
+    h: &Harness,
+) -> (
+    tokio::sync::mpsc::UnboundedReceiver<ServerMsg>,
+    crate::connections::ConnectionGuard,
+) {
+    let (_id, inbox, connection) = h.handle.register();
+    let mut inbox = inbox;
+    let _ = drain(&mut inbox);
+    (inbox, connection)
+}
+
+/// The `session_stats` frame among the frames, if one was pushed.
+///
+/// A tick may push other frames alongside it (the status bar's own figure,
+/// a drifted entry); the dash tests care only that the statistics came.
+fn one_stats(frames: &[ServerMsg]) -> Option<&jinn_webui2_msg::SessionStatsBody> {
+    frames.iter().find_map(|frame| match frame {
+        ServerMsg::SessionStats(body) => Some(body.as_ref()),
+        _ => None,
+    })
+}
+
+#[rstest::rstest]
+#[test]
+fn dash_stats_are_not_pushed_while_no_dash_is_open() {
+    // Given a connected page with no dash open.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives no statistics.
+    let frames = drain(&mut inbox);
+    assert!(one_stats(&frames).is_none());
+}
+
+#[rstest::rstest]
+#[test]
+fn opening_a_dash_makes_the_next_tick_push_the_full_statistics() {
+    // Given a connected page whose dash opens.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    push(&h.state, ChatEntry::user("hello"));
+    let _ = actions::dash_open(&h.handle);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives every figure in one frame, for the active session.
+    let frames = drain(&mut inbox);
+    let body = one_stats(&frames).expect("one session_stats frame");
+    assert_eq!(body.session_id, active_id(&h.state));
+    assert_eq!(body.turn_count, 1);
+}
+
+#[rstest::rstest]
+#[test]
+fn an_open_dash_is_pushed_again_only_when_a_figure_changed() {
+    // Given an open dash that has already received its statistics.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    crate::outbound::flush(&h.handle);
+    let _ = drain(&mut inbox);
+
+    // When a tick runs and nothing about the session changed.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives nothing.
+    assert_eq!(drain(&mut inbox).len(), 0);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_working_time_the_session_accrued_is_pushed_to_an_open_dash() {
+    // Given an open dash that has already received its statistics, for a
+    // session with no working time yet.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    crate::outbound::flush(&h.handle);
+    let frames = drain(&mut inbox);
+    let first = one_stats(&frames).expect("a session_stats frame");
+    assert_eq!(first.working, "00:00:00");
+
+    // When the session accrues an hour of working time, and a tick runs.
+    let id = active_id(&h.state);
+    let start = jiff::Timestamp::from_second(1_000_000).expect("a timestamp");
+    let end = jiff::Timestamp::from_second(1_003_600).expect("a timestamp");
+    let work_time = h.handle.work_time_cell();
+    work_time.update(|cell| {
+        cell.restore(
+            id,
+            vec![jinn_core_types::WorkingInterval::closed(start, end)],
+        );
+    });
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives the statistics again, with the clock advanced.
+    let frames = drain(&mut inbox);
+    let body = one_stats(&frames).expect("a session_stats frame");
+    assert_eq!(body.working, "01:00:00");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_changed_figure_is_pushed_to_an_open_dash() {
+    // Given an open dash that has already received its statistics.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    crate::outbound::flush(&h.handle);
+    let _ = drain(&mut inbox);
+
+    // When the session gains a turn and a tick runs.
+    push(&h.state, ChatEntry::user("one more"));
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives the statistics again, carrying the new count.
+    let frames = drain(&mut inbox);
+    assert_eq!(
+        one_stats(&frames)
+            .expect("a session_stats frame")
+            .turn_count,
+        1
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn closing_a_dash_stops_the_pushes() {
+    // Given a dash that was open and is now closed.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    let _ = actions::dash_close(&h.handle);
+    push(&h.state, ChatEntry::user("after the close"));
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives no statistics.
+    let frames = drain(&mut inbox);
+    assert!(one_stats(&frames).is_none());
+}
+
+#[rstest::rstest]
+#[test]
+fn dash_stats_for_a_lone_session_carry_no_tree() {
+    // Given an open dash on a session with no children.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the frame's tree is absent.
+    let frames = drain(&mut inbox);
+    assert!(
+        one_stats(&frames)
+            .expect("a session_stats frame")
+            .tree
+            .is_none()
+    );
+}
+
+// --- the jump ---
+
+/// Every entry text across a reply's pages, in arrival order.
+fn jumped_texts(reply: &Reply) -> Vec<String> {
+    reply
+        .frames
+        .iter()
+        .flat_map(|frame| match frame {
+            ServerMsg::EntriesPage(page) => page
+                .entries
+                .iter()
+                .map(|entry| entry.entry_text().to_owned())
+                .collect::<Vec<_>>(),
+            other => unreachable!(
+                "a jump replies in pages, got {:?}",
+                jinn_webui2_msg::server::tag_of(other)
+            ),
+        })
+        .collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_jump_to_a_far_back_entry_streams_every_page_up_to_it() {
+    // Given a history of four pages, and a pin on the first entry of the
+    // third — two whole pages precede it, and the tail holds only the
+    // last two, so the jump has pages to load.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES * 3 + 10);
+    let target = active_entry_id_at(&h, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2);
+
+    // When the page asks to jump to it.
+    let reply = actions::jump_to_entry(&h.handle, &target, &h.jump_cancelled);
+
+    // Then the reply is three pages, oldest first, ending at the pinned entry.
+    assert_eq!(reply.frames.len(), 3);
+    let texts = jumped_texts(&reply);
+    assert_eq!(texts.len(), jinn_webui2_msg::TAIL_MAX_ENTRIES * 2 + 1);
+    assert_eq!(texts.last().map(String::as_str), Some("entry 400"));
+    assert_eq!(texts.first().map(String::as_str), Some("entry 0"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_jump_to_the_newest_entry_sends_nothing() {
+    // Given a history past one page, and a pin on the last entry.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 10);
+    let target = active_last_entry_id(&h.state);
+
+    // When the page asks to jump to it.
+    let reply = actions::jump_to_entry(&h.handle, &target, &h.jump_cancelled);
+
+    // Then nothing is sent: the page's tail already holds the entry.
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_jump_to_an_unknown_entry_is_refused() {
+    // Given a session with history.
+    let h = harness();
+    push_many(&h.state, 3);
+
+    // When the page asks to jump to an entry that is not in it.
+    let reply = actions::jump_to_entry(
+        &h.handle,
+        &jinn_core_types::ChatEntryId::new(),
+        &h.jump_cancelled,
+    );
+
+    // Then the reply is one refusal.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+}
+
+/// The id of the active session's history entry at `index`.
+fn active_entry_id_at(h: &Harness, index: usize) -> jinn_core_types::ChatEntryId {
+    h.state.read().session.active_session().history()[index]
+        .id
+        .clone()
+}
+
+// --- cancelling a jump ---
+
+/// Drains a reply the way the connection's reader does: a page goes out
+/// only if the cancel flag is clear when its turn comes. Returns the texts
+/// the page would receive.
+fn drained_texts(reply: &Reply, flag: &std::sync::atomic::AtomicBool) -> Vec<String> {
+    reply
+        .frames
+        .iter()
+        .take_while(|_| !flag.load(std::sync::atomic::Ordering::Acquire))
+        .flat_map(|frame| match frame {
+            ServerMsg::EntriesPage(page) => page
+                .entries
+                .iter()
+                .map(|entry| entry.entry_text().to_owned())
+                .collect::<Vec<_>>(),
+            other => unreachable!(
+                "a jump replies in pages, got {:?}",
+                jinn_webui2_msg::server::tag_of(other)
+            ),
+        })
+        .collect()
+}
+
+#[rstest::rstest]
+#[test]
+fn a_jump_to_an_entry_the_page_already_holds_sends_nothing() {
+    // Given a short history the newest page holds whole, and a pin in it.
+    let h = harness();
+    push_many(&h.state, 3);
+    let target = active_entry_id_at(&h, 1);
+
+    // When the page asks to jump to it.
+    let reply = actions::jump_to_entry(&h.handle, &target, &h.jump_cancelled);
+
+    // Then nothing is sent: the page already holds the entry, and a page
+    // would prepend a second copy of it.
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_jumps_reply_carries_the_cancel_flag() {
+    // Given a history and a pin in it.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 10);
+
+    // When the page asks to jump to an entry before the tail.
+    let reply = actions::jump_to_entry(&h.handle, &active_entry_id_at(&h, 0), &h.jump_cancelled);
+
+    // Then the reply carries this connection's flag, for the reader to check.
+    assert!(reply.cancel_flag.is_some());
+}
+
+#[rstest::rstest]
+#[test]
+fn every_other_reply_carries_no_cancel_flag() {
+    // Given a page with a session.
+    let h = harness();
+
+    // When it asks for something that is not a jump.
+    let reply = actions::more_entries(&h.handle, &jinn_core_types::ChatEntryId::new());
+
+    // Then the reply drains whole: it carries no flag.
+    assert!(reply.cancel_flag.is_none());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_cancel_set_before_the_drain_stops_every_page() {
+    // Given a three-page jump whose flag was set before any page was sent.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2 + 10);
+    let reply = actions::jump_to_entry(
+        &h.handle,
+        &active_entry_id_at(&h, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2),
+        &h.jump_cancelled,
+    );
+    h.jump_cancelled
+        .store(true, std::sync::atomic::Ordering::Release);
+
+    // When the reader drains it.
+    let texts = drained_texts(&reply, &h.jump_cancelled);
+
+    // Then not one page reaches the page.
+    assert_eq!(texts, Vec::<String>::new());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_cancel_set_mid_drain_keeps_the_pages_already_sent() {
+    // Given a three-page jump, drained page by page the way the reader does:
+    // four pages of history, a pin two pages back, the tail holding the rest.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES * 3 + 10);
+    let reply = actions::jump_to_entry(
+        &h.handle,
+        &active_entry_id_at(&h, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2),
+        &h.jump_cancelled,
+    );
+    let flag = &*h.jump_cancelled;
+    let mut sent = Vec::new();
+    let pages = reply.frames.iter();
+
+    // When the first page goes out, then a cancel lands before the next.
+    for (n, frame) in pages.enumerate() {
+        if n == 1 {
+            flag.store(true, std::sync::atomic::Ordering::Release);
+        }
+        if flag.load(std::sync::atomic::Ordering::Acquire) {
+            break;
+        }
+        sent.push(frame);
+    }
+
+    // Then exactly the first page got through: the oldest, whole.
+    assert_eq!(sent.len(), 1);
+    let [ServerMsg::EntriesPage(first)] = sent.as_slice() else {
+        unreachable!("a jump replies in pages");
+    };
+    assert!(
+        !first.entries.is_empty(),
+        "the page that got through is whole"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_cancel_leaves_the_flag_set_for_the_reader() {
+    // Given a page's cancel flag, clear.
+    let h = harness();
+    assert!(!h.jump_cancelled.load(std::sync::atomic::Ordering::Acquire));
+
+    // When the page cancels its jump.
+    let reply = actions::cancel_jump(&h.jump_cancelled);
+
+    // Then the flag is set, and nothing is sent back.
+    assert!(h.jump_cancelled.load(std::sync::atomic::Ordering::Acquire));
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_jump_clears_a_flag_a_late_cancel_left_set() {
+    // Given a cancel that arrived after an earlier jump had finished.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 10);
+    actions::cancel_jump(&h.jump_cancelled);
+
+    // When the page jumps again, to an entry before the tail.
+    let reply = actions::jump_to_entry(&h.handle, &active_entry_id_at(&h, 0), &h.jump_cancelled);
+
+    // Then the new jump runs from a clear flag: every page gets through.
+    // The pin is the very first entry, so the jump is one page of one entry.
+    let texts = drained_texts(&reply, &h.jump_cancelled);
+    assert_eq!(texts.len(), 1);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_cancelled_jumps_pages_are_still_marked_delivered() {
+    // Given a page connected to a long history, whose jump was cancelled
+    // before it received a single page.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES * 3 + 10);
+    let _ = actions::jump_to_entry(
+        &h.handle,
+        &active_entry_id_at(&h, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2),
+        &h.jump_cancelled,
+    );
+    actions::cancel_jump(&h.jump_cancelled);
+    let _ = drain(&mut inbox);
+
+    // When a reconcile runs with the history unchanged.
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+
+    // Then none of the pages the jump marked is re-sent, though they never
+    // arrived: only entries after the target are offered, as to any page.
+    let texts = drain(&mut inbox)
+        .into_iter()
+        .filter_map(|frame| match frame {
+            ServerMsg::EntryUpsert(upsert) => Some(upsert.entry.entry_text().to_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(texts.iter().all(|t| t != "entry 400" && t != "entry 0"));
+}
+
+// --- the dash's rows, on the tick ---
+
+/// The `dash_pin_rows` frame among the frames, if one was pushed.
+fn one_pin_rows(frames: &[ServerMsg]) -> Option<&jinn_webui2_msg::DashPinRowsBody> {
+    frames.iter().find_map(|frame| match frame {
+        ServerMsg::DashPinRows(body) => Some(body.as_ref()),
+        _ => None,
+    })
+}
+
+/// The `dash_tasks` frame among the frames, if one was pushed.
+fn one_tasks(frames: &[ServerMsg]) -> Option<&jinn_webui2_msg::DashTasksBody> {
+    frames.iter().find_map(|frame| match frame {
+        ServerMsg::DashTasks(body) => Some(body.as_ref()),
+        _ => None,
+    })
+}
+
+/// The `dash_mcp_rows` frame among the frames, if one was pushed.
+fn one_mcp_rows(frames: &[ServerMsg]) -> Option<&jinn_webui2_msg::DashMcpRowsBody> {
+    frames.iter().find_map(|frame| match frame {
+        ServerMsg::DashMcpRows(body) => Some(body),
+        _ => None,
+    })
+}
+
+#[rstest::rstest]
+#[test]
+fn an_open_dash_pushes_the_session_pins_with_the_sidebar_labels() {
+    // Given a page whose dash opens, on a session that already has a user
+    // entry pinned to the top — a session the page is only now learning,
+    // not a pin toggled while it watched.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let mut pinned = ChatEntry::user("show me the weather");
+    let id = pinned.id.clone();
+    pinned.pin_position = Some(jinn_core_types::PinPosition::Top);
+    push(&h.state, pinned);
+    let _ = actions::dash_open(&h.handle);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives one pin row, labeled as the sidebar labels it.
+    let frames = drain(&mut inbox);
+    let body = one_pin_rows(&frames).expect("one dash_pin_rows frame");
+    assert_eq!(body.rows.len(), 1);
+    assert_eq!(body.rows[0].entry_id, id);
+    assert_eq!(body.rows[0].text, "[TOP] > show me the weather");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_task_list_the_session_already_holds_is_pushed_to_an_open_dash() {
+    // Given a page whose dash opens, on a session whose task list has two
+    // phases — written before the page ever saw the session.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .task_list_mut()
+        .set_from_inputs(&[
+            jinn_tools_msg::PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![
+                    ("write it".to_owned(), jinn_tools_msg::TaskStatus::Completed),
+                    ("test it".to_owned(), jinn_tools_msg::TaskStatus::Pending),
+                ],
+            },
+            jinn_tools_msg::PhaseInput {
+                description: "Ship".to_owned(),
+                tasks: vec![("release".to_owned(), jinn_tools_msg::TaskStatus::Pending)],
+            },
+        ]);
+    let _ = actions::dash_open(&h.handle);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives both phases with their tasks, and the counts.
+    let frames = drain(&mut inbox);
+    let body = one_tasks(&frames).expect("one dash_tasks frame");
+    assert_eq!(body.phases.len(), 2);
+    assert_eq!(body.phases[0].tasks.len(), 2);
+    assert_eq!(body.done, 1);
+    assert_eq!(body.total, 3);
+}
+
+#[rstest::rstest]
+#[test]
+fn dash_mcp_rows_list_the_enabled_servers_only() {
+    // Given two configured servers, one of them enabled for the session, and
+    // a page whose dash opens.
+    let h = harness();
+    seed_mcp_servers(
+        h.handle.config(),
+        &[("fs", "filesystem"), ("git", "git tools")],
+    );
+    let mut enabled = std::collections::BTreeSet::new();
+    enabled.insert("fs".to_owned());
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_enabled_mcp_servers(enabled);
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+
+    // When a tick runs.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives one MCP row: the enabled server, with its badge.
+    let frames = drain(&mut inbox);
+    let body = one_mcp_rows(&frames).expect("one dash_mcp_rows frame");
+    assert_eq!(body.rows.len(), 1);
+    assert_eq!(body.rows[0].name, "fs");
+}
+
+#[rstest::rstest]
+#[test]
+fn an_unchanged_dash_pushes_no_rows_on_the_next_tick() {
+    // Given an open dash that has already received its rows.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    crate::outbound::flush(&h.handle);
+    let _ = drain(&mut inbox);
+
+    // When a tick runs and no pin, task, or server changed.
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives no dash row frames.
+    let frames = drain(&mut inbox);
+    assert!(one_pin_rows(&frames).is_none());
+    assert!(one_tasks(&frames).is_none());
+    assert!(one_mcp_rows(&frames).is_none());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_changed_pin_set_is_pushed_to_an_open_dash() {
+    // Given an open dash that has already received its (empty) rows.
+    let h = harness();
+    let (mut inbox, _connection) = dash_page(&h);
+    let _ = actions::dash_open(&h.handle);
+    crate::outbound::flush(&h.handle);
+    let _ = drain(&mut inbox);
+
+    // When an entry is pinned while the dash is open, and a tick runs.
+    let mut pinned = ChatEntry::user("show me the weather");
+    pinned.pin_position = Some(jinn_core_types::PinPosition::Top);
+    push(&h.state, pinned);
+    crate::outbound::flush(&h.handle);
+
+    // Then the page receives the new pin row.
+    let frames = drain(&mut inbox);
+    let body = one_pin_rows(&frames).expect("one dash_pin_rows frame");
+    assert_eq!(body.rows.len(), 1);
 }

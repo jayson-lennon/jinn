@@ -106,12 +106,15 @@ fn render_manifest() -> String {
     ]
     .into_iter()
     // Seeded with an owned `String`, so each replacement is owned in turn.
-    .fold(MANIFEST_TEMPLATE.to_owned(), |manifest, (placeholder, served)| {
-        manifest.replace(
-            placeholder,
-            &format!("/vendor/{}", hashed_vendor_url(served)),
-        )
-    })
+    .fold(
+        MANIFEST_TEMPLATE.to_owned(),
+        |manifest, (placeholder, served)| {
+            manifest.replace(
+                placeholder,
+                &format!("/vendor/{}", hashed_vendor_url(served)),
+            )
+        },
+    )
 }
 
 /// `client2.js` as the hashed path the shell names it by, or its plain
@@ -456,6 +459,11 @@ async fn ws_loop(socket: WebSocket, shared: Arc<ServerShared>) {
 /// writer. A pushed frame is forwarded the same way, so it never waits on
 /// the socket. Ends when the page closes, the writer gives up, or an
 /// enqueue finds the writer gone.
+///
+/// A jump's reply is the one exception to "one at a time": it can run to
+/// hundreds of pages, so it drains as its own branch and a `CancelJump`
+/// read on this connection ends it. Every other message read while it
+/// drains waits its turn, so replies still never interleave.
 async fn read_loop(
     mut stream: futures::stream::SplitStream<WebSocket>,
     shared: Arc<ServerShared>,
@@ -474,6 +482,17 @@ async fn read_loop(
     heartbeat.reset();
     let mut gave_up_rx = std::pin::pin!(gave_up_rx);
 
+    // This connection's own cancel flag: a jump's reply is stamped with it
+    // and a cancel sets it, so a cancel on one page never reaches another's.
+    let jump_cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // The jump reply being drained, if any. While one is here it holds the
+    // connection: only a CancelJump is dispatched past it.
+    let mut drain: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+        Box::pin(std::future::pending());
+    let mut draining = false;
+    // A message read while a drain holds the connection, waiting its turn.
+    let mut held: Option<ClientMsg> = None;
+
     loop {
         tokio::select! {
             // The writer gave up, or its sender was dropped without a word:
@@ -484,6 +503,17 @@ async fn read_loop(
                     break;
                 }
             }
+            // The jump reply finished, or a cancel ended it: the pages it
+            // had not sent are dropped here, and a held message gets its turn.
+            () = &mut drain, if draining => {
+                draining = false;
+                if let Some(msg) = held.take() {
+                    let reply = interpret(msg, &shared, &jump_cancelled).await;
+                    if deliver(reply, &frames_tx, &mut drain, &mut draining).await.is_err() {
+                        break;
+                    }
+                }
+            }
             inbound = stream.next() => {
                 let Some(Ok(message)) = inbound else {
                     break;
@@ -491,20 +521,29 @@ async fn read_loop(
                 let Message::Text(text) = message else {
                     continue;
                 };
-                let reply = match serde_json::from_str::<ClientMsg>(&text) {
-                    Ok(msg @ ClientMsg::Hello { .. }) => {
-                        crate::health::timed_hello(&shared.health, || {
-                            protocol::dispatch(msg, &shared.outbound)
-                        })
-                        .await
+                let Ok(msg) = serde_json::from_str::<ClientMsg>(&text) else {
+                    // A frame that is not a message is answered at once.
+                    // While a drain holds the connection it is dropped:
+                    // it names nothing to hold, and the page that sent
+                    // garbage mid-jump has its answer coming anyway.
+                    if !draining {
+                        let reply = crate::actions::malformed();
+                        if deliver(reply, &frames_tx, &mut drain, &mut draining)
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
                     }
-                    Ok(msg) => protocol::dispatch(msg, &shared.outbound).await,
-                    Err(_) => crate::actions::malformed(),
+                    continue;
                 };
-                for frame in reply.frames {
-                    if frames_tx.send(frame).await.is_err() {
-                        return;
-                    }
+                if draining && !matches!(msg, ClientMsg::CancelJump) {
+                    held = Some(msg);
+                    continue;
+                }
+                let reply = interpret(msg, &shared, &jump_cancelled).await;
+                if deliver(reply, &frames_tx, &mut drain, &mut draining).await.is_err() {
+                    break;
                 }
             }
             frame = pushed.recv() => {
@@ -521,6 +560,68 @@ async fn read_loop(
     // the page, and the row stops counting it.
     shared.health.disconnected();
     shared.health.publish().await;
+}
+
+/// Reads one client message into the reply it asks for. A `Hello` is
+/// timed, as it is the page's first word and its latency is the load.
+async fn interpret(
+    msg: ClientMsg,
+    shared: &ServerShared,
+    jump_cancelled: &Arc<std::sync::atomic::AtomicBool>,
+) -> protocol::Reply {
+    match msg {
+        msg @ ClientMsg::Hello { .. } => {
+            crate::health::timed_hello(&shared.health, || {
+                protocol::dispatch(msg, &shared.outbound, jump_cancelled)
+            })
+            .await
+        }
+        msg => protocol::dispatch(msg, &shared.outbound, jump_cancelled).await,
+    }
+}
+
+/// Hands a reply to the writer. Every reply but a jump's is sent here and
+/// now, in order. A jump's becomes the drain: one page at a time, each
+/// checked against the cancel flag before it is sent, so a cancel stops
+/// the pages the page has not yet received.
+///
+/// Each page reserves its slot before it has a frame to lose: a cancelled
+/// `reserve` only loses its place in the queue, and the send that follows
+/// it is synchronous, so a page is either handed over whole or not started.
+/// The flag is read a second time once the slot is held, because a drain
+/// parked on a full channel cannot see a cancel until the writer makes
+/// room — and the page it was waiting to send must not go out anyway.
+async fn deliver(
+    reply: protocol::Reply,
+    frames_tx: &tokio::sync::mpsc::Sender<ServerMsg>,
+    drain: &mut std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+    draining: &mut bool,
+) -> Result<(), tokio::sync::mpsc::error::SendError<ServerMsg>> {
+    use std::sync::atomic::Ordering;
+
+    let Some(cancel_flag) = reply.cancel_flag else {
+        for frame in reply.frames {
+            frames_tx.send(frame).await?;
+        }
+        return Ok(());
+    };
+    let frames_tx = frames_tx.clone();
+    *drain = Box::pin(async move {
+        for frame in reply.frames {
+            if cancel_flag.load(Ordering::Acquire) {
+                break;
+            }
+            let Ok(permit) = frames_tx.reserve().await else {
+                return;
+            };
+            if cancel_flag.load(Ordering::Acquire) {
+                break;
+            }
+            permit.send(frame);
+        }
+    });
+    *draining = true;
+    Ok(())
 }
 
 /// The writer: every frame it is handed, each under the stall budget.
@@ -576,6 +677,9 @@ mod attachment_route_tests {
                 &jinn_provider_selection_msg::provider_state_slot(),
             )
             .expect("the catalog registers the provider slot");
+        let work_time_cell = slices
+            .reader::<jinn_work_time_msg::WorkingTimeState>(&jinn_work_time_msg::work_time_slot())
+            .expect("the catalog registers the work-time slot");
         let personas_cell = slices
             .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
             .expect("the catalog registers the persona slot");
@@ -612,6 +716,7 @@ mod attachment_route_tests {
                 config: services.config.clone(),
                 services,
                 provider_cell,
+                work_time_cell,
                 personas_cell,
                 mcp_runtime_cell,
                 applets_catalog_cell,
@@ -1159,6 +1264,7 @@ mod router_tests {
     use super::*;
     use crate::server::attachment_route_tests::shared;
     use axum::body::to_bytes;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tower::ServiceExt as _;
 
     /// Builds the full router over `shared` and issues a GET through
@@ -1350,5 +1456,105 @@ mod router_tests {
         // Then it answers the serving binary's version as JSON.
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(body_text(response).await, "{\"version\":\"test\"}");
+    }
+
+    // --- draining a jump, and cancelling it ---
+
+    /// A jump's reply of `pages` one-entry pages, each projected by the
+    /// real pager, stamped with `flag`.
+    fn jump_reply(pages: usize, flag: &Arc<AtomicBool>) -> protocol::Reply {
+        protocol::Reply {
+            frames: (0..pages)
+                .map(|n| {
+                    let history = [ChatEntry::user(format!("page {n}"))];
+                    let window = crate::page::tail(&history);
+                    ServerMsg::EntriesPage(Box::new(jinn_webui2_msg::EntriesPageBody {
+                        session_id: SessionId::new(),
+                        entries: window.entries,
+                        entries_before: window.entries_before,
+                    }))
+                })
+                .collect(),
+            cancel_flag: Some(Arc::clone(flag)),
+        }
+    }
+
+    /// The entries that came through a channel, as their texts.
+    fn received(rx: &mut tokio::sync::mpsc::Receiver<ServerMsg>) -> Vec<String> {
+        let mut texts = Vec::new();
+        while let Ok(ServerMsg::EntriesPage(page)) = rx.try_recv() {
+            let Some(first) = page.entries.first() else {
+                continue;
+            };
+            texts.push(first.entry_text().to_owned());
+        }
+        texts
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_cancel_reaches_a_drain_parked_on_a_full_channel() {
+        // Given a jump of three pages draining into a channel that holds one,
+        // with nobody reading: the first page fills it and the drain parks.
+        let flag = Arc::new(AtomicBool::new(false));
+        let (frames_tx, mut frames_rx) = tokio::sync::mpsc::channel(1);
+        let mut drain: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+            Box::pin(std::future::pending());
+        let mut draining = false;
+        deliver(jump_reply(3, &flag), &frames_tx, &mut drain, &mut draining)
+            .await
+            .expect("the writer is alive");
+        let parked = tokio::spawn(drain);
+        tokio::task::yield_now().await;
+
+        // When a cancel lands while it is parked, and the writer then makes
+        // room by taking the first page — the sequence a slow link produces.
+        flag.store(true, Ordering::Release);
+        tokio::task::yield_now().await;
+        let first = frames_rx.recv().await;
+        tokio::task::yield_now().await;
+
+        // Then the drain ends, and the page it was parked on is not sent:
+        // only the one the writer had already taken ever reached the channel.
+        tokio::time::timeout(Duration::from_secs(1), parked)
+            .await
+            .expect("the parked drain ends on a cancel")
+            .expect("the drain task joins");
+        assert!(matches!(first, Some(ServerMsg::EntriesPage(_))));
+        assert_eq!(received(&mut frames_rx), Vec::<String>::new());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_drain_without_a_cancel_sends_every_page() {
+        // Given a jump of three pages draining into a channel that holds one.
+        let flag = Arc::new(AtomicBool::new(false));
+        let (frames_tx, mut frames_rx) = tokio::sync::mpsc::channel(1);
+        let mut drain: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+            Box::pin(std::future::pending());
+        let mut draining = false;
+        deliver(jump_reply(3, &flag), &frames_tx, &mut drain, &mut draining)
+            .await
+            .expect("the writer is alive");
+
+        // When the reader takes each page as it arrives, to the end.
+        let all = tokio::spawn(drain);
+        let mut texts = Vec::new();
+        for _ in 0..3 {
+            let Some(ServerMsg::EntriesPage(page)) = frames_rx.recv().await else {
+                break;
+            };
+            let Some(first) = page.entries.first() else {
+                continue;
+            };
+            texts.push(first.entry_text().to_owned());
+        }
+        tokio::time::timeout(Duration::from_secs(1), all)
+            .await
+            .expect("the drain finishes")
+            .expect("the drain task joins");
+
+        // Then every page arrives, in order.
+        assert_eq!(texts, ["page 0", "page 1", "page 2"]);
     }
 }

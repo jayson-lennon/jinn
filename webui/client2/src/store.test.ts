@@ -7,8 +7,9 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { apply, belongsToViewedSession, createStore, isBusy, type ClientStore } from './store';
+import { cancelJump, clearJump, jumpToEntry } from './dash';
 import { BUNDLE_PROTOCOL_VERSION, setReload } from './protocol_version';
-import type { EntryEnvelope, Phase, PromptTemplate, ServerMsg, SessionRow } from './protocol';
+import type { ClientMsg, EntryEnvelope, Phase, PromptTemplate, ServerMsg, SessionRow } from './protocol';
 
 /** Awaits the microtask a store write needs before it can be read back. */
 async function settled(): Promise<void> {
@@ -44,6 +45,7 @@ function snapshot(overrides: Partial<Extract<ServerMsg, { type: 'snapshot' }>> =
     model_label: 'model',
     title: 'Title',
     persona: 'persona',
+    context_label: '',
     revision: 1,
     entries: [],
     entries_before: 0,
@@ -73,6 +75,7 @@ describe('snapshot', () => {
       model_label: 'sonnet',
       title: 'A title',
       persona: 'reviewer',
+      context_label: '41.2k/200k',
       revision: 7,
       entries: [entry('e1')],
       entries_before: 40,
@@ -89,6 +92,7 @@ describe('snapshot', () => {
     expect(s.modelLabel).toBe('sonnet');
     expect(s.title).toBe('A title');
     expect(s.persona).toBe('reviewer');
+    expect(s.contextLabel).toBe('41.2k/200k');
     expect(s.revision).toBe(7);
     expect(s.entries.map((e) => e.entry.id)).toEqual(['e1']);
     expect(s.entriesBefore).toBe(40);
@@ -149,19 +153,35 @@ describe('snapshot', () => {
     expect(store.state.chips).toHaveLength(1);
   });
 
-  it('clears the context figure, which the snapshot does not carry', async () => {
-    // Given a context figure from the previous session's tick.
+  it('lands the context figure the snapshot carries', async () => {
+    // Given a page showing a previous session's figure.
     const store = createStore();
     store.set((s) => {
       s.contextLabel = '41%';
     });
     await settled();
 
-    // When a snapshot lands.
-    apply(store, snapshot());
+    // When a snapshot for an idle session lands, carrying its own figure.
+    apply(store, snapshot({ session_id: 's2', context_label: '0/200k' }));
     await settled();
 
-    // Then the figure is cleared, so the old one never lingers.
+    // Then the bar shows the snapshot's figure at once, with no tick needed.
+    expect(store.state.contextLabel).toBe('0/200k');
+  });
+
+  it('shows an empty figure when the snapshot is for no session', async () => {
+    // Given a page showing a previous session's figure.
+    const store = createStore();
+    store.set((s) => {
+      s.contextLabel = '41%';
+    });
+    await settled();
+
+    // When a snapshot for no active session lands.
+    apply(store, snapshot({ session_id: null, context_label: '' }));
+    await settled();
+
+    // Then the bar is empty, so the old figure never lingers.
     expect(store.state.contextLabel).toBe('');
   });
 
@@ -524,5 +544,280 @@ describe('isBusy', () => {
 
     // Then only Idle is not.
     expect(yes).toBe(busy);
+  });
+});
+
+// --- the dash ---
+
+function sessionStats(
+  overrides: Partial<Extract<ServerMsg, { type: 'session_stats' }>> = {},
+): Extract<ServerMsg, { type: 'session_stats' }> {
+  return {
+    type: 'session_stats',
+    session_id: 's1',
+    cwd: '/proj',
+    cache_hit_percent: 97,
+    tokens_sent: '1.2k',
+    tokens_received: '3.4k',
+    context_label: '12.3k / 200k (6%)',
+    cost: '$0.00123',
+    turn_count: 4,
+    working: '00:01:02',
+    model: '(openai)/gpt',
+    tree: null,
+    ...overrides,
+  };
+}
+
+describe('the dash', () => {
+  it('lands the session statistics in the dash', async () => {
+    // Given a page viewing s1 with no statistics.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When the statistics arrive.
+    apply(store, sessionStats());
+    await settled();
+
+    // Then the dash holds the figures the frame carried.
+    expect(store.state.dashStats).toMatchObject({ turn_count: 4, working: '00:01:02', tree: null });
+  });
+
+  it('lands the pin rows in the dash', async () => {
+    // Given a page viewing s1.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When the pin rows arrive.
+    apply(store, { type: 'dash_pin_rows', session_id: 's1', rows: [{ entry_id: 'e7', text: '[TOP] > hi' }] });
+    await settled();
+
+    // Then the dash holds the one pin.
+    expect(store.state.dashPins).toEqual([{ entry_id: 'e7', text: '[TOP] > hi' }]);
+  });
+
+  it('lands the task list in the dash', async () => {
+    // Given a page viewing s1.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When the task list arrives.
+    apply(store, {
+      type: 'dash_tasks',
+      session_id: 's1',
+      phases: [{ description: 'Build', is_active: true, has_pending_work: true, tasks: [{ description: 'write', status: 'Pending' }] }],
+      done: 0,
+      total: 1,
+    });
+    await settled();
+
+    // Then the dash holds the one phase and the counts.
+    expect(store.state.dashTasks).toMatchObject({ done: 0, total: 1, phases: [{ description: 'Build', is_active: true }] });
+  });
+
+  it('lands the enabled MCP rows in the dash', async () => {
+    // Given a page viewing s1.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When the MCP rows arrive.
+    apply(store, { type: 'dash_mcp_rows', session_id: 's1', rows: [{ name: 'fs', badge: 'running' }] });
+    await settled();
+
+    // Then the dash holds the one server with its badge.
+    expect(store.state.dashMcp).toEqual([{ name: 'fs', badge: 'running' }]);
+  });
+
+  it('drops the statistics for a session the page has left', async () => {
+    // Given a page viewing s1.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When s2's statistics arrive.
+    apply(store, sessionStats({ session_id: 's2' }));
+    await settled();
+
+    // Then the dash holds nothing.
+    expect(store.state.dashStats).toBeNull();
+  });
+
+  it('drops the pin rows for a session the page has left', async () => {
+    // Given a page viewing s1.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When s2's pin rows arrive.
+    apply(store, { type: 'dash_pin_rows', session_id: 's2', rows: [{ entry_id: 'e7', text: 'x' }] });
+    await settled();
+
+    // Then the dash holds no pins.
+    expect(store.state.dashPins).toEqual([]);
+  });
+
+  it('closes the dash on a snapshot', async () => {
+    // Given an open dash.
+    const store = createStore();
+    store.set((s) => {
+      s.dashOpen = true;
+    });
+    await settled();
+
+    // When a snapshot lands.
+    apply(store, snapshot());
+    await settled();
+
+    // Then the dash is closed.
+    expect(store.state.dashOpen).toBe(false);
+  });
+
+  it('drops the dash facts on a snapshot', async () => {
+    // Given a dash holding statistics, pins, tasks and servers.
+    const store = createStore();
+    apply(store, sessionStats());
+    apply(store, { type: 'dash_pin_rows', session_id: 's1', rows: [{ entry_id: 'e7', text: 'x' }] });
+    apply(store, { type: 'dash_mcp_rows', session_id: 's1', rows: [{ name: 'fs', badge: 'running' }] });
+    await settled();
+
+    // When a snapshot lands.
+    apply(store, snapshot());
+    await settled();
+
+    // Then the dash holds none of it.
+    expect(store.state.dashStats).toBeNull();
+    expect(store.state.dashPins).toEqual([]);
+    expect(store.state.dashMcp).toEqual([]);
+  });
+
+  it('drops a pending jump on a snapshot', async () => {
+    // Given a transcript waiting on a jump to e7.
+    const store = createStore();
+    store.set((s) => {
+      s.jumpTarget = 'e7';
+    });
+    await settled();
+
+    // When a snapshot lands.
+    apply(store, snapshot());
+    await settled();
+
+    // Then no jump is pending.
+    expect(store.state.jumpTarget).toBeNull();
+  });
+
+  it('drops a pending jump when the server refuses it', async () => {
+    // Given a transcript waiting on a jump to e7.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    store.set((s) => {
+      s.jumpTarget = 'e7';
+    });
+    await settled();
+
+    // When the refusal arrives.
+    apply(store, { type: 'error', message: 'no such entry' });
+    await settled();
+
+    // Then no jump is pending.
+    expect(store.state.jumpTarget).toBeNull();
+  });
+
+  it('raises navigating while a jump is under way', async () => {
+    // Given a page viewing a session.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When a pin is tapped.
+    jumpToEntry(store, () => {}, 'e7');
+    await settled();
+
+    // Then the page is navigating.
+    expect(store.state.navigating).toBe(true);
+  });
+
+  it('clears navigating when the jump lands', async () => {
+    // Given a page waiting on a jump to e7.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    jumpToEntry(store, () => {}, 'e7');
+    await settled();
+
+    // When the transcript reaches the entry.
+    clearJump(store);
+    await settled();
+
+    // Then the page is no longer navigating.
+    expect(store.state.navigating).toBe(false);
+  });
+
+  it('clears navigating when the server refuses the jump', async () => {
+    // Given a page waiting on a jump to e7.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    jumpToEntry(store, () => {}, 'e7');
+    await settled();
+
+    // When the refusal arrives.
+    apply(store, { type: 'error', message: 'no such entry' });
+    await settled();
+
+    // Then the page is no longer navigating: the overlay must not hang.
+    expect(store.state.navigating).toBe(false);
+  });
+
+  it('clears navigating on a snapshot', async () => {
+    // Given a page waiting on a jump to e7.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    jumpToEntry(store, () => {}, 'e7');
+    await settled();
+
+    // When a session switch lands a new snapshot.
+    apply(store, snapshot({ session_id: 's2' }));
+    await settled();
+
+    // Then the page is no longer navigating.
+    expect(store.state.navigating).toBe(false);
+  });
+
+  it('a cancel clears the jump and closes the overlay', async () => {
+    // Given a page waiting on a jump to e7.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    jumpToEntry(store, () => {}, 'e7');
+    await settled();
+
+    // When the page cancels it.
+    cancelJump(store, () => {});
+    await settled();
+
+    // Then the jump is no longer pending, and the page is not navigating.
+    expect(store.state.jumpTarget).toBeNull();
+    expect(store.state.navigating).toBe(false);
+  });
+
+  it('a cancel tells the server to stop the jump', async () => {
+    // Given a page waiting on a jump to e7, with a recording socket.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    const sent: ClientMsg[] = [];
+    const send = (msg: ClientMsg): void => {
+      sent.push(msg);
+    };
+    jumpToEntry(store, send, 'e7');
+    await settled();
+
+    // When the page cancels it.
+    cancelJump(store, send);
+    await settled();
+
+    // Then the server is told to cancel.
+    expect(sent[1]).toEqual({ type: 'cancel_jump' });
   });
 });

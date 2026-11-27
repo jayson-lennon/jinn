@@ -351,3 +351,487 @@ fn call_label(name: &str) -> PinRowLabel {
         name: name.to_owned(),
     }
 }
+
+impl PinDisplayRow {
+    /// The position badge every pins section shows before a row's text:
+    /// `[TOP]`, `[BOT]`, or `[REL]`.
+    #[must_use]
+    pub fn badge_text(&self) -> &'static str {
+        match self.position {
+            PinPosition::Top => "[TOP]",
+            PinPosition::Bottom => "[BOT]",
+            PinPosition::Relative => "[REL]",
+        }
+    }
+
+    /// The kind prefix and the truncated content for this row, exactly as
+    /// the terminal sidebar's pins section builds them — `> ` for a user
+    /// entry, `\u{2666} ` for an assistant reply, `\u{2692} ` for a tool
+    /// call, and so on, each cut to the section's own width.
+    ///
+    /// `kind` is the entry's kind for a [`PinRowLabel::Verbatim`] row; `None`
+    /// when the entry is no longer in the history, which reads as an empty
+    /// preview. Tool rows (`Result`, `SkillResult`, `Call`) are labeled from
+    /// the row alone and never consult `kind`.
+    #[must_use]
+    pub fn prefix_and_content(&self, kind: Option<&ChatEntryKind>) -> (&'static str, String) {
+        entry_prefix_and_content(kind, &self.label)
+    }
+
+    /// One line of text, exactly as the terminal sidebar's pins section
+    /// labels it: the position badge, a space, the kind prefix, and the
+    /// truncated content. The web dash's pin rows are built from this.
+    #[must_use]
+    pub fn label_text(&self, kind: Option<&ChatEntryKind>) -> String {
+        let (prefix, content) = self.prefix_and_content(kind);
+        format!("{} {prefix}{content}", self.badge_text())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Label rendering — shared by every surface that shows a pins row
+// ---------------------------------------------------------------------------
+
+/// Returns the display prefix and truncated content for a display row.
+///
+/// `kind` is the resolved entry kind for `Verbatim` rows (or `None` when the
+/// entry no longer exists in history, which renders as an empty preview).
+/// Tool rows (`Result`/`SkillResult`/`Call`) assemble their text from the
+/// label and carry no kind prefix (`⚒` for a call).
+fn entry_prefix_and_content(
+    kind: Option<&ChatEntryKind>,
+    label: &PinRowLabel,
+) -> (&'static str, String) {
+    match label {
+        PinRowLabel::Verbatim => match kind {
+            Some(resolved) => verbatim_prefix_and_content(resolved),
+            None => ("", String::new()),
+        },
+        PinRowLabel::Result {
+            name,
+            content,
+            success,
+        } => {
+            let icon = if *success { "✓" } else { "✗" };
+            (
+                "",
+                format!(
+                    "{} {}: {}",
+                    icon,
+                    truncate_str(name, 15),
+                    truncate_str(content, 20)
+                ),
+            )
+        }
+        PinRowLabel::SkillResult { content } => ("", truncate_str(content, 40)),
+        PinRowLabel::Call { name } => ("\u{2692} ", format!("{}(...)", truncate_str(name, 20))),
+    }
+}
+
+/// The per-kind prefix and content a `Verbatim` row shows, exactly as
+/// the sidebar has always rendered non-tool entries.
+fn verbatim_prefix_and_content(kind: &ChatEntryKind) -> (&'static str, String) {
+    match kind {
+        ChatEntryKind::User { display, .. } => ("> ", truncate_str(display, 40)),
+        ChatEntryKind::Assistant(text) => ("\u{2666} ", truncate_str(text, 40)),
+        ChatEntryKind::System(text) => ("\u{2699} ", truncate_str(text, 40)),
+        ChatEntryKind::Error(text) => ("\u{26a0} ", truncate_str(text, 40)),
+        ChatEntryKind::Actor { source, text } => {
+            let content = format!("[{}] {}", source, truncate_str(text, 30));
+            ("", content)
+        }
+        // Inter-session mail is self-describing: the text already carries the
+        // sender's attribution, so the preview is the text alone.
+        ChatEntryKind::Intersession { text, .. } => ("", truncate_str(text, 25)),
+        // Table entries, annotations, and tool kinds are not shown in the
+        // pinned panel summary. Tool kinds on a Verbatim row cannot occur:
+        // the projection labels every tool result/call with a tool label
+        // variant.
+        ChatEntryKind::Compaction { .. }
+        | ChatEntryKind::Annotation { .. }
+        | ChatEntryKind::ToolCall { .. }
+        | ChatEntryKind::ToolResult { .. } => ("", String::new()),
+        // Rule guidance shows the rule that fired, not the guidance body.
+        ChatEntryKind::RuleInterrupt { rule, .. } => ("\u{26a1} ", truncate_str(rule, 40)),
+        // Thinking entries are not shown in the pinned panel summary.
+        ChatEntryKind::Thinking(text) => ("", truncate_str(text, 40)),
+
+        ChatEntryKind::Transient(s) => ("\u{2139} ", truncate_str(s, 40)),
+    }
+}
+
+/// Truncates a string to the given max grapheme length, appending an ellipsis if needed.
+/// Truncate a string to at most `max_width` display columns, appending \u{2026} if truncated.
+///
+/// Uses `unicode_width` to measure each grapheme's display width. Wide characters
+/// (emoji, CJK) that would overflow the budget are skipped entirely rather than
+/// rendered partially.
+/// Truncates a string to the given max display width, appending an ellipsis
+/// if needed. The terminal sidebar clamps an assembled label to its cell
+/// budget with this; the label itself is already truncated to the section's
+/// own widths.
+#[must_use]
+pub fn truncate_to_width(s: &str, max_width: usize) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    use unicode_width::UnicodeWidthStr;
+
+    let s_width = UnicodeWidthStr::width(s);
+    if s_width <= max_width {
+        return s.to_owned();
+    }
+
+    // Zero budget: no room for anything, not even an ellipsis.
+    if max_width == 0 {
+        return String::new();
+    }
+
+    // Walk graphemes, accumulating display width.
+    // Stop before a grapheme that would overflow the budget
+    // (leaving room for the ellipsis).
+    let ellipsis_width = 1; // \u{2026} is 1 cell
+    let target_width = max_width.saturating_sub(ellipsis_width);
+
+    let mut accumulated = 0usize;
+    let mut result = String::new();
+    for g in s.graphemes(true) {
+        let gw = UnicodeWidthStr::width(g);
+        if accumulated + gw > target_width {
+            break;
+        }
+        result.push_str(g);
+        accumulated += gw;
+    }
+    result.push('\u{2026}');
+    result
+}
+
+/// Strip ANSI escape sequences and truncate to at most `max_width` display columns.
+fn truncate_str(s: &str, max_width: usize) -> String {
+    truncate_to_width(&strip_ansi_escapes::strip_str(s), max_width)
+}
+
+#[cfg(test)]
+mod label_text_tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        reason = "test assertions need expect, and a let-else on a known label is unreachable by construction"
+    )]
+    use super::*;
+
+    /// A Verbatim row at the given position.
+    fn verbatim(position: PinPosition) -> PinDisplayRow {
+        PinDisplayRow {
+            entry_id: ChatEntryId::new(),
+            position,
+            label: PinRowLabel::Verbatim,
+        }
+    }
+
+    /// The label a row gives an entry.
+    fn label(row: &PinDisplayRow, entry: &ChatEntry) -> String {
+        row.label_text(Some(&entry.kind))
+    }
+
+    #[rstest::rstest]
+    #[case::top(PinPosition::Top, "[TOP]")]
+    #[case::bottom(PinPosition::Bottom, "[BOT]")]
+    #[case::relative(PinPosition::Relative, "[REL]")]
+    fn label_starts_with_the_position_badge(#[case] position: PinPosition, #[case] badge: &str) {
+        // Given a pinned user entry.
+        let entry = ChatEntry::user("hello");
+
+        // When labeling it at that position.
+        let text = label(&verbatim(position), &entry);
+
+        // Then the label starts with the position's badge.
+        assert!(text.starts_with(badge), "got {text:?}");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn user_entry_is_labeled_with_a_caret_and_its_display_text() {
+        // Given a pinned user entry.
+        let entry = ChatEntry::user("show me the weather");
+
+        // When labeling it.
+        let text = label(&verbatim(PinPosition::Top), &entry);
+
+        // Then the label is the badge, the user prefix, and the text.
+        assert_eq!(text, "[TOP] > show me the weather");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn assistant_entry_is_labeled_with_a_diamond_and_its_text() {
+        // Given a pinned assistant entry.
+        let entry = ChatEntry::assistant("the sky is clear");
+
+        // When labeling it.
+        let text = label(&verbatim(PinPosition::Top), &entry);
+
+        // Then the label is the badge, the assistant prefix, and the text.
+        assert_eq!(text, "[TOP] \u{2666} the sky is clear");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn system_entry_is_labeled_with_the_gear_and_its_text() {
+        // Given a pinned system entry.
+        let entry = ChatEntry::system("compact mode on");
+
+        // When labeling it.
+        let text = label(&verbatim(PinPosition::Top), &entry);
+
+        // Then the label is the badge, the system prefix, and the text.
+        assert_eq!(text, "[TOP] \u{2699} compact mode on");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn error_entry_is_labeled_with_the_warning_sign_and_its_text() {
+        // Given a pinned error entry.
+        let entry = ChatEntry::error("rate limited");
+
+        // When labeling it.
+        let text = label(&verbatim(PinPosition::Top), &entry);
+
+        // Then the label is the badge, the error prefix, and the text.
+        assert!(text.starts_with("[TOP] \u{26A0} "), "got {text:?}");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn transient_entry_is_labeled_with_the_info_mark_and_its_text() {
+        // Given a pinned transient entry.
+        let entry = ChatEntry::transient("note to self");
+
+        // When labeling it.
+        let text = label(&verbatim(PinPosition::Top), &entry);
+
+        // Then the label is the badge, the transient prefix, and the text.
+        assert_eq!(text, "[TOP] \u{2139} note to self");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn long_text_is_cut_to_forty_columns_with_an_ellipsis() {
+        // Given a user entry sixty characters long.
+        let entry = ChatEntry::user("x".repeat(60));
+
+        // When labeling it.
+        let text = label(&verbatim(PinPosition::Top), &entry);
+
+        // Then the content is 40 columns wide, ending in an ellipsis.
+        let content = text.strip_prefix("[TOP] > ").expect("the label's prefix");
+        assert_eq!(content.chars().count(), 40);
+        assert!(content.ends_with('\u{2026}'));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn tool_call_row_is_labeled_with_the_hammer_and_the_truncated_name() {
+        // Given a row for a tool call named "read_file".
+        let row = PinDisplayRow {
+            entry_id: ChatEntryId::new(),
+            position: PinPosition::Relative,
+            label: PinRowLabel::Call {
+                name: "read_file".to_owned(),
+            },
+        };
+
+        // When labeling it.
+        let text = row.label_text(None);
+
+        // Then the label is the badge, the hammer, and the name.
+        assert_eq!(text, "[REL] \u{2692} read_file(...)");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn successful_result_row_shows_a_check_and_the_result() {
+        // Given a row for a successful tool result.
+        let row = PinDisplayRow {
+            entry_id: ChatEntryId::new(),
+            position: PinPosition::Relative,
+            label: PinRowLabel::Result {
+                name: "read".to_owned(),
+                content: "file body".to_owned(),
+                success: true,
+            },
+        };
+
+        // When labeling it.
+        let text = row.label_text(None);
+
+        // Then the label is the badge, a check, and name: content.
+        assert_eq!(text, "[REL] ✓ read: file body");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn failed_result_row_shows_a_cross_and_the_result() {
+        // Given a row for a failed tool result.
+        let row = PinDisplayRow {
+            entry_id: ChatEntryId::new(),
+            position: PinPosition::Relative,
+            label: PinRowLabel::Result {
+                name: "bash".to_owned(),
+                content: "exit 1".to_owned(),
+                success: false,
+            },
+        };
+
+        // When labeling it.
+        let text = row.label_text(None);
+
+        // Then the label is the badge, a cross, and name: content.
+        assert_eq!(text, "[REL] ✗ bash: exit 1");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn skill_result_row_is_labeled_with_its_content_only() {
+        // Given a row for a skill's result.
+        let row = PinDisplayRow {
+            entry_id: ChatEntryId::new(),
+            position: PinPosition::Bottom,
+            label: PinRowLabel::SkillResult {
+                content: "3 matches found".to_owned(),
+            },
+        };
+
+        // When labeling it.
+        let text = row.label_text(None);
+
+        // Then the label is the badge and the content, with no prefix.
+        assert_eq!(text, "[BOT] 3 matches found");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn missing_entry_reads_as_an_empty_preview() {
+        // Given a Verbatim row whose entry is no longer in the history.
+        let row = verbatim(PinPosition::Top);
+
+        // When labeling it without a kind.
+        let text = row.label_text(None);
+
+        // Then the label is the badge alone.
+        assert_eq!(text, "[TOP] ");
+    }
+}
+
+#[cfg(test)]
+mod truncation_tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::indexing_slicing,
+        reason = "test code"
+    )]
+
+    use super::truncate_str;
+    use super::truncate_to_width;
+
+    #[rstest::rstest]
+    fn truncate_to_width_returns_string_unchanged_when_it_fits() {
+        // Given a string that fits within the budget.
+
+        // When truncating to the budget.
+        let result = truncate_to_width("hello", 10);
+
+        // Then it is returned unchanged.
+        assert_eq!(result, "hello");
+    }
+
+    #[rstest::rstest]
+    fn truncate_to_width_truncates_ascii_and_appends_ellipsis() {
+        // Given a string that exceeds the budget.
+
+        // When truncating to the budget.
+        let result = truncate_to_width("hello world", 5);
+
+        // Then it is truncated to fit with an ellipsis.
+        assert_eq!(result, "hell\u{2026}");
+    }
+
+    #[rstest::rstest]
+    fn truncate_to_width_fits_double_wide_char_within_budget() {
+        // Given a string with a double-wide char that fits.
+
+        // When truncating to the budget.
+        let result = truncate_to_width("\u{2705} ok", 10);
+
+        // Then it is returned unchanged (2+1+2=5 <= 10).
+        assert_eq!(result, "\u{2705} ok");
+    }
+
+    #[rstest::rstest]
+    fn truncate_to_width_skips_wide_char_at_boundary() {
+        // Given a string where a 2-cell char would overflow the budget.
+
+        // When truncating to the budget.
+        let result = truncate_to_width("ab\u{2705}", 3);
+
+        // Then the wide char is skipped and ellipsis is appended.
+        assert_eq!(result, "ab\u{2026}");
+    }
+
+    #[rstest::rstest]
+    fn truncate_to_width_fits_wide_char_exactly() {
+        // Given a string where a wide char fills the budget exactly.
+
+        // When truncating to the budget.
+        let result = truncate_to_width("a\u{2705}b", 4);
+
+        // Then it is returned unchanged (1+2+1=4).
+        assert_eq!(result, "a\u{2705}b");
+    }
+
+    #[rstest::rstest]
+    fn truncate_to_width_only_wide_chars_budget_one() {
+        // Given only wide chars with a budget of 1.
+
+        // When truncating to the budget.
+        let result = truncate_to_width("\u{2705}\u{274c}", 1);
+
+        // Then only the ellipsis fits.
+        assert_eq!(result, "\u{2026}");
+    }
+
+    #[rstest::rstest]
+    fn truncate_to_width_empty_string_returns_empty() {
+        // Given an empty string.
+
+        // When truncating to the budget.
+        let result = truncate_to_width("", 5);
+
+        // Then it is returned unchanged.
+        assert_eq!(result, "");
+    }
+
+    #[rstest::rstest]
+    fn truncate_to_width_zero_budget_returns_empty() {
+        // Given a non-empty string with zero budget.
+
+        // When truncating to the budget.
+        let result = truncate_to_width("hello", 0);
+
+        // Then an empty string is returned (no room for anything).
+        assert_eq!(result, "");
+    }
+
+    #[rstest::rstest]
+    fn truncate_str_strips_ansi_before_truncating() {
+        // Given a string with ANSI escape codes.
+
+        // When truncating to the budget.
+        let result = truncate_str("\x1b[31mhello\x1b[0m", 3);
+
+        // Then ANSI is stripped and the plain text is truncated.
+        assert_eq!(result, "he\u{2026}");
+    }
+}

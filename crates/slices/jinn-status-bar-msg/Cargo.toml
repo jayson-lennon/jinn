@@ -9,14 +9,19 @@ jinn-slices = { workspace = true }
 # the model cache for the window. Shared by the terminal status bar and the web UI.
 jinn-session-state = { workspace = true }
 jinn-provider-config = { workspace = true }
+# The session statistics read the token ledger's sums and the reasoning
+# effort, and shorten the session's cwd for display. All pure functions over
+# data the caller hands in.
+jinn-token-count-msg = { workspace = true }
+jinn-provider-selection-msg = { workspace = true }
+jinn-common = { workspace = true }
+# The working time a session's statistics are measured over is a jiff duration.
+jiff = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
 # The figure's tests stamp a token record with a real timestamp.
-jiff = { workspace = true }
 rstest = { workspace = true }
-# The ledger-fallback tests push real token records.
-jinn-token-count-msg = { workspace = true }
 
 [lints]
 workspace = true

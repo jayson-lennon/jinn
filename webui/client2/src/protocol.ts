@@ -178,6 +178,65 @@ export interface McpRow {
   description_runs: TextRun[];
 }
 
+/** A task's status, in the task vocabulary's own wire words. */
+export type TaskStatus = 'Pending' | 'Completed' | 'Deferred' | 'Cancelled';
+
+/** The whole session tree's totals; sent only while the tree has more than one session. */
+export interface TreeStats {
+  session_count: number;
+  cache_hit_percent: number | null;
+  tokens_sent: string;
+  tokens_received: string;
+  cost: string;
+  turn_count: number;
+  working: string;
+}
+
+/** Every figure the terminal status bar shows for the session, pre-formatted.
+ *  The wire frame adds `session_id`; the page keeps only the figures. */
+export interface SessionStats {
+  cwd: string;
+  cache_hit_percent: number | null;
+  tokens_sent: string;
+  tokens_received: string;
+  context_label: string;
+  cost: string;
+  turn_count: number;
+  working: string;
+  model: string;
+  tree: TreeStats | null;
+}
+
+/** One pinned entry, labeled as the terminal sidebar labels it. */
+export interface DashPinRow {
+  entry_id: string;
+  text: string;
+}
+
+export interface DashTaskRow {
+  description: string;
+  status: TaskStatus;
+}
+
+export interface DashTaskPhase {
+  description: string;
+  tasks: DashTaskRow[];
+  is_active: boolean;
+  has_pending_work: boolean;
+}
+
+/** Every phase with the tasks beneath it. The wire frame adds `session_id`. */
+export interface DashTasks {
+  phases: DashTaskPhase[];
+  done: number;
+  total: number;
+}
+
+export interface DashMcpRow {
+  name: string;
+  badge: McpBadge;
+}
+
 /** One row of the persona modal. */
 export interface PersonaRow {
   name: string;
@@ -226,6 +285,10 @@ export type ClientMsg =
   | { type: 'toggle_context'; entry_id: string }
   | { type: 'fork'; entry_id: string }
   | { type: 'more_entries'; before: string }
+  | { type: 'dash_open' }
+  | { type: 'dash_close' }
+  | { type: 'jump_to_entry'; entry_id: string }
+  | { type: 'cancel_jump' }
   | { type: 'applet_rows'; filter: string }
   | { type: 'refresh_models' }
   | { type: 'set_theme'; theme: Theme }
@@ -250,9 +313,12 @@ export type ServerMsg =
       model_label: string;
       title: string;
       /** The session's persona, as the status bar shows it. Empty when no
-       *  session is active. The context figure beside it is not the
-       *  snapshot's: it arrives as its own frame on the first tick. */
+       *  session is active. */
       persona: string;
+      /** The active session's context usage figure, the terminal's own
+       *  (empty when no session is active). The snapshot carries it so the
+       *  status bar is whole on arrival; the tick pushes it only on change. */
+      context_label: string;
       revision: number;
       entries: EntryEnvelope[];
       /** How many entries of the session precede the oldest one carried. */
@@ -284,6 +350,10 @@ export type ServerMsg =
    *  the server's own formatted string — the terminal's — so the page
    *  renders it and computes nothing. */
   | { type: 'context_usage'; session_id: string; persona: string; label: string }
+  | ({ type: 'session_stats'; session_id: string } & SessionStats)
+  | { type: 'dash_pin_rows'; session_id: string; rows: DashPinRow[] }
+  | ({ type: 'dash_tasks'; session_id: string } & DashTasks)
+  | { type: 'dash_mcp_rows'; session_id: string; rows: DashMcpRow[] }
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }
   | { type: 'model_rows'; session_id: string; filter: string; rows: ModelRow[] }
   | { type: 'skill_rows'; session_id: string; filter: string; rows: SkillRow[] }

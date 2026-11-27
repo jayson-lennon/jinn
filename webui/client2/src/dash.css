@@ -1,0 +1,178 @@
+/* ---- the dash: the card under the context figure, and its scrim ---- */
+
+/* The scrim darkens the page and closes the dash on tap. It sits under the
+   modals (80), the session-load overlay (90) and toasts (91), and over
+   everything else, so a tap anywhere outside the card is the scrim's. */
+.dash-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 78;
+  background: rgba(0, 0, 0, .35);
+}
+
+/* The card drops down from the status bar's right edge, under the figure
+   that opened it. Bounded so it always fits a phone and always leaves the
+   scrim tappable below it. */
+.dash {
+  position: fixed;
+  top: 34px;
+  right: 12px;
+  z-index: 79;
+  width: min(420px, calc(100vw - 24px));
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px var(--shadow);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.dash-section {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.dash-section:last-child {
+  border-bottom: 0;
+}
+.dash-section-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+/* One figure per line: the label on the left, the value on the right. */
+.dash-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 2px 0;
+}
+.dash-row-label {
+  color: var(--fg-dim);
+  flex-shrink: 0;
+}
+.dash-row-value {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.dash-row-value[data-health='healthy'] { color: var(--ok); }
+.dash-row-value[data-health='degraded'] { color: var(--warn); }
+.dash-row-value[data-health='poor'] { color: var(--danger); }
+.dash-cwd {
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+/* The tree totals fold away: a phone sees the session's figures first. */
+.dash-tree {
+  margin-top: 4px;
+}
+.dash-tree > summary {
+  cursor: pointer;
+  color: var(--fg-dim);
+}
+.dash-tree > summary:hover {
+  color: var(--fg);
+}
+.dash-tree-rows {
+  margin-top: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+/* MCP: the whole section is one button, so a tap anywhere opens the picker. */
+.dash-mcp {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dash-mcp:hover {
+  background: var(--bg-hover);
+}
+.dash-mcp:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.dash-mcp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 0;
+}
+.dash-empty {
+  color: var(--fg-dim);
+}
+
+/* Tasks: every phase with its tasks beneath it. */
+.dash-phase {
+  margin-top: 6px;
+}
+.dash-phase:first-of-type {
+  margin-top: 0;
+}
+.dash-phase-title {
+  font-weight: 600;
+}
+.dash-phase-title[data-phase='active'] { color: var(--accent); }
+.dash-phase-title[data-phase='pending'] { color: var(--fg); }
+.dash-phase-title[data-phase='done'] { color: var(--fg-dim); }
+.dash-task {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 0 1px 14px;
+}
+.dash-task-indicator {
+  flex-shrink: 0;
+  color: var(--fg-dim);
+}
+.dash-task[data-status='Completed'] .dash-task-description {
+  text-decoration: line-through;
+  color: var(--fg-dim);
+}
+.dash-task[data-status='Cancelled'] .dash-task-description {
+  color: var(--fg-dim);
+  text-decoration: line-through;
+}
+.dash-task[data-status='Deferred'] .dash-task-description {
+  color: var(--fg-dim);
+}
+
+/* Pins: one button per row, the server's already-truncated label. */
+.dash-pin {
+  display: block;
+  width: 100%;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dash-pin:hover {
+  background: var(--bg-hover);
+}
+.dash-pin:focus-visible {
+  outline: 1px solid var(--accent);
+}

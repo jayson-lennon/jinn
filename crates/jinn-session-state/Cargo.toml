@@ -22,6 +22,11 @@ jinn-slices = { workspace = true }
 jinn-token-count-msg = { workspace = true }
 jinn-tools-msg = { workspace = true }
 jinn-turn-dispatch-msg = { workspace = true }
+# The pins section's label: ANSI is stripped from entry text before it is
+# truncated to a display width, measured per grapheme.
+strip-ansi-escapes = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }
 async-trait = { workspace = true }
 error-stack = { workspace = true }
 jiff = { workspace = true }

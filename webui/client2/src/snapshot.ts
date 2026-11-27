@@ -16,6 +16,7 @@ import { indexSnapshot } from './transcript_entries';
 import { markSeenOnSnapshot, saveLastSeen } from './last_seen';
 import { resolveLoadingAfterSnapshot } from './session_load';
 import { resetSessionPickerRows } from './picker_rows';
+import { resetDash } from './dash';
 import type { ServerMsg } from './protocol';
 import { reloadIfStale } from './protocol_version';
 
@@ -36,9 +37,9 @@ export function applySnapshot(store: ClientStore, msg: Extract<ServerMsg, { type
     s.modelLabel = msg.model_label;
     s.title = msg.title;
     s.persona = msg.persona;
-    // The figure is not the snapshot's; the tick pushes it within one
-    // interval. Cleared here so the previous session's never lingers.
-    s.contextLabel = '';
+    // The figure is the snapshot's own, so the bar is whole on arrival: the
+    // tick pushes it only when it changes, and an idle session never does.
+    s.contextLabel = msg.context_label;
     s.revision = msg.revision;
     s.entries = msg.entries;
     s.entriesBefore = msg.entries_before;
@@ -59,6 +60,9 @@ export function applySnapshot(store: ClientStore, msg: Extract<ServerMsg, { type
     // A different session's picker rows are not the ones the page was
     // looking at; an open modal re-asks for its own rows on open.
     resetSessionPickerRows(s);
+    // The dash describes one session: a switch closes it and drops the
+    // other session's facts and any jump still in flight.
+    resetDash(s);
     // The page is now viewing this session: whatever settled before
     // this moment is seen. One arm covers a click on the page and a
     // switch made elsewhere that the page follows — both land here.

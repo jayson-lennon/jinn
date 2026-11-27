@@ -71,6 +71,9 @@ pub struct OutboundActorDeps {
     pub services: jinn_kernel::Services,
     /// The provider slice's cell: the last known model cache.
     pub provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
+    /// The work-time slice's cell: each session's working intervals, which
+    /// the dash's working-time figure and the tree aggregate are measured over.
+    pub work_time_cell: jinn_slices::TypedCell<jinn_work_time_msg::WorkingTimeState>,
     /// The session store, for the stored-session picker's rows.
     pub session_store: jinn_session_state::SessionStoreService,
     /// The persona slice's cell: the scanned persona catalog.
@@ -126,6 +129,15 @@ pub struct OutboundHandle {
     /// The persona and context figure each session's pages were last told,
     /// so the tick pushes a frame only when either has actually changed.
     told_status: Arc<Mutex<HashMap<SessionId, (String, String)>>>,
+    /// How many pages have a dash open, across every connection. The tick
+    /// pushes the dash's statistics only while this is above zero.
+    dash_open: Arc<Mutex<usize>>,
+    /// The statistics each session's pages were last told while a dash was
+    /// open, so the tick pushes a frame only when a displayed value changed.
+    told_dash: Arc<Mutex<HashMap<SessionId, jinn_webui2_msg::SessionStatsBody>>>,
+    /// What each session's dash rows were last told as, so the tick can tell
+    /// a change from a steady state.
+    told_dash_rows: Arc<Mutex<HashMap<SessionId, handlers::DashRows>>>,
     /// The sessions whose teardown command is running, so every session
     /// row built at any instant carries the right flag. Set by the teardown
     /// started event, cleared by the finished one; in memory only.
@@ -188,6 +200,11 @@ impl OutboundHandle {
 
 mod handlers;
 
+/// The one place a snapshot about to be sent gains the status bar's figure.
+/// Production callers are the reply and the session-switch push; both need
+/// it, so it is exported outside the test gate.
+pub(crate) use handlers::with_status_figure;
+
 #[cfg(test)]
 pub(crate) use handlers::{
     applets_rescanned, applets_serving_changed, archive_failed, context_override_changed, flush,
@@ -247,6 +264,9 @@ impl OutboundHandle {
             applet_filter: Arc::new(Mutex::new(None)),
             told_queue_lens: Arc::new(Mutex::new(std::collections::HashMap::new())),
             told_status: Arc::new(Mutex::new(HashMap::new())),
+            dash_open: Arc::new(Mutex::new(0)),
+            told_dash: Arc::new(Mutex::new(HashMap::new())),
+            told_dash_rows: Arc::new(Mutex::new(HashMap::new())),
             tearing_down: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
@@ -355,8 +375,32 @@ impl OutboundHandle {
         &self.deps.session_store
     }
 
+    /// Records that a page opened a dash. The next tick pushes the session's
+    /// full statistics: the entry the tick would otherwise compare against is
+    /// dropped, so the first read while open is a push, not a baseline.
+    pub fn dash_opened(&self, session_id: &SessionId) {
+        // Two locks, never held at once: the count, then the baseline.
+        let mut open = self.dash_open.lock();
+        *open += 1;
+        drop(open);
+        self.told_dash.lock().remove(session_id);
+        self.told_dash_rows.lock().remove(session_id);
+    }
+
+    /// Records that a page closed its dash. Saturating: a close without a
+    /// matching open leaves the count at zero rather than wrapping.
+    pub fn dash_closed(&self) {
+        let mut open = self.dash_open.lock();
+        *open = open.saturating_sub(1);
+    }
+
     /// The provider slice's cell (the last known model cache).
     #[must_use]
+    /// The work-time cell: each session's working intervals.
+    pub fn work_time_cell(&self) -> &jinn_slices::TypedCell<jinn_work_time_msg::WorkingTimeState> {
+        &self.deps.work_time_cell
+    }
+
     pub fn provider_cell(
         &self,
     ) -> &jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell> {

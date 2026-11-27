@@ -1,0 +1,42 @@
+/* ---- navigating overlay ---- */
+/* Raised by the page while a pin's jump is under way, and cleared when the
+   jump lands, is refused, is cancelled, or a session switch lands. It covers
+   every surface — modals (80), the menu panel (70), the rail (50), the drawer
+   scrim (40) — and swallows the pointer, so nothing under it can be reached
+   while history streams in. Unlike the session-load overlay it has one way
+   out: the Cancel button, which closes it and stops the server's stream. It
+   shows only after a beat, so a jump that lands at once never flashes it. */
+.navigating-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim);
+}
+.navigating-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 26px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px var(--shadow);
+}
+.navigating-label {
+  color: var(--fg);
+  font-size: 14px;
+}
+.navigating-cancel {
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}

@@ -155,8 +155,31 @@ by reloading itself — see [Reconnecting](#reconnecting).
   persona picker (the same modal the menu's **Persona** item opens). On
   the right, the context usage figure — the terminal's own, so the two
   surfaces always agree: `used%/max` when the model's context window is
-  known, `used/???` when it is not. It is text only, and follows every
-  history change, pin, context toggle and model switch without a reload.
+  known, `used/???` when it is not. It follows every history change, pin,
+  context toggle and model switch without a reload, and clicking it opens
+  the **session dash**.
+- **Session dash** — a card under the context figure, with a scrim behind
+  it. Not the TUI's dashboard: it is the session's own facts, each computed
+  by the function the terminal uses, so every figure matches the TUI's.
+  - **Session** — the model, context figure, tokens sent and received,
+    cost, turns, working time, cache hit (when the provider reports one),
+    and the directory, one per line. While the session tree holds more
+    than one session, a **Tree** disclosure carries the whole tree's totals.
+    The figures update live while the dash is open.
+  - **MCP servers** — the session's enabled servers with their live
+    status. Clicking anywhere in the section closes the dash and opens the
+    MCP picker.
+  - **Tasks** — every phase with its tasks beneath it, the active phase
+    accented, completed tasks struck through.
+  - **Pinned** — the session's pinned entries, labeled as the TUI sidebar
+    labels them. Clicking one closes the dash and scrolls the transcript
+    to that entry, loading older history until it is held. A jump that
+    takes more than a moment covers the page with a **Navigating…** overlay
+    that blocks the UI until the entry is reached; its **Cancel** button
+    closes the overlay and stops the load, leaving the transcript where it
+    was. A jump that lands at once never shows the overlay.
+  - `Esc` or a click outside the card closes it; switching sessions closes
+    it too.
 - **Entry menu** — every transcript entry has a `⋮` at its bottom-right,
   always visible at every width. It opens the session row's popup with the
   things you can do to that one entry.

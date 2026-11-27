@@ -67,6 +67,7 @@ pub fn snapshot(
                 model_label: String::new(),
                 title: String::new(),
                 persona: String::new(),
+                context_label: String::new(),
                 revision,
                 entries: Vec::new(),
                 entries_before: 0,
@@ -94,6 +95,9 @@ pub fn snapshot(
         model_label: active.model_selection().to_string(),
         title: active.title().unwrap_or(UNTITLED).to_owned(),
         persona: active.persona_name().to_owned(),
+        // Filled by the handle when the frame is sent: the figure needs the
+        // model cache, which this read of the state does not hold.
+        context_label: String::new(),
         revision,
         entries: window.entries.clone(),
         entries_before,

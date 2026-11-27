@@ -15,7 +15,10 @@
 use std::collections::HashMap;
 
 use jinn_core_types::{ChatEntry, ChatEntryId, ChatEntryKind, SessionId};
-use jinn_webui2_msg::DeltaField;
+use jinn_webui2_msg::{
+    DashMcpRowBody, DashMcpRowsBody, DashPinRowBody, DashPinRowsBody, DashTaskPhaseBody,
+    DashTaskRowBody, DashTasksBody, DeltaField, ServerMsg, SessionStatsBody, TreeStatsBody,
+};
 use trouper::actor::MsgHandler;
 use trouper::context::MsgCtx;
 
@@ -315,6 +318,67 @@ pub(crate) fn pin_changed(
 ) {
     handle.bump(&msg.session_id);
     reconcile(handle, &msg.session_id);
+}
+
+fn dash_pin_rows(
+    handle: &super::OutboundHandle,
+    session_id: &SessionId,
+) -> Option<Vec<DashPinRowBody>> {
+    let guard = handle.state().read();
+    let session = guard.session.get(session_id)?;
+    let history = session.history();
+    Some(
+        session
+            .pinned_display_rows()
+            .into_iter()
+            .map(|row| {
+                // A Verbatim row's label needs its entry's kind; a tool row
+                // carries its own. The entry may be gone: an empty preview.
+                let kind = history
+                    .iter()
+                    .find(|entry| entry.id == row.entry_id)
+                    .map(|entry| &entry.kind);
+                let text = row.label_text(kind);
+                DashPinRowBody {
+                    entry_id: row.entry_id,
+                    text,
+                }
+            })
+            .collect(),
+    )
+}
+
+fn dash_tasks_body(
+    handle: &super::OutboundHandle,
+    session_id: &SessionId,
+) -> Option<DashTasksBody> {
+    let guard = handle.state().read();
+    let session = guard.session.get(session_id)?;
+    let list = session.task_list();
+    let active = list.active_phase().map(jinn_tools_msg::Phase::id);
+    let (done, total) = list.completion_counts();
+    Some(DashTasksBody {
+        session_id: session_id.clone(),
+        phases: list
+            .phases()
+            .iter()
+            .map(|phase| DashTaskPhaseBody {
+                description: phase.description().to_owned(),
+                tasks: phase
+                    .tasks()
+                    .iter()
+                    .map(|task| DashTaskRowBody {
+                        description: task.description.clone(),
+                        status: task.status,
+                    })
+                    .collect(),
+                is_active: active.is_some_and(|id| id == phase.id()),
+                has_pending_work: phase.has_pending_work(),
+            })
+            .collect(),
+        done,
+        total,
+    })
 }
 
 impl MsgHandler<jinn_context_assembly_msg::ContextOverrideChanged> for OutboundActor {
@@ -743,20 +807,46 @@ pub(crate) async fn follow_active_session(
     msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
 ) {
     crate::actions::wait_for_activation(&handle.deps.state, &msg.session_id).await;
-    let (frame, window) = crate::frames::snapshot(
+    let crate::snapshot::SnapshotFrame { mut body, window } = crate::frames::snapshot(
         &handle.deps.state,
         &handle.deps.revisions,
         handle.settles(),
         &handle.tearing_down(),
     );
     handle.mark_delivered(&msg.session_id, &window);
-    handle.broadcast(&frame);
+    // The page resets its status bar with this frame; the figure rides on it
+    // so the bar is whole on arrival rather than waiting on a change.
+    with_status_figure(handle, &mut body);
+    handle.broadcast(&ServerMsg::Snapshot(Box::new(body)));
 }
 
 impl MsgHandler<jinn_mcp_msg::McpRuntimeStored> for OutboundActor {
     async fn handle(&mut self, _msg: &jinn_mcp_msg::McpRuntimeStored, _ctx: &mut MsgCtx<'_>) {
         mcp_runtime_stored(&self.handle);
     }
+}
+
+fn active_session_id(handle: &super::OutboundHandle) -> Option<SessionId> {
+    let guard = handle.state().read();
+    let id = guard.session.active_session_id().clone();
+    guard.session.get(&id).map(|_| id)
+}
+
+/// The dash's MCP rows for one session: the enabled servers only, each
+/// with the badge the MCP picker's own row builder derives, so the two
+/// surfaces cannot disagree about a server's status.
+fn dash_mcp_rows(handle: &super::OutboundHandle, session_id: &SessionId) -> Vec<DashMcpRowBody> {
+    crate::actions::mcp_row_bodies(handle, session_id, "")
+        .into_iter()
+        .filter(|row| row.enabled)
+        .map(|row| {
+            let badge = row.badge;
+            DashMcpRowBody {
+                name: row.name,
+                badge,
+            }
+        })
+        .collect()
 }
 
 /// Turns one `McpRuntimeStored` event into the frames a page needs.
@@ -855,7 +945,7 @@ fn serving_from_cell(handle: &super::OutboundHandle) -> (bool, String) {
 
 /// The status-bar facts for the active session: its persona and the context
 /// figure, as the terminal's own shared function formats it.
-fn status_facts(handle: &super::OutboundHandle) -> Option<(SessionId, String, String)> {
+pub(crate) fn status_facts(handle: &super::OutboundHandle) -> Option<(SessionId, String, String)> {
     // State guard first, then the provider cell — the order every other
     // path takes them in. Both drop before this returns.
     let guard = handle.state().read();
@@ -868,6 +958,35 @@ fn status_facts(handle: &super::OutboundHandle) -> Option<(SessionId, String, St
         session.persona_name().to_owned(),
         jinn_status_bar_msg::format_context_figure(&figure),
     ))
+}
+
+/// Fills the context figure into a snapshot the page is about to receive,
+/// and records that figure as what the page was told.
+///
+/// A snapshot replaces the page's view wholesale, and the page resets the
+/// status bar's figure with it. Left to the tick alone, the figure would
+/// depend on a change that an idle session never has: the tick records a
+/// baseline on its first read and pushes nothing, so a fresh page — or one
+/// that just switched sessions — would show an empty figure for good. The
+/// snapshot carries the figure, and seeding the told-baseline here keeps
+/// the next tick from pushing the same one again.
+pub(crate) fn with_status_figure(
+    handle: &super::OutboundHandle,
+    body: &mut jinn_webui2_msg::SnapshotBody,
+) {
+    let Some((session_id, _persona, label)) = status_facts(handle) else {
+        return;
+    };
+    // Only the snapshot's own session: a switch may have moved the active
+    // session on between the body's build and this read.
+    if body.session_id.as_ref() != Some(&session_id) {
+        return;
+    }
+    handle
+        .told_status
+        .lock()
+        .insert(session_id, (body.persona.clone(), label.clone()));
+    body.context_label = label;
 }
 
 /// Reads the active session's persona and context figure and pushes one
@@ -902,6 +1021,153 @@ pub(crate) fn push_status(handle: &super::OutboundHandle) {
     ));
 }
 
+/// The dash's statistics for the active session, every figure formatted by
+/// the shared statistics function the terminal status bar calls.
+fn dash_stats_body(handle: &super::OutboundHandle) -> Option<SessionStatsBody> {
+    // State guard first, then the cells — the order every other path takes
+    // them in. Both drop before this returns.
+    let guard = handle.state().read();
+    let session_id = guard.session.active_session_id().clone();
+    let session = guard.session.get(&session_id)?;
+    let model_cache = handle.provider_cell().read().model_cache.clone();
+    let now = jiff::Timestamp::now();
+    let stats = jinn_status_bar_msg::session_stats(
+        session,
+        model_cache.as_ref(),
+        handle
+            .work_time_cell()
+            .read()
+            .working_time(&session_id, now),
+    );
+    let tree = jinn_status_bar_msg::tree_stats(
+        guard.session.sessions(),
+        guard.session.frozen_nodes(),
+        &session_id,
+        &handle.work_time_cell().read().snapshot(),
+    );
+    // Every label is borrowed from `stats` before any of its owned
+    // fields move into the body.
+    let labels = StatsLabels {
+        sent: stats.tokens_sent_label(),
+        received: stats.tokens_received_label(),
+        context: stats.context_label(),
+        cost: stats.cost_label(),
+        working: stats.working_label(),
+    };
+    Some(SessionStatsBody {
+        session_id,
+        cwd: stats.cwd_display,
+        cache_hit_percent: stats.cache_hit_percent,
+        tokens_sent: labels.sent,
+        tokens_received: labels.received,
+        context_label: labels.context,
+        cost: labels.cost,
+        turn_count: stats.turn_count,
+        working: labels.working,
+        model: stats.model,
+        tree: jinn_status_bar_msg::tree_is_shown(&tree).then(|| TreeStatsBody {
+            session_count: tree.session_count,
+            cache_hit_percent: tree.cache_hit_percent,
+            tokens_sent: tree.tokens_sent_label(),
+            tokens_received: tree.tokens_received_label(),
+            cost: tree.cost_label(),
+            turn_count: tree.turn_count,
+            working: tree.working_label(),
+        }),
+    })
+}
+
+/// The session's formatted figures, borrowed before the owned ones move.
+struct StatsLabels {
+    sent: String,
+    received: String,
+    context: String,
+    cost: String,
+    working: String,
+}
+
+/// Pushes the dash's statistics, but only while a dash is open on some page
+/// and only when a displayed value differs from what pages were last told.
+///
+/// The first read of a session records a baseline and pushes nothing —
+/// unless `dash_opened` dropped that baseline, which it does, so an open
+/// dash gets its full frame on the next tick. With no dash open the tick
+/// does no work at all, and an unchanged frame is never sent: an idle
+/// connection with a dash open is silent too.
+pub(crate) fn push_dash(handle: &super::OutboundHandle) {
+    if *handle.dash_open.lock() == 0 {
+        return;
+    }
+    let Some(body) = dash_stats_body(handle) else {
+        return;
+    };
+    let mut told = handle.told_dash.lock();
+    // No baseline means the page has nothing to show yet — an open dash, or
+    // one that just opened: the frame goes out. A known baseline is pushed
+    // past only when a displayed value differs from it.
+    if told
+        .get(&body.session_id)
+        .is_some_and(|known| *known == body)
+    {
+        return;
+    }
+    told.insert(body.session_id.clone(), body.clone());
+    drop(told);
+    handle.broadcast(&ServerMsg::SessionStats(Box::new(body)));
+}
+
+/// The dash's rows — pins, tasks, MCP — on the tick, while a dash is open
+/// and only when one of them changed.
+///
+/// The event-driven pushes these replace missed every session that already
+/// had pins or a task list when the page opened it: nothing publishes a
+/// change for facts the page is only now learning. Reading them on the tick,
+/// the way the statistics are read, makes a restored session's rows arrive
+/// the moment the dash opens, and the diff keeps an idle one silent.
+pub(crate) fn push_dash_rows(handle: &super::OutboundHandle) {
+    if *handle.dash_open.lock() == 0 {
+        return;
+    }
+    let Some(session_id) = active_session_id(handle) else {
+        return;
+    };
+    let Some(pins) = dash_pin_rows(handle, &session_id) else {
+        return;
+    };
+    let Some(tasks) = dash_tasks_body(handle, &session_id) else {
+        return;
+    };
+    let mcp = DashMcpRowsBody {
+        session_id: session_id.clone(),
+        rows: dash_mcp_rows(handle, &session_id),
+    };
+    let now = DashRows {
+        pins: DashPinRowsBody {
+            session_id: session_id.clone(),
+            rows: pins,
+        },
+        tasks,
+        mcp,
+    };
+    let mut told = handle.told_dash_rows.lock();
+    if told.get(&session_id).is_some_and(|known| *known == now) {
+        return;
+    }
+    told.insert(session_id, now.clone());
+    drop(told);
+    handle.broadcast(&ServerMsg::DashPinRows(Box::new(now.pins)));
+    handle.broadcast(&ServerMsg::DashTasks(Box::new(now.tasks)));
+    handle.broadcast(&ServerMsg::DashMcpRows(now.mcp));
+}
+
+/// What the page was last told for one session's dash rows, diffed on the tick.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct DashRows {
+    pins: DashPinRowsBody,
+    tasks: DashTasksBody,
+    mcp: DashMcpRowsBody,
+}
+
 /// One flush: reads every streaming field and emits its unsent suffix, and
 /// the status-bar facts if they have drifted.
 ///
@@ -914,6 +1180,8 @@ pub(crate) fn flush(handle: &super::OutboundHandle) {
     }
     push_drifted_queue_depths(handle);
     push_status(handle);
+    push_dash(handle);
+    push_dash_rows(handle);
     let growing = growing_fields(handle);
     let mut sent = handle.sent.lock();
     for (session_id, index, entry, field, current) in growing {
