@@ -194,6 +194,7 @@ export type ClientMsg =
   | { type: 'persona_rows'; filter: string }
   | { type: 'switch_persona'; persona: string }
   | { type: 'toggle_pin'; entry_id: string }
+  | { type: 'fork'; entry_id: string }
   | { type: 'more_entries'; before: string }
   | { type: 'applet_rows'; filter: string }
   | { type: 'refresh_models' }

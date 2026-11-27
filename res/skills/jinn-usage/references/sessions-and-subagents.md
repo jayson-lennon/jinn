@@ -45,9 +45,9 @@ mark. At desktop widths the button is hidden — the sidebar is already on
 screen. (`/web2` has the same marks; see `webui2.md`.)
 
 The web UI renames a session too: click the title in the session page's
-titlebar, edit it, and press `Enter` (`Esc` or clicking away cancels). The
-title is the only session action on the web — archiving, closing, and
-tearing down are TUI-only, as is forking.
+titlebar, edit it, and press `Enter` (`Esc` or clicking away cancels).
+Archiving, closing, and tearing down are TUI-only; forking is on both
+(`/web2`: the entry's `⋮` → **Fork**).
 
 The sidebar's **Sessions | Library** toggle switches the list between
 loaded sessions and Library members. The Sessions list carries only
@@ -145,6 +145,10 @@ branch a conversation at that point.
    linked as a sibling in the tree.
 3. `F` creates a **new session whose history is just that entry**; it
    works on user and assistant entries.
+
+On `/web2`, the same fork is the entry's `⋮` → **Fork**: the page moves
+onto the new session and lists it as the source's child. (`F`'s
+new-session-from-entry stays in the TUI.)
 
 Forks always get fork origin; a fork of a subagent always has the
 `spawn_subagent` tool enabled.

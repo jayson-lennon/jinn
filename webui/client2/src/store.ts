@@ -322,11 +322,19 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
             });
           }
         }
-        // Only the snapshot the page is waiting for ends the wait. One
-        // naming another session — the old session's, answered when a disk
-        // load outlived the handler's own wait — leaves the overlay up until
-        // the real one lands.
-        if (loadingId !== null && msg.session_id === loadingId) {
+        if (loadingId === null) {
+          // No wait to end.
+        } else if (loadingId === FORK_PENDING) {
+          // A fork's child has no id the page could wait on; its snapshot is
+          // the first one naming a session other than the source. One naming
+          // the source leaves the overlay up: the fork has not landed yet.
+          if (msg.session_id !== forkSource) s.loadingSessionId = null;
+          if (s.loadingSessionId === null) forkSource = null;
+        } else if (msg.session_id === loadingId) {
+          // Only the snapshot the page is waiting for ends the wait. One
+          // naming another session — the old session's, answered when a disk
+          // load outlived the handler's own wait — leaves the overlay up until
+          // the real one lands.
           s.loadingSessionId = null;
         }
       });
@@ -488,6 +496,7 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       // and it ends any wait: the request it answers will never bring a
       // snapshot, and the overlay must not outlive the answer.
       pushToast(store, msg.message);
+      forkSource = null;
       store.set((s) => {
         s.loadingSessionId = null;
       });
@@ -639,6 +648,14 @@ export function clearComposer(store: ClientStore): void {
 
 let toastCounter = 0;
 
+/** The loading id while the page waits on a fork it asked for. The child's
+ *  id does not exist until the store mints it, so no session id can be
+ *  waited on; a string that can never be a session id marks the wait. */
+const FORK_PENDING = '\u0000fork';
+
+/** The session the pending fork was taken from, or null when none is. */
+let forkSource: string | null = null;
+
 /** Stacks one notice. The toast component owns its lifetime. */
 export function pushToast(store: ClientStore, message: string): void {
   const id = toastCounter++;
@@ -661,8 +678,19 @@ export function beginSessionLoad(store: ClientStore, id: string): void {
   });
 }
 
+/** Raises the loading overlay for a fork of `source`. It ends when a snapshot
+ *  names a session other than `source` — the fork's own — or by a refusal or
+ *  the stall timeout, like any other wait. */
+export function beginFork(store: ClientStore, source: string | null): void {
+  forkSource = source;
+  store.set((s) => {
+    s.loadingSessionId = FORK_PENDING;
+  });
+}
+
 /** Ends the wait, whatever ended it. */
 export function clearSessionLoad(store: ClientStore): void {
+  forkSource = null;
   store.set((s) => {
     s.loadingSessionId = null;
   });
