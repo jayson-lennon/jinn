@@ -19,7 +19,7 @@ pub use command::{
     ArchiveSession, ArchiveSessionTree, LoadLibraryEntries, LoadSessionPickerEntries,
     LoadSessionTree, PersistSession, SessionForkRequested, SessionLoadRequested, SetSessionLibrary,
 };
-pub use event::{SessionLibraryMembershipChanged, SessionLoadCompleted};
+pub use event::{SessionLibraryMembershipChanged, SessionLoadCompleted, StartupHydrationFinished};
 pub use library_state::{LibraryState, library_slot};
 pub use projections::{FrozenTreeNode, SessionSummary};
 pub use session_entries::{session_tree_entries, sort_entries_tree_aware};

@@ -91,6 +91,10 @@ export const sel = {
   /** The off-canvas rail's scrim. */
   DRAWER_SCRIM: '[data-testid="drawer-scrim"]',
   RAIL: '[data-testid="rail"]',
+  /** The rail's "loading sessions…" row: last child of whichever list is
+   *  showing, present only before the first snapshot and while the server is
+   *  still loading its saved sessions at startup. */
+  RAIL_LOADING: '[data-testid="rail-loading"]',
   SESSIONS_VIEW: '[data-testid="sessions-view"]',
   LIBRARY_VIEW: '[data-testid="library-view"]',
   ROW_MENU: '[data-testid="row-menu"]',

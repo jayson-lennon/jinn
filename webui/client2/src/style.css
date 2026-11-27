@@ -256,6 +256,17 @@ body { background: var(--bg); color: var(--fg); }
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
 }
+/* The rail's loading row: the last child of the list above, so it sits
+   under the rows a mid-hydration instance has already pushed. Muted, like
+   the transcript's "loading older entries" row. */
+.rail-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
 .session {
   width: 100%;
   display: flex;

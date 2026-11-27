@@ -44,7 +44,12 @@ but nothing coordinates them.
   session is highlighted and clicking a row activates that session (the
   TUI follows). Each row's `⋮` offers **add to library** or **remove from
   library**, which moves it to the other list, and **archive**, which
-  archives that session without running its teardown lifecycle.
+  archives that session without running its teardown lifecycle. While the
+  page is still waiting for its first list, and again while the server is
+  still loading its saved sessions at startup, whichever list is showing
+  ends with a muted **loading sessions…** row — a spinner, below the rows
+  already loaded. It has no timeout: it clears when the server says the
+  list is complete.
 - **Session loading** — clicking a session row, or picking one from the
   **Archive** picker, raises a full-page **Loading session…** overlay at
   once: a card with a spinner, over everything. It clears when that

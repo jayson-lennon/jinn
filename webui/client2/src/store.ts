@@ -95,6 +95,10 @@ export interface ViewState {
   loadingSessionId: string | null;
   /** True once a snapshot or a resume has landed on this connection. */
   synced: boolean;
+  /** True while the instance is still loading its saved sessions at
+   *  startup. Set by every snapshot and every session-list frame, never by
+   *  the page on its own. */
+  hydrating: boolean;
   /** When the page last saw each session (RFC 3339), for the unread mark.
    *  A row is unread when its settle time is newer than its entry here. */
   lastSeen: Record<string, string>;
@@ -142,6 +146,7 @@ const INITIAL_STATE: ViewState = {
   toasts: [],
   loadingSessionId: null,
   synced: false,
+  hydrating: true,
   lastSeen: {},
 };
 
@@ -288,6 +293,7 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
         s.library = msg.library;
         s.theme = msg.theme;
         s.synced = true;
+        s.hydrating = msg.hydrating;
         // Not the draft or the chips: they belong to the user, not to the
         // session, and a switch must not take unsent text with it.
         // A different session's picker rows are not the ones the page was
@@ -395,6 +401,7 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       store.set((s) => {
         s.sessions = msg.rows;
         s.library = msg.library;
+        s.hydrating = msg.hydrating;
         if (viewed !== null && settled !== null) {
           s.lastSeen[viewed] = settled;
         }

@@ -1182,6 +1182,53 @@ async fn hello_with_an_unknown_cursor_answers_a_snapshot() {
     assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
 }
 
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_snapshot_reports_hydration_while_startup_loads_are_outstanding() {
+    // Given an instance whose startup hydration is still running.
+    let h = harness();
+    h.state.write().session.begin_startup_hydration();
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot says the saved sessions are still loading.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert!(snapshot.hydrating);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hello_snapshot_reports_hydration_finished_once_it_is() {
+    // Given an instance whose startup hydration is not running.
+    let h = harness();
+
+    // When a page connects holding nothing.
+    let reply = dispatch(
+        ClientMsg::Hello {
+            last_entry_id: None,
+            revision: None,
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the snapshot says nothing is loading.
+    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+        unreachable!("a fresh hello answers a snapshot");
+    };
+    assert!(!snapshot.hydrating);
+}
+
 /// Pushes `count` user entries onto the active session, so its history
 /// runs past one page.
 fn push_many(state: &State, count: usize) {
@@ -5379,7 +5426,7 @@ fn a_library_member_is_listed_under_library_and_not_sessions() {
         .set_in_library(true);
 
     // When the sidebar's rows are built.
-    let (sessions, library) =
+    let (sessions, library, _) =
         crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
 
     // Then the session is in the library list and not the sessions list.
@@ -5394,7 +5441,7 @@ fn a_non_member_is_listed_under_sessions_and_not_library() {
     let h = harness();
 
     // When the sidebar's rows are built.
-    let (sessions, library) =
+    let (sessions, library, _) =
         crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
 
     // Then the session is in the sessions list and the library list is empty.
@@ -5415,6 +5462,47 @@ fn membership_changed_pushes_a_sessions_frame() {
     // Then the page receives one sessions frame.
     let frames = drain(&mut inbox);
     assert!(matches!(frames.as_slice(), [ServerMsg::Sessions(_)]));
+}
+
+#[rstest::rstest]
+#[test]
+fn a_sessions_frame_carries_the_hydration_flag() {
+    // Given an instance whose startup hydration is still running, and a page.
+    let h = harness();
+    h.state.write().session.begin_startup_hydration();
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When a session-list push is sent.
+    crate::outbound::sessions_changed(&h.handle);
+
+    // Then the frame tells the page the saved sessions are still loading.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::Sessions(body)] = frames.as_slice() else {
+        unreachable!("one sessions frame expected, got {frames:?}");
+    };
+    assert!(body.hydrating);
+}
+
+#[rstest::rstest]
+#[test]
+fn startup_hydration_finished_pushes_one_sessions_frame_that_is_not_hydrating() {
+    // Given an instance whose hydration has just ended — the store clears the
+    // flag before it publishes the event — and a page.
+    let h = harness();
+    h.state.write().session.begin_startup_hydration();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    h.state.write().session.finish_startup_hydration();
+
+    // When the end of hydration reaches the outbound actor.
+    crate::outbound::startup_hydration_finished(&h.handle);
+
+    // Then the page receives exactly one sessions frame, and it says nothing
+    // is loading — which is what brings the rail's loading row down.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::Sessions(body)] = frames.as_slice() else {
+        unreachable!("one sessions frame expected, got {frames:?}");
+    };
+    assert!(!body.hydrating);
 }
 
 // ---------------------------------------------------------------------------
