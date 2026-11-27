@@ -9,6 +9,26 @@ You can produce visuals the user opens in their browser. The whole workflow
 is file-based: write one HTML file, serve it, edit it. No Python, no npm, no
 environment sidequests — every library is already inside the jinn binary.
 
+## Think before you build
+
+Most requests name a thing, not a spec: "a stopwatch", "a mini golf
+score card", "a graph of how the parser works". Before writing code,
+decide which kind of thing it is — an app someone uses, a diagram that
+explains, a mockup of a screen, a piece of motion — because each is
+finished by a different standard.
+
+For an app, think through what a person does with the real one. A score
+card is filled in hole by hole and survives a browser refresh; a
+stopwatch starts, stops, and resets. Those verbs are the feature list.
+
+For a diagram or mockup, lead with the one thing to notice and let the
+rest support it. A mockup shows layout and flow, not working logic.
+For motion, pick the beat and make it loop.
+
+This is one shot: decide what makes sense for this particular thing,
+build it without being asked, and tell the user what you added. They
+give feedback once it's on screen.
+
 ## The workflow
 
 1. **Create the artifact** as an HTML file at any writable path (use the
