@@ -99,7 +99,10 @@ export const sel = {
   LIBRARY_VIEW: '[data-testid="library-view"]',
   ROW_MENU: '[data-testid="row-menu"]',
   ROW_MENU_LIBRARY: '[data-testid="row-menu-library"]',
+  ROW_MENU_TEARDOWN: '[data-testid="row-menu-teardown"]',
   ROW_MENU_ARCHIVE: '[data-testid="row-menu-archive"]',
+  /** The row's busy dot, present while a turn runs or a teardown is in flight. */
+  ROW_BUSY: '[data-testid="session-row"] [data-testid="session-busy"]',
   /** The toast region's rows: every refusal and failure the page reports. */
   TOAST: '[data-testid="toast"]',
   /** The composer's `+`, and the hidden file input behind it. */
@@ -224,6 +227,22 @@ export async function startBusyTurn(page) {
  * @returns {Promise<string>} the new session's id.
  */
 export async function createSession(page) {
+  return createSessionWithLifecycle(page, null);
+}
+
+/**
+ * Creates a second session through `/web2`'s New-session modal with the
+ * named lifecycle selected, and returns its id. `null` leaves the blank
+ * lifecycle — no setup runs and no teardown is ever due.
+ *
+ * The id is the `data-session-id` of the row the new session lands on
+ * in the creating page's rail, which is pushed without a reload.
+ *
+ * @param {import('@playwright/test').Page} page the test's own page.
+ * @param {string | null} lifecycle the lifecycle's configured name, or null.
+ * @returns {Promise<string>} the new session's id.
+ */
+export async function createSessionWithLifecycle(page, lifecycle) {
   /** The ids the rail lists right now. */
   const rowIds = () =>
     page
@@ -231,6 +250,9 @@ export async function createSession(page) {
       .evaluateAll((rows) => rows.map((row) => row.dataset.sessionId));
   const before = await rowIds();
   await openNewSession(page);
+  if (lifecycle !== null) {
+    await page.locator(sel.NEW_SESSION_LIFECYCLE).selectOption(lifecycle);
+  }
   await page.locator(sel.CREATE_SESSION).click();
   // The modal closes at once; the row lands when the push arrives.
   await expect(page.locator(sel.CREATE_SESSION)).toHaveCount(0);
@@ -300,6 +322,18 @@ export async function archiveThroughMenu(page) {
 export async function archiveThroughRowMenu(page, sessionId) {
   await page.locator(`${sel.ROW_WRAP(sessionId)} ${sel.ROW_MENU}`).click();
   await page.locator(sel.ROW_MENU_ARCHIVE).click();
+}
+
+/**
+ * Tears down and archives the session whose row holds the `⋮`, through that
+ * row's menu — the terminal's `x`.
+ *
+ * @param {import('@playwright/test').Page} page the test's own page.
+ * @param {string} sessionId the session to tear down and archive.
+ */
+export async function teardownThroughRowMenu(page, sessionId) {
+  await page.locator(`${sel.ROW_WRAP(sessionId)} ${sel.ROW_MENU}`).click();
+  await page.locator(sel.ROW_MENU_TEARDOWN).click();
 }
 
 /** The id of the session the page is viewing, or null when none is. */

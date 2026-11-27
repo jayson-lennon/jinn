@@ -27,6 +27,7 @@ use jinn_provider_selection_msg::ProviderSwitch;
 use jinn_session_history_msg::{
     ChatEntryPinChanged, PinChatEntry, SetEntryContextOverride, UnpinChatEntry,
 };
+use jinn_session_lifecycle_msg::{CloseSession, SessionTeardownFinished, SessionTeardownStarted};
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
     ArchiveSession, PersistSession, SessionForkRequested, SessionLoadRequested, SetSessionLibrary,
@@ -5393,6 +5394,132 @@ async fn archive_of_a_stored_only_session_is_refused_as_already_archived() {
 }
 
 // ---------------------------------------------------------------------------
+// Teardown + archive (the terminal's `x`)
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_publishes_the_close_command() {
+    // Given a page with one live, idle session.
+    let h = harness();
+    let id = active_id(&h.state);
+
+    // When the page tears it down.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the lifecycle actor's close command is published, naming the
+    // session, and nothing is replied.
+    let commands = h.audit.of_type::<CloseSession>();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].session_id, id);
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_of_a_busy_session_is_refused_and_publishes_nothing() {
+    // Given a session running a turn.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
+
+    // When the page tears it down.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told the session is busy and nothing was published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_of_a_busy_session_names_the_busy_reason() {
+    // Given a session running a turn.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .begin_streaming();
+
+    // When the page tears it down.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the refusal is the same sentence an archive is refused with.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        panic!("expected one error frame, got {:?}", reply.frames);
+    };
+    assert_eq!(error.message, "session is busy — cancel the turn first");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_of_an_unknown_session_is_refused() {
+    // Given a page with an empty store.
+    let h = harness_with_store();
+
+    // When the page names a session nothing knows.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: jinn_core_types::SessionId::new(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the request is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_of_a_stored_only_session_is_refused_as_already_archived() {
+    // Given a session that is on disk and not in memory — an archived one.
+    let h = harness_with_store();
+    let id = store_only_session(&h, "already archived").await;
+
+    // When the page tears it down.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: id.clone(),
+        },
+        &h.handle,
+    )
+    .await;
+
+    // Then the page is told it is already archived and nothing is published.
+    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
+        panic!("expected one error frame, got {:?}", reply.frames);
+    };
+    assert_eq!(error.message, format!("session {id} is already archived"));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+// ---------------------------------------------------------------------------
 // Model refresh
 // ---------------------------------------------------------------------------
 
@@ -5707,8 +5834,11 @@ fn a_library_member_is_listed_under_library_and_not_sessions() {
         .set_in_library(true);
 
     // When the sidebar's rows are built.
-    let (sessions, library, _) =
-        crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
+    let (sessions, library, _) = crate::snapshot::session_rows(
+        &h.state,
+        &crate::settle::SettleTracker::default(),
+        &std::collections::HashSet::new(),
+    );
 
     // Then the session is in the library list and not the sessions list.
     assert_eq!(library[0].session_id, id);
@@ -5722,8 +5852,11 @@ fn a_non_member_is_listed_under_sessions_and_not_library() {
     let h = harness();
 
     // When the sidebar's rows are built.
-    let (sessions, library, _) =
-        crate::snapshot::session_rows(&h.state, &crate::settle::SettleTracker::default());
+    let (sessions, library, _) = crate::snapshot::session_rows(
+        &h.state,
+        &crate::settle::SettleTracker::default(),
+        &std::collections::HashSet::new(),
+    );
 
     // Then the session is in the sessions list and the library list is empty.
     assert_eq!(sessions[0].session_id, active_id(&h.state));
@@ -6020,6 +6153,116 @@ fn a_failed_archive_pushes_one_error_frame() {
         panic!("expected one error frame, got {frames:?}");
     };
     assert!(error.message.contains("archiving the session write failed"));
+}
+
+// ---------------------------------------------------------------------------
+// The teardown busy dot
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[test]
+fn a_teardown_started_pushes_one_sessions_frame_with_the_flag_set() {
+    // Given a page with one live session.
+    let h = harness();
+    let id = active_id(&h.state);
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the lifecycle actor announces the teardown started.
+    crate::outbound::teardown_started(
+        &h.handle,
+        &SessionTeardownStarted {
+            session_id: id.clone(),
+        },
+    );
+
+    // Then the page receives one sessions frame whose row carries the flag.
+    let frames = drain(&mut inbox);
+    let [frame] = frames.as_slice() else {
+        panic!("expected one frame, got {frames:?}");
+    };
+    let row = only_row(frame);
+    assert_eq!(row.session_id, id);
+    assert!(row.is_tearing_down);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_teardown_finished_pushes_one_sessions_frame_with_the_flag_clear() {
+    // Given a page whose session is marked as tearing down.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.handle.mark_tearing_down(&id);
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the lifecycle actor announces the teardown finished.
+    crate::outbound::teardown_finished(
+        &h.handle,
+        &SessionTeardownFinished {
+            session_id: id.clone(),
+            error: None,
+        },
+    );
+
+    // Then the page receives one sessions frame whose row has dropped the flag.
+    let frames = drain(&mut inbox);
+    let [frame] = frames.as_slice() else {
+        panic!("expected one frame, got {frames:?}");
+    };
+    let row = only_row(frame);
+    assert_eq!(row.session_id, id);
+    assert!(!row.is_tearing_down);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_finished_teardown_clears_a_flag_that_was_never_set() {
+    // Given a page whose session was never marked — a teardown refused
+    // before anything spawned publishes a finish and no start.
+    let h = harness();
+    let id = active_id(&h.state);
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When the lifecycle actor announces the teardown finished.
+    crate::outbound::teardown_finished(
+        &h.handle,
+        &SessionTeardownFinished {
+            session_id: id.clone(),
+            error: Some("teardown refused".to_owned()),
+        },
+    );
+
+    // Then the page still receives one sessions frame, with the flag clear.
+    let frames = drain(&mut inbox);
+    let [frame] = frames.as_slice() else {
+        panic!("expected one frame, got {frames:?}");
+    };
+    let row = only_row(frame);
+    assert!(!row.is_tearing_down);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_snapshot_built_mid_teardown_carries_the_flag() {
+    // Given a session whose teardown command is running.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.handle.mark_tearing_down(&id);
+
+    // When a fresh page's snapshot is built.
+    let frame = crate::snapshot::snapshot(
+        &h.state,
+        h.handle.revisions(),
+        h.handle.settles(),
+        &h.handle.tearing_down(),
+    );
+
+    // Then the row the snapshot carries has the flag set — a page that
+    // connects mid-teardown sees the dot from its first frame.
+    let [row] = frame.body.sessions.as_slice() else {
+        panic!("one session row expected, got {:?}", frame.body.sessions);
+    };
+    assert_eq!(row.session_id, id);
+    assert!(row.is_tearing_down);
 }
 
 #[rstest::rstest]

@@ -74,19 +74,22 @@ function isInContext(envelope: EntryEnvelope): boolean {
 
 /**
  * Turns a freshly opened popup upward when opening it downward would leave
- * the transcript's scroll box. The kebab is at the entry's bottom-right, so
- * for the last entry — the one most often acted on — a downward popup
- * would open into the composer and be cut off.
+ * the visible area. The kebab is at the entry's bottom-right, so for the
+ * last entry — the one most often acted on — a downward popup would open
+ * into the composer and be cut off.
  *
- * The measure is deferred to the next frame: the `ref` fires when the
- * popup is attached, before its items have rendered, so measured at once
- * it is still empty and no taller than its kebab.
+ * The measurement waits one frame: the `ref` runs while the popup is still
+ * detached, before it has a parent or a layout, so an immediate read sees
+ * an empty box and never flips. The bound is the viewport, not only the
+ * transcript's scroll box — on a phone the scroller already ends at the
+ * screen's edge, and the viewport is the one the user actually sees.
  */
 function fitPopup(node: HTMLElement): void {
-  window.requestAnimationFrame(() => {
-    const scroller = node.closest('.transcript');
-    if (scroller === null) return;
-    const limit = scroller.getBoundingClientRect().bottom;
+  requestAnimationFrame(() => {
+    const limit = Math.min(
+      window.innerHeight,
+      node.closest('.transcript')?.getBoundingClientRect().bottom ?? window.innerHeight,
+    );
     if (node.getBoundingClientRect().bottom > limit) node.classList.add('up');
   });
 }

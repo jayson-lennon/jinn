@@ -187,7 +187,7 @@ fixed column drawn here, and the `#` is not shown.
 | Element | What it is | See |
 | --- | --- | --- |
 | `Sessions` / `Library` | The sidebar's two-segment control. Chooses which list it shows: the loaded sessions that are not library members, or the library members. Exactly one shows at a time. | `webui2.md` |
-| `⋮` on a session row | The row's menu. **add to library** / **remove from library** moves the session to the other list; **archive** archives that session. | `webui2.md` |
+| `⋮` on a session row | The row's menu. **add to library** / **remove from library** moves the session to the other list; **teardown + archive** runs the session's teardown lifecycle and then archives it (the terminal's `x`); **archive** archives that session without the teardown. | `webui2.md` |
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui2.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui2.md` |
 | **Loading session…** card | A full-page overlay with a spinner, raised the instant a session row or an Archive row is picked and cleared when that session arrives. Covers everything; `Esc` does not close it. | `webui2.md` |
