@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>jinn</title>
     <script>
       // The color mode, before the stylesheet loads. The store's theme is
@@ -17,6 +17,14 @@
         } catch (e) {}
       })();
     </script>
+    <!-- The browser bar's colour, in the dark palette's background until the
+         client reads the active palette back from the stylesheet. The install
+         set: the manifest a phone installs from, and the two icons the shell
+         alone names (the manifest names its own three). -->
+    <meta name="theme-color" content="#25272e" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/vendor/{{ icon_favicon_url }}" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/vendor/{{ icon_apple_url }}" />
     <link rel="stylesheet" href="/vendor/{{ css_url }}" />
     <script type="module" src="/vendor/{{ js_url }}"></script>
   </head>
