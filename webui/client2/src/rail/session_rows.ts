@@ -7,10 +7,10 @@
 // both places it is displayed — the bar and the sidebar row — and they
 // cannot disagree.
 
-import type { ClientStore } from './store/store';
-import { belongsToViewedSession } from './store/store';
+import type { ClientStore } from '../store/store';
+import { belongsToViewedSession } from '../store/store';
 import { saveLastSeen, viewedRowSettledAt } from './last_seen';
-import type { ServerMsg } from './protocol/protocol';
+import type { ServerMsg } from '../protocol/protocol';
 
 /** `sessions`: both lists, and the hydration flag every session-list frame sets. */
 export function applySessions(store: ClientStore, msg: Extract<ServerMsg, { type: 'sessions' }>): void {

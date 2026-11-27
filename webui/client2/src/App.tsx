@@ -26,7 +26,7 @@ import { SkillsModal } from './pickers/skills';
 import { AppletsModal } from './pickers/applets';
 import { McpModal, PersonaModal, ToolsModal } from './pickers/pickers';
 import { Composer } from './composer/composer';
-import { SessionRail } from './rail';
+import { SessionRail } from './rail/rail';
 import { SessionStatus } from './status';
 import { StatusBar } from './statusbar';
 import { Dash } from './session_dash';

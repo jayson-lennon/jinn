@@ -9,7 +9,7 @@
 // These are pure functions over plain rows and a plain map, so they carry
 // no store dependency and the page's components can call them per render.
 
-import type { SessionRow } from './protocol/protocol';
+import type { SessionRow } from '../protocol/protocol';
 
 /** The store's last-seen times: session id -> when the page last saw it. */
 export type LastSeen = Readonly<Record<string, string>>;

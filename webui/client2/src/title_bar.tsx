@@ -12,7 +12,7 @@ import type { JSX } from '@solidjs/web';
 import type { ClientStore } from './store/store';
 import { Menu, type MenuGroup, type MenuItem } from './menu';
 import { ModelPicker, type Send, useFilter } from './pickers/model_picker';
-import { unreadCount } from './unread';
+import { unreadCount } from './rail/unread';
 
 // ---------------------------------------------------------------------------
 // Title bar: rename in place, model chip

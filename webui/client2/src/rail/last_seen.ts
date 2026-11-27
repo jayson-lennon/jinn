@@ -12,7 +12,7 @@
 // touches the store, so a caller can run one inside its own setter.
 
 import type { LastSeen } from './unread';
-import type { SessionRow } from './protocol/protocol';
+import type { SessionRow } from '../protocol/protocol';
 
 /**
  * One line on the console for an unread-mark decision. Off unless the
