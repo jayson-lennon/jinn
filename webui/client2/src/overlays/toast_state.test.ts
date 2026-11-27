@@ -5,7 +5,7 @@
 // it reads the result — a same-tick read returns the value before the write.
 
 import { describe, it, expect } from 'vitest';
-import { createStore } from './store/store';
+import { createStore } from '../store/store';
 import { applyError, dismissToast, pushToast } from './toast_state';
 import { beginSessionLoad } from './session_load';
 

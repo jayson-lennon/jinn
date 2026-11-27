@@ -14,7 +14,7 @@
 
 import { createStore as createStoreValue } from 'solid-js';
 import type { Store, StoreSetter } from 'solid-js';
-import type { Toast } from '../toast_state';
+import type { Toast } from '../overlays/toast_state';
 import { loadLastSeen } from '../rail/last_seen';
 import type { PromptCompletion } from '../composer/prompts';
 import { applySnapshot } from './snapshot';
@@ -30,7 +30,7 @@ import {
   applySkillRows,
   applyToolRows,
 } from '../pickers/picker_rows';
-import { applyError } from '../toast_state';
+import { applyError } from '../overlays/toast_state';
 import type {
   AppletRow,
   DashMcpRow,

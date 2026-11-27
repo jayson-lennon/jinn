@@ -7,7 +7,7 @@
 // microtask before it reads the result.
 
 import { describe, it, expect } from 'vitest';
-import { createStore } from './store/store';
+import { createStore } from '../store/store';
 import {
   beginFork,
   beginSessionLoad,

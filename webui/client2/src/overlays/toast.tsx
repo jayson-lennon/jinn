@@ -9,7 +9,7 @@
 import { For } from 'solid-js';
 import { createSignal, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
-import type { ClientStore } from './store/store';
+import type { ClientStore } from '../store/store';
 import { type Toast, dismissToast } from './toast_state';
 
 /** How long a toast stays before it dismisses itself. */

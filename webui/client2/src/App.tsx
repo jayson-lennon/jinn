@@ -14,9 +14,9 @@ import { For, Show, Switch, Match, createEffect, createSignal, onCleanup } from 
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg } from './protocol/protocol';
 import { type ClientStore, apply, createStore } from './store/store';
-import { pushToast } from './toast_state';
+import { pushToast } from './overlays/toast_state';
 import { newestEntryId } from './transcript/transcript_entries';
-import { beginFork, clearSessionLoad } from './session_load';
+import { beginFork, clearSessionLoad } from './overlays/session_load';
 import { type ConnectionState, openSocket } from './protocol/socket';
 import { Transcript } from './transcript/transcript_scroll';
 import { useFilter, ModelPicker, type Send } from './pickers/model_picker';
@@ -32,7 +32,7 @@ import { StatusBar } from './statusbar';
 import { Dash } from './dash/session_dash';
 import { cancelJump, openDash } from './dash/dash';
 import { NewSessionModal } from './pickers/new-session';
-import { Toasts } from './toast';
+import { Toasts } from './overlays/toast';
 import { applyTheme, mirrorTheme } from './theme';
 import { applyThemeBar } from './theme_bar';
 

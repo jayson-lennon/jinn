@@ -10,7 +10,7 @@
 // the first snapshot naming a session other than the fork's source. The
 // sentinel and the source are module-level and live only here.
 
-import type { ClientStore } from './store/store';
+import type { ClientStore } from '../store/store';
 
 /** The loading id while the page waits on a fork it asked for. The child's
  *  id does not exist until the store mints it, so no session id can be
