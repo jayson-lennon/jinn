@@ -5511,8 +5511,13 @@ dependencies = [
 name = "jinn-status-bar-msg"
 version = "1.27.2"
 dependencies = [
+ "jiff",
  "jinn-core-types",
+ "jinn-provider-config",
+ "jinn-session-state",
  "jinn-slices",
+ "jinn-token-count-msg",
+ "rstest",
  "serde",
 ]
 
@@ -6010,6 +6015,7 @@ dependencies = [
  "jinn-session-store-msg",
  "jinn-skills-msg",
  "jinn-slices",
+ "jinn-status-bar-msg",
  "jinn-testutil",
  "jinn-theme",
  "jinn-tools-msg",

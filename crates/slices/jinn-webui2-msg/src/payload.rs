@@ -79,6 +79,10 @@ pub struct SnapshotBody {
     pub model_label: String,
     /// The active session's title (empty when no session is active).
     pub title: String,
+    /// The active session's persona name (empty when no session is active).
+    /// The status bar shows it; the context figure beside it is not the
+    /// snapshot's — it arrives as its own frame on the first tick.
+    pub persona: String,
     /// The active session's history revision. The page echoes it back
     /// in `Hello` so the server can tell a safe incremental resume from
     /// one that needs the whole transcript again.
@@ -348,6 +352,19 @@ pub struct TitleBody {
     pub session_id: SessionId,
     /// The new title.
     pub title: String,
+}
+
+/// A session's status-bar facts, pushed when either changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextUsageBody {
+    /// The session the facts describe, so a page that has switched
+    /// sessions drops a late frame.
+    pub session_id: SessionId,
+    /// The persona the session is running, as the status bar shows it.
+    pub persona: String,
+    /// The context usage figure, already formatted by the terminal's own
+    /// shared function — the page renders the string and computes nothing.
+    pub label: String,
 }
 
 /// One row of the stored-session picker.

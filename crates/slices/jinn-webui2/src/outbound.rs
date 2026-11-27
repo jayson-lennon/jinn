@@ -12,6 +12,7 @@
 //! what lets a reconnecting page resume incrementally when — and only
 //! when — nothing but appends happened since it last saw the transcript.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -122,6 +123,9 @@ pub struct OutboundHandle {
     /// The queue depth each session's pages were last told, so the tick
     /// pushes a frame only when the depth has actually changed.
     told_queue_lens: Arc<Mutex<std::collections::HashMap<SessionId, usize>>>,
+    /// The persona and context figure each session's pages were last told,
+    /// so the tick pushes a frame only when either has actually changed.
+    told_status: Arc<Mutex<HashMap<SessionId, (String, String)>>>,
     /// The sessions whose teardown command is running, so every session
     /// row built at any instant carries the right flag. Set by the teardown
     /// started event, cleared by the finished one; in memory only.
@@ -188,7 +192,7 @@ mod handlers;
 pub(crate) use handlers::{
     applets_rescanned, applets_serving_changed, archive_failed, context_override_changed, flush,
     follow_active_session, library_membership_changed, mcp_runtime_stored, model_cache_stored,
-    phase_changed, pin_changed, reconcile, sessions_changed, skills_loaded,
+    phase_changed, pin_changed, provider_switched, reconcile, sessions_changed, skills_loaded,
     startup_hydration_finished, teardown_finished, teardown_started,
 };
 
@@ -241,6 +245,7 @@ impl OutboundHandle {
             row_filters: Arc::new(Mutex::new(std::collections::HashMap::new())),
             applet_filter: Arc::new(Mutex::new(None)),
             told_queue_lens: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            told_status: Arc::new(Mutex::new(HashMap::new())),
             tearing_down: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }

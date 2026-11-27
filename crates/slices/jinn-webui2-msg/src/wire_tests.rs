@@ -17,11 +17,12 @@ use jinn_slices::PhaseView;
 use rstest::rstest;
 
 use crate::payload::{
-    AppletRowBody, AppletRowsBody, DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody,
-    ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody,
-    ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody,
-    PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody, SkillRowBody,
-    SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
+    AppletRowBody, AppletRowsBody, ContextUsageBody, DeltaField, EntryDeltaBody, EntryEnvelope,
+    EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody,
+    McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody,
+    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody,
+    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
+    ToolRowsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 
@@ -395,6 +396,7 @@ fn server_snapshot_round_trips() {
         },
         model_label: "ollama/llama3".to_owned(),
         title: "title".to_owned(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: [ChatEntry::user("hi"), ChatEntry::assistant("yo")]
@@ -429,6 +431,7 @@ fn server_snapshot_without_active_session_round_trips() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: Vec::new(),
@@ -587,6 +590,34 @@ fn server_title_round_trips() {
     let back = roundtrip_server(&msg);
 
     // Then the title is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_context_usage_round_trips_with_its_fields_flattened() {
+    // Given a status-bar push carrying a persona and a formatted figure.
+    let msg = ServerMsg::ContextUsage(ContextUsageBody {
+        session_id: SessionId::new(),
+        persona: "reviewer".to_owned(),
+        label: "50.0%/200k".to_owned(),
+    });
+
+    // When it is serialized and read back.
+    let json = serde_json::to_value(&msg).expect("context usage serializes");
+    let back = roundtrip_server(&msg);
+
+    // Then the frame is the tag with its three fields beside it, and the
+    // figure is the server's own string — nothing for the page to derive.
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "type": "context_usage",
+            "session_id": json_of(&back)["session_id"],
+            "persona": "reviewer",
+            "label": "50.0%/200k",
+        })
+    );
     assert_eq!(json_of(&back), json_of(&msg));
 }
 
@@ -976,6 +1007,7 @@ fn server_variant_carries_its_snake_case_tag() {
                 phase: phase.clone(),
                 model_label: String::new(),
                 title: String::new(),
+                persona: String::new(),
                 revision: 0,
                 entries_before: 0,
                 entries: Vec::new(),
@@ -1094,6 +1126,14 @@ fn server_variant_carries_its_snake_case_tag() {
                 theme: String::new(),
             }),
             "theme",
+        ),
+        (
+            ServerMsg::ContextUsage(ContextUsageBody {
+                session_id: session.clone(),
+                persona: String::new(),
+                label: String::new(),
+            }),
+            "context_usage",
         ),
         (
             ServerMsg::Error(ErrorBody {
@@ -1291,6 +1331,7 @@ fn every_entry_kind_round_trips_inside_a_snapshot() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: sent.clone(),
@@ -1798,6 +1839,7 @@ fn snapshot_carries_its_library_rows_and_theme() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: Vec::new(),
@@ -1849,6 +1891,7 @@ fn snapshot_carries_its_hydrating_flag() {
         },
         model_label: String::new(),
         title: String::new(),
+        persona: "coding-assistant".to_owned(),
         revision: 0,
         entries_before: 0,
         entries: Vec::new(),

@@ -23,12 +23,15 @@ use jinn_kernel::common::ui_element::UiElement;
 use jinn_kernel::resolve_effort;
 use jinn_provider_config::InputModalities;
 use jinn_provider_config::ModelCache;
-use jinn_provider_config::ModelInfo;
 use jinn_session_state::ChatSessionState;
 use jinn_session_state::aggregate_tree_stats;
 use jinn_session_state::compute_turn_count;
 use jinn_slices::DrawContext;
 use jinn_status_bar_msg::StatusBarState;
+use jinn_status_bar_msg::context_figure;
+use jinn_status_bar_msg::format_context_figure;
+use jinn_status_bar_msg::format_tokens;
+use jinn_status_bar_msg::resolve_model_info;
 use jinn_status_bar_msg::status_bar_slot;
 use jinn_theme::Theme;
 use jinn_token_count_msg::TokenStats;
@@ -44,57 +47,6 @@ use ratatui::widgets::Paragraph;
 #[derive(Debug)]
 pub struct StatusBarElement;
 
-/// Format a token count in human-readable form with one decimal place.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "loss is negligible for UI calculations"
-)]
-fn format_tokens(count: u64) -> String {
-    if count >= 1_000_000 {
-        format!("{:.1}M", count as f64 / 1_000_000.0)
-    } else if count >= 1_000 {
-        format!("{:.1}k", count as f64 / 1_000.0)
-    } else {
-        count.to_string()
-    }
-}
-
-/// Format a token budget as whole numbers only (e.g. `150k`, `1M`, `999`).
-fn format_budget(count: usize) -> String {
-    if count >= 1_000_000 {
-        format!("{}M", count / 1_000_000)
-    } else if count >= 1_000 {
-        format!("{}k", count / 1_000)
-    } else {
-        count.to_string()
-    }
-}
-
-/// Resolve the active model's `ModelInfo` from the cache.
-///
-/// `active_model` must be the `provider/model-id` display form (i.e. the same
-/// string the status bar surfaces as the model name). Returns `None` when the
-/// cache is absent or the model is not recorded in it.
-fn resolve_model_info<'a>(
-    model_cache: Option<&'a ModelCache>,
-    active_model: &str,
-) -> Option<&'a ModelInfo> {
-    let cache = model_cache?;
-    let provider_name = active_model.split('/').next()?;
-    let models = cache.entries.get(provider_name)?;
-    let model_suffix = active_model.get((provider_name.len() + 1)..)?;
-    models.iter().find(|m| m.id == model_suffix)
-}
-
-/// Look up the context_length for the active model from the model cache.
-///
-/// Returns `Some(context_length)` if the cache is populated and the active model
-/// is found with a non-None context_length. Returns `None` otherwise.
-fn resolve_context_limit(model_cache: Option<&ModelCache>, active_model: &str) -> Option<u32> {
-    let info = resolve_model_info(model_cache, active_model)?;
-    info.context_length
-}
-
 /// Resolve the active model's input modalities from the cache.
 ///
 /// Returns the cached modalities when the model is recorded, otherwise `None`
@@ -104,31 +56,6 @@ fn resolve_modalities(
     active_model: &str,
 ) -> Option<InputModalities> {
     resolve_model_info(model_cache, active_model).map(|m| m.input_modalities)
-}
-
-/// The context size the shared info line displays for a session.
-///
-/// A session's cached assembled size is only written for the active session —
-/// the context-size actor recalculates `active_session_id()` on
-/// context-affecting events — so a background session read straight from the
-/// session map carries `None` and would render `0.0%/<max>` even though it has
-/// dispatched turns. The last token-ledger record is the fallback: both
-/// dispatch writers push the dispatch's `assembled.estimated_tokens()` into
-/// `tokens_sent`, which is the same per-dispatch whole-context estimate the
-/// actor caches (an estimate of that request's entire prompt, not an increment
-/// — so it must be read from one record, never summed across the ledger).
-///
-/// Cached wins when present: the actor re-assembles with pins, overrides, and
-/// pruning applied, which the raw dispatch estimate does not reflect. A
-/// session with no cached size and an empty ledger has genuinely never
-/// dispatched, so `None` — and the zero display is correct.
-fn displayed_context_size(session: &ChatSessionState) -> Option<u32> {
-    session.context_size().or_else(|| {
-        session
-            .token_ledger()
-            .last()
-            .map(|record| record.tokens_sent)
-    })
 }
 
 /// Paints the status bar into `area`.
@@ -345,7 +272,7 @@ pub fn render_session_info_line(
 ) {
     let active_model = session.profile().model.clone();
     let token_stats = TokenStats::from_ledger(session.token_ledger());
-    let token_info = build_token_info_string(model_cache, session, &active_model, &token_stats);
+    let token_info = build_token_info_string(model_cache, session, &token_stats);
 
     let model = build_model_string(model_cache, session, &active_model);
     let total_cost = TokenStats::total_cost(session.token_ledger());
@@ -423,7 +350,6 @@ pub fn model_cache_of(state: &AppState) -> Option<ModelCache> {
 fn build_token_info_string(
     model_cache: Option<&ModelCache>,
     session: &ChatSessionState,
-    active_model: &ModelSelection,
     token_stats: &TokenStats,
 ) -> String {
     let up_arrow = '\u{2191}';
@@ -434,23 +360,8 @@ fn build_token_info_string(
         format_tokens(token_stats.total_received),
     );
 
-    let ctx_size = displayed_context_size(session);
-    let ctx_limit = resolve_context_limit(model_cache, active_model.display_str());
-    let context_display = match (ctx_size, ctx_limit) {
-        (Some(used), Some(max)) => {
-            let ctx_used = u64::from(used);
-            let max_u64 = u64::from(max);
-            let pct = if max_u64 > 0 {
-                format!("{:.1}%", (ctx_used as f64 / max_u64 as f64) * 100.0)
-            } else {
-                "0.0%".to_owned()
-            };
-            format!("{}/{}", pct, format_budget(max as usize))
-        }
-        (None, Some(max)) => format!("0.0%/{}", format_budget(max as usize)),
-        (Some(used), None) => format!("{}/???", format_tokens(u64::from(used))),
-        (None, None) => "0/???".to_owned(),
-    };
+    let figure = context_figure(session, model_cache);
+    let context_display = format_context_figure(&figure);
     format!("{token_info} {context_display}")
 }
 

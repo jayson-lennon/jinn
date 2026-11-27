@@ -170,7 +170,9 @@ fixed column drawn here, and the `#` is not shown.
 ┌──────────────┬──────────────────────────────────────────────┐
 │Sessions│Libra│ ☰ Session title        [provider/model]      │ ← title bar
 │ ▎Session A   ├──────────────────────────────────────────────┤
-│  Session B ● │  Transcript                                  │
+│  Session B ● │ coding-assistant                   12.3k/??? │ ← status bar
+│        ⋮     ├──────────────────────────────────────────────┤
+│              │  Transcript                                  │
 │        ⋮     │  (scrolling conversation)              [⇱]   │ ← jump to start (top-right, when off the top)
 │              │  a user message with an attached image:      │
 │  Archive     │    you  look at this                         │
@@ -196,6 +198,7 @@ fixed column drawn here, and the `#` is not shown.
 | `●` after a session title | That session's turn is running. | `webui2.md` |
 | The session title | Click to rename in place: `Enter` commits, `Esc` cancels. | `webui2.md` |
 | `[provider/model]` | The model chip. Opens the model picker; its **Refresh models** button asks the registry to rediscover and stays busy until the fresh rows land. | `webui2.md` |
+| The persona name / `12.3k/???` | The status bar, under the title bar. Left: the session's persona — click it to open the persona picker. Right: the context usage figure, the same one the TUI status bar shows (`used%/max` or `used/???` when the model's window is unknown). | `webui2.md` |
 | `[chip: … ✕]` | A pending image, one per chip, above the composer. Arrives from a paste, the `+`, or an `https://` image URL already sent. `✕` removes it. | `webui2.md` |
 | `[img]` on a user message | An image the message carried. | `webui2.md` |
 | `[⇱]` top-right of the transcript | **Jump to start** — an up arrow against a bar above it. Shown only while scrolled away from the top; click to land on the first entry. | `webui2.md` |
@@ -247,6 +250,7 @@ fixed column drawn here, and the `#` is not shown.
 | The web UI's (`/web2`) address | Dashboard tab, **webui2** row |
 | The `/web2` page's `☰` / `#` / `[provider/model]` buttons | Web UI (`/web2`) title bar |
 | The `/web2` page's title (click to rename) | Web UI (`/web2`) title bar |
+| The `/web2` page's persona name and context usage figure | Web UI (`/web2`) status bar, under the title bar |
 | The `/web2` page's `☰` button and its menu | Web UI (`/web2`) title bar and menu |
 | A blue or gold session row, a `●` running row, a row's `⋮` | Web UI (`/web2`) sidebar |
 | The `/web2` page's Archive button, model chip | Web UI (`/web2`) title bar and sidebar |

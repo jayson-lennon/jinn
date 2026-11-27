@@ -34,6 +34,11 @@ export const sel = {
   TITLE: '[data-testid="title"]',
   TITLE_EDIT: '[data-testid="title-edit"]',
   MODEL_CHIP: '[data-testid="model-chip"]',
+  STATUS_BAR: '[data-testid="status-bar"]',
+  /** The persona name in the status bar; a click opens the persona modal. */
+  STATUS_PERSONA: '[data-testid="status-persona"]',
+  /** The context usage figure in the status bar, as the server formats it. */
+  STATUS_CONTEXT: '[data-testid="status-context"]',
   MODEL_ROW: '[data-testid="model-row"]',
   MODEL_FILTER: '[data-testid="model-filter"]',
   OPEN_PICKER: '[data-testid="open-picker"]',
