@@ -48,6 +48,8 @@ export const sel = {
   DASH_PINS: '[data-testid="dash-pins"]',
   DASH_PIN: '[data-testid="dash-pin"]',
   DASH_PIN_NAMED: (entryId) => `[data-testid="dash-pin"][data-entry-id="${entryId}"]`,
+  NAVIGATING_OVERLAY: '[data-testid="navigating-overlay"]',
+  NAVIGATING_CANCEL: '[data-testid="navigating-cancel"]',
   /** The statistics rows' label and value cells. */
   DASH_ROW_LABEL: '[data-testid="dash-stats"] .dash-row-label',
   DASH_ROW_VALUE: '[data-testid="dash-stats"] .dash-row-value',

@@ -173,7 +173,11 @@ by reloading itself — see [Reconnecting](#reconnecting).
     accented, completed tasks struck through.
   - **Pinned** — the session's pinned entries, labeled as the TUI sidebar
     labels them. Clicking one closes the dash and scrolls the transcript
-    to that entry, loading older history until it is held.
+    to that entry, loading older history until it is held. A jump that
+    takes more than a moment covers the page with a **Navigating…** overlay
+    that blocks the UI until the entry is reached; its **Cancel** button
+    closes the overlay and stops the load, leaving the transcript where it
+    was. A jump that lands at once never shows the overlay.
   - `Esc` or a click outside the card closes it; switching sessions closes
     it too.
 - **Entry menu** — every transcript entry has a `⋮` at its bottom-right,

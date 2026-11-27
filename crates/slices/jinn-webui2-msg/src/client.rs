@@ -46,6 +46,10 @@ pub enum ClientMsg {
         /// The entry to scroll the transcript to.
         entry_id: ChatEntryId,
     },
+    /// Stop the jump this page asked for. The server stops sending the pages
+    /// it has not yet sent; the ones already sent stay. A cancel that arrives
+    /// after the jump finished does nothing.
+    CancelJump,
     /// Send a message as a fresh turn (rejected while a turn runs).
     Send {
         /// The message text.
@@ -217,6 +221,7 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::DashOpen => "dash_open",
         ClientMsg::DashClose => "dash_close",
         ClientMsg::JumpToEntry { .. } => "jump_to_entry",
+        ClientMsg::CancelJump => "cancel_jump",
         ClientMsg::Send { .. } => "send",
         ClientMsg::Queue { .. } => "queue",
         ClientMsg::Cancel => "cancel",

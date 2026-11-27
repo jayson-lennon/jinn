@@ -10,6 +10,10 @@
 //! actor that performs the action is the one the TUI drives — never this
 //! slice.
 
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
 
 use jinn_chat_input_msg::EnqueueUserMessage;
@@ -172,7 +176,16 @@ pub(crate) fn dash_close(out: &OutboundHandle) -> Reply {
 /// prepends cleanly before the ones the page already holds. One request, one
 /// round trip, and nothing about the page's tail changes shape. A target
 /// that is not an entry of the active session is refused.
-pub(crate) fn jump_to_entry(out: &OutboundHandle, entry_id: &ChatEntryId) -> Reply {
+///
+/// The reply carries the asking connection's cancel flag, which is reset
+/// first: a cancel that arrived after an earlier jump finished would
+/// otherwise leave it set and drop this jump's pages before the first one.
+pub(crate) fn jump_to_entry(
+    out: &OutboundHandle,
+    entry_id: &ChatEntryId,
+    jump_cancelled: &Arc<AtomicBool>,
+) -> Reply {
+    jump_cancelled.store(false, Ordering::Release);
     // One read of the history, so every page comes from the same instant.
     let guard = out.state().read();
     let session_id = guard.session.active_session_id().clone();
@@ -182,6 +195,13 @@ pub(crate) fn jump_to_entry(out: &OutboundHandle, entry_id: &ChatEntryId) -> Rep
     let Some(target) = session.find_entry_index_by_id(entry_id) else {
         return refused_with("no such entry");
     };
+    // A pin in the newest page is already held: the page's tail runs from
+    // that page's first entry to the end, so there is nothing to load, and
+    // sending the page again would prepend a second copy of every entry in
+    // it. The page scrolls on its own; the reply is empty.
+    if target >= crate::page::tail(session.history()).entries_before {
+        return Reply::none();
+    }
     let windows = pages_up_to(session.history(), target + 1);
     drop(guard);
     // Marked before any frame is built, so a later reconcile never re-sends
@@ -199,7 +219,19 @@ pub(crate) fn jump_to_entry(out: &OutboundHandle, entry_id: &ChatEntryId) -> Rep
             }))
         })
         .collect();
-    Reply { frames }
+    Reply {
+        frames,
+        cancel_flag: Some(Arc::clone(jump_cancelled)),
+    }
+}
+
+/// Stops the jump this connection asked for. Sets the cancel flag the
+/// jump's reply was stamped with, so the reader stops sending its pages
+/// — the ones already sent stay. A cancel that arrives after the jump
+/// finished finds no reply to stop and does nothing.
+pub(crate) fn cancel_jump(jump_cancelled: &Arc<AtomicBool>) -> Reply {
+    jump_cancelled.store(true, Ordering::Release);
+    Reply::none()
 }
 
 /// Every page from the start of the history up to (and including) index
@@ -264,7 +296,10 @@ pub fn hello(
             if frames.is_empty() {
                 Reply::one(ServerMsg::Current)
             } else {
-                Reply { frames }
+                Reply {
+                    frames,
+                    ..Reply::default()
+                }
             }
         }
         None => snapshot_reply(out),

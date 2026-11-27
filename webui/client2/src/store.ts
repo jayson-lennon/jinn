@@ -84,6 +84,10 @@ export interface ViewState {
    *  held, or null. Cleared when the scroll happens, when the jump is
    *  refused, or by a snapshot. */
   jumpTarget: string | null;
+  /** True while a pin's jump is under way: the page asked for history up to
+   *  the entry and has not reached it. Raises the navigating overlay, which
+   *  blocks the page until the jump lands, is refused, or is cancelled. */
+  navigating: boolean;
   /** The history revision the page last saw, echoed back on reconnect. */
   revision: number;
   entries: EntryEnvelope[];
@@ -174,6 +178,7 @@ const INITIAL_STATE: ViewState = {
   dashTasks: null,
   dashMcp: [],
   jumpTarget: null,
+  navigating: false,
   revision: 0,
   entries: [],
   entriesBefore: 0,

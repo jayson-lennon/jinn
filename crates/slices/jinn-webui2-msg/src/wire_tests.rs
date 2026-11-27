@@ -2333,6 +2333,21 @@ fn client_jump_to_entry_round_trips_with_its_entry() {
 
 #[rstest]
 #[test]
+fn client_cancel_jump_round_trips_as_a_bare_tag() {
+    // Given a cancel for the page's jump.
+    let msg = ClientMsg::CancelJump;
+
+    // When it is serialized and read back.
+    let json = json_of_client(&msg);
+    let back = roundtrip(&msg);
+
+    // Then it is the bare tag, unchanged.
+    assert_eq!(back, msg);
+    assert_eq!(json, serde_json::json!({ "type": "cancel_jump" }));
+}
+
+#[rstest]
+#[test]
 fn server_session_stats_round_trips_with_its_fields_flattened() {
     // Given a dash push carrying every figure, tree included.
     let msg = ServerMsg::SessionStats(Box::new(SessionStatsBody {

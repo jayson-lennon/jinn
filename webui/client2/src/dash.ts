@@ -115,6 +115,7 @@ export function closeDash(store: ClientStore): void {
 export function jumpToEntry(store: ClientStore, send: Send, entryId: string): void {
   store.set((s) => {
     s.jumpTarget = entryId;
+    s.navigating = true;
   });
   send({ type: 'jump_to_entry', entry_id: entryId });
 }
@@ -124,6 +125,7 @@ export function clearJump(store: ClientStore): void {
   if (store.state.jumpTarget === null) return;
   store.set((s) => {
     s.jumpTarget = null;
+    s.navigating = false;
   });
 }
 
@@ -132,7 +134,22 @@ export function clearJumpTarget(store: ClientStore): void {
   if (store.state.jumpTarget === null) return;
   store.set((s) => {
     s.jumpTarget = null;
+    s.navigating = false;
   });
+}
+
+/**
+ * Stops the jump under way. Closes the overlay and tells the server to stop
+ * sending the jump's pages; the ones already received stay, and the reader
+ * is left exactly where they are. A cancel that reaches the server after
+ * its jump finished is simply ignored there.
+ */
+export function cancelJump(store: ClientStore, send: Send): void {
+  store.set((s) => {
+    s.jumpTarget = null;
+    s.navigating = false;
+  });
+  send({ type: 'cancel_jump' });
 }
 
 /**
@@ -146,6 +163,7 @@ export function resetDash(s: {
   dashTasks: unknown;
   dashMcp: unknown[];
   jumpTarget: string | null;
+  navigating: boolean;
 }): void {
   s.dashOpen = false;
   s.dashStats = null;
@@ -153,4 +171,5 @@ export function resetDash(s: {
   s.dashTasks = null;
   s.dashMcp = [];
   s.jumpTarget = null;
+  s.navigating = false;
 }

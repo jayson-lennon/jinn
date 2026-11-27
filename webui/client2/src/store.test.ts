@@ -7,8 +7,9 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { apply, belongsToViewedSession, createStore, isBusy, type ClientStore } from './store';
+import { cancelJump, clearJump, jumpToEntry } from './dash';
 import { BUNDLE_PROTOCOL_VERSION, setReload } from './protocol_version';
-import type { EntryEnvelope, Phase, PromptTemplate, ServerMsg, SessionRow } from './protocol';
+import type { ClientMsg, EntryEnvelope, Phase, PromptTemplate, ServerMsg, SessionRow } from './protocol';
 
 /** Awaits the microtask a store write needs before it can be read back. */
 async function settled(): Promise<void> {
@@ -724,5 +725,99 @@ describe('the dash', () => {
 
     // Then no jump is pending.
     expect(store.state.jumpTarget).toBeNull();
+  });
+
+  it('raises navigating while a jump is under way', async () => {
+    // Given a page viewing a session.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    await settled();
+
+    // When a pin is tapped.
+    jumpToEntry(store, () => {}, 'e7');
+    await settled();
+
+    // Then the page is navigating.
+    expect(store.state.navigating).toBe(true);
+  });
+
+  it('clears navigating when the jump lands', async () => {
+    // Given a page waiting on a jump to e7.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    jumpToEntry(store, () => {}, 'e7');
+    await settled();
+
+    // When the transcript reaches the entry.
+    clearJump(store);
+    await settled();
+
+    // Then the page is no longer navigating.
+    expect(store.state.navigating).toBe(false);
+  });
+
+  it('clears navigating when the server refuses the jump', async () => {
+    // Given a page waiting on a jump to e7.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    jumpToEntry(store, () => {}, 'e7');
+    await settled();
+
+    // When the refusal arrives.
+    apply(store, { type: 'error', message: 'no such entry' });
+    await settled();
+
+    // Then the page is no longer navigating: the overlay must not hang.
+    expect(store.state.navigating).toBe(false);
+  });
+
+  it('clears navigating on a snapshot', async () => {
+    // Given a page waiting on a jump to e7.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    jumpToEntry(store, () => {}, 'e7');
+    await settled();
+
+    // When a session switch lands a new snapshot.
+    apply(store, snapshot({ session_id: 's2' }));
+    await settled();
+
+    // Then the page is no longer navigating.
+    expect(store.state.navigating).toBe(false);
+  });
+
+  it('a cancel clears the jump and closes the overlay', async () => {
+    // Given a page waiting on a jump to e7.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    jumpToEntry(store, () => {}, 'e7');
+    await settled();
+
+    // When the page cancels it.
+    cancelJump(store, () => {});
+    await settled();
+
+    // Then the jump is no longer pending, and the page is not navigating.
+    expect(store.state.jumpTarget).toBeNull();
+    expect(store.state.navigating).toBe(false);
+  });
+
+  it('a cancel tells the server to stop the jump', async () => {
+    // Given a page waiting on a jump to e7, with a recording socket.
+    const store = createStore();
+    apply(store, snapshot({ session_id: 's1' }));
+    const sent: ClientMsg[] = [];
+    const send = (msg: ClientMsg): void => {
+      sent.push(msg);
+    };
+    jumpToEntry(store, send, 'e7');
+    await settled();
+
+    // When the page cancels it.
+    cancelJump(store, send);
+    await settled();
+
+    // Then the server is told to cancel.
+    expect(sent[1]).toEqual({ type: 'cancel_jump' });
   });
 });

@@ -288,6 +288,7 @@ export type ClientMsg =
   | { type: 'dash_open' }
   | { type: 'dash_close' }
   | { type: 'jump_to_entry'; entry_id: string }
+  | { type: 'cancel_jump' }
   | { type: 'applet_rows'; filter: string }
   | { type: 'refresh_models' }
   | { type: 'set_theme'; theme: Theme }

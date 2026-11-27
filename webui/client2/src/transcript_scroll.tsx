@@ -122,8 +122,11 @@ export function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) =
   // in one at a time. Each landing page changes the entry count, so this is
   // the moment to look: once the target is held, it goes to the top of the
   // box and the jump is over. Until then the reader is left where they are.
+  // The target is tracked too, so a pin the page already holds — which the
+  // server answers with nothing — is scrolled to at once rather than left
+  // waiting on a page that will never come.
   createRenderEffect(
-    () => props.store.state.entries.length,
+    () => [props.store.state.entries.length, props.store.state.jumpTarget] as const,
     () => {
       const target = props.store.state.jumpTarget;
       if (target === null || node === undefined) return;
@@ -162,11 +165,6 @@ export function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) =
   return (
     <div class="transcript-wrap">
       <section class="transcript" data-testid="transcript" ref={node} onScroll={onTranscriptScroll}>
-        <Show when={props.store.state.jumpTarget !== null}>
-          <div class="older-spinner" data-testid="jump-spinner">
-            <span class="spinner spinner-small" aria-hidden="true" /> jumping to entry…
-          </div>
-        </Show>
         <Show when={props.store.state.loadingMore}>
           <div class="older-spinner" data-testid="older-spinner">
             <span class="spinner spinner-small" aria-hidden="true" /> loading older entries…

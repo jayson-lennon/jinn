@@ -48,6 +48,10 @@ struct Harness {
     handle: OutboundHandle,
     audit: jinn_slices::bus::BusAudit,
     state: State,
+    /// The asking connection's cancel flag. A harness is one connection,
+    /// so one flag serves every dispatch the test makes, as the reader
+    /// would hand the real one to each of a connection's dispatches.
+    jump_cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn harness() -> Harness {
@@ -400,6 +404,7 @@ fn harness_seeded(
         handle,
         audit,
         state,
+        jump_cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     }
 }
 
@@ -552,7 +557,7 @@ fn mark_tail_delivered(h: &Harness) {
 /// server refuses it: every caller here is exercising an action that must
 /// succeed. The one refusal under test sends its message by hand.
 async fn say(h: &Harness, msg: ClientMsg) {
-    let reply = dispatch(msg, &h.handle).await;
+    let reply = dispatch(msg, &h.handle, &h.jump_cancelled).await;
     assert!(
         !reply
             .frames
@@ -658,6 +663,7 @@ async fn send_while_busy_is_refused_with_an_error() {
             images: Vec::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -684,6 +690,7 @@ async fn send_while_busy_publishes_nothing() {
             images: Vec::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -706,6 +713,7 @@ async fn send_of_blank_text_is_refused() {
             images: Vec::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -803,6 +811,7 @@ async fn activate_replies_with_a_snapshot_of_the_activated_session() {
             session_id: second.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -832,6 +841,7 @@ async fn activate_replies_with_the_activated_sessions_transcript() {
             session_id: second.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -894,6 +904,7 @@ async fn activate_of_an_unknown_session_is_refused() {
             session_id: jinn_core_types::SessionId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -914,6 +925,7 @@ async fn activate_of_a_stored_session_loads_it_instead_of_refusing() {
             session_id: session_id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1033,6 +1045,7 @@ async fn rename_replies_with_the_new_title() {
             title: "  Road trip ".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1082,6 +1095,7 @@ async fn rename_to_blank_is_refused_and_leaves_the_title() {
             title: "  ".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1111,6 +1125,7 @@ async fn hello_on_a_fresh_page_answers_a_snapshot() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1135,6 +1150,7 @@ async fn hello_on_a_fresh_page_carries_the_context_figure() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1160,6 +1176,7 @@ async fn a_snapshot_seeds_the_tick_so_an_idle_tick_is_silent_until_the_figure_ch
             revision: None,
         },
         &page.handle,
+        &page.jump_cancelled,
     )
     .await;
     let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
@@ -1203,6 +1220,7 @@ async fn hello_with_a_matching_cursor_and_revision_sends_only_later_entries() {
             revision: Some(revision),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1230,6 +1248,7 @@ async fn hello_with_a_cursor_at_the_newest_entry_answers_current() {
             revision: Some(revision),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1256,6 +1275,7 @@ async fn hello_with_a_gap_answers_upserts_and_no_current_frame() {
             revision: Some(revision),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1281,6 +1301,7 @@ async fn hello_with_a_stale_revision_answers_a_snapshot() {
             revision: Some(0),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1302,6 +1323,7 @@ async fn hello_with_an_unknown_cursor_answers_a_snapshot() {
             revision: Some(0),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1323,6 +1345,7 @@ async fn hello_snapshot_reports_hydration_while_startup_loads_are_outstanding() 
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1346,6 +1369,7 @@ async fn hello_snapshot_reports_hydration_finished_once_it_is() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1378,6 +1402,7 @@ async fn hello_on_a_fresh_page_carries_the_newest_entries_up_to_one_page() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1403,6 +1428,7 @@ async fn hello_on_a_fresh_page_carries_the_oldest_entry_of_the_tail_at_index_zer
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1436,6 +1462,7 @@ async fn hello_with_a_cursor_more_than_one_page_behind_answers_a_snapshot() {
             revision: Some(revision),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1454,6 +1481,7 @@ async fn more_before(h: &Harness, before: &jinn_core_types::ChatEntryId) -> Repl
             before: before.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await
 }
@@ -1883,6 +1911,7 @@ async fn picker_rows_on_an_empty_store_answers_no_rows() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1913,6 +1942,7 @@ async fn picker_rows_list_an_unarchived_session_once() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1939,6 +1969,7 @@ async fn model_rows_with_no_configured_providers_answers_no_rows() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -1993,6 +2024,7 @@ async fn model_rows_with_an_empty_filter_name_every_provider() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2046,6 +2078,7 @@ async fn model_rows_filter_keeps_only_the_matching_provider() {
             filter: "deepseek".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2065,6 +2098,7 @@ async fn model_rows_filter_matches_the_provider_name_too() {
             filter: "aion".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2086,6 +2120,7 @@ async fn model_rows_filter_with_a_space_ands_each_term() {
             filter: "aion alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2125,6 +2160,7 @@ async fn model_rows_rank_the_closer_match_first() {
             filter: "gpt 4".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2144,6 +2180,7 @@ async fn model_rows_mark_the_letters_the_filter_hit_in_the_model() {
             filter: "chat".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2182,6 +2219,7 @@ async fn model_rows_mark_the_letters_the_filter_hit_in_the_provider() {
             filter: "zephyr".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2202,6 +2240,7 @@ async fn model_rows_with_an_empty_filter_carry_plain_runs() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2246,6 +2285,8 @@ struct Page {
     handle: OutboundHandle,
     inbox: tokio::sync::mpsc::UnboundedReceiver<ServerMsg>,
     state: State,
+    /// This page's own cancel flag, as a real connection's reader owns one.
+    jump_cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Held so the connection stays registered for the page's life: a
     /// dropped guard unregisters at once, and the flush skips a page
     /// nobody is connected to.
@@ -2259,6 +2300,7 @@ fn connected_page() -> Page {
         handle: h.handle,
         inbox,
         state: h.state,
+        jump_cancelled: h.jump_cancelled,
         _connection: connection,
     }
 }
@@ -2751,6 +2793,7 @@ async fn toggling_an_unknown_entry_is_refused_and_publishes_nothing() {
             entry_id: ChatEntryId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -2824,6 +2867,7 @@ async fn forking_an_unknown_entry_is_refused_and_publishes_nothing() {
             entry_id: ChatEntryId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3084,6 +3128,7 @@ async fn toggling_context_on_a_pinned_entry_is_refused_and_publishes_nothing() {
             entry_id: entry_id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3105,6 +3150,7 @@ async fn toggling_context_on_an_unknown_entry_is_refused_and_publishes_nothing()
             entry_id: ChatEntryId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3293,6 +3339,7 @@ async fn skill_rows_list_the_discovered_skills_sorted_by_name() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3313,6 +3360,7 @@ async fn skill_rows_match_the_shared_filter() {
             filter: "zet".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3343,6 +3391,7 @@ async fn skill_rows_carry_each_skills_enablement() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3379,6 +3428,7 @@ async fn skill_rows_mark_a_skill_already_loaded_into_context() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3403,6 +3453,7 @@ async fn a_skill_rows_frame_names_the_session_and_echoes_the_filter() {
             filter: "alp".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3426,6 +3477,7 @@ async fn a_discovery_scan_pushes_rows_for_its_session_in_the_last_asked_filter()
             filter: "alp".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
     let _ = drain(&mut inbox);
@@ -3539,6 +3591,7 @@ async fn toggling_an_enabled_skill_withholds_it_on_the_session_filter() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3570,6 +3623,7 @@ async fn toggling_a_disabled_skill_permits_it_again() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3604,6 +3658,7 @@ async fn toggling_keeps_an_allow_mode_filter_in_allow_mode() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3633,6 +3688,7 @@ async fn toggling_a_loaded_skill_changes_nothing() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3659,6 +3715,7 @@ async fn toggling_a_skill_publishes_nothing() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3678,6 +3735,7 @@ async fn toggling_an_undiscovered_skill_is_refused() {
             skill: "phantom".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3712,6 +3770,7 @@ async fn loading_a_skill_pins_its_body_as_a_tool_call_and_result() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3752,6 +3811,7 @@ async fn loading_a_disabled_skill_enables_it_first() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3777,6 +3837,7 @@ async fn loading_a_skill_publishes_only_that_the_session_was_interacted_with() {
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3798,6 +3859,7 @@ async fn loading_an_already_loaded_skill_appends_a_notice_and_publishes_nothing(
             skill: "alpha".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3827,6 +3889,7 @@ async fn loading_an_undiscovered_skill_is_refused() {
             skill: "phantom".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3883,6 +3946,7 @@ async fn tool_rows_list_the_registry_tools_sorted_case_insensitively() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3902,6 +3966,7 @@ async fn tool_rows_carry_the_descriptions_first_sentence() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3924,6 +3989,7 @@ async fn tool_rows_with_no_registry_answer_no_rows() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3943,6 +4009,7 @@ async fn tool_rows_match_the_shared_filter() {
             filter: "time".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -3962,6 +4029,7 @@ async fn tool_rows_split_the_matched_run_for_the_filter() {
             filter: "time".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4059,6 +4127,7 @@ async fn toggling_a_tool_replies_with_rows_marking_it_disabled() {
             tool: "get_time".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4100,6 +4169,7 @@ async fn toggling_an_unknown_tool_is_refused() {
             tool: "phantom".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4157,6 +4227,7 @@ async fn mcp_rows_list_the_configured_servers_sorted_case_insensitively() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4176,6 +4247,7 @@ async fn mcp_rows_carry_the_launch_summary_as_the_description() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4198,6 +4270,7 @@ async fn mcp_rows_with_no_configured_servers_answer_no_rows() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4220,6 +4293,7 @@ async fn mcp_rows_match_the_shared_filter() {
             filter: "wea".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4248,6 +4322,7 @@ async fn mcp_rows_mark_a_disabled_server_off_whatever_the_cell_reports() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4284,6 +4359,7 @@ async fn mcp_rows_mark_an_enabled_server_running_when_the_cell_says_so() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4315,6 +4391,7 @@ async fn mcp_rows_read_a_singletons_status_for_any_session() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4445,6 +4522,7 @@ async fn toggling_an_unknown_server_is_refused() {
             server: "phantom".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4482,6 +4560,7 @@ async fn a_runtime_store_pushes_rows_in_the_last_asked_filter() {
             filter: "ec".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
     drain(&mut inbox);
@@ -4564,6 +4643,7 @@ async fn persona_rows_follow_the_catalogs_order() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4591,6 +4671,7 @@ async fn persona_rows_mark_the_sessions_persona_active() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4622,6 +4703,7 @@ async fn persona_rows_match_the_shared_filter() {
             filter: "revie".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4683,6 +4765,7 @@ async fn switching_persona_with_a_handoff_block_appends_no_entry() {
             persona: "reviewer".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4734,6 +4817,7 @@ async fn switching_to_a_blockless_persona_delivers_the_entry_in_the_reply() {
             persona: "blockless".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4757,6 +4841,7 @@ async fn switching_to_an_unknown_persona_is_refused() {
             persona: "phantom".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4847,6 +4932,7 @@ async fn send_of_a_non_image_is_refused_naming_its_position() {
             images: vec![upload("notes.txt", "aGVsbG8=")],
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4874,6 +4960,7 @@ async fn a_refused_image_send_publishes_nothing() {
             images: vec![upload("notes.txt", "aGVsbG8=")],
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4900,6 +4987,7 @@ async fn send_with_an_oversize_image_is_refused_naming_its_size() {
             images: vec![upload("big.bin", &oversize)],
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4959,6 +5047,7 @@ async fn send_with_an_image_while_busy_is_refused_before_ingestion() {
             images: vec![upload("dot.png", TINY_PNG)],
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -4997,6 +5086,7 @@ async fn applet_rows_publish_the_rescan_then_the_wake() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5017,6 +5107,7 @@ async fn applet_rows_answer_one_frame_echoing_the_filter() {
             filter: "qui".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5042,6 +5133,7 @@ async fn applet_rows_link_each_row_to_the_serving_bind() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5076,6 +5168,7 @@ async fn applet_rows_while_offline_answer_rows_without_an_href() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5100,6 +5193,7 @@ async fn applet_rows_refuse_an_href_for_an_id_failing_the_gate() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5122,6 +5216,7 @@ async fn applet_rows_with_an_empty_filter_keep_the_catalog_order_unmarked() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5156,6 +5251,7 @@ async fn applet_rows_filter_by_title_and_mark_the_matched_run() {
             filter: "alp".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5183,6 +5279,7 @@ async fn applet_rows_remember_the_filter_for_a_later_push() {
             filter: "qui".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5203,6 +5300,7 @@ async fn applets_rescanned_pushes_the_events_catalog_not_the_cells() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
     drain(&mut inbox);
@@ -5237,6 +5335,7 @@ async fn applets_serving_changed_pushes_the_events_phase_over_the_cell_catalog()
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
     drain(&mut inbox);
@@ -5312,6 +5411,7 @@ async fn set_theme_replies_with_the_chosen_mode() {
             theme: "light".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5334,6 +5434,7 @@ async fn set_theme_of_an_unknown_mode_is_refused() {
             theme: "sepia".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5382,6 +5483,7 @@ async fn set_library_of_an_unknown_session_is_refused() {
             in_library: true,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5434,6 +5536,7 @@ async fn archive_of_a_busy_session_is_refused_and_publishes_nothing() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5460,6 +5563,7 @@ async fn archive_of_a_busy_session_names_the_busy_reason() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5482,6 +5586,7 @@ async fn archive_of_an_unknown_session_is_refused() {
             session_id: jinn_core_types::SessionId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5503,6 +5608,7 @@ async fn archive_of_a_stored_only_session_is_refused_as_already_archived() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5531,6 +5637,7 @@ async fn teardown_publishes_the_close_command() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5560,6 +5667,7 @@ async fn teardown_of_a_busy_session_is_refused_and_publishes_nothing() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5586,6 +5694,7 @@ async fn teardown_of_a_busy_session_names_the_busy_reason() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5608,6 +5717,7 @@ async fn teardown_of_an_unknown_session_is_refused() {
             session_id: jinn_core_types::SessionId::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5629,6 +5739,7 @@ async fn teardown_of_a_stored_only_session_is_refused_as_already_archived() {
             session_id: id.clone(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5782,6 +5893,7 @@ async fn create_session_of_an_unconfigured_project_is_refused() {
             args: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5804,6 +5916,7 @@ async fn create_session_of_an_unknown_lifecycle_is_refused() {
             args: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5826,6 +5939,7 @@ async fn create_session_with_too_few_args_is_refused() {
             args: "only-one".to_owned(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5855,6 +5969,7 @@ async fn create_session_with_the_blank_lifecycle_makes_the_new_session_active() 
             args: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5889,6 +6004,7 @@ async fn model_cache_stored_pushes_fresh_rows_to_an_open_model_picker() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -5928,6 +6044,7 @@ async fn model_cache_stored_pushes_rows_naming_the_askers_session() {
             filter: String::new(),
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -7006,6 +7123,7 @@ async fn snapshot_carries_the_active_sessions_prompt_templates() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -7040,6 +7158,7 @@ async fn hello_snapshot_of_no_active_session_carries_no_prompt_templates() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -7177,6 +7296,7 @@ async fn hello_answers_a_snapshot_naming_the_sessions_persona() {
             revision: None,
         },
         &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
@@ -7522,14 +7642,15 @@ fn jumped_texts(reply: &Reply) -> Vec<String> {
 #[rstest::rstest]
 #[tokio::test]
 async fn a_jump_to_a_far_back_entry_streams_every_page_up_to_it() {
-    // Given a history of three pages, and a pin on the first entry of the
-    // third — two whole pages precede it.
+    // Given a history of four pages, and a pin on the first entry of the
+    // third — two whole pages precede it, and the tail holds only the
+    // last two, so the jump has pages to load.
     let h = harness();
-    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2 + 10);
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES * 3 + 10);
     let target = active_entry_id_at(&h, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2);
 
     // When the page asks to jump to it.
-    let reply = actions::jump_to_entry(&h.handle, &target);
+    let reply = actions::jump_to_entry(&h.handle, &target, &h.jump_cancelled);
 
     // Then the reply is three pages, oldest first, ending at the pinned entry.
     assert_eq!(reply.frames.len(), 3);
@@ -7541,18 +7662,17 @@ async fn a_jump_to_a_far_back_entry_streams_every_page_up_to_it() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn a_jump_to_the_newest_entry_is_one_page() {
-    // Given a history of ten entries, and a pin on the last.
+async fn a_jump_to_the_newest_entry_sends_nothing() {
+    // Given a history past one page, and a pin on the last entry.
     let h = harness();
-    push_many(&h.state, 10);
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 10);
     let target = active_last_entry_id(&h.state);
 
     // When the page asks to jump to it.
-    let reply = actions::jump_to_entry(&h.handle, &target);
+    let reply = actions::jump_to_entry(&h.handle, &target, &h.jump_cancelled);
 
-    // Then the reply is one page carrying the whole history.
-    assert_eq!(reply.frames.len(), 1);
-    assert_eq!(jumped_texts(&reply).len(), 10);
+    // Then nothing is sent: the page's tail already holds the entry.
+    assert!(reply.frames.is_empty());
 }
 
 #[rstest::rstest]
@@ -7563,7 +7683,11 @@ async fn a_jump_to_an_unknown_entry_is_refused() {
     push_many(&h.state, 3);
 
     // When the page asks to jump to an entry that is not in it.
-    let reply = actions::jump_to_entry(&h.handle, &jinn_core_types::ChatEntryId::new());
+    let reply = actions::jump_to_entry(
+        &h.handle,
+        &jinn_core_types::ChatEntryId::new(),
+        &h.jump_cancelled,
+    );
 
     // Then the reply is one refusal.
     assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
@@ -7574,6 +7698,195 @@ fn active_entry_id_at(h: &Harness, index: usize) -> jinn_core_types::ChatEntryId
     h.state.read().session.active_session().history()[index]
         .id
         .clone()
+}
+
+// --- cancelling a jump ---
+
+/// Drains a reply the way the connection's reader does: a page goes out
+/// only if the cancel flag is clear when its turn comes. Returns the texts
+/// the page would receive.
+fn drained_texts(reply: &Reply, flag: &std::sync::atomic::AtomicBool) -> Vec<String> {
+    reply
+        .frames
+        .iter()
+        .take_while(|_| !flag.load(std::sync::atomic::Ordering::Acquire))
+        .flat_map(|frame| match frame {
+            ServerMsg::EntriesPage(page) => page
+                .entries
+                .iter()
+                .map(|entry| entry.entry_text().to_owned())
+                .collect::<Vec<_>>(),
+            other => unreachable!(
+                "a jump replies in pages, got {:?}",
+                jinn_webui2_msg::server::tag_of(other)
+            ),
+        })
+        .collect()
+}
+
+#[rstest::rstest]
+#[test]
+fn a_jump_to_an_entry_the_page_already_holds_sends_nothing() {
+    // Given a short history the newest page holds whole, and a pin in it.
+    let h = harness();
+    push_many(&h.state, 3);
+    let target = active_entry_id_at(&h, 1);
+
+    // When the page asks to jump to it.
+    let reply = actions::jump_to_entry(&h.handle, &target, &h.jump_cancelled);
+
+    // Then nothing is sent: the page already holds the entry, and a page
+    // would prepend a second copy of it.
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_jumps_reply_carries_the_cancel_flag() {
+    // Given a history and a pin in it.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 10);
+
+    // When the page asks to jump to an entry before the tail.
+    let reply = actions::jump_to_entry(&h.handle, &active_entry_id_at(&h, 0), &h.jump_cancelled);
+
+    // Then the reply carries this connection's flag, for the reader to check.
+    assert!(reply.cancel_flag.is_some());
+}
+
+#[rstest::rstest]
+#[test]
+fn every_other_reply_carries_no_cancel_flag() {
+    // Given a page with a session.
+    let h = harness();
+
+    // When it asks for something that is not a jump.
+    let reply = actions::more_entries(&h.handle, &jinn_core_types::ChatEntryId::new());
+
+    // Then the reply drains whole: it carries no flag.
+    assert!(reply.cancel_flag.is_none());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_cancel_set_before_the_drain_stops_every_page() {
+    // Given a three-page jump whose flag was set before any page was sent.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2 + 10);
+    let reply = actions::jump_to_entry(
+        &h.handle,
+        &active_entry_id_at(&h, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2),
+        &h.jump_cancelled,
+    );
+    h.jump_cancelled
+        .store(true, std::sync::atomic::Ordering::Release);
+
+    // When the reader drains it.
+    let texts = drained_texts(&reply, &h.jump_cancelled);
+
+    // Then not one page reaches the page.
+    assert_eq!(texts, Vec::<String>::new());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_cancel_set_mid_drain_keeps_the_pages_already_sent() {
+    // Given a three-page jump, drained page by page the way the reader does:
+    // four pages of history, a pin two pages back, the tail holding the rest.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES * 3 + 10);
+    let reply = actions::jump_to_entry(
+        &h.handle,
+        &active_entry_id_at(&h, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2),
+        &h.jump_cancelled,
+    );
+    let flag = &*h.jump_cancelled;
+    let mut sent = Vec::new();
+    let pages = reply.frames.iter();
+
+    // When the first page goes out, then a cancel lands before the next.
+    for (n, frame) in pages.enumerate() {
+        if n == 1 {
+            flag.store(true, std::sync::atomic::Ordering::Release);
+        }
+        if flag.load(std::sync::atomic::Ordering::Acquire) {
+            break;
+        }
+        sent.push(frame);
+    }
+
+    // Then exactly the first page got through: the oldest, whole.
+    assert_eq!(sent.len(), 1);
+    let [ServerMsg::EntriesPage(first)] = sent.as_slice() else {
+        unreachable!("a jump replies in pages");
+    };
+    assert!(
+        !first.entries.is_empty(),
+        "the page that got through is whole"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_cancel_leaves_the_flag_set_for_the_reader() {
+    // Given a page's cancel flag, clear.
+    let h = harness();
+    assert!(!h.jump_cancelled.load(std::sync::atomic::Ordering::Acquire));
+
+    // When the page cancels its jump.
+    let reply = actions::cancel_jump(&h.jump_cancelled);
+
+    // Then the flag is set, and nothing is sent back.
+    assert!(h.jump_cancelled.load(std::sync::atomic::Ordering::Acquire));
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_jump_clears_a_flag_a_late_cancel_left_set() {
+    // Given a cancel that arrived after an earlier jump had finished.
+    let h = harness();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES + 10);
+    actions::cancel_jump(&h.jump_cancelled);
+
+    // When the page jumps again, to an entry before the tail.
+    let reply = actions::jump_to_entry(&h.handle, &active_entry_id_at(&h, 0), &h.jump_cancelled);
+
+    // Then the new jump runs from a clear flag: every page gets through.
+    // The pin is the very first entry, so the jump is one page of one entry.
+    let texts = drained_texts(&reply, &h.jump_cancelled);
+    assert_eq!(texts.len(), 1);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_cancelled_jumps_pages_are_still_marked_delivered() {
+    // Given a page connected to a long history, whose jump was cancelled
+    // before it received a single page.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    push_many(&h.state, jinn_webui2_msg::TAIL_MAX_ENTRIES * 3 + 10);
+    let _ = actions::jump_to_entry(
+        &h.handle,
+        &active_entry_id_at(&h, jinn_webui2_msg::TAIL_MAX_ENTRIES * 2),
+        &h.jump_cancelled,
+    );
+    actions::cancel_jump(&h.jump_cancelled);
+    let _ = drain(&mut inbox);
+
+    // When a reconcile runs with the history unchanged.
+    crate::outbound::reconcile(&h.handle, &active_id(&h.state));
+
+    // Then none of the pages the jump marked is re-sent, though they never
+    // arrived: only entries after the target are offered, as to any page.
+    let texts = drain(&mut inbox)
+        .into_iter()
+        .filter_map(|frame| match frame {
+            ServerMsg::EntryUpsert(upsert) => Some(upsert.entry.entry_text().to_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(texts.iter().all(|t| t != "entry 400" && t != "entry 0"));
 }
 
 // --- the dash's rows, on the tick ---
