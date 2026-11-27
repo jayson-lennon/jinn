@@ -175,6 +175,13 @@ pub enum ClientMsg {
         /// The session to archive.
         session_id: SessionId,
     },
+    /// Close a session the way the terminal's `x` does: run its teardown
+    /// lifecycle, then archive it — or archive it at once when no teardown
+    /// is due.
+    TeardownSession {
+        /// The session to tear down and archive.
+        session_id: SessionId,
+    },
     /// Ask for the new-session form's choices.
     NewSessionOptions,
     /// Create a session through the shared creation path.
@@ -219,6 +226,7 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::SetTheme { .. } => "set_theme",
         ClientMsg::SetLibrary { .. } => "set_library",
         ClientMsg::ArchiveSession { .. } => "archive_session",
+        ClientMsg::TeardownSession { .. } => "teardown_session",
         ClientMsg::NewSessionOptions => "new_session_options",
         ClientMsg::CreateSession { .. } => "create_session",
     }

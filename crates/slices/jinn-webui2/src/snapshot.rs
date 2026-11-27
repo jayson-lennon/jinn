@@ -15,6 +15,7 @@ use crate::{page, revision::RevisionTracker, settle::SettleTracker};
 use jinn_core_types::SessionId;
 use jinn_kernel::{State, StateReadGuard};
 use jinn_webui2_msg::{PhaseBody, SessionRowBody, SnapshotBody, WEBUI2_PROTOCOL_VERSION};
+use std::collections::HashSet;
 
 /// The title a session row shows when the session has none.
 const UNTITLED: &str = "Untitled Session";
@@ -33,16 +34,19 @@ pub struct SnapshotFrame {
 ///
 /// One read of state: the transcript tail, the session's phase, model and
 /// title, and the sidebar rows are all drawn from the same instant, so a
-/// frame can never describe two different moments.
+/// frame can never describe two different moments. `tearing_down` is a
+/// snapshot clone of the sessions whose teardown command is running, taken
+/// before this read so the two locks never overlap.
 #[must_use]
 pub fn snapshot(
     state: &State,
     revisions: &RevisionTracker,
     settles: &SettleTracker,
+    tearing_down: &HashSet<SessionId>,
 ) -> SnapshotFrame {
     let guard = state.read();
     let active_id = guard.session.active_session_id().clone();
-    let (sessions, library, hydrating) = rows_from(&guard, &active_id, settles);
+    let (sessions, library, hydrating) = rows_from(&guard, &active_id, settles, tearing_down);
     let revision = revisions.current(&active_id);
     let theme = persisted_theme(&guard);
 
@@ -104,6 +108,7 @@ fn rows_from(
     guard: &StateReadGuard<'_>,
     active_id: &SessionId,
     settles: &SettleTracker,
+    tearing_down: &HashSet<SessionId>,
 ) -> (Vec<SessionRowBody>, Vec<SessionRowBody>, bool) {
     let mut sessions = Vec::new();
     let mut library = Vec::new();
@@ -113,6 +118,7 @@ fn rows_from(
             title: session.title().unwrap_or(UNTITLED).to_owned(),
             is_active: id == active_id,
             is_busy: session.phase().is_working(),
+            is_tearing_down: tearing_down.contains(id),
             in_library: session.in_library(),
             last_settled_at: settles.last_settled(id),
         };
@@ -143,8 +149,9 @@ pub fn persisted_theme(guard: &StateReadGuard<'_>) -> String {
 pub fn session_rows(
     state: &State,
     settles: &SettleTracker,
+    tearing_down: &HashSet<SessionId>,
 ) -> (Vec<SessionRowBody>, Vec<SessionRowBody>, bool) {
     let guard = state.read();
     let active_id = guard.session.active_session_id().clone();
-    rows_from(&guard, &active_id, settles)
+    rows_from(&guard, &active_id, settles, tearing_down)
 }

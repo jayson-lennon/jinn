@@ -122,6 +122,10 @@ pub struct OutboundHandle {
     /// The queue depth each session's pages were last told, so the tick
     /// pushes a frame only when the depth has actually changed.
     told_queue_lens: Arc<Mutex<std::collections::HashMap<SessionId, usize>>>,
+    /// The sessions whose teardown command is running, so every session
+    /// row built at any instant carries the right flag. Set by the teardown
+    /// started event, cleared by the finished one; in memory only.
+    tearing_down: Arc<Mutex<std::collections::HashSet<SessionId>>>,
 }
 
 impl OutboundHandle {
@@ -185,7 +189,7 @@ pub(crate) use handlers::{
     applets_rescanned, applets_serving_changed, archive_failed, context_override_changed, flush,
     follow_active_session, library_membership_changed, mcp_runtime_stored, model_cache_stored,
     phase_changed, pin_changed, reconcile, sessions_changed, skills_loaded,
-    startup_hydration_finished,
+    startup_hydration_finished, teardown_finished, teardown_started,
 };
 
 /// The outbound actor.
@@ -237,6 +241,7 @@ impl OutboundHandle {
             row_filters: Arc::new(Mutex::new(std::collections::HashMap::new())),
             applet_filter: Arc::new(Mutex::new(None)),
             told_queue_lens: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            tearing_down: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
 
@@ -301,6 +306,24 @@ impl OutboundHandle {
     #[must_use]
     pub fn settles(&self) -> &SettleTracker {
         &self.deps.settles
+    }
+
+    /// Records that a session's teardown command is running.
+    pub(crate) fn mark_tearing_down(&self, session_id: &SessionId) {
+        self.tearing_down.lock().insert(session_id.clone());
+    }
+
+    /// Records that a session's teardown command is no longer running.
+    pub(crate) fn clear_tearing_down(&self, session_id: &SessionId) {
+        self.tearing_down.lock().remove(session_id);
+    }
+
+    /// The sessions whose teardown command is running, as a snapshot clone
+    /// a row builder can read without holding this set's lock alongside the
+    /// state guard.
+    #[must_use]
+    pub(crate) fn tearing_down(&self) -> std::collections::HashSet<SessionId> {
+        self.tearing_down.lock().clone()
     }
 
     /// Records that a session's history changed; returns the new revision.
@@ -424,6 +447,12 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         .handles::<jinn_session_msg::SessionArchived>()
         // A failed archive keeps the session live; the page is told why.
         .handles::<jinn_session_msg::SessionArchiveFailed>()
+        // A teardown command was spawned: the row's busy dot lights. And
+        // its finish — on every outcome — drops it. Both are the lifecycle
+        // actor's own announcements, so a teardown started from the TUI
+        // lights the dot on every page the same way.
+        .handles::<jinn_session_lifecycle_msg::SessionTeardownStarted>()
+        .handles::<jinn_session_lifecycle_msg::SessionTeardownFinished>()
         // The applets slice rescanned its catalog, or its server changed
         // phase: an open applets modal receives fresh rows. Both are Events
         // (broadcast), so a second declarant beside the applets slice's own

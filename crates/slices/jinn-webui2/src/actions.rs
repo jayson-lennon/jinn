@@ -275,7 +275,12 @@ pub fn more_entries(out: &OutboundHandle, before: &ChatEntryId) -> Reply {
 
 /// The bounded-tail snapshot for the active session, recorded as delivered.
 fn snapshot_reply(out: &OutboundHandle) -> Reply {
-    let frame = snapshot::snapshot(out.state(), out.revisions(), out.settles());
+    let frame = snapshot::snapshot(
+        out.state(),
+        out.revisions(),
+        out.settles(),
+        &out.tearing_down(),
+    );
     let session_id = frame.body.session_id.clone().unwrap_or_default();
     out.mark_delivered(&session_id, &frame.window);
     Reply::one(ServerMsg::Snapshot(Box::new(frame.body)))
@@ -1604,6 +1609,47 @@ pub async fn archive_session(out: &OutboundHandle, session_id: SessionId) -> Rep
         },
     }
     out.publish(ArchiveSession { session_id }).await;
+    Reply::none()
+}
+
+/// Closes a session the way the terminal's `x` does: runs its teardown
+/// lifecycle, then archives it — or archives it at once when no teardown is
+/// due.
+///
+/// Parity: the sidebar's `x`
+/// (`jinn_sidebar`'s `handle_session_close_with_lifecycle`), message for
+/// message. Publishes the existing `CloseSession` command and nothing else:
+/// the lifecycle actor owns the teardown, the archive, the fallback when
+/// nothing is due, and a failed teardown (the session then stays open), so
+/// this slice adds no disposal logic of its own and the two surfaces cannot
+/// drift. Nothing is replied — every later fact reaches the page through
+/// the outbound actor's pushes, exactly as a TUI-initiated close would. In
+/// particular the fallback archives silently: a toast would need a
+/// server-to-page message the terminal has no counterpart for.
+///
+/// A session running a turn is refused before the publish, with the same
+/// sentence `archive_session` refuses with — one busy refusal cannot
+/// disagree with itself. An id that is neither live nor stored is refused
+/// the same way, and a stored-but-not-live id is one already in the archive.
+pub async fn teardown_session(out: &OutboundHandle, session_id: SessionId) -> Reply {
+    // Owned, so the read guard drops before the store await below.
+    let phase = out
+        .state()
+        .read()
+        .session
+        .get(&session_id)
+        .map(jinn_kernel::ChatSessionState::phase);
+    match phase {
+        Some(phase) if phase.is_working() => return refused(&Refusal::ArchiveSessionBusy),
+        Some(_) => {}
+        None => match out.session_store().load_session(&session_id).await {
+            Ok(Some(_)) => return refused(&Refusal::AlreadyArchived(session_id)),
+            Ok(None) => return refused(&Refusal::UnknownSession),
+            Err(_) => return refused(&Refusal::StoreUnavailable),
+        },
+    }
+    out.publish(jinn_session_lifecycle_msg::CloseSession { session_id })
+        .await;
     Reply::none()
 }
 
