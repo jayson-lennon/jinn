@@ -33,8 +33,8 @@ use jinn_webui2_msg::{
     AppletRowBody, AppletRowsBody, EntriesPageBody, EntryUpsertBody, ErrorBody, ImageUploadBody,
     LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelRowBody, ModelRowsBody,
     NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PickerRowBody, PickerRowsBody,
-    ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
-    ToolRowsBody,
+    PromptTemplateBody, ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, ThemeBody, TitleBody,
+    ToolRowBody, ToolRowsBody,
 };
 
 use crate::{
@@ -976,6 +976,33 @@ pub(crate) fn skill_row_bodies(
                 name_runs: runs(segments.name),
                 description_runs: runs(segments.description),
             }
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Prompt templates
+// Parity: chat-input `intent.rs::handle_insert_char` (the `#` popup's list)
+// ---------------------------------------------------------------------------
+
+/// A session's prompt templates for the composer's `#` popup: name and
+/// description, in the store's own order.
+///
+/// No filter and no ranking. The terminal's popup filters on each
+/// keystroke, but this surface ships the whole list and the browser filters
+/// it as the user types, so the server is asked nothing per keystroke and
+/// one list serves every keystroke. The order is the discovery scan's — the
+/// same list the terminal's popup shows for an empty filter.
+pub(crate) fn prompt_template_bodies(
+    session: &jinn_session_state::ChatSessionState,
+) -> Vec<PromptTemplateBody> {
+    session
+        .discovered_prompt_templates()
+        .templates()
+        .iter()
+        .map(|template| PromptTemplateBody {
+            name: template.name.clone(),
+            description: template.description.clone(),
         })
         .collect()
 }

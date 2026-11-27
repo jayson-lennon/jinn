@@ -180,6 +180,8 @@ fixed column drawn here, and the `#` is not shown.
 │              │                                        [⇲]   │ ← jump to end (bottom-right, when off the end)
 │              ├──────────────────────────────────────────────┤
 │              │ [chip: dot.png ✕]                            │ ← chips
+│              │ ┌ plan - Discuss and plan software ─────────┐│
+│              │ └ approve-plan - Generate a context-rich ──┘│ ← `#` prompt popup (above the composer, while the caret is in a `#` token)
 │              │ [Message jinn…      ] [+]        [Send]      │ ← composer
 │              │ [Message jinn…      ] [+]     [Q] [Cancel]   │
 └──────────────┴──────────────────────────────────────────────┘
@@ -206,6 +208,7 @@ fixed column drawn here, and the `#` is not shown.
 | `⋮` at an entry's bottom-right | Every transcript entry's menu, always visible at every width. **Pin** pins the entry at its relative position and it shows a 📌; pinned, the item reads **Unpin**. **Fork** forks the session at that entry, as the TUI's `f` does, and the page moves onto the new session. `Esc`, an outside click, or picking an item closes it. | `webui2.md` |
 | 📌 at an entry's left edge | A pinned entry — always in context, and pinned at its relative position. | `webui2.md` |
 | `[Message jinn…]` | The composer's draft. `Enter` inserts a newline; `Ctrl+Enter` and `Shift+Enter` send. An image with no text sends. | `webui2.md` |
+| The `name - description` list above the composer | The `#` prompt popup, open while the caret sits in a `#` token at a word boundary. `Tab` inserts the highlighted `#name`, `↑`/`↓` move, `Esc` or leaving the token closes it, a tap picks on a phone. | `webui2.md` |
 | `[+]` | Attach an image. Opens the file picker. | `webui2.md` |
 | `[Q]` / `[Cancel]` (while busy) | Queue the message until the turn settles / stop the turn. | `webui2.md` |
 | `[Send]` (while idle) | Send the message. | `webui2.md` |

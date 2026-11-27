@@ -168,3 +168,15 @@ test("on a phone the composer row is as tall as it is at desktop", async ({
   expect((await page.locator(sel.ATTACH).boundingBox()).height).toBe(desktop);
   expect((await page.locator(sel.SEND).boundingBox()).height).toBe(desktop);
 });
+
+test("a hash inside a word opens no prompt popup", async ({ page }) => {
+  // Given an idle composer, with no prompt template staged — the list is
+  // whatever the scratch session ships with.
+  await page.locator(sel.DRAFT).click();
+
+  // When typing `issue#42`, whose `#` does not open a word.
+  await page.keyboard.type("issue#42");
+
+  // Then no popup appears: the `#` completion is a word-boundary trigger.
+  await expect(page.locator(sel.PROMPT_POPUP)).toHaveCount(0);
+});

@@ -62,13 +62,20 @@ model not confirmed image-capable blocks the attachment (mark it via
 `[[providers.model_info]]` `input_modalities` in providers.toml — the
 web UI honors the marker even before the first model refresh).
 
-The three `#` / `@` / `/` tokens above do not exist in the web composer
-(`/web2`): text is sent verbatim. `Ctrl+Enter` and `Shift+Enter` send
-when the session is idle and queue while a turn is running (`Enter`
-inserts a newline — the reverse of the TUI's `<enter>` / `<s-enter>`),
-and the `+` beside the draft attaches an image — the web counterpart of
-`@path`. An `https://` image URL in the text is fetched and attached too
-(`webui2.md`).
+The `#` token works in the web composer (`/web2`) too: a `#` at a word
+boundary — the start of the draft, or right after a space or newline —
+opens a popup above the draft listing the session's templates as
+`name - description`, narrowing as you type. `Tab` inserts the bare
+`#name` (it expands at send, exactly as in the TUI), the arrow keys move
+the highlight, `Esc` closes it, and a tap picks a row on a phone. Moving
+the caret out of the token closes it. The `@path` and `/command` tokens
+are TUI-only: the web composer sends that text verbatim, and attaches an
+image through the `+` beside the draft instead of `@path`.
+
+`Ctrl+Enter` and `Shift+Enter` send when the session is idle and queue
+while a turn is running (`Enter` inserts a newline — the reverse of the
+TUI's `<enter>` / `<s-enter>`). An `https://` image URL in the text is
+fetched and attached too (`webui2.md`).
 
 ## `/command`: command popup
 

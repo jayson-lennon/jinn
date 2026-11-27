@@ -143,6 +143,14 @@ export interface SkillRow {
   description_runs: TextRun[];
 }
 
+/** One prompt template, as the composer's `#` popup lists it. The body
+ * never crosses the wire: it reaches the model through the `#name`
+ * expansion at send time. */
+export interface PromptTemplate {
+  name: string;
+  description: string;
+}
+
 /** One row of the tools modal. */
 export interface ToolRow {
   name: string;
@@ -255,6 +263,9 @@ export type ServerMsg =
        *  startup, so the rows above are a partial list. */
       hydrating: boolean;
       theme: Theme;
+      /** The active session's prompt templates, in the store's own order —
+       * what the composer's `#` popup filters as the user types. */
+      prompt_templates: PromptTemplate[];
     }
   | { type: 'entry_upsert'; session_id: string; index: number; entry: EntryEnvelope }
   | {
@@ -280,6 +291,7 @@ export type ServerMsg =
   | { type: 'mcp_rows'; session_id: string; filter: string; rows: McpRow[] }
   | { type: 'persona_rows'; session_id: string; filter: string; rows: PersonaRow[] }
   | { type: 'applet_rows'; filter: string; serving: boolean; bind: string; rows: AppletRow[] }
+  | { type: 'prompt_templates'; session_id: string; templates: PromptTemplate[] }
   | { type: 'new_session_options'; projects: string[]; lifecycles: LifecycleOption[] }
   | { type: 'theme'; theme: Theme }
   | { type: 'error'; message: string }

@@ -260,8 +260,10 @@ There are no keybinds beyond these:
 | `Enter` in the composer | Inserts a newline. |
 | `Ctrl+Enter` in the composer | Sends the message; queues it while a turn is running. |
 | `Shift+Enter` in the composer | Sends the message; queues it while a turn is running. |
+| `Tab` with the `#` prompt popup open | Inserts the highlighted template as a bare `#name`. |
+| `↑` / `↓` with the `#` prompt popup open | Moves the highlight; the best match starts highlighted, at the bottom. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
-| `Esc` | Closes the top overlay: the menu, any of the five picker modals (Skills, Persona, Tools, MCP servers, Applets), the New session modal, another picker, the title editor, or the phone drawer. It does **not** close the **Loading session…** overlay — that ends only when the load ends. |
+| `Esc` | Closes the top overlay: the menu, any of the five picker modals (Skills, Persona, Tools, MCP servers, Applets), the New session modal, another picker, the `#` prompt popup, the title editor, or the phone drawer. It does **not** close the **Loading session…** overlay — that ends only when the load ends. |
 
 The composer's buttons follow the session's phase:
 
@@ -277,6 +279,14 @@ never sends — the **Send** button does. An empty draft with no image does
 nothing either way; an image with no text sends. Images are limited to
 5 MB each, and a refused one is named in a toast while the draft and
 every chip stay put.
+
+**Prompt templates.** Typing `#` at a word boundary in the draft — the
+start, or right after a space or newline — opens a popup above the
+composer listing the session's templates as `name - description`, narrowing
+as you type. `Tab` inserts the bare `#name`, which expands at send exactly
+as the TUI's does; a tap picks a row on a phone. Moving the caret out of
+the token closes it. The list is the session's own, delivered with the
+snapshot and refreshed when a rescan finishes.
 
 **Cancel** stops the running turn. Queued work is dumped into the TUI's
 input box as an editable draft — not into the web composer.
@@ -310,9 +320,9 @@ Everything below exists on the TUI. When a user asks for one of these on
   `/web2`: the entry's `⋮` → **Pin**. Top/bottom pin positioning is not.)
 - Steer mode. A message sent while working is queued; to steer, cancel
   and send.
-- The `#prompt`, `@path`, and `/command` input tokens. Text is sent
-  verbatim; `@path` is the TUI's way to attach a file, and `/web2` has the
-  `+` instead.
+- The `@path` and `/command` input tokens. That text is sent verbatim;
+  `@path` is the TUI's way to attach a file, and `/web2` has the `+`
+  instead. The `#prompt` token does work — see **Prompt templates** above.
 - Model alloys, reasoning-effort and endpoint pickers.
 
 ## How it works

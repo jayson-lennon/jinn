@@ -7,7 +7,8 @@
 use crate::payload::{
     AppletRowsBody, ContextUsageBody, EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody,
     McpRowsBody, ModelBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody,
-    PickerRowsBody, SessionsBody, SkillRowsBody, SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
+    PickerRowsBody, PromptTemplatesBody, SessionsBody, SkillRowsBody, SnapshotBody, ThemeBody,
+    TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +59,9 @@ pub enum ServerMsg {
     PersonaRows(PersonaRowsBody),
     /// The applets modal's rows, with the applets server's serving phase.
     AppletRows(AppletRowsBody),
+    /// A session's prompt templates, after its scan finished. An open `#`
+    /// popup re-filters against the new list in place.
+    PromptTemplates(PromptTemplatesBody),
     /// The new-session form's choices.
     NewSessionOptions(NewSessionOptionsBody),
     /// The page's color mode changed.
@@ -103,6 +107,7 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::McpRows(_) => "mcp_rows",
         ServerMsg::PersonaRows(_) => "persona_rows",
         ServerMsg::AppletRows(_) => "applet_rows",
+        ServerMsg::PromptTemplates(_) => "prompt_templates",
         ServerMsg::NewSessionOptions(_) => "new_session_options",
         ServerMsg::Theme(_) => "theme",
         ServerMsg::ContextUsage(_) => "context_usage",

@@ -192,8 +192,9 @@ mod handlers;
 pub(crate) use handlers::{
     applets_rescanned, applets_serving_changed, archive_failed, context_override_changed, flush,
     follow_active_session, library_membership_changed, mcp_runtime_stored, model_cache_stored,
-    phase_changed, pin_changed, provider_switched, reconcile, sessions_changed, skills_loaded,
-    startup_hydration_finished, teardown_finished, teardown_started,
+    phase_changed, pin_changed, prompt_templates_loaded, provider_switched, reconcile,
+    sessions_changed, skills_loaded, startup_hydration_finished, teardown_finished,
+    teardown_started,
 };
 
 /// The outbound actor.
@@ -435,6 +436,14 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         // rail's loading row comes down. Read the state, never the event.
         .handles::<jinn_session_store_msg::StartupHydrationFinished>()
         .handles::<jinn_skills_msg::SkillsLoaded>()
+        // A session's prompt scan finished: every page receives its
+        // templates for the composer's `#` popup. Discovery writes the
+        // session's store before it publishes the event, so a handler
+        // reading the state now sees the fresh list. The event is an
+        // announcement two other actors already subscribe to, so a third
+        // declarant is the normal broadcast case. Read the state, never the
+        // event's own list.
+        .handles::<jinn_session_init_msg::PromptTemplatesLoaded>()
         // The coordinator emits this strictly after every runtime-cell
         // status write, so a handler reading the cell now sees the
         // transition. Never the raw `McpServerStatus` facts: those have

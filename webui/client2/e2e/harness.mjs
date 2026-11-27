@@ -82,6 +82,10 @@ function allowedEnv(root) {
     TERM: "dumb",
     LANG: process.env.LANG ?? "C.UTF-8",
     ...keep("LC_ALL"),
+    // The log filter, forwarded so a kept run's `jinn.log` can carry the
+    // `info!` scan lines a debugging session needs. The default floor is
+    // `warn`, which hides them.
+    ...keep("RUST_LOG"),
     // The paths-root override — the isolation lever. Rebinds config,
     // data, cache, state, and home under the scratch root.
     JINN_PATHS_ROOT: root,
@@ -276,6 +280,41 @@ function writeSkill(root, skill) {
   fs.writeFileSync(path.join(skillsDir, "SKILL.md"), skill.body);
 }
 
+/** The scratch prompt template the prompt-popup spec pivots on. Its name is
+ * chosen so a filter for `e2e-scra` matches it alone among the templates a
+ * scratch session discovers — the shipped `plan`, `approve-plan`, … have no
+ * such run — and its description names the feature so a test can tell the
+ * row's two parts apart. */
+export const scratchPrompt = {
+  name: "e2e-scratch-prompt",
+  description: "scratch prompt for the webui2 # popup",
+  body: `+++
+name = "e2e-scratch-prompt"
+description = "scratch prompt for the webui2 # popup"
++++
+
+e2e-scratch-prompt-body-marker
+`,
+};
+
+/**
+ * Writes the staged prompt in the scratch root's user prompts dir — the
+ * same layer the bundled templates are copied into, and the layer the
+ * prompt scan reads first.
+ *
+ * This mirrors the staged skill, which sits in the root's global skills
+ * dir: with `HOME` set to the scratch root, a project-local file would
+ * have to sit under the session's cwd, and the walk is bounded by `$HOME`.
+ * The user layer is the one place discovery is guaranteed to look.
+ * Discovery scans at boot, so this has to happen before jinn starts — a
+ * file written afterwards is invisible until a rescan.
+ */
+function writePrompt(root, prompt) {
+  const promptsDir = path.join(root, "config", "jinn", "prompts");
+  fs.mkdirSync(promptsDir, { recursive: true });
+  fs.writeFileSync(path.join(promptsDir, `${prompt.name}.md`), prompt.body);
+}
+
 /**
  * The scratch applet the applets spec pivots on. The title is chosen so a
  * filter for `e2e` matches it alone, and its body carries a marker so a
@@ -324,6 +363,7 @@ function writeScratch(root, webui2Port, stage = {}) {
   writeConfig(root, webui2Port, stage);
   if (stage.skill) writeSkill(root, scratchSkill);
   if (stage.applet) writeApplet(root, scratchApplet);
+  if (stage.prompt) writePrompt(root, scratchPrompt);
 }
 
 /**
@@ -450,10 +490,12 @@ async function killTree(root) {
  * a tty. `setsid` puts the wrapper outside the caller's session, and
  * teardown finds the tree by the scratch root on the command line.
  *
- * @param {{ skill?: boolean, persona?: boolean, mcp?: boolean, textOnly?: boolean, applet?: boolean }} [options]
+ * @param {{ skill?: boolean, persona?: boolean, mcp?: boolean, textOnly?: boolean, applet?: boolean, prompt?: boolean }} [options]
  *   stage the scratch skill when `skill` is set, the block-less persona
- *   when `persona` is set, the echo MCP server when `mcp` is set, and the
- *   scratch applet under the data dir when `applet` is set.
+ *   when `persona` is set, the echo MCP server when `mcp` is set, the
+ *   scratch applet under the data dir when `applet` is set, and the
+ *   scratch prompt template under the project-local prompts dir when
+ *   `prompt` is set.
  *   With `textOnly`, the sample model's row declares text only, so an
  *   image send hits the vision gate's blocked path.
  *
@@ -480,6 +522,7 @@ export async function bootJinn(options = {}) {
     mcp: options.mcp === true,
     textOnly: options.textOnly === true,
     applet: options.applet === true,
+    prompt: options.prompt === true,
   });
   const run = {
     webui2Port,
@@ -557,6 +600,10 @@ export async function restartJinn(run) {
  * Tears one instance down: kill its whole tree, remove its scratch
  * root. Safe to call twice and on an instance that already died.
  *
+ * With `JINN_E2E_KEEP` set, the kill still happens but the scratch root
+ * is left in place — its `state/jinn/jinn.log` and staged tree are then
+ * readable after the run. A debugging aid, never set by the recipes.
+ *
  * # Errors
  *
  * Never rejects — teardown best-effort cleans whatever exists.
@@ -564,5 +611,9 @@ export async function restartJinn(run) {
 export async function teardownJinn(run) {
   if (!run || typeof run.root !== "string") return;
   await killTree(run.root);
+  if (process.env.JINN_E2E_KEEP !== undefined) {
+    console.error(`[e2e] keeping scratch root: ${run.root}`);
+    return;
+  }
   fs.rmSync(run.root, { recursive: true, force: true });
 }

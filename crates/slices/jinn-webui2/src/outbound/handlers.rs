@@ -469,6 +469,50 @@ pub(crate) fn skills_loaded(handle: &super::OutboundHandle, msg: &jinn_skills_ms
     ));
 }
 
+impl MsgHandler<jinn_session_init_msg::PromptTemplatesLoaded> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_init_msg::PromptTemplatesLoaded,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        prompt_templates_loaded(&self.handle, msg);
+    }
+}
+
+/// Turns one `PromptTemplatesLoaded` into the frame every page needs.
+///
+/// Discovery wrote the session's template store before it published the
+/// event, so the list read now is the fresh one — the event is the
+/// announcement, never the data (see [`skills_loaded`]). It goes to every
+/// page: which page views which session is the page's own knowledge, and a
+/// page viewing another session drops the frame on its side. No filter is
+/// remembered, because nothing is asked — the browser holds the whole list
+/// and filters it as the user types.
+///
+/// A failed scan publishes the same event having written nothing, and the
+/// store then holds whatever it held before; the frame carries that, which
+/// is the honest list.
+pub(crate) fn prompt_templates_loaded(
+    handle: &super::OutboundHandle,
+    msg: &jinn_session_init_msg::PromptTemplatesLoaded,
+) {
+    let templates = {
+        let guard = handle.deps.state.read();
+        guard
+            .session
+            .get(&msg.session_id)
+            .map_or_else(Vec::new, |session| {
+                crate::actions::prompt_template_bodies(session)
+            })
+    };
+    handle.broadcast(&jinn_webui2_msg::ServerMsg::PromptTemplates(
+        jinn_webui2_msg::PromptTemplatesBody {
+            session_id: msg.session_id.clone(),
+            templates,
+        },
+    ));
+}
+
 impl MsgHandler<jinn_provider_selection_msg::ModelCacheStored> for OutboundActor {
     async fn handle(
         &mut self,

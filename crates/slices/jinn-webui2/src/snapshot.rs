@@ -74,6 +74,7 @@ pub fn snapshot(
                 library,
                 hydrating,
                 theme,
+                prompt_templates: Vec::new(),
             },
         };
     };
@@ -100,6 +101,7 @@ pub fn snapshot(
         library,
         hydrating,
         theme,
+        prompt_templates: crate::actions::prompt_template_bodies(active),
     };
     SnapshotFrame { body, window }
 }
