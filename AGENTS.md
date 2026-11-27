@@ -17,6 +17,7 @@ The full workspace suite takes minutes. Treat suite executions as expensive:
 3. Iterate cheaply while fixing: `just test-one <test_name_filter>` runs only matching tests across the workspace.
 4. Before committing, confirm with one final `just test`.
 5. **Booting the real binary for a check requires the user's explicit ask.** A plain Rust test is the default way to verify a change. Driving jinn through an e2e harness (`just webui2-e2e`, `just webui2-e2e-one`) or a hand-rolled script is the exception, and only when working on the web UI or when the user asks for it.
+6. **The web UI client's unit tests run on every cargo compile of `jinn-webui2`.** `build.rs` runs `vitest run` after `tsc` and before the bundle, so a red unit test fails the build the way a type error does. Iterate on them with `just webui2-unit [filter]`; they need no binary and no browser. A web UI rule that a pure function or the store's `apply()` can prove belongs in this tier, never in the e2e tier.
 
 ## 1. Overview
 
@@ -698,7 +699,9 @@ The web UI (`crates/slices/jinn-webui2`, served at the root of its own listener 
 
 Server-side, the same rule holds as one exhaustive `match` per direction in `protocol.rs` and one handler arm in `outbound/handlers.rs`. Extending the UI is always: one enum variant (or two), the arms it forces into existence, and nothing routed around them.
 
-**Build.** Nothing of the web UI client is committed. The slice's `build.rs` runs the client build itself on every cargo compile — `npm ci` when `package-lock.json` is newer than `node_modules`, then `tsc --noEmit`, `vite build`, and a gzip of the output into `OUT_DIR`, from which the bytes are embedded. The bundle cannot be stale, because it is always built from the sources being compiled; there is no committed artifact to pin or to conflict on a merge. **Node and npm are therefore build prerequisites of the `jinn-webui2` crate** — a build without them fails with a message naming the requirement. A type error in the client fails the cargo build by its own name.
+**Build.** Nothing of the web UI client is committed. The slice's `build.rs` runs the client build itself on every cargo compile — `npm ci` when `package-lock.json` is newer than `node_modules`, then `tsc --noEmit`, `vitest run` (the client's unit tests, under `webui/client2/vitest.config.mjs`), `vite build`, and a gzip of the output into `OUT_DIR`, from which the bytes are embedded. The bundle cannot be stale, because it is always built from the sources being compiled; there is no committed artifact to pin or to conflict on a merge. **Node and npm are therefore build prerequisites of the `jinn-webui2` crate** — a build without them fails with a message naming the requirement. A type error or a failing unit test in the client fails the cargo build by its own name.
+
+**The client's unit tier.** The pure modules and the store's `apply()` dispatch are tested under Vitest, one `*.test.ts` beside each module under `webui/client2/src/`. The tests mirror the Rust tree's shape: one Given/When/Then per test, a sentence for a name, and `it.each` where `rstest`'s `#[case]` would be used. A file that imports `markdown.ts` carries `// @vitest-environment jsdom` on its first line, because the module needs a `window` to load. Iterate with `just webui2-unit [filter]`.
 
 **The Playwright e2e tier — one jinn per test.** Every e2e test runs against its own freshly booted jinn with its own scratch database, config, and data tree, booted before the test and torn down after it however it ends. No test can observe state another test created, so the order the tests run in carries no meaning: `just webui2-e2e` shuffles the files (`--shuffle`) and prints the seed, and a test that only passes in one order is a bug in the test.
 

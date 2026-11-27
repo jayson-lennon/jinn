@@ -3,14 +3,16 @@
 //! The bundle is build **output** of `webui/client2`. This script produces
 //! it rather than reading a committed copy: it installs the client's
 //! dependencies when the lock file is newer than them, type-checks,
-//! runs `vite build`, gzips the output into `OUT_DIR`, and generates the
-//! `include_bytes!` table the server embeds.
+//! runs the client's unit tests, runs `vite build`, gzips the output into
+//! `OUT_DIR`, and generates the `include_bytes!` table the server embeds.
 //!
-//! The build runs on every compile, unconditionally — the client's type-check
-//! and bundle take well under a second, and that is the price of the one
+//! The build runs on every compile, unconditionally — the client's type-check,
+//! unit tests, and bundle take well under a second, and that is the price of the one
 //! property this design buys: the bundle cannot be stale, because it is
 //! always built from the sources being compiled. There is no committed
 //! bundle to drift, no pin to refresh, and no merge conflict on build output.
+//! A failing unit test fails the build by its own name, the same way a type
+//! error does, so no bundle ships from logic a test says is broken.
 //!
 //! Node and npm are therefore build prerequisites of this crate. A missing
 //! `npm` fails the build with a message naming the requirement rather than
@@ -146,18 +148,26 @@ fn lock_is_newer(lock: &Path, dir: &Path) -> bool {
     lock_time > dir_time
 }
 
-/// Type-checks and bundles the client. `tsc` runs first so a type error
-/// fails the cargo build by its own name instead of surfacing later as a
-/// misbehaving page.
+/// Type-checks, tests, and bundles the client. `tsc` runs first so a type
+/// error fails the cargo build by its own name instead of surfacing later as
+/// a misbehaving page; the unit tests run next, for the same reason.
 ///
 /// # Panics
 ///
-/// Panics when `tsc` or `vite` exits non-zero, naming the tool and the
-/// captured output.
+/// Panics when `tsc`, `vitest`, or `vite` exits non-zero, naming the tool
+/// and the captured output.
 fn build_client(client_dir: &Path) {
     let bin = client_dir.join("node_modules").join(".bin");
     run(Command::new(bin.join("tsc"))
         .args(["--noEmit", "-p", "tsconfig.json"])
+        .current_dir(client_dir));
+    // The client's unit tests. They run on every compile, after the type
+    // check and before the bundle: a red test fails the build by its own
+    // name, the same way a type error does, and no bundle is built from
+    // logic a test says is broken. `vitest.config.mjs` is the config; the
+    // production `vite.config.mjs` names no tests.
+    run(Command::new(bin.join("vitest"))
+        .arg("run")
         .current_dir(client_dir));
     run(Command::new(bin.join("vite"))
         .arg("build")
@@ -281,6 +291,7 @@ fn source_files(client_dir: &Path) -> Vec<String> {
         "package.json",
         "package-lock.json",
         "vite.config.mjs",
+        "vitest.config.mjs",
         "tsconfig.json",
     ] {
         if client_dir.join(name).exists() {

@@ -43,35 +43,16 @@ const HELP_TEXT: &str = "Sample LLM Provider - Available commands:\n\
 /// Canned markdown document for `!markdown`.
 ///
 /// Shaped like a real web-search reply, carrying every construct the
-/// the web UI renderer's e2e tier asserts on: a footnote pair, a task list, a
-/// table, a bare address in each punctuation shape the linkifier handles
+/// web UI renderer must handle: a footnote pair, a task list, a table, a
+/// bare address in each punctuation shape the linkifier handles
 /// differently, an address that must stay text, and an email. The prose
 /// between them is a model's own, so a failure reads as a sentence and not
 /// as a fixture.
-const MARKDOWN_TEXT: &str = "## Markdown showcase\n\
-    \n\
-    A web-search reply cites its sources[^docs] and keeps a plan.\n\
-    \n\
-    | field | meaning |\n\
-    |---|---|\n\
-    | `id` | the model's id |\n\
-    \n\
-    - [x] Read the docs\n\
-    - [ ] Call the endpoint\n\
-    \n\
-    The plain address is https://example.com/plain and it ends a sentence here https://example.com/dot.\n\
-    A comma follows this one https://example.com/comma, and a bracket follows this one https://example.com/bracket).\n\
-    The bracketed form is [https://example.com/wrapped] and a parenthesised address keeps its underscores https://en.wikipedia.org/wiki/Foo_(bar).\n\
-    These stay text: www.example.com, ftp://files.example.com/x, //cdn.example.com/x.js, and xhttps://example.com.\n\
-    A code span keeps its address literal `https://example.com/in-code`.\n\
-    \n\
-    ```text\n\
-    https://example.com/in-block\n\
-    ```\n\
-    \n\
-    Mail the author at dev@example.com about it.\n\
-    \n\
-    [^docs]: The OpenRouter API reference, https://openrouter.ai/docs";
+///
+/// The document is a file rather than a literal because the web UI client's
+/// unit tests read the same bytes: a rule proven there and the page a user
+/// sees are checked against one document, so they cannot drift apart.
+const MARKDOWN_TEXT: &str = include_str!("resources/markdown_showcase.md");
 
 /// Minimum inter-token delay in milliseconds.
 const DELAY_MIN_MS: u64 = 10;

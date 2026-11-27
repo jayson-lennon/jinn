@@ -28,6 +28,13 @@ import {
   setDraft,
   setPromptCompletion,
 } from './composer_state';
+import {
+  composerKeyAction,
+  decideSend,
+  hasSendContent,
+  isTap,
+  type DraftKey,
+} from './composer_keys';
 
 export interface ComposerProps {
   store: ClientStore;
@@ -63,7 +70,7 @@ export function Composer(props: ComposerProps): JSX.Element {
   const draft = (): string => props.store.state.draft;
   const chips = (): ImageUpload[] => props.store.state.chips;
   // A send needs something to send: text, or an image.
-  const hasContent = (): boolean => draft().trim() !== '' || chips().length > 0;
+  const hasContent = (): boolean => hasSendContent(draft(), chips());
 
   const placeholder = (): string => {
     if (!busy()) return 'Message jinn…';
@@ -135,11 +142,12 @@ export function Composer(props: ComposerProps): JSX.Element {
     // the message, and reading them after the clear would send none.
     const text = draft();
     const images = chips();
-    if (text.trim() === '' && images.length === 0) return;
+    const message = decideSend(text, images, props.store.state.phase);
+    if (message === null) return;
     // The message appears now; the server's own entry replaces it.
     if (text.trim() !== '') addOptimistic(props.store, text);
     clearComposer(props.store);
-    props.send({ type: busy() ? 'queue' : 'send', text, images });
+    props.send(message);
   };
 
   // Set when keydown fully settled a key — Escape closed the popup, Tab
@@ -149,35 +157,49 @@ export function Composer(props: ComposerProps): JSX.Element {
   let settledKey: string | undefined;
 
   const onDraftKeyDown = (e: KeyboardEvent): void => {
-    // Ctrl+Enter and Shift+Enter send or queue; Enter inserts a newline.
-    // Neither is intercepted by the popup: an open completion never turns
-    // a key into a pick — only Tab picks.
-    if (e.key === 'Enter' && (e.ctrlKey || e.shiftKey)) {
-      e.preventDefault();
-      submit();
-      return;
+    // Which key does what is `composerKeyAction`'s decision; this only
+    // carries it out. Ctrl+Enter and Shift+Enter send or queue; Enter
+    // inserts a newline; an open completion never turns a key into a pick —
+    // only Tab picks.
+    const action = composerKeyAction(
+      { key: e.key, ctrl: e.ctrlKey, shift: e.shiftKey },
+      completion() !== null,
+      rows().length,
+    );
+    switch (action.kind) {
+      case 'send': {
+        e.preventDefault();
+        submit();
+        return;
+      }
+      case 'none': {
+        return;
+      }
+      case 'close': {
+        e.preventDefault();
+        settledKey = e.key;
+        setPromptCompletion(props.store, null);
+        return;
+      }
+      case 'move': {
+        e.preventDefault();
+        settledKey = e.key;
+        movePromptHighlight(props.store, rows().length, action.delta);
+        return;
+      }
+      case 'pick': {
+        // Tab with nothing to pick never reaches here: the action is `none`
+        // instead, and focus moves on as it would with no popup open.
+        e.preventDefault();
+        settledKey = e.key;
+        pick(rows()[highlight()]?.name ?? '');
+        return;
+      }
     }
-    if (completion() === null) return;
-    const count = rows().length;
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      settledKey = e.key;
-      setPromptCompletion(props.store, null);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      settledKey = e.key;
-      movePromptHighlight(props.store, count, -1);
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      settledKey = e.key;
-      movePromptHighlight(props.store, count, 1);
-    } else if (e.key === 'Tab' && count > 0) {
-      // Tab with nothing to pick is left alone: focus moves on, as it
-      // would with no popup open.
-      e.preventDefault();
-      settledKey = e.key;
-      pick(rows()[highlight()]?.name ?? '');
-    }
+    // No fallback arm: an action kind without a case above must fail the
+    // type check here, not fall through unperformed.
+    const unhandled: never = action;
+    return void unhandled;
   };
 
   /** Re-derives the completion once a key has landed — unless keydown
@@ -193,11 +215,10 @@ export function Composer(props: ComposerProps): JSX.Element {
 
   // A tap on a popup row picks it — but a finger that moves is a scroll,
   // not a tap. The pointer's down position is remembered, and the pick
-  // happens on pointerup only when the pointer stayed within a few
-  // pixels of where it went down. Without this a phone's scroll gesture
+  // happens on pointerup only when `isTap` says the pointer stayed within
+  // the slop of where it went down. Without this a phone's scroll gesture
   // would pick whatever row the finger happened to land on.
   let pressAt: { x: number; y: number } | undefined;
-  const TAP_SLOP_PX = 10;
 
   const onRowPointerDown = (e: PointerEvent): void => {
     pressAt = { x: e.clientX, y: e.clientY };
@@ -217,8 +238,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     const at = pressAt;
     pressAt = undefined;
     if (at === undefined) return;
-    const moved = Math.hypot(e.clientX - at.x, e.clientY - at.y);
-    if (moved <= TAP_SLOP_PX) pick(name);
+    if (isTap(at.x, at.y, e.clientX, e.clientY)) pick(name);
   };
 
   /** Swallows the click a mouse tap leaves behind: the popup has closed

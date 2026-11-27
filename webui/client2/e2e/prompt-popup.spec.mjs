@@ -24,59 +24,6 @@ const REPLY_TIMEOUT_MS = 15_000;
 const test = base.with({ prompt: true });
 
 /** The popup's highlighted row. */
-const ACTIVE_ROW = '[data-testid="prompt-row"].active';
-
-test("a hash at the start of the draft opens the popup", async ({ page }) => {
-  // Given a connected page with the staged template discovered.
-  // When typing a lone `#` into an empty draft.
-  await openPromptPopup(page);
-
-  // Then the popup is open and lists the staged template.
-  await expect(page.locator(sel.PROMPT_POPUP)).toBeVisible();
-  await expect(page.locator(sel.PROMPT_ROW_NAMED(PROMPT_NAME))).toBeVisible();
-});
-
-test("a hash after a space opens the popup", async ({ page }) => {
-  // Given a connected page.
-  // When typing text, a space, then `#`.
-  await page.locator(sel.DRAFT).click();
-  await page.keyboard.type("hello #");
-
-  // Then the popup is open.
-  await expect(page.locator(sel.PROMPT_POPUP)).toBeVisible();
-});
-
-test("a hash after a newline opens the popup", async ({ page }) => {
-  // Given a connected page.
-  // When typing a line, a newline, then `#`. Enter inserts the newline.
-  await page.locator(sel.DRAFT).click();
-  await page.keyboard.type("hello");
-  await page.keyboard.press("Enter");
-  await page.keyboard.type("#");
-
-  // Then the popup is open.
-  await expect(page.locator(sel.PROMPT_POPUP)).toBeVisible();
-});
-
-test("a hash inside a word never opens the popup", async ({ page }) => {
-  // Given a connected page.
-  // When typing `issue#42`, whose `#` does not open a word.
-  await page.locator(sel.DRAFT).click();
-  await page.keyboard.type("issue#42");
-
-  // Then the popup never opens.
-  await expect(page.locator(sel.PROMPT_POPUP)).toHaveCount(0);
-});
-
-test("typing after the hash narrows the rows", async ({ page }) => {
-  // Given the popup open with the staged template's filter typed.
-  await openPromptPopup(page, PROMPT_FILTER);
-
-  // Then only the staged template is listed.
-  await expect(page.locator(sel.PROMPT_ROW)).toHaveCount(1);
-  await expect(page.locator(sel.PROMPT_ROW_NAMED(PROMPT_NAME))).toBeVisible();
-});
-
 test("the row lists the name and the description", async ({ page }) => {
   // Given the popup open on the whole list.
   await openPromptPopup(page);
@@ -94,52 +41,6 @@ test("no prompts found when nothing matches", async ({ page }) => {
   // Then the popup shows its one empty-state row and no prompt rows.
   await expect(page.locator(sel.PROMPT_EMPTY)).toHaveText("no prompts found");
   await expect(page.locator(sel.PROMPT_ROW)).toHaveCount(0);
-});
-
-test("the highlight starts on the last row", async ({ page }) => {
-  // Given the popup open on the whole list.
-  await openPromptPopup(page);
-
-  // Then the highlighted row is the last one — the best match, as in the terminal.
-  const rows = page.locator(sel.PROMPT_ROW);
-  await expect(rows.last()).toHaveClass(/active/);
-  await expect(page.locator(ACTIVE_ROW)).toHaveCount(1);
-});
-
-test("arrow up moves the highlight up one row", async ({ page }) => {
-  // Given the popup open on the whole list, the last row highlighted.
-  await openPromptPopup(page);
-
-  // When pressing ArrowUp once.
-  await page.keyboard.press("ArrowUp");
-
-  // Then the second-to-last row is the one highlighted.
-  await expect(page.locator(sel.PROMPT_ROW).nth(-2)).toHaveClass(/active/);
-  await expect(page.locator(ACTIVE_ROW)).toHaveCount(1);
-});
-
-test("tab picks the highlighted row into the draft as a hash-name", async ({ page }) => {
-  // Given the popup open on the staged template alone.
-  await openPromptPopup(page, PROMPT_FILTER);
-
-  // When pressing Tab.
-  await page.keyboard.press("Tab");
-
-  // Then the draft reads the bare name, and the popup is closed.
-  await expect(page.locator(sel.DRAFT)).toHaveValue(`#${PROMPT_NAME}`);
-  await expect(page.locator(sel.PROMPT_POPUP)).toHaveCount(0);
-});
-
-test("escape closes the popup and leaves the draft", async ({ page }) => {
-  // Given the popup open.
-  await openPromptPopup(page);
-
-  // When pressing Escape.
-  await page.keyboard.press("Escape");
-
-  // Then the popup is gone and the draft still reads `#`.
-  await expect(page.locator(sel.PROMPT_POPUP)).toHaveCount(0);
-  await expect(page.locator(sel.DRAFT)).toHaveValue("#");
 });
 
 test("ctrl+enter with the popup open still sends", async ({ page }) => {
@@ -170,34 +71,6 @@ test("enter with the popup open inserts a newline, not a pick", async ({ page })
   // left the token.
   await expect(page.locator(sel.DRAFT)).toHaveValue(`#${PROMPT_FILTER}\n`);
   await expect(page.locator(sel.PROMPT_POPUP)).toHaveCount(0);
-});
-
-test("moving the caret before the token closes the popup", async ({ page }) => {
-  // Given text before the token, so there is somewhere before it to go, and
-  // the popup open at the token. A caret sitting on the `#` itself still
-  // counts as inside the token — the terminal's rule — so the caret has to
-  // move past the `#` to the left to leave it.
-  await page.locator(sel.DRAFT).click();
-  await page.keyboard.type("some text #plan");
-  await expect(page.locator(sel.PROMPT_POPUP)).toBeVisible();
-
-  // When moving the caret to the start of the line with Home.
-  await page.keyboard.press("Home");
-
-  // Then the popup is gone.
-  await expect(page.locator(sel.PROMPT_POPUP)).toHaveCount(0);
-});
-
-test("a caret on the hash itself stays in the completion", async ({ page }) => {
-  // Given the popup open on a lone `#`.
-  await openPromptPopup(page);
-
-  // When moving the caret back onto the `#` with Home.
-  await page.keyboard.press("Home");
-
-  // Then the popup stays open: the caret is still within the token, as in
-  // the terminal, where a caret on the trigger completes with no filter.
-  await expect(page.locator(sel.PROMPT_POPUP)).toBeVisible();
 });
 
 test("a click away from the token closes the popup", async ({ page }) => {
