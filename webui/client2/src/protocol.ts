@@ -26,9 +26,9 @@ export type EntryKind =
 
 /** One transcript entry: its kind name, and the core entry as persisted —
  * minus two fields the page never reads from the socket. A tool result's
- * `full_content` is fetched from `/web2/tool-output/...` when its disclosure
+ * `full_content` is fetched from `/tool-output/...` when its disclosure
  * opens (its `truncation` meta stays, as the marker that there is one), and
- * an attachment's `data` bytes are fetched from `/web2/attachment/...`. */
+ * an attachment's `data` bytes are fetched from `/attachment/...`. */
 export interface EntryEnvelope {
   kind: EntryKind;
   entry: {

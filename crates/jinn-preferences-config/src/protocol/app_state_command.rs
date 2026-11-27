@@ -21,7 +21,7 @@ pub enum AppStateUpdate {
     SetSidebarWidth(Option<u16>),
     /// Set the last-selected reasoning effort.
     SetReasoningEffort(Option<ReasoningEffort>),
-    /// Set the web UI's (`/web2`) color mode (`light`/`dark`/`system`).
+    /// Set the web UI's (the web UI) color mode (`light`/`dark`/`system`).
     SetWebTheme(Option<String>),
 }
 

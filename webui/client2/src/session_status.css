@@ -1,0 +1,30 @@
+/* ---- session status ---- */
+/* The row between the transcript and the composer: the busy text at its
+   left edge while a turn runs, and the viewed session's kind at its right
+   edge whenever the session is a subagent's or a bot's.
+
+   Always in the document, at a FIXED height, empty when idle. The transcript
+   is a grid track, so a row that appeared and cleared here would take and
+   hand back that track's height — and a reader following a stream to the
+   bottom would be dropped 25px out of the follow band the moment a turn
+   started, before the first token, with nothing to bring them back. A row
+   of constant height is invisible to the transcript's layout, and the
+   follow rule never sees a resize from it. It draws no border: the
+   composer's top edge is the line under it. */
+.session-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 25px;
+  box-sizing: border-box;
+  padding: 4px 18px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 17px;
+}
+/* Pushes the kind label to the right edge whether or not the busy text is
+   present, so the label sits in the same place idle and busy. */
+.session-status-kind { margin-left: auto; }
+.session-status-kind[data-kind='subagent'] { color: var(--subagent); }
+.session-status-kind[data-kind='bot'] { color: var(--bot); }
+

@@ -348,7 +348,7 @@ jinn ships five: `default`, `catppuccin-mocha`, `nord-light`,
 `gruvbox-dark`, `sonokai`. They are reconciled into place on launch. See the
 default theme for the format.
 
-**The web UI (`/web2`) has its own theme toggle, independent of these**:
+**The web UI has its own theme toggle, independent of these**:
 the `☰` menu carries a Light | Dark | System segmented control at the
 panel's tail. System (the default) follows the browser's
 `prefers-color-scheme`; Light and Dark pin the mode, and the choice

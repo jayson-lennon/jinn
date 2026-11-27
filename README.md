@@ -499,7 +499,7 @@ These are all baked into the binary and can be installed using `jinn install` _a
 - SQLite (Linux + Mac)
 - `clang`
 - `gcc-libs`
-- Node.js + npm (build prerequisite of the `/web2` client: `cargo build` runs the client build itself, so nothing Node-built ships in the repo)
+- Node.js + npm (build prerequisite of the web UI client: `cargo build` runs the client build itself, so nothing Node-built ships in the repo)
 - [`just`](https://github.com/casey/just) (recommended)
 
 ```sh

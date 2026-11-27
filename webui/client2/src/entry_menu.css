@@ -1,0 +1,73 @@
+/* ---- the entry menu and the pin mark ---- */
+/* A `⋮` at every entry's bottom-right, always visible: it overlaps only
+   the end of a long last line, and never adds a line or a column. The
+   popup is the session row's, right-aligned under its button. The pin
+   mark hangs into the transcript's existing left padding — no gutter is
+   reserved for it, so pinning reflows nothing. */
+.entry { position: relative; }
+.entry-menu { position: absolute; right: 0; bottom: -2px; }
+.entry-menu-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg-faint);
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.entry-menu-btn:hover, .entry-menu-btn[aria-expanded="true"] { color: var(--fg); background: var(--bg-hover); }
+.entry-menu-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.entry.pinned .entry-menu-btn { color: var(--accent); }
+.entry-menu-popup {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+  min-width: 180px;
+  max-width: min(240px, calc(100vw - 24px));
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  box-shadow: 0 6px 24px var(--shadow);
+}
+/* Opened upward, when downward would leave the transcript's scroll box. */
+.entry-menu-popup.up { top: auto; bottom: 100%; }
+.entry-menu-item {
+  width: 100%;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  border: 0;
+  border-radius: 5px;
+  padding: 7px 10px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.entry-menu-item:hover { background: var(--bg-hover); }
+.entry-menu-item:focus-visible { outline: 1px solid var(--accent); }
+.pin-mark {
+  position: absolute;
+  left: -16px;
+  top: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  pointer-events: none;
+  visibility: hidden;
+}
+.entry.pinned .pin-mark { visibility: visible; }
+/* An entry the server reports as out of the model's context: its content
+   dims, and nothing else does. The kebab and its popup are direct children
+   of the entry too, and are left at full strength — "Include in context"
+   is the one action an excluded entry most needs, and it must stay
+   legible and clickable. Opacity on the entry itself would dim them along
+   with the content. */
+.entry.excluded > :not(.entry-menu) { opacity: .6; }
+

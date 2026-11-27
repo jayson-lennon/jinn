@@ -50,7 +50,7 @@ build an applet from scratch. Either way:
   instead — `{url}`, `{profile}`, `{id}`, and `{title}` are substituted
   into your command verbatim). `<c-r>` renames, `<c-d>` deletes (removes
   the saved copy for good), `<esc>` closes.
-- In `/web2`, the menu's **Applets** item opens the same picker as a
+- In the web UI, the menu's **Applets** item opens the same picker as a
   filterable list: each row is a new-tab link to the applet while the
   applets server is serving, and disabled while it is offline. Rename,
   delete, and kiosk are the TUI's.
@@ -62,7 +62,7 @@ build an applet from scratch. Either way:
   them. The picker rescans when opened, so external changes show up; an
   applet whose directory is deleted disappears from the list.
 
-**In the web UI** (`/web2`), the `☰` menu's **Applets** item (present at
+**In the web UI**, the `☰` menu's **Applets** item (present at
 every time — it depends on no session) opens the same list as a modal:
 every saved applet, newest first, with a filter bar and the same status
 line (`<server offline>` until the server wakes, then `serving http://…`).

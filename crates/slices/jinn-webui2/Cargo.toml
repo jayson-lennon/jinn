@@ -2,7 +2,7 @@
 name = "jinn-webui2"
 version.workspace = true
 edition.workspace = true
-description = "The web UI slice: a message-driven mirror of the terminal UI over one WebSocket, bound per the [webui2] config section — sessions, transcript, composer, pickers, title."
+description = "The web UI slice: a message-driven mirror of the terminal UI over one WebSocket, bound per the [webui] config section — sessions, transcript, composer, pickers, title."
 
 [dependencies]
 # A leaf slice: its own contract crate
@@ -90,7 +90,7 @@ tracing = { workspace = true }
 parking_lot = { workspace = true }
 
 [build-dependencies]
-# The build script builds the /web2 client itself — `npm ci` when stale,
+# The build script builds the web UI client itself — `npm ci` when stale,
 # `tsc`, `vite build` — and gzips the output into OUT_DIR for embedding.
 # Node and npm are therefore build prerequisites of this crate.
 flate2 = "1"
@@ -110,10 +110,12 @@ jinn-cell-catalog = { workspace = true }
 jinn-theme = { workspace = true }
 # The queue-depth tests put real items on a session's turn queue, the way
 # the session actor does on a busy-phase enqueue; the item type is this
-# crate's and is not re-exported by anything /web2 depends on in production.
+# crate's and is not re-exported by anything the web UI depends on in production.
 jinn-turn-dispatch-msg = { workspace = true }
 # The test store implements the store trait's async methods.
 async-trait = { workspace = true }
+# The route tests dispatch through the real router via oneshot.
+tower = { version = "0.5", features = ["util"] }
 
 [lints]
 workspace = true

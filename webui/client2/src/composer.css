@@ -1,0 +1,171 @@
+/* ---- composer ---- */
+.composer { border-top: 1px solid var(--border); padding: 12px 18px; }
+/* The chips strip is its own row above the input row, bounded so many
+   attachments never push the composer over the viewport. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; overflow-y: auto; max-height: 132px; min-height: 0; margin-bottom: 10px; }
+.chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+.chip-img { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; display: block; }
+.chip-name { font-size: 12px; color: var(--fg-dim); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-x { background: transparent; color: var(--fg-dim); border: 0; font: inherit; cursor: pointer; padding: 0 2px; line-height: 1; flex: 0 0 auto; }
+.chip-x:hover { color: var(--danger); }
+/* One visual row: the draft, the attach control, and the buttons, all
+   stretched to the draft's height. */
+.composer-row { display: flex; flex-wrap: nowrap; gap: 10px; }
+.draft {
+  flex: 1;
+  min-width: 0;
+  height: 64px;
+  resize: none;
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font: inherit;
+}
+.draft:focus { outline: none; border-color: var(--accent); }
+.attach {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.attach:hover { border-color: var(--accent); }
+.attach input[type="file"] { display: none; }
+.composer-actions { display: flex; gap: 8px; }
+.composer-actions button {
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  align-self: stretch;
+}
+.composer-actions button:hover:not(:disabled) { background: var(--bg-hover); }
+.composer-actions button:disabled { color: var(--fg-faint); cursor: not-allowed; }
+.composer-actions .primary { background: var(--accent); color: var(--on-fill); border-color: var(--accent); font-weight: 600; }
+.composer-actions .danger { color: var(--danger); border-color: var(--danger); }
+
+/* The composer's `#` prompt popup: a list above the draft, anchored to the
+   composer. The composer is its containing block, so the popup's bottom
+   sits at the composer's top edge. Tokens only, like every other surface. */
+.composer { position: relative; }
+.prompt-popup {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 100%;
+  margin: 0 0 4px;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px var(--shadow);
+  max-height: 280px;
+  overflow-y: auto;
+  /* A finger drags the list; the browser owns that scroll. Only a tap —
+     a pointer that goes down and up on one row without moving — picks. */
+  touch-action: pan-y;
+  z-index: 5;
+}
+.prompt-row {
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prompt-row.active { background: var(--bg-active); color: var(--fg); }
+.prompt-row.muted { color: var(--fg-faint); cursor: default; }
+.prompt-name { color: var(--fg); }
+.prompt-desc { color: var(--fg-dim); }
+
+/* A user entry's images, beneath its text. */
+.entry-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border: 1px solid var(--border); display: block; }
+
+/* The model picker's filter row: the filter, then the refresh button. */
+.modal-head { display: flex; gap: 8px; margin-bottom: 8px; }
+.modal-head .modal-filter { flex: 1; margin-bottom: 0; }
+.refresh-models {
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.refresh-models:hover:not(:disabled) { border-color: var(--accent); }
+.refresh-models:disabled { color: var(--fg-faint); cursor: not-allowed; }
+
+/* The new-session modal's form. */
+.new-session-title { margin: 0 0 12px; font-size: 16px; }
+.new-session-empty { color: var(--fg-dim); margin: 0; }
+.new-session-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.new-session-field label { color: var(--fg-dim); font-size: .85rem; }
+.new-session-field select, .new-session-field input {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font: inherit;
+}
+.new-session-hint { margin: 0; color: var(--fg-faint); font-size: 12px; }
+.new-session-actions { display: flex; justify-content: flex-end; }
+.new-session-submit {
+  background: var(--accent);
+  color: var(--on-fill);
+  border: 0;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The menu's segmented color-mode group. */
+.menu-group {
+  display: flex;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  gap: 4px;
+}
+.menu-group-option {
+  flex: 1;
+  background: transparent;
+  color: var(--fg);
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 7px 4px;
+  font: inherit;
+  cursor: pointer;
+}
+.menu-group-option:hover { background: var(--bg-hover); }
+.menu-group-option.active { background: var(--bg-active); border-color: var(--accent); }
+

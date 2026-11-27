@@ -1,0 +1,26 @@
+/* ---- main column ---- */
+.main {
+  display: grid;
+  /* Both tracks clamp to the box. The column is implicit, and an implicit
+     track is `auto` — it sizes to its content's minimum, so a row wider
+     than a phone (the busy composer's two buttons) pushed the column
+     past the viewport and the draft off the left edge.
+     Title bar, status bar, transcript, the session's status row, composer.
+     The status row is always present at a fixed height — see its rule — so
+     its track never changes size. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.title-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
