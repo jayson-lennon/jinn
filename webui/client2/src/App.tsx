@@ -25,7 +25,7 @@ import { Menu, type MenuItem, type MenuGroup } from './menu';
 import { SkillsModal } from './skills';
 import { AppletsModal } from './applets';
 import { McpModal, PersonaModal, ToolsModal } from './pickers';
-import { Composer } from './composer';
+import { Composer } from './composer/composer';
 import { SessionRail } from './rail';
 import { SessionStatus } from './status';
 import { StatusBar } from './statusbar';

@@ -16,7 +16,7 @@ import { createStore as createStoreValue } from 'solid-js';
 import type { Store, StoreSetter } from 'solid-js';
 import type { Toast } from '../toast_state';
 import { loadLastSeen } from '../last_seen';
-import type { PromptCompletion } from '../prompts';
+import type { PromptCompletion } from '../composer/prompts';
 import { applySnapshot } from './snapshot';
 import { applyEntriesPage, applyEntryDelta, applyEntryUpsert } from '../transcript/transcript_entries';
 import { applySessions, applyTitle } from '../session_rows';
