@@ -52,6 +52,7 @@ fn row(title: &str) -> SessionRowBody {
         title: title.to_owned(),
         is_active: false,
         is_busy: false,
+        is_tearing_down: false,
         in_library: false,
         last_settled_at: None,
     }
@@ -1249,6 +1250,12 @@ fn client_variant_carries_its_snake_case_tag() {
             },
             "archive_session",
         ),
+        (
+            ClientMsg::TeardownSession {
+                session_id: SessionId::new(),
+            },
+            "teardown_session",
+        ),
         (ClientMsg::NewSessionOptions, "new_session_options"),
         (
             ClientMsg::CreateSession {
@@ -1635,6 +1642,21 @@ fn client_set_library_round_trips() {
 fn client_archive_session_round_trips() {
     // Given an archive request.
     let msg = ClientMsg::ArchiveSession {
+        session_id: SessionId::new(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_teardown_session_round_trips() {
+    // Given a request to tear down and archive a session.
+    let msg = ClientMsg::TeardownSession {
         session_id: SessionId::new(),
     };
 

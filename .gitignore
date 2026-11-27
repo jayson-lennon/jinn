@@ -58,12 +58,15 @@ dumps/
 __pycache__/
 *.pyc
 
-# webui2 client (the web UI, /web2): its installed dependencies and its
-# build output are produced by the jinn-webui2 slice's build.rs on every
-# cargo compile; nothing of the bundle is committed.
-webui/client2/node_modules/
+# Installed Node dependencies, anywhere in the tree. A directory that
+# deletes its own nested .gitignore while leaving node_modules/ on disk
+# flips that folder from ignored to untracked, and `just commit` sweeps it in.
+node_modules/
+
+# webui2 client (the web UI, /web2): its build output is produced by the
+# jinn-webui2 slice's build.rs on every cargo compile; nothing of the bundle
+# is committed.
 webui/client2/dist/
-webui/client2/e2e/node_modules/
 webui/client2/e2e/playwright-report/
 webui/client2/e2e/test-results/
 

@@ -41,7 +41,8 @@ use jinn_session_lifecycle_msg::CommandTemplate;
 use jinn_session_lifecycle_msg::LifecycleScriptState;
 use jinn_session_lifecycle_msg::builtin::BuiltinId;
 use jinn_session_lifecycle_msg::{
-    FinishSessionTeardown, RunSessionTeardown, SessionTeardownFinished, TeardownFollowUp,
+    FinishSessionTeardown, RunSessionTeardown, SessionTeardownFinished, SessionTeardownStarted,
+    TeardownFollowUp,
 };
 use jinn_session_store_msg::{ArchiveSessionTree, PersistSession};
 use jinn_slices::PhaseView;
@@ -267,6 +268,15 @@ impl SessionLifecycleActor {
             .await;
         });
         self.insert_in_flight(session_id.clone(), cancel_handle);
+        // Announced here, after the child is spawned and recorded in flight,
+        // because every teardown spawn — teardown-only, close, and tree —
+        // passes through this one function. A spawn that failed to start
+        // returned above and publishes no started event: only the finished
+        // one carrying the error follows it.
+        self.publish(SessionTeardownStarted {
+            session_id: session_id.clone(),
+        })
+        .await;
     }
 
     pub(super) fn begin_teardown(
