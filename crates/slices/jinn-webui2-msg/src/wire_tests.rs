@@ -18,8 +18,9 @@ use crate::payload::{
     AppletRowBody, AppletRowsBody, DeltaField, EntryDeltaBody, EntryEnvelope, EntryUpsertBody,
     ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody,
     ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody,
-    PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionsBody, SkillRowBody,
-    SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
+    PhaseBody, PickerRowBody, PickerRowsBody, SessionRowBody, SessionRowOrigin, SessionsBody,
+    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
+    ToolRowsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 
@@ -52,6 +53,9 @@ fn row(title: &str) -> SessionRowBody {
         is_busy: false,
         in_library: false,
         last_settled_at: None,
+        parent_session: None,
+        origin: SessionRowOrigin::User,
+        depth: 0,
     }
 }
 
@@ -553,6 +557,95 @@ fn server_sessions_carries_an_unsettle_rows_time_as_null() {
 
     // Then the field is JSON null, not an absent key.
     assert_eq!(json["rows"][0]["last_settled_at"], serde_json::Value::Null);
+}
+
+#[rstest]
+#[test]
+fn server_sessions_carries_a_rows_parent_origin_and_depth() {
+    // Given a subagent row one level under its parent.
+    let parent = SessionId::new();
+    let msg = ServerMsg::Sessions(SessionsBody {
+        rows: vec![SessionRowBody {
+            parent_session: Some(parent.clone()),
+            origin: SessionRowOrigin::Subagent,
+            depth: 1,
+            ..row("child")
+        }],
+        hydrating: false,
+        library: vec![],
+    });
+
+    // When it is serialized.
+    let json = json_of(&msg);
+
+    // Then the row names its parent, its kind, and its depth.
+    assert_eq!(json["rows"][0]["parent_session"], parent.to_string());
+    // And the kind is the core origin's own snake_case spelling.
+    assert_eq!(json["rows"][0]["origin"], "subagent");
+    // And the depth is the tree's.
+    assert_eq!(json["rows"][0]["depth"], 1);
+}
+
+#[rstest]
+#[test]
+fn server_sessions_without_the_tree_fields_still_reads() {
+    // Given a session list frame from before the row carried a parent, a
+    // kind, or a depth — exactly the fields it used to have, and no more.
+    let frame = format!(
+        r#"{{"type":"sessions","hydrating":false,"library":[],"rows":[{{"session_id":"{}","title":"one","is_active":false,"is_busy":false,"in_library":false,"last_settled_at":null}}]}}"#,
+        SessionId::new()
+    );
+
+    // When it is read.
+    let back: ServerMsg = serde_json::from_str(&frame).expect("an old frame still reads");
+
+    // Then the row lands with every tree field at its default.
+    let ServerMsg::Sessions(body) = &back else {
+        unreachable!("the frame's own tag names a sessions message");
+    };
+    assert_eq!(
+        (
+            body.rows[0].parent_session.clone(),
+            body.rows[0].origin,
+            body.rows[0].depth
+        ),
+        (None, SessionRowOrigin::User, 0)
+    );
+}
+
+#[rstest]
+#[case(SessionRowOrigin::User, "user")]
+#[case(SessionRowOrigin::Fork, "fork")]
+#[case(SessionRowOrigin::Subagent, "subagent")]
+#[case(SessionRowOrigin::Bot, "bot")]
+fn row_origin_reads_and_writes_the_core_origins_spelling(
+    #[case] origin: SessionRowOrigin,
+    #[case] wire: &str,
+) {
+    // Given a row of one kind, and the core origin's own spelling of it.
+    let msg = ServerMsg::Sessions(SessionsBody {
+        rows: vec![SessionRowBody {
+            origin,
+            ..row("one")
+        }],
+        hydrating: false,
+        library: vec![],
+    });
+    let same_spelling = format!(
+        r#"{{"type":"sessions","hydrating":false,"library":[],"rows":[{{"session_id":"{}","title":"one","is_active":false,"is_busy":false,"in_library":false,"last_settled_at":null,"origin":"{wire}"}}]}}"#,
+        SessionId::new()
+    );
+
+    // When it is written, and the spelling is read back.
+    let written = json_of(&msg)["rows"][0]["origin"].clone();
+    let read: ServerMsg = serde_json::from_str(&same_spelling).expect("the spelling reads");
+
+    // Then the twin writes that spelling and reads it, so the two cannot disagree.
+    assert_eq!(written, wire);
+    assert!(matches!(
+        read,
+        ServerMsg::Sessions(body) if body.rows[0].origin == origin
+    ));
 }
 
 #[rstest]

@@ -54,7 +54,20 @@ export interface SessionRow {
   /** When the session last landed on Idle, as RFC 3339 — or null when it
    *  has not settled since the server started, or is a subagent's. */
   last_settled_at: string | null;
+  /** The session's persisted direct parent, when it was forked or spawned
+   *  under one. */
+  parent_session: string | null;
+  /** What kind of session this is. A subagent or a bot is a conversation
+   *  the user did not type into, and the page names it in two places. */
+  origin: SessionOrigin;
+  /** The row's depth in the Sessions list's tree: 0 for a root, one more
+   *  per level under a listed parent. Always 0 for a library row — that
+   *  list is flat. An older server omits it, so read it as `?? 0`. */
+  depth: number;
 }
+
+/** The kind of session a row is, as the core's origin spells it. */
+export type SessionOrigin = 'user' | 'fork' | 'subagent' | 'bot';
 
 /** The page's color mode. */
 export type Theme = 'light' | 'dark' | 'system';

@@ -50,6 +50,14 @@ but nothing coordinates them.
   ends with a muted **loading sessions…** row — a spinner, below the rows
   already loaded. It has no timeout: it clears when the server says the
   list is complete.
+
+  The **Sessions** list is a tree: a session forked from, spawned under, or
+  bootstrapped as a bot under another is indented one level under its
+  parent, as the terminal's sidebar draws it. A **subagent**'s or a **bot**'s
+  row also carries a second line under its title — `subagent` or `bot`, in
+  that kind's colour — and the viewed session's kind is named the same way
+  above the composer (`[subagent]` / `[bot]`, at the right edge, idle or
+  busy). The **Library** list stays flat.
 - **Session loading** — clicking a session row, or picking one from the
   **Archive** picker, raises a full-page **Loading session…** overlay at
   once: a card with a spinner, over everything. It clears when that

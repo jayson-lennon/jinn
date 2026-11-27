@@ -6143,6 +6143,7 @@ dependencies = [
  "jinn-selection-widget",
  "jinn-session-history-msg",
  "jinn-session-lifecycle-msg",
+ "jinn-session-list",
  "jinn-session-msg",
  "jinn-session-state",
  "jinn-session-store-msg",

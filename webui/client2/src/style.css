@@ -40,6 +40,11 @@
   --on-fill: #2c2e34;
   /* the unread fill: the warm gold /web's unread rows carry */
   --mark: #ebdca0;
+  /* a subagent's kind — the terminal's `subagent_fg`, the same value in
+     every mode because the terminal ships one pair for every theme */
+  --subagent: #b29ef0;
+  /* a bot's kind — the terminal's `bot_fg` */
+  --bot: #ff69b4;
   /* the shadow a raised card casts */
   --shadow: rgba(0, 0, 0, .5);
   --radius: 8px;
@@ -84,6 +89,9 @@
   --on-fill: #2e3440;
   /* the unread fill: /web's light-mode unread gold */
   --mark: #ebcb8b;
+  /* the two kind colours are the terminal's own, unchanged in light mode */
+  --subagent: #b29ef0;
+  --bot: #ff69b4;
   /* the shadow a raised card casts, lighter over a pale page */
   --shadow: rgba(46, 52, 64, .18);
   color-scheme: light;
@@ -109,6 +117,8 @@
     --scrim: rgba(0, 0, 0, .55);
     --on-fill: #2e3440;
     --mark: #ebcb8b;
+    --subagent: #b29ef0;
+    --bot: #ff69b4;
     --shadow: rgba(46, 52, 64, .18);
     color-scheme: light;
   }
@@ -295,10 +305,23 @@ body { background: var(--bg); color: var(--fg); }
    scoped below, where the row is a single line. */
 .session-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-meta { color: var(--fg-faint); font-size: 12px; }
-/* The sidebar's row is one line, and its title must give way to the
-   kebab rather than widen the rail: a zero basis in a row is a zero
-   width, which is the truncation the ellipsis needs. */
-.session .session-title { flex: 1 1 0; min-width: 0; }
+/* The sidebar's row, and the text column inside it: the title and its kind
+   line stacked. Both carry a zero flex-basis — the row's, so the column
+   gives way to the kebab rather than widening the rail, and the title's,
+   which is the truncation the ellipsis needs along the row. But a zero
+   basis on the title is measured along the COLUMN's axis, which is
+   vertical: there it would be a zero HEIGHT, collapsing the title until
+   only the kind line under it showed. The column's children stretch to its
+   full width, so the title's width is never in question — and the one-line
+   minimum holds its height open. */
+.session > .session-text { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
+.session .session-title { flex: 1 1 0; min-width: 0; min-height: 1lh; }
+/* A subagent's or a bot's row names its kind under the title. The line
+   carries the kind's colour and the title keeps its own: the title is
+   what a rename replaces, and the kind is a fact about the session. */
+.session-kind { font-size: 11px; line-height: 1.3; }
+.session-kind[data-kind='subagent'] { color: var(--subagent); }
+.session-kind[data-kind='bot'] { color: var(--bot); }
 .session-busy { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 
 /* ---- main column ---- */
@@ -307,9 +330,11 @@ body { background: var(--bg); color: var(--fg); }
   /* Both tracks clamp to the box. The column is implicit, and an implicit
      track is `auto` — it sizes to its content's minimum, so a row wider
      than a phone (the busy composer's two buttons) pushed the column
-     past the viewport and the draft off the left edge. */
+     past the viewport and the draft off the left edge.
+     The fourth track is the session's status row, which is always present
+     at a fixed height — see its rule — so this track never changes size. */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -576,6 +601,36 @@ body { background: var(--bg); color: var(--fg); }
   visibility: hidden;
 }
 .entry.pinned .pin-mark { visibility: visible; }
+
+/* ---- session status ---- */
+/* The row between the transcript and the composer: the busy text at its
+   left edge while a turn runs, and the viewed session's kind at its right
+   edge whenever the session is a subagent's or a bot's.
+
+   Always in the document, at a FIXED height, empty when idle. The transcript
+   is a grid track, so a row that appeared and cleared here would take and
+   hand back that track's height — and a reader following a stream to the
+   bottom would be dropped 25px out of the follow band the moment a turn
+   started, before the first token, with nothing to bring them back. A row
+   of constant height is invisible to the transcript's layout, and the
+   follow rule never sees a resize from it. It draws no border: the
+   composer's top edge is the line under it. */
+.session-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 25px;
+  box-sizing: border-box;
+  padding: 4px 18px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 17px;
+}
+/* Pushes the kind label to the right edge whether or not the busy text is
+   present, so the label sits in the same place idle and busy. */
+.session-status-kind { margin-left: auto; }
+.session-status-kind[data-kind='subagent'] { color: var(--subagent); }
+.session-status-kind[data-kind='bot'] { color: var(--bot); }
 
 /* ---- composer ---- */
 .composer { border-top: 1px solid var(--border); padding: 12px 18px; }
@@ -1152,6 +1207,8 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
      zoom-on-focus) and a 40px floor on every control, below the row's
      own height. */
   .composer { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  /* The status row lines up with the composer's tighter phone padding. */
+  .session-status { padding-left: 12px; padding-right: 12px; }
   .draft { font-size: 16px; }
   .composer-actions { flex: none; }
   .composer-actions button, .attach { min-height: 40px; padding-left: 10px; padding-right: 10px; }
