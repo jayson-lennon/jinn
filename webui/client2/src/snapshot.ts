@@ -17,9 +17,15 @@ import { markSeenOnSnapshot, saveLastSeen } from './last_seen';
 import { resolveLoadingAfterSnapshot } from './session_load';
 import { resetSessionPickerRows } from './picker_rows';
 import type { ServerMsg } from './protocol';
+import { reloadIfStale } from './protocol_version';
 
 /** `snapshot`: the page's whole state for one session, from one frame. */
 export function applySnapshot(store: ClientStore, msg: Extract<ServerMsg, { type: 'snapshot' }>): void {
+  // First, and before any write: a snapshot from a server speaking another
+  // protocol version belongs to a bundle this page is not. The page reloads
+  // and this frame is not applied — a half-rendered snapshot is worse than
+  // a reload, and the reload lands on the hashed URL of the new bundle.
+  if (reloadIfStale(msg.protocol)) return;
   // Read before the setter: whether this snapshot is the one the page
   // is waiting on, and so must end the loading overlay.
   const loadingId = store.state.loadingSessionId;

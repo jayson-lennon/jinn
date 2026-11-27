@@ -1,15 +1,15 @@
-//! The HTTP surface of the web UI: the page shell, the client bundle, and
-//! the one WebSocket every message rides.
+//! The HTTP surface of the web UI: the page shell, the web manifest, the
+//! client bundle, and the one WebSocket every message rides.
 //!
-//! The page is served at the root of the listener. There are exactly six
-//! routes and no others: the page, the vendored client assets, a health
-//! probe, one attachment's bytes, one tool result's full output, and the
-//! socket upgrade. The server renders no HTML beyond the shell and
-//! answers no action with a page — every fact crosses the socket as a
-//! `ServerMsg`. The two exceptions are the on-demand routes: a
-//! transcript's `<img>` needs an address to fetch, and a tool result's
-//! full untruncated output is too heavy to ride every snapshot, so the
-//! page fetches it when its disclosure opens.
+//! The page is served at the root of the listener. There are exactly seven
+//! routes and no others: the page, the web manifest, the vendored client
+//! assets and icons, a health probe, one attachment's bytes, one tool
+//! result's full output, and the socket upgrade. The server renders no HTML
+//! beyond the shell and answers no action with a page — every fact crosses
+//! the socket as a `ServerMsg`. The two exceptions are the on-demand
+//! routes: a transcript's `<img>` needs an address to fetch, and a tool
+//! result's full untruncated output is too heavy to ride every snapshot, so
+//! the page fetches it when its disclosure opens.
 
 use std::{
     sync::{Arc, LazyLock},
@@ -47,33 +47,75 @@ pub struct ServerShared {
 /// The page shell, as committed under `templates/`.
 const PAGE_SHELL_TEMPLATE: &str = include_str!("../templates/page.html");
 
-/// The client bundle, embedded at compile time from the build script's
-/// inventory: one row per built file, gzip-compressed by the build.
+/// The web manifest, as committed under `templates/`. A template rather than
+/// a finished file: it names each icon by the hashed path only this build
+/// knows, so the server renders it the way it renders the shell.
+const MANIFEST_TEMPLATE: &str = include_str!("../templates/manifest.webmanifest");
+
+/// `application/manifest+json` — the type a browser reads installability from.
+const MANIFEST_CONTENT_TYPE: &str = "application/manifest+json";
+
+/// The client bundle and the icon set, embedded at compile time from the
+/// build script's inventory: one row per served file.
 mod vendor_assets {
     include!(concat!(env!("OUT_DIR"), "/vendor_assets.rs"));
 }
 
-/// Long-lived for an identical bundle; the pin changes whenever it does.
-/// True only because the shell names each asset by that pin: a changed
-/// bundle is a different URL, so a cached one is never reused across it.
+/// Long-lived for an identical file; the pin changes whenever it does.
+/// True only because the shell and manifest name each asset by that pin: a
+/// changed file is a different URL, so a cached one is never reused across it.
 const IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
 
 /// The page shell, rendered once: its asset URLs carry the pinned hashes.
 static PAGE_SHELL: LazyLock<String> = LazyLock::new(render_page_shell);
 
+/// The web manifest, rendered once: its icon URLs carry the pinned hashes.
+static MANIFEST: LazyLock<String> = LazyLock::new(render_manifest);
+
 /// The shell with every asset named by `name.<sha256>.ext`, so a rebuilt
 /// bundle — a new hash — is a new URL and no cached copy can outlive it.
 ///
-/// An asset the bundle does not carry is named unhashed, which the vendor
-/// route refuses: a broken bundle is a visible 404, never a stale copy.
+/// An asset the build does not carry is named unhashed, which the vendor
+/// route refuses: a broken build is a visible 404, never a stale copy.
 fn render_page_shell() -> String {
     PAGE_SHELL_TEMPLATE
         .replace("{{ js_url }}", &hashed_vendor_url("client2.js"))
         .replace("{{ css_url }}", &hashed_vendor_url("client2.css"))
+        .replace(
+            "{{ icon_favicon_url }}",
+            &hashed_vendor_url("icon-favicon-32.png"),
+        )
+        .replace(
+            "{{ icon_apple_url }}",
+            &hashed_vendor_url("icon-apple-touch-180.png"),
+        )
+}
+
+/// The manifest with every `{{ icon_*_url }}` replaced by the full hashed
+/// path of the icon it names, `/vendor/<name>.<sha>.png`. A manifest is a
+/// document that resolves its URLs against its own address, so it must
+/// carry the whole path — the shell gets its `/vendor/` from its own
+/// template text, and the manifest has no such text to inherit from. The
+/// three icons a browser installs from are the manifest's own; the favicon
+/// and the touch icon belong to the shell.
+fn render_manifest() -> String {
+    [
+        ("{{ icon_192_url }}", "icon-192.png"),
+        ("{{ icon_512_url }}", "icon-512.png"),
+        ("{{ icon_maskable_url }}", "icon-maskable-512.png"),
+    ]
+    .into_iter()
+    // Seeded with an owned `String`, so each replacement is owned in turn.
+    .fold(MANIFEST_TEMPLATE.to_owned(), |manifest, (placeholder, served)| {
+        manifest.replace(
+            placeholder,
+            &format!("/vendor/{}", hashed_vendor_url(served)),
+        )
+    })
 }
 
 /// `client2.js` as the hashed path the shell names it by, or its plain
-/// name when the bundle does not carry it.
+/// name when the build does not carry it.
 fn hashed_vendor_url(served: &str) -> String {
     let Some(sha) = pinned_sha(served) else {
         return served.to_owned();
@@ -100,12 +142,13 @@ fn split_hashed_vendor_path(path: &str) -> Option<(String, &str)> {
     Some((format!("{name}.{ext}"), sha))
 }
 
-/// Builds the router: the page at the root, the socket and the two
-/// on-demand routes at the top level, the assets and the health probe
-/// beside them.
+/// Builds the router: the page and the manifest at the root, the socket and
+/// the two on-demand routes at the top level, the assets and the health
+/// probe beside them.
 pub fn router(shared: Arc<ServerShared>) -> Router {
     Router::new()
         .route("/", get(page))
+        .route("/manifest.webmanifest", get(manifest))
         .route("/ws", get(ws_handler))
         .route("/vendor/{*path}", get(vendor))
         .route("/attachment/{session}/{entry}/{ordinal}", get(attachment))
@@ -120,6 +163,20 @@ async fn page() -> Response {
     (
         [(header::CACHE_CONTROL, "no-cache")],
         Html(PAGE_SHELL.as_str()),
+    )
+        .into_response()
+}
+
+async fn manifest() -> Response {
+    // The manifest is the page's document, not an immutable subresource: it
+    // is named at a fixed URL, so it is always revalidated, as the shell is,
+    // and names icons that are immutable for as long as their hashes.
+    (
+        [
+            (header::CONTENT_TYPE, MANIFEST_CONTENT_TYPE),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        MANIFEST.as_str(),
     )
         .into_response()
 }
@@ -146,15 +203,23 @@ async fn vendor(uri: Uri) -> Response {
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    (
+    // Only the built bundle is gzipped. An icon is its own bytes, and a
+    // spurious `gzip` header would make the browser try to inflate a PNG.
+    let mut response = (
         [
             (header::CONTENT_TYPE, asset.content_type),
-            (header::CONTENT_ENCODING, "gzip"),
             (header::CACHE_CONTROL, IMMUTABLE_CACHE),
         ],
         asset.bytes,
     )
-        .into_response()
+        .into_response();
+    if asset.gzip {
+        response.headers_mut().insert(
+            header::CONTENT_ENCODING,
+            header::HeaderValue::from_static("gzip"),
+        );
+    }
+    response
 }
 
 /// The bounded wait for a live attachment — a just-sent entry lands within
@@ -988,6 +1053,98 @@ mod vendor_route_tests {
         // Then nothing is served.
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
+
+    /// GETs one vendor asset at its hashed path, through the handler itself —
+    /// the same path the shell names, so what is tested is what is linked.
+    async fn hashed(served: &str) -> Response {
+        let uri: Uri = format!("/vendor/{}", hashed_vendor_url(served))
+            .parse()
+            .expect("a valid uri");
+        vendor(uri).await
+    }
+
+    /// The value of one response header, if it is present.
+    fn header_of(response: &Response, name: header::HeaderName) -> Option<String> {
+        response
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(ToOwned::to_owned)
+    }
+
+    /// The response body as raw bytes.
+    async fn body_bytes(response: Response) -> Vec<u8> {
+        axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body")
+            .to_vec()
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn an_icon_is_served_at_its_hashed_path_as_immutable() {
+        // Given the hashed path the shell names for the favicon.
+        let response = hashed("icon-favicon-32.png").await;
+
+        // Then it is served, immutable.
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            header_of(&response, header::CACHE_CONTROL).as_deref(),
+            Some(IMMUTABLE_CACHE)
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn an_icon_is_served_without_a_gzip_content_encoding() {
+        // Given the hashed path of an icon — its own bytes, not a gzipped build.
+        let response = hashed("icon-favicon-32.png").await;
+
+        // Then no `Content-Encoding` is sent: a gzip header would make the
+        // browser try to inflate a PNG.
+        assert_eq!(header_of(&response, header::CONTENT_ENCODING), None);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn an_icon_is_served_as_image_png() {
+        // Given the hashed path of an icon.
+        let response = hashed("icon-favicon-32.png").await;
+
+        // Then it is declared a PNG.
+        assert_eq!(
+            header_of(&response, header::CONTENT_TYPE).as_deref(),
+            Some("image/png")
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn an_icons_served_bytes_are_the_committed_files_own() {
+        // Given the hashed path of the favicon, and the committed file it
+        // is embedded from.
+        let committed = include_bytes!("../resources/icon-favicon-32.png");
+
+        // When it is requested.
+        let served = body_bytes(hashed("icon-favicon-32.png").await).await;
+
+        // Then the bytes are the file's own, untransformed.
+        assert_eq!(served, committed);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_built_bundle_is_still_served_gzipped() {
+        // Given the bundle's two rows.
+        // Then each is a gzip row — the encoding split did not move the bundle.
+        for served in ["client2.js", "client2.css"] {
+            let asset = vendor_assets::VENDOR_ASSETS
+                .iter()
+                .find(|asset| asset.path == served)
+                .expect("the bundle carries the asset");
+            assert!(asset.gzip, "{served} must be a gzip row");
+        }
+    }
 }
 
 /// The router as a whole: which paths serve the web UI and which do not,
@@ -1060,6 +1217,125 @@ mod router_tests {
 
         // Then nothing serves it: there is no alias and no redirect.
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_shell_names_the_install_set_beside_the_bundle() {
+        // Given the page shell.
+        let shell = PAGE_SHELL.as_str();
+
+        // Then it links the manifest at the fixed path it is served from, and
+        // names the favicon and the touch icon by their pinned hashes — the
+        // two icons the manifest does not name.
+        assert!(shell.contains("href=\"/manifest.webmanifest\""));
+        assert!(
+            shell.contains(&format!(
+                "/vendor/{url}",
+                url = hashed_vendor_url("icon-favicon-32.png")
+            )),
+            "the shell does not name the hashed favicon"
+        );
+        assert!(
+            shell.contains(&format!(
+                "/vendor/{url}",
+                url = hashed_vendor_url("icon-apple-touch-180.png")
+            )),
+            "the shell does not name the hashed apple-touch-icon"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_shell_carries_viewport_fit_cover_and_a_theme_color() {
+        // Given the page shell.
+        let shell = PAGE_SHELL.as_str();
+
+        // Then it lets the layout run under the phone's notch and home bar,
+        // and names a browser-bar colour for the client to overwrite.
+        assert!(shell.contains("viewport-fit=cover"));
+        assert!(shell.contains("name=\"theme-color\""));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_manifest_route_serves_the_rendered_manifest_as_no_cache() {
+        // Given a built router.
+        let shared = shared();
+
+        // When the manifest is requested.
+        let response = router_get(&shared, "/manifest.webmanifest").await;
+
+        // Then it is served as a web manifest and always revalidated — it is
+        // the page's document, not an immutable subresource.
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some(MANIFEST_CONTENT_TYPE)
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok()),
+            Some("no-cache")
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_manifest_parses_as_json_with_no_placeholder_left() {
+        // Given a built router.
+        let shared = shared();
+
+        // When the manifest is requested.
+        let body = body_text(router_get(&shared, "/manifest.webmanifest").await).await;
+
+        // Then it is the JSON a browser reads installability from, and every
+        // icon placeholder has been rendered away.
+        let manifest: serde_json::Value =
+            serde_json::from_str(&body).expect("the manifest is valid JSON");
+        assert!(
+            !body.contains("{{"),
+            "an icon placeholder was left unrendered: {body}"
+        );
+        assert_eq!(
+            manifest.get("display").and_then(serde_json::Value::as_str),
+            Some("standalone")
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_manifest_names_each_icon_by_its_pinned_hash() {
+        // Given a built router, and the manifest it serves.
+        let shared = shared();
+        let body = body_text(router_get(&shared, "/manifest.webmanifest").await).await;
+        let manifest: serde_json::Value =
+            serde_json::from_str(&body).expect("the manifest is valid JSON");
+
+        // When its icons are read.
+        let icons = manifest
+            .get("icons")
+            .and_then(serde_json::Value::as_array)
+            .expect("the manifest lists icons");
+
+        // Then each names a served icon by the hash the build pinned, so the
+        // manifest and the vendor route can never disagree about an icon.
+        assert_eq!(icons.len(), 3);
+        for served in ["icon-192.png", "icon-512.png", "icon-maskable-512.png"] {
+            let expected = format!("/vendor/{}", hashed_vendor_url(served));
+            assert!(
+                icons
+                    .iter()
+                    .any(|icon| icon.get("src").and_then(serde_json::Value::as_str)
+                        == Some(expected.as_str())),
+                "no icon names {expected}: {body}"
+            );
+        }
     }
 
     #[rstest::rstest]

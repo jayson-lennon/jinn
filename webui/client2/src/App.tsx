@@ -32,6 +32,7 @@ import { StatusBar } from './statusbar';
 import { NewSessionModal } from './new-session';
 import { Toasts } from './toast';
 import { applyTheme, mirrorTheme } from './theme';
+import { applyThemeBar } from './theme_bar';
 
 /**
  * How long a requested session load may go unanswered before the page gives
@@ -180,7 +181,11 @@ export function App(): JSX.Element {
 
   // The theme follows the store: the snapshot seeds it and a `theme`
   // frame moves it. Both the attribute the stylesheet reads and the
-  // pre-paint hint are written here, so the next load starts in mode.
+  // pre-paint hint are written here, so the next load starts in mode. The
+  // browser bar's colour is read back from the stylesheet here too; and in
+  // system mode the palette follows the OS without a store write, so the
+  // bar gets a listener for that change — living only while this theme is
+  // current, since `onCleanup` runs before the effect's next run.
   createEffect(
     // Compute (tracked): the store's theme.
     () => store.state.theme,
@@ -189,6 +194,13 @@ export function App(): JSX.Element {
     (theme) => {
       applyTheme(theme);
       mirrorTheme(theme);
+      applyThemeBar();
+      if (theme === 'system') {
+        const query = window.matchMedia('(prefers-color-scheme: light)');
+        const onSchemeChange = (): void => applyThemeBar();
+        query.addEventListener('change', onSchemeChange);
+        onCleanup(() => query.removeEventListener('change', onSchemeChange));
+      }
     },
   );
 

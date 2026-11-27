@@ -36,6 +36,20 @@ the TUI without opening a log.
 One browser tab is the supported model. Two tabs both work,
 but nothing coordinates them.
 
+## Install it
+
+The page is an installable web app. A browser's **Add to Home Screen**
+(Android Chrome) or **Add to Home Screen** (iOS Safari, under **Share**) or
+**Install app** (desktop Chrome/Edge, in the address-bar menu) installs it
+as a standalone app with its own icon and no URL bar. The installed app
+opens at the instance's root, exactly as the browser tab does — same
+sessions, same single active session, same messages over the socket.
+
+The bar above the page follows the chosen colour mode: the dark palette's
+background in dark mode, the light one's in light, and the OS's in system
+mode. An installed app has no reload button, so it picks up a jinn update
+by reloading itself — see [Reconnecting](#reconnecting).
+
 ## What it does
 
 - **Sessions | Library** — the sidebar's two-segment control chooses which
@@ -200,6 +214,10 @@ but nothing coordinates them.
   the menu's **Sessions** item. A scrim tap, `Esc`, or
   picking a row closes it. At wider widths the `#` is not shown and the
   sidebar is a fixed column.
+  - Pulling down from the top of the page does **not** refresh it — on
+    purpose. Everything arrives live over the socket, so a mid-session
+    reload would only discard an unsent draft. For a clean page, reload
+    by hand (or in an installed app, close and reopen it).
 - **Skills** — the menu's **Skills** item (only while a session is
   active) opens the session's discovered skills: a `●` / `○` enabled
   mark, the name and description, a `project` badge on a project-scoped
@@ -306,6 +324,13 @@ stalling is left alone rather than hammered. A reconnect that missed
 nothing is answered at once, so a brief drop on an idle page clears in a
 moment instead of returning. It keeps retrying for as long as the page is
 open; there is no give-up state.
+
+If the page reconnects to a jinn that was **updated** while it was open —
+a tab left in the background across a restart, or an installed app resumed
+after one — it reloads itself once to pick up the new bundle, rather than
+running the old client against the new server. That reload lands on the
+hashed address of the new bundle, and the draft does not survive it; an
+ordinary reconnect (same jinn) keeps the draft.
 
 ## What the web UI does not do
 
