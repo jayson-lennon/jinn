@@ -15,7 +15,9 @@ use jinn_kernel::common::state::State;
 use jinn_session_store_msg::PersistSession;
 use jinn_session_store_msg::SessionLoadRequested;
 use jinn_session_store_msg::{ArchiveSession, ArchiveSessionTree};
-use jinn_session_store_msg::{LoadLibraryEntries, LoadSessionPickerEntries, LoadSessionTree};
+use jinn_session_store_msg::{
+    LoadLibraryEntries, LoadSessionPickerEntries, LoadSessionTree, StartupHydrationFinished,
+};
 use jinn_session_store_msg::{SessionForkRequested, SetSessionLibrary};
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
 use trouper::context::MsgCtx;
@@ -149,6 +151,11 @@ impl SessionStoreActor {
             // Hydration jobs leave this actor; without this the flush gate
             // drops them and the sidebar never fills in.
             .emits::<HydrateSession>()
+            // The end of startup hydration is announced here, strictly after
+            // the hydration flag is cleared. Without this declaration a
+            // push-only surface (the `/web2` rail) would spin forever: the
+            // flush gate drops an undeclared type silently.
+            .emits::<StartupHydrationFinished>()
             .mailbox(
                 SESSION_STORE_MAILBOX_CAPACITY,
                 trouper::inbox::OverloadPolicy::Block,

@@ -25,6 +25,7 @@ use trouper::envelope::Address;
 const DEFAULT_TOOL_ENTRY_MAX_LINES: u16 = 6;
 
 use jinn_preferences_config::schemas::ChatLogConfig;
+use jinn_session_store_msg::StartupHydrationFinished;
 
 use crate::hydrate::{HydrateCompleted, HydrateSession};
 use crate::session_store_actor::SessionStoreActor;
@@ -184,6 +185,12 @@ impl SessionStoreActor {
             self.publish(SessionLoadCompleted { session_id }).await;
         }
         if self.note_hydration_completion() {
+            // The last unarchived session has landed, so the flag the
+            // terminal's throbber reads is already down. Announce it before
+            // the frozen sweep below: that sweep inserts tree members, which
+            // are not rail rows, so every list the event's readers rebuild
+            // is complete now.
+            self.publish(StartupHydrationFinished).await;
             // Tree membership is resolved from the live session map, so the
             // frozen sweep has to wait until every unarchived session has
             // landed. The summary read is one query, not a loop of history
