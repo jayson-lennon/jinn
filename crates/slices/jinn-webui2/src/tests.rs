@@ -5883,7 +5883,7 @@ async fn the_launch_note_describes_the_row() {
     // Then the note carries the row's description.
     assert_eq!(
         notes[0].description.as_deref(),
-        Some("Web UI 2 (browser transcript, send, cancel)"),
+        Some("Web UI (browser transcript, send, cancel)"),
         "the row is told what the slice is"
     );
 }

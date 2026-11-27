@@ -1,4 +1,4 @@
-//! The wire contract for the second web UI (`/web2`).
+//! The wire contract for the web UI (`/web2`).
 //!
 //! Everything the browser and the server exchange is one of two tagged
 //! enums: [`ClientMsg`] (browser → server, an imperative per variant) and

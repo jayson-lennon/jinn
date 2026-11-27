@@ -2,10 +2,10 @@
 //! consumes, and the builder that turns store summaries into entries in
 //! that order.
 //!
-//! Pure functions over [`SessionTreeEntry`]: the terminal picker's loader,
-//! the original web UI's session lists, and the `/web2` Archive picker all
-//! build their rows through [`session_tree_entries`], so no surface can
-//! order a session tree differently from another.
+//! Pure functions over [`SessionTreeEntry`]: the terminal picker's loader
+//! and the `/web2` session list and Archive picker all build their rows
+//! through [`session_tree_entries`], so no surface can order a session
+//! tree differently from another.
 
 use std::collections::HashMap;
 
@@ -50,7 +50,7 @@ pub fn session_tree_entries(
 /// Each tree's position is determined by the most recent `updated_at`
 /// across all nodes in the tree. Loaded trees appear before Archived trees.
 /// Within each tree, children are sorted by `updated_at` descending.
-/// The one order both the TUI picker load and the webui session list
+/// The one order both the TUI picker load and the `/web2` session list
 /// consume, so the two surfaces cannot disagree.
 ///
 /// # Panics

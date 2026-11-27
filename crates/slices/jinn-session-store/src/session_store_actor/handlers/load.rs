@@ -340,8 +340,9 @@ impl SessionStoreActor {
     ///
     /// The activation itself is announced: this is the one activation branch
     /// that moved the pointer silently, and consumers key off
-    /// [`ActiveSessionChanged`] as the "the user looked at this session" fact
-    /// (the webui's unread-mark clear). Both callers — the plain sidebar
+    /// [`ActiveSessionChanged`] as the "the active session moved" fact
+    /// (every open `/web2` page follows the instance's active session from
+    /// it). Both callers — the plain sidebar
     /// activation and the tree-load's already-live branch — funnel through
     /// here, so one publish covers both; a second at the tree call site would
     /// double-emit. Every other activation path already publishes through

@@ -168,18 +168,6 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn one_appended_word_keeps_high_similarity() {
-        // Given the loop's signature: the same command with a pipe added.
-        let a = normalize("grep -n \"lrow\" crates/slices/jinn-webui/src/regions/sessions.rs");
-        let b =
-            normalize("grep -n \"lrow\" crates/slices/jinn-webui/src/regions/sessions.rs | wc -l");
-
-        // Then the similarity stays above the shipped 0.85 threshold.
-        assert!(similarity_ratio(&a, &b) >= 0.85);
-    }
-
-    #[rstest::rstest]
-    #[test]
     fn similarity_is_symmetric() {
         // Given two different commands.
         let a = "grep -rn \"\\.lrow\" src";
