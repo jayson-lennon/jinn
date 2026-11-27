@@ -116,8 +116,8 @@ export function Composer(props: ComposerProps): JSX.Element {
           value={draft()}
           onInput={(e) => setDraft(props.store, e.currentTarget.value)}
           onKeyDown={(e) => {
-            // Enter sends; Shift+Enter is a newline.
-            if (e.key === 'Enter' && !e.shiftKey) {
+            // Ctrl+Enter and Shift+Enter send or queue; Enter inserts a newline.
+            if (e.key === 'Enter' && (e.ctrlKey || e.shiftKey)) {
               e.preventDefault();
               submit();
             }
