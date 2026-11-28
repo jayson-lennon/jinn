@@ -28,7 +28,7 @@ members = ["crates/jinn-*", "crates/slices/*", "vendor/*"]
 
 
 [workspace.package]
-version = "1.29.1"
+version = "1.30.0"
 edition = "2024"
 publish = false
 
