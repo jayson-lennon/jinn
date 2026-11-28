@@ -64,8 +64,8 @@ export function notifySettles(rows: readonly SessionRow[], channel: WorkerChanne
     void channel.post({
       type: 'settle',
       session_id: row.session_id,
-      title: row.title,
-      body: 'Turn finished',
+      title: 'jinn',
+      body: `Turn finished: ${row.title}`,
     });
     posted += 1;
   }

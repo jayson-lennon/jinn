@@ -50,7 +50,7 @@ describe('notifySettles', () => {
     // Then one banner was posted, naming the session.
     expect(posted).toBe(1);
     expect(c.posted).toEqual([
-      { type: 'settle', session_id: 's1', title: 'Session', body: 'Turn finished' },
+      { type: 'settle', session_id: 's1', title: 'jinn', body: 'Turn finished: Session' },
     ]);
   });
 

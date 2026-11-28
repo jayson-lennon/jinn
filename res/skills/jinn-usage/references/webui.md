@@ -260,9 +260,9 @@ every time; what it does is under **Notifications** below. A scrim click,
 ## Notifications
 
 A turn that ends while no page of this jinn is visible raises a banner
-naming the session, with the body **Turn finished**. It carries no message
-content. Tapping it opens or focuses the page on that session, and
-activates it — the terminal switches too.
+titled **jinn** with the body **Turn finished: <session title>**. It
+carries no message content. Tapping it opens or focuses the page on that
+session, and activates it — the terminal switches too.
 
 The menu's **Notifications** item is the only place permission is asked
 for; browsers require a click for the prompt, so nothing is asked on load.

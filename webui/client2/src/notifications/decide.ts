@@ -65,7 +65,9 @@ export function tagOf(sessionId: string): string {
  *  data is one this build did not send, so a plain banner stands in for
  *  it rather than a silent one. */
 export async function onPush(surface: Surface, data: PushPayload | null): Promise<void> {
-  const payload = data ?? { session_id: '', title: 'jinn', body: 'Turn finished' };
+  // A data-less push names no session, so there is no title to put after the
+  // line; it stays the bare line rather than inventing one.
+  const payload = data ?? { session_id: '', title: 'jinn', body: 'Turn finished:' };
   await show(surface, payload);
 }
 

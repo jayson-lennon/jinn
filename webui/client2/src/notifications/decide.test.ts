@@ -63,11 +63,11 @@ describe('onPush', () => {
     const browser = fakeBrowser();
 
     // When it arrives.
-    await onPush(browser, { session_id: 'abc', title: 'Other', body: 'Turn finished' });
+    await onPush(browser, { session_id: 'abc', title: 'jinn', body: 'Turn finished: Other' });
 
     // Then one banner is raised, tagged to that session.
     expect(browser.banners).toEqual([
-      { title: 'Other', body: 'Turn finished', tag: 'session:abc', session_id: 'abc' },
+      { title: 'jinn', body: 'Turn finished: Other', tag: 'session:abc', session_id: 'abc' },
     ]);
   });
 
@@ -80,7 +80,7 @@ describe('onPush', () => {
 
     // Then a banner is still raised: a silent push would cost the permission.
     expect(browser.banners).toEqual([
-      { title: 'jinn', body: 'Turn finished', tag: 'session:', session_id: '' },
+      { title: 'jinn', body: 'Turn finished:', tag: 'session:', session_id: '' },
     ]);
   });
 
@@ -89,7 +89,7 @@ describe('onPush', () => {
     const browser = fakeBrowser([page(true)]);
 
     // When the push arrives.
-    await onPush(browser, { session_id: 'abc', title: 'Other', body: 'Turn finished' });
+    await onPush(browser, { session_id: 'abc', title: 'jinn', body: 'Turn finished: Other' });
 
     // Then the banner is raised anyway: this path has no visibility check.
     expect(browser.banners).toHaveLength(1);
@@ -102,7 +102,7 @@ describe('onSettle', () => {
     const browser = fakeBrowser([page(true)]);
 
     // When the page reports the settle.
-    await onSettle(browser, { type: 'settle', session_id: 'abc', title: 'Other', body: 'Turn finished' });
+    await onSettle(browser, { type: 'settle', session_id: 'abc', title: 'jinn', body: 'Turn finished: Other' });
 
     // Then no banner is raised: the gold row already says it.
     expect(browser.banners).toHaveLength(0);
@@ -113,11 +113,11 @@ describe('onSettle', () => {
     const browser = fakeBrowser([page(false)]);
 
     // When the page reports the settle.
-    await onSettle(browser, { type: 'settle', session_id: 'abc', title: 'Other', body: 'Turn finished' });
+    await onSettle(browser, { type: 'settle', session_id: 'abc', title: 'jinn', body: 'Turn finished: Other' });
 
     // Then one banner is raised, naming the session.
     expect(browser.banners).toEqual([
-      { title: 'Other', body: 'Turn finished', tag: 'session:abc', session_id: 'abc' },
+      { title: 'jinn', body: 'Turn finished: Other', tag: 'session:abc', session_id: 'abc' },
     ]);
   });
 
@@ -126,7 +126,7 @@ describe('onSettle', () => {
     const browser = fakeBrowser([page(false), page(true)]);
 
     // When the settle is reported.
-    await onSettle(browser, { type: 'settle', session_id: 'abc', title: 'Other', body: 'Turn finished' });
+    await onSettle(browser, { type: 'settle', session_id: 'abc', title: 'jinn', body: 'Turn finished: Other' });
 
     // Then no banner is raised: someone is looking at a page.
     expect(browser.banners).toHaveLength(0);

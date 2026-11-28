@@ -17,11 +17,17 @@ use std::time::Duration;
 use super::store::PushStore;
 use super::webpush::{self, Payload, PushOutcome, Receiver};
 
-/// The banner's body: a fixed line naming what happened. No message content
-/// rides a push — a lock screen is not the place for model output.
-pub const TURN_FINISHED: &str = "Turn finished";
+/// The banner's title: the app's name, so every banner reads as coming from
+/// the same place however the session is titled.
+pub const BANNER_TITLE: &str = "jinn";
 
-/// How long a title may be, in grapheme clusters, before it is cut.
+/// What the banner's body says, before the session it names. No message
+/// content rides a push — a lock screen is not the place for model output.
+pub const TURN_FINISHED: &str = "Turn finished:";
+
+/// How long a session title may be, in grapheme clusters, before it is
+/// cut. It only guards against a pathological title: the tray cuts the
+/// line visually long before this.
 const TITLE_MAX: usize = 120;
 
 /// The untitled placeholder, the same one a session row shows.
@@ -87,8 +93,8 @@ impl PushSender {
         let subscriptions = self.store.subscriptions();
         let payload = Payload {
             session_id: session_id.to_owned(),
-            title: trim_title(title),
-            body: TURN_FINISHED.to_owned(),
+            title: BANNER_TITLE.to_owned(),
+            body: turn_finished_body(title),
         };
         let client = crate::attachment::http_client();
         let started = subscriptions.len();
@@ -159,10 +165,11 @@ async fn send(
     webpush::outcome_of(response.status().as_u16())
 }
 
-/// The title a banner shows: the session's, cut to the length a banner
-/// carries, or the untitled placeholder. Cut on a grapheme boundary so no
-/// banner ever ends in half a character.
-fn trim_title(title: Option<&str>) -> String {
+/// The body of a "turn finished" banner: what happened, then the session
+/// it happened in. The session title is cut to the length a banner carries,
+/// or is the untitled placeholder; the cut falls on a grapheme boundary so
+/// no banner ever ends in half a character.
+fn turn_finished_body(title: Option<&str>) -> String {
     use unicode_segmentation::UnicodeSegmentation as _;
     let title = title.unwrap_or(UNTITLED);
     let mut graphemes = title.graphemes(true);
@@ -170,7 +177,7 @@ fn trim_title(title: Option<&str>) -> String {
     if graphemes.next().is_some() {
         kept.push('…');
     }
-    kept
+    format!("{TURN_FINISHED} {kept}")
 }
 
 #[cfg(test)]
@@ -180,7 +187,7 @@ mod tests {
     use jinn_testutil::paths::TestRoot;
     use unicode_segmentation::UnicodeSegmentation as _;
 
-    use super::{PushSender, PushStore, trim_title};
+    use super::{BANNER_TITLE, PushSender, PushStore, TURN_FINISHED, turn_finished_body};
     use crate::push::store::Subscription;
     use jinn_webui2_msg::PushKeysBody;
 
@@ -349,38 +356,63 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
+    fn the_banner_is_titled_with_the_apps_name() {
+        // Given any session title.
+        // When the banner's title is read.
+        let title = BANNER_TITLE;
+
+        // Then it is the app's name, never the session's.
+        assert_eq!(title, "jinn");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_body_names_what_happened_and_the_session() {
+        // Given a session with a title.
+        // When the body is built.
+        let body = turn_finished_body(Some("Fix the bug"));
+
+        // Then it says a turn finished, in that session.
+        assert_eq!(body, "Turn finished: Fix the bug");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn an_untitled_session_is_named_as_untitled() {
+        // Given a session with no title.
+        // When the body is built.
+        let body = turn_finished_body(None);
+
+        // Then it still names a session, so the line never ends bare.
+        assert_eq!(body, "Turn finished: Untitled Session");
+    }
+
+    #[rstest::rstest]
+    #[test]
     fn a_long_title_is_cut_on_a_grapheme_boundary() {
         // Given a title of 130 ASCII characters.
         let title = "a".repeat(130);
 
-        // When it is trimmed.
-        let trimmed = trim_title(Some(&title));
+        // When the body is built.
+        let body = turn_finished_body(Some(&title));
 
-        // Then it is 120 characters plus an ellipsis.
-        assert_eq!(trimmed.chars().count(), 121);
-        assert!(trimmed.ends_with('…'));
+        // Then the title in it is 120 characters plus an ellipsis.
+        let shown = body
+            .strip_prefix(TURN_FINISHED)
+            .expect("the body leads with what happened");
+        assert_eq!(shown.trim_start().chars().count(), 121);
+        assert!(shown.ends_with('…'));
     }
 
     #[rstest::rstest]
     #[test]
     fn a_short_title_is_kept_whole() {
         // Given a title well under the limit.
-        // When it is trimmed.
-        let trimmed = trim_title(Some("Fix the bug"));
+        // When the body is built.
+        let body = turn_finished_body(Some("Fix the bug"));
 
-        // Then it is unchanged.
-        assert_eq!(trimmed, "Fix the bug");
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn a_missing_title_shows_the_untitled_placeholder() {
-        // Given no title.
-        // When it is trimmed.
-        let trimmed = trim_title(None);
-
-        // Then the placeholder is shown.
-        assert_eq!(trimmed, "Untitled Session");
+        // Then the title is unchanged.
+        assert!(body.ends_with("Fix the bug"));
     }
 
     #[rstest::rstest]
@@ -389,11 +421,14 @@ mod tests {
         // Given a title whose 120th grapheme is the first of a flag.
         let title = format!("{}🇯🇵", "a".repeat(119));
 
-        // When it is trimmed.
-        let trimmed = trim_title(Some(&title));
+        // When the body is built.
+        let body = turn_finished_body(Some(&title));
 
         // Then the flag is not split: 119 letters and the whole flag.
-        assert_eq!(trimmed.graphemes(true).count(), 120);
-        assert!(trimmed.ends_with("🇯🇵"));
+        let shown = body
+            .strip_prefix(TURN_FINISHED)
+            .expect("the body leads with what happened");
+        assert_eq!(shown.trim_start().graphemes(true).count(), 120);
+        assert!(shown.ends_with("🇯🇵"));
     }
 }
