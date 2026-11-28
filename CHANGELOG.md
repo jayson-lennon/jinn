@@ -1,6 +1,23 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## 2026-11-27 v.29.1
+## 2026-11-28 v1.30.0
+
+- (webui) Add "+" button to the session list to create a new session.
+- (webui) Add directory changer to the dashboard.
+- (webui) Clickable things in the interface now use the accent color.
+  - MCP Servers in the dash were always clickable to open the MCP server picker. It is now accent colored.
+  - The CWD is clickable and opens up the "Change directory" modal.
+  - Pins in the dash were always clickable. There is now an accent-colored arrow to help indicate that it is clickable.
+  - The persona in the status bar was always clickable to open the persona picker. It is now accent colored.
+  - The context indication in the status bar was always clickable to open the dash. It is now accent colored.
+- (webui) Queued message count color was too low contrast and is now high contrast.
+- (webui) `canvas` interaction dumps are now collapsed when rendered.
+- `jinn-usage` skill wording simplified and negations minimized.
+- (webui) Changed light theme from Nord to vim-one.
+- (webui) Session list/hamburger buttons are now a pill button.
+- (webui) Theme buttons now use a pill button.
+
+## 2026-11-27 v1.29.1
 
 - (webui) Tokens now render at 150ms intervals instead of at the end of a tool round/thinking-assistant round.
 - (webui) Session load timeout is now at 30sec (up from 10).
@@ -30,6 +47,7 @@
 - (webui) Add status bar showing persona + context usage
 - (webui) Premade prompts using `#prompt` now have a popup when typing into the chat.
 - (webui) Add dashboard for session stats by clicking on the "context usage" in the status bar.
+- (webui) Add OpenRouter Model Market picker.
 
 
 ## 2026-11-24 v1.27.2
