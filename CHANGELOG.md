@@ -1,5 +1,13 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- (webui) Tokens now render at 150ms intervals instead of at the end of a tool round/thinking-assistant round.
+- (webui) Session load timeout is now at 30sec (up from 10).
+- (webui) Archiving a session while viewing it will now switch to another session (or create a new one). Mirrors the TUI behavior.
+- (webui) Thinking blocks are now collapsed by default.
+- (webui) Initial session load performance improved.
+
 ## 2026-11-27 v1.28.0
 
 - (webui) Rebuilt from scratch. Now uses websocket.
