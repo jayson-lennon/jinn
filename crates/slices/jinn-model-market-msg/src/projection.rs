@@ -21,7 +21,9 @@ use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use unicode_segmentation::UnicodeSegmentation as _;
 
-use crate::row::MarketRow;
+use crate::data_state::MarketDetail;
+use crate::row::{MarketEndpointRow, MarketRow};
+use crate::ui_state::DetailSort;
 use crate::ui_state::SortColumn;
 pub use crate::ui_state::resolve_mix;
 
@@ -207,22 +209,49 @@ pub struct NameRun {
     pub matched: bool,
 }
 
-/// The name split into matched and plain runs for the filter. One plain
-/// run when no filter is active.
+/// The name's two segments as matched and plain runs for the filter: the
+/// base (`author/slug`) and the `:variant` suffix, so a surface can dim
+/// the suffix while the filter's highlight rides over both — the match
+/// ranges are offsets into the whole name, rebased per segment. The
+/// suffix is empty (no runs) when the row has no variant. One plain run
+/// per segment when no filter is active.
 #[must_use]
-pub fn name_runs(row: &MarketRow, filter: &str) -> Vec<NameRun> {
-    let Some(ranges) = match_ranges(row, filter) else {
-        return vec![NameRun {
-            text: row_name(row),
-            matched: false,
-        }];
+pub fn name_runs(row: &MarketRow, filter: &str) -> (Vec<NameRun>, Vec<NameRun>) {
+    let base = format!("{}/{}", row.author, row.slug);
+    let suffix = match &row.variant {
+        Some(variant) => format!(":{variant}"),
+        None => String::new(),
     };
-    let name = row_name(row);
+    let ranges = match_ranges(row, filter);
+    let base_len = base.len();
+    (
+        segment_runs(&base, ranges.as_deref(), 0),
+        segment_runs(&suffix, ranges.as_deref(), base_len),
+    )
+}
+
+/// One segment of the name split into matched and plain runs. `offset`
+/// is where the segment starts within the whole display name, so the
+/// match ranges — offsets into that name — rebase by a subtraction. A
+/// range is one byte wide and the segment boundary sits on a character
+/// edge, so no range straddles a segment.
+fn segment_runs(text: &str, ranges: Option<&[Range<usize>]>, offset: usize) -> Vec<NameRun> {
+    let Some(ranges) = ranges else {
+        return if text.is_empty() {
+            Vec::new()
+        } else {
+            vec![NameRun {
+                text: text.to_owned(),
+                matched: false,
+            }]
+        };
+    };
     let mut runs: Vec<NameRun> = Vec::new();
     let mut current = String::new();
     let mut in_match = false;
-    for (byte_off, grapheme) in name.grapheme_indices(true) {
-        let is_matched = ranges.iter().any(|r| r.contains(&byte_off));
+    for (byte_off, grapheme) in text.grapheme_indices(true) {
+        let name_off = byte_off + offset;
+        let is_matched = ranges.iter().any(|r| r.contains(&name_off));
         if is_matched != in_match && !current.is_empty() {
             runs.push(NameRun {
                 text: std::mem::take(&mut current),
@@ -239,6 +268,177 @@ pub fn name_runs(row: &MarketRow, filter: &str) -> Vec<NameRun> {
         });
     }
     runs
+}
+
+// ── Detail projection ────────────────────────────────────────────────
+
+/// One detail-mode row: the auto-route sentinel or a provider endpoint.
+///
+/// A render-time projection, recomputed on every ask — the sentinel is
+/// synthetic (its prices come from the model's [`MarketRow`]), so it is
+/// not stored anywhere.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DetailRow {
+    /// The auto-route sentinel: prices come from the model's
+    /// `MarketRow`; choosing it publishes the model-only switch
+    /// (`tag: None`).
+    Default,
+    /// One provider endpoint; choosing it pins it (`tag: Some`).
+    Endpoint(MarketEndpointRow),
+}
+
+impl DetailRow {
+    /// The row's display name: `provider_name` plus ` (tag)` for a
+    /// non-empty tag, `Default` for the sentinel — the `Endpoint`
+    /// sort's tie-break key.
+    #[must_use]
+    pub fn display_name(&self) -> String {
+        match self {
+            Self::Default => "Default".to_owned(),
+            Self::Endpoint(endpoint) => endpoint_label(endpoint),
+        }
+    }
+
+    /// The row's prices: `(prompt, completion, cache)` as sort keys —
+    /// the sentinel with no model row left yields `None`s, so a missing
+    /// listing sorts last like any unpublished value.
+    fn sort_prices(&self, model: Option<&MarketRow>) -> (Option<f64>, Option<f64>, Option<f64>) {
+        match self {
+            Self::Default => match model {
+                Some(row) => (
+                    row.prompt_price.into(),
+                    row.completion_price.into(),
+                    row.cache_read_price,
+                ),
+                None => (None, None, None),
+            },
+            Self::Endpoint(endpoint) => (
+                endpoint.prompt_price.into(),
+                endpoint.completion_price.into(),
+                endpoint.cache_read_price,
+            ),
+        }
+    }
+}
+
+/// An endpoint's display label: `provider_name` plus ` (tag)` when the
+/// tag is non-empty — the ENDPOINT cell's text and the name-sort's
+/// tie-break key.
+#[must_use]
+pub fn endpoint_label(endpoint: &MarketEndpointRow) -> String {
+    if endpoint.tag.is_empty() {
+        endpoint.provider_name.clone()
+    } else {
+        format!("{} ({})", endpoint.provider_name, endpoint.tag)
+    }
+}
+
+/// The detail mode's rows: the Default sentinel first, then the
+/// endpoints.
+#[must_use]
+pub fn detail_rows(model_id: &str, detail: Option<&MarketDetail>) -> Option<Vec<DetailRow>> {
+    let detail = detail?;
+    (detail.model_id == model_id).then(|| {
+        let mut rows: Vec<DetailRow> = detail
+            .endpoints
+            .iter()
+            .map(|endpoint| DetailRow::Endpoint(endpoint.clone()))
+            .collect();
+        rows.insert(0, DetailRow::Default);
+        rows
+    })
+}
+
+/// The detail sort key for one row, mirroring [`sort_key`]'s
+/// `None`-sorts-last rule.
+///
+/// `Endpoint` is the name-sort: `None` key, tie-broken by display name,
+/// like the table's `Model`. The sentinel's price keys come from the
+/// model's listing row; a missing row (a refresh emptied the table
+/// mid-mode) sorts as a `None` key — a fallback, never a panic.
+#[must_use]
+pub fn detail_sort_key(
+    row: &DetailRow,
+    col: DetailSort,
+    model: Option<&MarketRow>,
+    mix: (u32, f64, u32),
+) -> Option<f64> {
+    match col {
+        DetailSort::Endpoint => None,
+        DetailSort::Proj => match row {
+            DetailRow::Default => model.map(|m| projected_cents(m, mix)),
+            DetailRow::Endpoint(endpoint) => Some(projected_cents_for(
+                endpoint.prompt_price,
+                endpoint.completion_price,
+                endpoint.cache_read_price,
+                mix,
+            )),
+        },
+        DetailSort::In => row.sort_prices(model).0,
+        DetailSort::Out => row.sort_prices(model).1,
+        DetailSort::Cache => row.sort_prices(model).2,
+        DetailSort::Lat => match row {
+            DetailRow::Default => None,
+            DetailRow::Endpoint(endpoint) => endpoint.latency_p50_ms,
+        },
+        DetailSort::Tp => match row {
+            DetailRow::Default => None,
+            DetailRow::Endpoint(endpoint) => endpoint.throughput_p50,
+        },
+        DetailSort::Up => match row {
+            DetailRow::Default => None,
+            DetailRow::Endpoint(endpoint) => endpoint.uptime_1d,
+        },
+    }
+}
+
+/// Compares two detail rows under a detail sort column and direction —
+/// the same `None`-last semantics as [`compare_rows`], with the name
+/// tie-break following the direction as it does there.
+#[must_use]
+pub fn detail_compare_rows(
+    a: &DetailRow,
+    b: &DetailRow,
+    col: DetailSort,
+    desc: bool,
+    model: Option<&MarketRow>,
+    mix: (u32, f64, u32),
+) -> std::cmp::Ordering {
+    match (
+        detail_sort_key(a, col, model, mix),
+        detail_sort_key(b, col, model, mix),
+    ) {
+        (Some(av), Some(bv)) => {
+            let ord = av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal);
+            if desc { ord.reverse() } else { ord }
+        }
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => {
+            let ord = a.display_name().cmp(&b.display_name());
+            if desc { ord.reverse() } else { ord }
+        }
+    }
+}
+
+/// The detail projection, sorted for render: the Default sentinel stays
+/// row 0 — the safe action sits at zero keystrokes in every sort, the
+/// same position the endpoint picker prepends its sentinel to — and the
+/// endpoint rows sort by the detail sort.
+#[must_use]
+pub fn sorted_detail_rows(
+    model_id: &str,
+    detail: Option<&MarketDetail>,
+    model: Option<&MarketRow>,
+    col: DetailSort,
+    desc: bool,
+    mix: (u32, f64, u32),
+) -> Option<Vec<DetailRow>> {
+    let mut rows = detail_rows(model_id, detail)?;
+    let sentinel = rows.remove(0);
+    rows.sort_by(|a, b| detail_compare_rows(a, b, col, desc, model, mix));
+    rows.insert(0, sentinel);
+    Some(rows)
 }
 
 // ── Formatting ────────────────────────────────────────────────────────

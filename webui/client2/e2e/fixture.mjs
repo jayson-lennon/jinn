@@ -247,6 +247,9 @@ export const MARKET_DEAR_NAME = scratchMarket.dearName;
 /** The cheap model's one provider endpoint, as its row names it. */
 export const MARKET_ENDPOINT_NAME = `E2E Azure (${scratchMarket.endpointTag})`;
 export const MARKET_ENDPOINT_TAG = scratchMarket.endpointTag;
+/** The dear model's two endpoint tags: the slow one is the cheaper. */
+export const MARKET_DEAR_FAST_TAG = scratchMarket.dearFastTag;
+export const MARKET_DEAR_SLOW_TAG = scratchMarket.dearSlowTag;
 
 /** The staged prompt template every prompt-popup spec pivots on. */
 export const PROMPT_NAME = scratchPrompt.name;

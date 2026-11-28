@@ -16,7 +16,9 @@ import {
   expect,
   MARKET_CHEAP_ID,
   MARKET_CHEAP_NAME,
+  MARKET_DEAR_FAST_TAG,
   MARKET_DEAR_NAME,
+  MARKET_DEAR_SLOW_TAG,
   MARKET_ENDPOINT_NAME,
   MARKET_ENDPOINT_TAG,
   MODEL_LABEL,
@@ -90,6 +92,16 @@ test.with({ market: true })("the filter narrows the rows to the match and highli
   await expect(page.locator(`${sel.MARKET_ROW} mark`).first()).toHaveText(CHEAP_FILTER);
 });
 
+test.with({ market: true })("a variant renders once, dimmed after the base name", async ({ page }) => {
+  // Given the open market.
+  await openMarket(page);
+
+  // Then the dear listing's name is the base with one variant suffix.
+  const name = page.locator(sel.MARKET_ROW).filter({ hasText: MARKET_DEAR_NAME }).locator(".m-name");
+  await expect(name).toHaveText(MARKET_DEAR_NAME);
+  await expect(name.locator(".m-variant")).toHaveText(":free");
+});
+
 test.with({ market: true })("the filter is empty on every open", async ({ page }) => {
   // Given a market closed while filtered.
   await openMarket(page);
@@ -103,6 +115,86 @@ test.with({ market: true })("the filter is empty on every open", async ({ page }
   // Then the filter is empty and both rows are back.
   await expect(page.locator(sel.MARKET_FILTER)).toHaveValue("");
   await expect(page.locator(sel.MARKET_ROW)).toHaveCount(2);
+});
+
+/**
+ * Routes the page's WebSocket so every server frame still arrives but the
+ * page's market *sort* requests never reach the server: a tapped header
+ * waits for good, so the spinner's state is held still to inspect. The
+ * open request and a detail page's first request (which carry the default
+ * view) pass through, so the list and the endpoints land first. Reloads
+ * the page so its socket goes through the route, as the session-load
+ * specs do.
+ */
+async function holdSortFrames(page) {
+  await page.routeWebSocket(/\/ws$/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      if (typeof message === "string") {
+        const held =
+          (message.includes('"market_rows"') && !message.includes('"sort":"proj"')) ||
+          (message.includes('"market_detail"') && !message.includes('"sort":"proj"'));
+        if (held) return;
+      }
+      server.send(message);
+    });
+    server.onMessage((message) => {
+      ws.send(message);
+    });
+  });
+  await page.reload();
+}
+
+/** The header's box, as the page lays it out. */
+async function headerBox(page, testid) {
+  return page.locator(`[data-testid="${testid}"]`).evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+  });
+}
+
+test.with({ market: true })("a tapped list header shows the spinner in place while its sort is held", async ({ page }) => {
+  // Given the open market, its sort frames held back, and the VALS header's box.
+  await openMarket(page);
+  await holdSortFrames(page);
+  await openMarket(page);
+  const before = await headerBox(page, "market-sort-vals");
+
+  // When tapping the header.
+  await page.locator('[data-testid="market-sort-vals"]').click();
+
+  // Then the tapped header alone is busy with the dots over its label, and its box is unmoved.
+  const busy = page.locator('[data-testid="market-sort-vals"]');
+  await expect(busy).toHaveAttribute("aria-busy", "true");
+  await expect(busy.locator(".sort-busy")).toHaveCount(1);
+  await expect(page.locator('[data-testid="market-sort-proj"]')).not.toHaveAttribute("aria-busy", "true");
+  await page.waitForTimeout(400);
+  expect(await headerBox(page, "market-sort-vals")).toEqual(before);
+  await expect(busy).toHaveAttribute("aria-busy", "true");
+});
+
+test.with({ market: true })("a tapped detail header shows the spinner in place while its sort is held", async ({ page }) => {
+  // Given the open market with its sort frames held back.
+  await openMarket(page);
+  await holdSortFrames(page);
+  await openMarket(page);
+  // And the dear listing's detail: its open request passes, so the endpoints land.
+  await page.locator(sel.MARKET_ROW).filter({ hasText: MARKET_DEAR_NAME }).click();
+  await expect(page.locator(sel.MARKET_ENDPOINT)).toHaveCount(3);
+  const before = await headerBox(page, "market-detail-sort-lat");
+
+  // When tapping the LAT header.
+  await page.locator('[data-testid="market-detail-sort-lat"]').click();
+
+  // Then the tapped header alone is busy, its box unmoved, and no loading line replaces the table.
+  const busy = page.locator('[data-testid="market-detail-sort-lat"]');
+  await expect(busy).toHaveAttribute("aria-busy", "true");
+  await expect(busy.locator(".sort-busy")).toHaveCount(1);
+  await expect(page.locator('[data-testid="market-detail-sort-proj"]')).not.toHaveAttribute("aria-busy", "true");
+  await page.waitForTimeout(400);
+  expect(await headerBox(page, "market-detail-sort-lat")).toEqual(before);
+  await expect(page.locator(sel.MARKET_ENDPOINT)).toHaveCount(3);
+  await expect(page.getByText("loading endpoints")).toHaveCount(0);
 });
 
 test.with({ market: true })("the default sort is PROJ ascending", async ({ page }) => {
@@ -141,6 +233,19 @@ test.with({ market: true })("a second tap on the active header reverses it", asy
   await expectFirstRow(page, "openrouter/e2e-beta/e2e-dear:free");
 });
 
+test.onPhone({ market: true })("on a phone a header tap reorders the rows", async ({ page }) => {
+  // Given the open market at 390px, cheapest first.
+  await openMarket(page);
+  await expectFirstRow(page, MARKET_CHEAP_ID);
+
+  // When tapping the PROJ header with a touch.
+  await page.locator('[data-testid="market-sort-proj"]').tap();
+
+  // Then the rows reorder: the dear listing leads.
+  await expect(page.locator('[data-testid="market-sort-proj"]')).toHaveAttribute("aria-sort", "descending");
+  await expectFirstRow(page, "openrouter/e2e-beta/e2e-dear:free");
+});
+
 test.with({ market: true })("the sort and direction survive a close and reopen", async ({ page }) => {
   // Given a market closed while sorted by VALS ascending.
   await openMarket(page);
@@ -153,6 +258,19 @@ test.with({ market: true })("the sort and direction survive a close and reopen",
 
   // Then VALS is still the active sort, ascending.
   await expect(page.locator('[data-testid="market-sort-vals"]')).toHaveAttribute("aria-sort", "ascending");
+});
+
+test.with({ market: true })("a tree mix with no session usage yet says so in the status line", async ({ page }) => {
+  // Given the open market on a session with no measured usage.
+  await openMarket(page);
+
+  // When flipping to the tree mix.
+  await page.locator('[data-testid="market-mix"]').click();
+
+  // Then the status line names the fallback instead of staying silent.
+  const status = page.locator('[data-testid="market-status"]');
+  await expect(status).toContainText("mix: fixed 10M·98%·50k");
+  await expect(status).toContainText("(no session usage yet)");
 });
 
 test.with({ market: true })("the mix toggle flips to the tree mix and survives a reopen", async ({ page }) => {
@@ -190,6 +308,76 @@ test.with({ market: true })("tapping a row opens its detail with its endpoints",
   await expect(endpoints).toHaveCount(2);
   await expect(endpoints.nth(0)).toContainText("Default");
   await expect(endpoints.nth(1)).toContainText(MARKET_ENDPOINT_NAME);
+});
+
+/** The dear listing's detail page, open. */
+async function openDearDetail(page) {
+  await openMarket(page);
+  await page.locator(sel.MARKET_ROW).filter({ hasText: MARKET_DEAR_NAME }).click();
+  await expect(page.locator(sel.MARKET_ENDPOINT)).toHaveCount(3);
+}
+
+/** The endpoint rows' tags in render order, the sentinel aside. */
+async function endpointTags(page) {
+  const tags = await page.locator(sel.MARKET_ENDPOINT).evaluateAll((els) =>
+    els.map((e) => e.getAttribute("data-tag")),
+  );
+  return tags.filter((tag) => tag !== "");
+}
+
+test.with({ market: true })("the detail headers sort the endpoints, Default staying first", async ({ page }) => {
+  // Given the dear listing's detail: projected cost ascending, so the
+  // cheap slow endpoint leads the endpoints.
+  await openDearDetail(page);
+  await expect(page.locator('[data-testid="market-detail-sort-proj"]')).toHaveAttribute("aria-sort", "ascending");
+  expect(await endpointTags(page)).toEqual([MARKET_DEAR_SLOW_TAG, MARKET_DEAR_FAST_TAG]);
+
+  // When tapping LAT: lowest latency is best, so the fast endpoint leads.
+  await page.locator('[data-testid="market-detail-sort-lat"]').click();
+
+  // Then the header is active and the endpoints reordered, sentinel still first.
+  await expect(page.locator('[data-testid="market-detail-sort-lat"]')).toHaveAttribute("aria-sort", "ascending");
+  await expect.poll(() => endpointTags(page)).toEqual([MARKET_DEAR_FAST_TAG, MARKET_DEAR_SLOW_TAG]);
+  await expect(page.locator(sel.MARKET_ENDPOINT).first()).toContainText("Default");
+});
+
+test.with({ market: true })("a second tap on a detail header reverses it", async ({ page }) => {
+  // Given the dear listing's detail sorted by PROJ ascending.
+  await openDearDetail(page);
+  expect(await endpointTags(page)).toEqual([MARKET_DEAR_SLOW_TAG, MARKET_DEAR_FAST_TAG]);
+
+  // When tapping PROJ again.
+  await page.locator('[data-testid="market-detail-sort-proj"]').click();
+
+  // Then it is descending and the dear fast endpoint leads.
+  await expect(page.locator('[data-testid="market-detail-sort-proj"]')).toHaveAttribute("aria-sort", "descending");
+  await expect.poll(() => endpointTags(page)).toEqual([MARKET_DEAR_FAST_TAG, MARKET_DEAR_SLOW_TAG]);
+});
+
+test.with({ market: true })("a detail header tap leaves the list's sort alone", async ({ page }) => {
+  // Given the detail sorted by PROJ descending.
+  await openDearDetail(page);
+  await page.locator('[data-testid="market-detail-sort-proj"]').click();
+  await expect(page.locator('[data-testid="market-detail-sort-proj"]')).toHaveAttribute("aria-sort", "descending");
+
+  // When backing out to the list.
+  await page.locator('[data-testid="market-back"]').click();
+
+  // Then the list is still on its own PROJ ascending, cheapest first.
+  await expect(page.locator('[data-testid="market-sort-proj"]')).toHaveAttribute("aria-sort", "ascending");
+  await expectFirstRow(page, MARKET_CHEAP_ID);
+});
+
+test.onPhone({ market: true })("on a phone a detail header tap reorders the endpoints", async ({ page }) => {
+  // Given the dear listing's detail at 390px.
+  await openDearDetail(page);
+  expect(await endpointTags(page)).toEqual([MARKET_DEAR_SLOW_TAG, MARKET_DEAR_FAST_TAG]);
+
+  // When tapping LAT with a touch.
+  await page.locator('[data-testid="market-detail-sort-lat"]').tap();
+
+  // Then the endpoints reorder under the sentinel.
+  await expect.poll(() => endpointTags(page)).toEqual([MARKET_DEAR_FAST_TAG, MARKET_DEAR_SLOW_TAG]);
 });
 
 test.with({ market: true })("the detail's facts line carries the context length", async ({ page }) => {

@@ -18,14 +18,15 @@ pub use client::ClientMsg;
 pub use payload::{
     AppletRowBody, AppletRowsBody, ContextUsageBody, DashMcpRowBody, DashMcpRowsBody,
     DashPinRowBody, DashPinRowsBody, DashTaskPhaseBody, DashTaskRowBody, DashTasksBody, DeltaField,
-    EntriesPageBody, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
-    LifecycleOptionBody, MarketDetailBody, MarketDirBody, MarketEndpointBody, MarketMixBody,
-    MarketRowBody, MarketRowsBody, MarketSortBody, MarketStaleBody, MarketViewBody, McpBadgeBody,
-    McpRowBody, McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody,
-    PersonaRowBody, PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody,
-    PromptTemplatesBody, SessionRowBody, SessionRowOrigin, SessionStatsBody, SessionsBody,
-    SkillRowBody, SkillRowsBody, SnapshotBody, TAIL_MAX_BYTES, TAIL_MAX_ENTRIES, TextRunBody,
-    ThemeBody, TitleBody, ToolRowBody, ToolRowsBody, TreeStatsBody, WireEntry, wire_entry,
+    DetailSortBody, DetailViewBody, EntriesPageBody, EntryDeltaBody, EntryEnvelope,
+    EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody, MarketDetailBody,
+    MarketDirBody, MarketEndpointBody, MarketMixBody, MarketRowBody, MarketRowsBody,
+    MarketSortBody, MarketStaleBody, MarketViewBody, McpBadgeBody, McpRowBody, McpRowsBody,
+    ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody,
+    PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody, PromptTemplatesBody,
+    SessionRowBody, SessionRowOrigin, SessionStatsBody, SessionsBody, SkillRowBody, SkillRowsBody,
+    SnapshotBody, TAIL_MAX_BYTES, TAIL_MAX_ENTRIES, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
+    ToolRowsBody, TreeStatsBody, WireEntry, wire_entry,
 };
 pub use server::ServerMsg;
 

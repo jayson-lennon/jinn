@@ -17,11 +17,11 @@
 import { createSignal, For, Show, onCleanup } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientStore } from '../store/store';
-import type { MarketEndpoint, MarketRow, MarketSort } from '../protocol/protocol';
+import type { DetailSort, DetailView, MarketEndpoint, MarketRow, MarketSort } from '../protocol/protocol';
 import type { Send } from './model_picker';
 import { Runs } from './runs';
 import { FILTER_DEBOUNCE_MS } from './model_picker';
-import { dirArrow, modelPageUrl, nextSort, saveMarketPrefs } from './market_state';
+import { DEFAULT_DETAIL_VIEW, dirArrow, modelPageUrl, nextDetailSort, nextSort, saveMarketPrefs } from './market_state';
 
 /** The strip's five columns, under the name on a phone and beside it on a
  * wide screen. IN and OUT always ride the strip; PROJ sits by the name. */
@@ -31,6 +31,18 @@ const STRIP: readonly { sort: MarketSort; label: string; cell: 'in' | 'out' | 'c
   { sort: 'cache', label: 'CACH/M', cell: 'cache' },
   { sort: 'eci', label: 'ECI', cell: 'eci' },
   { sort: 'vals', label: 'VALS', cell: 'vals' },
+];
+
+/** The detail page's columns, in the TUI's order. */
+const DETAIL_COLUMNS: readonly { sort: DetailSort; label: string; cell: string }[] = [
+  { sort: 'endpoint', label: 'ENDPOINT', cell: 'e-name' },
+  { sort: 'proj', label: 'PROJ', cell: 'e-proj' },
+  { sort: 'in', label: 'IN/M', cell: 'e-in' },
+  { sort: 'out', label: 'OUT/M', cell: 'e-out' },
+  { sort: 'cache', label: 'CACH/M', cell: 'e-cache' },
+  { sort: 'lat', label: 'LAT', cell: 'e-lat' },
+  { sort: 'tp', label: 'TP', cell: 'e-tp' },
+  { sort: 'up', label: 'UP', cell: 'e-up' },
 ];
 
 /** The market modal: the list page, or one model's detail page. */
@@ -64,7 +76,11 @@ export function MarketModal(props: { store: ClientStore; send: Send; onClose: ()
 
   const sort = (by: MarketSort): void => {
     const view = nextSort(props.store.state.marketView, by);
-    props.store.set((s) => { s.marketView = view; });
+    props.store.set((s) => {
+      s.marketView = view;
+      // The tapped header waits: its frame clears the marker when it lands.
+      s.marketSorting = by;
+    });
     saveMarketPrefs(view);
     props.send({ type: 'market_rows', view });
   };
@@ -92,23 +108,26 @@ export function MarketModal(props: { store: ClientStore; send: Send; onClose: ()
   const openDetail = (row: MarketRow): void => {
     props.store.set((s) => {
       s.marketPinnedId = row.id;
+      s.marketDetailView = DEFAULT_DETAIL_VIEW;
       s.marketEndpoints = [];
-      s.marketEndpointsLoading = true;
+      // A first open waits on PROJ, the default sort's header.
+      s.marketDetailSorting = DEFAULT_DETAIL_VIEW.sort;
       s.marketModelFacts = null;
     });
-    props.send({ type: 'market_detail', model_id: row.id });
+    props.send({ type: 'market_detail', model_id: row.id, view: DEFAULT_DETAIL_VIEW });
   };
 
   const back = (): void => {
     props.store.set((s) => {
       s.marketPinnedId = null;
       s.marketEndpoints = [];
-      s.marketEndpointsLoading = false;
+      s.marketDetailSorting = null;
       s.marketModelFacts = null;
     });
   };
 
   const view = () => props.store.state.marketView;
+  const sorting = (): MarketSort | null => props.store.state.marketSorting;
   const rows = () => props.store.state.marketRows;
   const detailRow = (): MarketRow | undefined =>
     rows().find((row) => row.id === pinned());
@@ -172,7 +191,13 @@ export function MarketModal(props: { store: ClientStore; send: Send; onClose: ()
 
         <div class="market-status" data-testid="market-status">
           <Show when={props.store.state.marketUpdated !== null} fallback={<>not loaded yet</>}>
-            <>updated {props.store.state.marketUpdated} · mix: {props.store.state.marketMixLabel} · {props.store.state.marketTotal} models</>
+            <>
+              updated {props.store.state.marketUpdated} · mix: {props.store.state.marketMixLabel}
+              <Show when={props.store.state.marketMixDegraded}>
+                <span class="m-degraded" data-testid="market-mix-degraded"> (no session usage yet)</span>
+              </Show>{' '}
+              · {props.store.state.marketTotal} models
+            </>
           </Show>
           <Show when={props.store.state.marketStale !== null}>
             <> · <span class="stale">stale: {props.store.state.marketStale}</span></>
@@ -182,10 +207,10 @@ export function MarketModal(props: { store: ClientStore; send: Send; onClose: ()
         <div class="market-list" data-testid="market-list">
           <div class="market-head" role="row">
             <span class="m-name" role="columnheader">MODEL</span>
-            <SortButton sort="proj" label="PROJ" view={view()} onSort={sort} />
+            <SortButton sort="proj" label="PROJ" view={view()} onSort={sort} busy={sorting() === 'proj'} cell="proj" prefix="m-" />
             <For each={STRIP}>
                 {(column) => (
-                  <SortButton sort={column.sort} label={column.label} view={view()} onSort={sort} cell={column.cell} />
+                  <SortButton sort={column.sort} label={column.label} view={view()} onSort={sort} busy={sorting() === column.sort} cell={column.cell} prefix="m-" />
                 )}
             </For>
           </div>
@@ -201,8 +226,10 @@ export function MarketModal(props: { store: ClientStore; send: Send; onClose: ()
                 <span class="m-top">
                   <span class="m-name">
                     <Runs runs={row.name_runs} />
-                    <Show when={row.variant !== null}>
-                      <span class="m-variant">:{row.variant}</span>
+                    <Show when={row.variant_runs.length > 0}>
+                      <span class="m-variant">
+                        <Runs runs={row.variant_runs} />
+                      </span>
                     </Show>
                     <Show when={row.is_active}>
                       <span class="m-current" data-testid="market-current"> · current</span>
@@ -231,24 +258,37 @@ export function MarketModal(props: { store: ClientStore; send: Send; onClose: ()
   );
 }
 
-/** A column header on the rows' grid: the sort control. */
-function SortButton(props: {
-  sort: MarketSort;
+/** A column header on the rows' grid: the sort control. Shared by the
+ * list and the detail page — `cell` names the grid track, `testid` the
+ * header's test id. */
+function SortButton<S extends string>(props: {
+  sort: S;
   label: string;
-  view: { sort: MarketSort; dir: 'asc' | 'desc' };
-  onSort: (sort: MarketSort) => void;
-  cell?: 'in' | 'out' | 'cache' | 'eci' | 'vals';
+  view: { sort: S; dir: 'asc' | 'desc' };
+  onSort: (sort: S) => void;
+  /** Whether this header's sort is the one in flight: the label dims and
+   * the spinner overlays it, without the header's box moving. */
+  busy?: boolean;
+  cell?: string;
+  /** The class prefix on `cell`; the list's is `m-`, the detail's none. */
+  prefix?: string;
+  testid?: string;
 }): JSX.Element {
   const active = (): boolean => props.view.sort === props.sort;
+  const busy = (): boolean => props.busy === true;
   return (
     <button
       type="button"
-      class={`m-${props.cell ?? 'proj'}${active() ? ' on' : ''}`}
-      data-testid={`market-sort-${props.sort}`}
+      class={`${props.cell === undefined ? 'm-proj' : props.prefix === undefined ? props.cell : `${props.prefix}${props.cell}`}${active() ? ' on' : ''}${busy() ? ' sorting' : ''}`}
+      data-testid={props.testid ?? `market-sort-${props.sort}`}
       aria-sort={active() ? (props.view.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      aria-busy={busy() ? 'true' : undefined}
       onClick={() => props.onSort(props.sort)}
     >
-      {props.label}{active() ? ` ${dirArrow(props.view.dir)}` : ''}
+      <span class="sort-label">{props.label}{active() ? ` ${dirArrow(props.view.dir)}` : ''}</span>
+      <Show when={busy()}>
+        <span class="spinner spinner-small sort-busy" aria-hidden="true"><i /></span>
+      </Show>
     </button>
   );
 }
@@ -277,6 +317,22 @@ function MarketDetail(props: {
   };
 
   const row = (): MarketRow | undefined => props.row;
+  // The detail sort: the active column reverses, another takes its
+  // natural direction, and the server re-sorts — the Default row stays
+  // first in every sort.
+  const detailView = (): DetailView => props.store.state.marketDetailView;
+  const detailSorting = (): DetailSort | null => props.store.state.marketDetailSorting;
+  const sortDetail = (sort: DetailSort): void => {
+    const modelId = props.store.state.marketPinnedId;
+    if (modelId === null) return;
+    const view = nextDetailSort(detailView(), sort);
+    props.store.set((s) => {
+      s.marketDetailView = view;
+      // The tapped header waits; its frame clears the marker.
+      s.marketDetailSorting = sort;
+    });
+    props.send({ type: 'market_detail', model_id: modelId, view });
+  };
   // The facts line, as the strings it renders: context length in k, then
   // free, then overrides — each only when it is true.
   const facts = (): string[] => {
@@ -339,22 +395,24 @@ function MarketDetail(props: {
       </Show>
 
       <div class="market-list" data-testid="market-endpoints">
-        <Show when={props.store.state.marketEndpointsLoading}>
-          <div class="market-empty">loading endpoints…</div>
-        </Show>
-        <Show when={!props.store.state.marketEndpointsLoading && endpoints().length === 0}>
+        <Show when={detailSorting() === null && endpoints().length === 0}>
           <div class="market-empty">no endpoints</div>
         </Show>
         <Show when={endpoints().length > 0}>
           <div class="market-head e-head" role="row">
-            <span class="e-name" role="columnheader">ENDPOINT</span>
-            <span class="e-proj">PROJ</span>
-            <span class="e-in">IN/M</span>
-            <span class="e-out">OUT/M</span>
-            <span class="e-cache">CACH/M</span>
-            <span class="e-lat">LAT</span>
-            <span class="e-tp">TP</span>
-            <span class="e-up">UP</span>
+            <For each={DETAIL_COLUMNS}>
+              {(column) => (
+                <SortButton
+                  sort={column.sort}
+                  label={column.label}
+                  view={detailView()}
+                  onSort={sortDetail}
+                  busy={detailSorting() === column.sort}
+                  cell={column.cell}
+                  testid={`market-detail-sort-${column.sort}`}
+                />
+              )}
+            </For>
           </div>
           <For each={endpoints()}>
             {(endpoint) => (

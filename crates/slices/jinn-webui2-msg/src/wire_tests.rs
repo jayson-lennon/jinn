@@ -19,14 +19,14 @@ use rstest::rstest;
 use crate::payload::{
     AppletRowBody, AppletRowsBody, ContextUsageBody, DashMcpRowBody, DashMcpRowsBody,
     DashPinRowBody, DashPinRowsBody, DashTaskPhaseBody, DashTaskRowBody, DashTasksBody, DeltaField,
-    EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
-    LifecycleOptionBody, MarketDetailBody, MarketDirBody, MarketEndpointBody, MarketMixBody,
-    MarketRowBody, MarketRowsBody, MarketSortBody, MarketStaleBody, MarketViewBody, McpBadgeBody,
-    McpRowBody, McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody,
-    PersonaRowBody, PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody,
-    PromptTemplatesBody, SessionRowBody, SessionRowOrigin, SessionStatsBody, SessionsBody,
-    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
-    ToolRowsBody, TreeStatsBody,
+    DetailSortBody, DetailViewBody, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody,
+    ImageUploadBody, LifecycleOptionBody, MarketDetailBody, MarketDirBody, MarketEndpointBody,
+    MarketMixBody, MarketRowBody, MarketRowsBody, MarketSortBody, MarketStaleBody, MarketViewBody,
+    McpBadgeBody, McpRowBody, McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody,
+    NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PhaseBody, PickerRowBody,
+    PickerRowsBody, PromptTemplateBody, PromptTemplatesBody, SessionRowBody, SessionRowOrigin,
+    SessionStatsBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody,
+    ThemeBody, TitleBody, ToolRowBody, ToolRowsBody, TreeStatsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 use jinn_tools_msg::TaskStatus;
@@ -195,6 +195,7 @@ fn market_row() -> MarketRowBody {
             text: "anthropic/claude-sonnet-4.5".to_owned(),
             matched: false,
         }],
+        variant_runs: Vec::new(),
         proj: "$0.5100".to_owned(),
         in_m: "$3.0000/M".to_owned(),
         out_m: "$15.0000/M".to_owned(),
@@ -496,6 +497,7 @@ fn server_market_rows_round_trips() {
         updated: Some("3h ago".to_owned()),
         mix_label: "tree 1.2M·94%·9k".to_owned(),
         active_id: Some("openrouter/anthropic/claude-sonnet-4.5".to_owned()),
+        mix_degraded: false,
     });
 
     // When it round-trips.
@@ -512,6 +514,7 @@ fn server_market_detail_round_trips() {
     let msg = ServerMsg::MarketDetail(MarketDetailBody {
         session_id: SessionId::new(),
         model_id: "openrouter/anthropic/claude-sonnet-4.5".to_owned(),
+        view: DetailViewBody::default(),
         context_length: Some(200_000),
         is_free: false,
         has_overrides: true,
@@ -539,6 +542,25 @@ fn server_market_detail_round_trips() {
 
     // Then the frame is unchanged.
     assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest::rstest]
+#[test]
+fn client_market_detail_round_trips_with_a_detail_sort() {
+    // Given a detail request under a non-default sort: uptime descending.
+    let msg = ClientMsg::MarketDetail {
+        model_id: "openrouter/anthropic/claude-sonnet-4.5".to_owned(),
+        view: DetailViewBody {
+            sort: DetailSortBody::Up,
+            dir: MarketDirBody::Desc,
+        },
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the request is unchanged, sort and direction included.
+    assert_eq!(back, msg);
 }
 
 #[rstest::rstest]
@@ -1497,6 +1519,7 @@ fn server_variant_carries_its_snake_case_tag() {
                 updated: Some("3h ago".to_owned()),
                 mix_label: "fixed 10M·98%·50k".to_owned(),
                 active_id: None,
+                mix_degraded: false,
             }),
             "market_rows",
         ),
@@ -1504,6 +1527,7 @@ fn server_variant_carries_its_snake_case_tag() {
             ServerMsg::MarketDetail(MarketDetailBody {
                 session_id: SessionId::new(),
                 model_id: "openrouter/anthropic/claude-sonnet-4.5".to_owned(),
+                view: DetailViewBody::default(),
                 context_length: Some(200_000),
                 is_free: false,
                 has_overrides: false,
@@ -1704,6 +1728,7 @@ fn client_variant_carries_its_snake_case_tag() {
         (
             ClientMsg::MarketDetail {
                 model_id: String::new(),
+                view: DetailViewBody::default(),
             },
             "market_detail",
         ),

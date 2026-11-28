@@ -9,6 +9,7 @@ import type { ClientStore, ViewState } from '../store/store';
 import type { ServerMsg } from '../protocol/protocol';
 import type { MarketView } from '../protocol/protocol';
 import { pushToast } from '../overlays/toast_state';
+import { DEFAULT_DETAIL_VIEW } from './market_state';
 
 type Msg<Kinds extends ServerMsg['type']> = Extract<ServerMsg, { type: Kinds }>;
 
@@ -29,17 +30,23 @@ export function applyMarketRows(store: ClientStore, msg: Msg<'market_rows'>): vo
     s.marketLoading = msg.loading;
     s.marketUpdated = msg.updated;
     s.marketMixLabel = msg.mix_label;
+    s.marketMixDegraded = msg.mix_degraded;
     s.marketActiveId = msg.active_id;
     s.marketStale = null;
+    // The view's frame landed: whichever header was waiting is answered.
+    s.marketSorting = null;
   });
 }
 
 /** `market_detail`: one model's endpoints, while the page is pinned to it. */
 export function applyMarketDetail(store: ClientStore, msg: Msg<'market_detail'>): void {
   if (msg.model_id !== store.state.marketPinnedId) return;
+  // The echo: a frame for a sort the page has moved past is dropped.
+  if (msg.view.sort !== store.state.marketDetailView.sort || msg.view.dir !== store.state.marketDetailView.dir) return;
   store.set((s) => {
     s.marketEndpoints = msg.endpoints;
-    s.marketEndpointsLoading = msg.loading;
+    // The sort's frame landed: whichever header was waiting is answered.
+    s.marketDetailSorting = null;
     s.marketModelFacts = {
       context_length: msg.context_length,
       is_free: msg.is_free,
@@ -63,7 +70,8 @@ export function applyMarketStale(store: ClientStore, msg: Msg<'market_stale'>): 
  * the page goes back to the list rather than hold a stale table. */
 export function resetMarketDetail(s: ViewState): void {
   s.marketPinnedId = null;
+  s.marketDetailView = DEFAULT_DETAIL_VIEW;
   s.marketEndpoints = [];
-  s.marketEndpointsLoading = false;
+  s.marketDetailSorting = null;
   s.marketModelFacts = null;
 }

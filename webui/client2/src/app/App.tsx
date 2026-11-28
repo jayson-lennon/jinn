@@ -173,11 +173,13 @@ export function App(): JSX.Element {
       s.marketRows = [];
       s.marketPinnedId = null;
       s.marketEndpoints = [];
-      s.marketEndpointsLoading = false;
+      s.marketDetailSorting = null;
+      s.marketSorting = null;
       s.marketModelFacts = null;
       s.marketStale = null;
       s.marketView = view;
     });
+    // The open's frame is the first answer the PROJ header waits on.
     send({ type: 'market_open', view });
     setMarketOpen(true);
   };

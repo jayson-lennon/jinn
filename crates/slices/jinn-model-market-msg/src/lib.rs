@@ -23,10 +23,11 @@ mod ui_state;
 pub use commands::*;
 pub use data_state::{MarketDataState, MarketDetail, market_data_slot};
 pub use projection::{
-    EMPTY_CELL, NameRun, age_stamp, all_terms_match, cache_column, compare_rows, dollars,
-    eci_column, filter_and_sort, filter_terms, match_ranges, model_page_url, ms_column, name_runs,
+    DetailRow, EMPTY_CELL, NameRun, age_stamp, all_terms_match, cache_column, compare_rows,
+    detail_compare_rows, detail_rows, detail_sort_key, dollars, eci_column, endpoint_label,
+    filter_and_sort, filter_terms, match_ranges, model_page_url, ms_column, name_runs,
     percent_column, price_per_million, projected_cents, projected_cents_for, resolve_mix, row_name,
-    sort_key, throughput_column, vals_column,
+    sort_key, sorted_detail_rows, throughput_column, vals_column,
 };
 pub use row::{MarketEndpointRow, MarketRow};
 pub use scores::{EciIndex, EciScore, EciSource, ValsIndex, ValsScore, ValsSource};

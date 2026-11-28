@@ -2,7 +2,7 @@
 // and the popout URL. Nothing here touches the DOM or the store, so each
 // is proven by a unit test beside this file.
 
-import type { MarketDir, MarketSort, MarketView } from '../protocol/protocol';
+import type { DetailSort, DetailView, MarketDir, MarketSort, MarketView } from '../protocol/protocol';
 
 /** The sort columns the header offers, in the rows' order — the name
  * label first, then PROJ beside it, then the strip. */
@@ -43,6 +43,26 @@ export function nextSort(view: MarketView, sort: MarketSort): MarketView {
     return { ...view, dir: view.dir === 'asc' ? 'desc' : 'asc' };
   }
   return { ...view, sort, dir: naturalDir(sort) };
+}
+
+/** The detail view a page opens with: projected cost, cheapest first —
+ * the TUI's own default on entering detail mode. */
+export const DEFAULT_DETAIL_VIEW: DetailView = { sort: 'proj', dir: 'asc' };
+
+/** The direction a detail column takes when first tapped: prices, costs,
+ * latency (lowest ms is best) and the name ascend; throughput and
+ * uptime descend (best first). */
+export function naturalDetailDir(sort: DetailSort): MarketDir {
+  return sort === 'tp' || sort === 'up' ? 'desc' : 'asc';
+}
+
+/** The detail view after a header tap: the active column reverses, any
+ * other column takes its natural direction. */
+export function nextDetailSort(view: DetailView, sort: DetailSort): DetailView {
+  if (sort === view.sort) {
+    return { ...view, dir: view.dir === 'asc' ? 'desc' : 'asc' };
+  }
+  return { sort, dir: naturalDetailDir(sort) };
 }
 
 /** The arrow the active header shows. */

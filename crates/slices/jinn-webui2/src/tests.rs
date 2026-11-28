@@ -8263,6 +8263,47 @@ async fn market_rows_remember_the_view_for_a_push() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn market_rows_flag_a_usage_mix_that_fell_back_to_the_constant() {
+    // Given a session tree with no measured usage, and a view asking
+    // for the tree's usage.
+    let h = harness();
+    seed_market_rows(&h);
+    let mut view = default_market_view();
+    view.mix = jinn_webui2_msg::MarketMixBody::Usage;
+
+    // When the rows are asked for.
+    let reply = dispatch(ClientMsg::MarketRows { view }, &h.handle, &h.jump_cancelled).await;
+
+    // Then the frame says the mix degraded, while the label reads fixed.
+    let body = market_rows_frame(&reply);
+    assert!(body.mix_degraded);
+    assert!(body.mix_label.starts_with("fixed"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_rows_do_not_flag_a_fixed_mix() {
+    // Given a view under the fixed mix.
+    let h = harness();
+    seed_market_rows(&h);
+
+    // When the rows are asked for.
+    let reply = dispatch(
+        ClientMsg::MarketRows {
+            view: default_market_view(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then nothing degraded.
+    let body = market_rows_frame(&reply);
+    assert!(!body.mix_degraded);
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn market_detail_for_an_unknown_model_is_refused() {
     // Given a catalog without that listing.
     let h = harness();
@@ -8272,6 +8313,7 @@ async fn market_detail_for_an_unknown_model_is_refused() {
     let reply = dispatch(
         ClientMsg::MarketDetail {
             model_id: "openrouter/a/missing".to_owned(),
+            view: jinn_webui2_msg::DetailViewBody::default(),
         },
         &h.handle,
         &h.jump_cancelled,
@@ -8298,6 +8340,7 @@ async fn market_detail_for_an_uncached_model_publishes_the_fetch_at_the_max_sequ
     let reply = dispatch(
         ClientMsg::MarketDetail {
             model_id: "openrouter/a/cheap".to_owned(),
+            view: jinn_webui2_msg::DetailViewBody::default(),
         },
         &h.handle,
         &h.jump_cancelled,
@@ -8344,6 +8387,7 @@ async fn market_detail_for_a_cached_model_answers_from_the_cell() {
     let reply = dispatch(
         ClientMsg::MarketDetail {
             model_id: "openrouter/a/cheap".to_owned(),
+            view: jinn_webui2_msg::DetailViewBody::default(),
         },
         &h.handle,
         &h.jump_cancelled,
@@ -8363,6 +8407,66 @@ async fn market_detail_for_a_cached_model_answers_from_the_cell() {
     assert_eq!(body.endpoints.len(), 2);
     assert!(body.endpoints[0].is_default);
     assert_eq!(body.endpoints[1].name, "Azure (azure/us-east)");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_detail_sorts_the_endpoints_under_the_asked_view() {
+    // Given a cell holding two endpoints whose natural order is not
+    // their latency order.
+    let h = harness();
+    seed_market_rows(&h);
+    h.handle
+        .market_cell()
+        .update(|cell: &mut jinn_model_market_msg::MarketDataState| {
+            cell.detail = Some(jinn_model_market_msg::MarketDetail {
+                model_id: "openrouter/a/cheap".to_owned(),
+                endpoints: vec![
+                    detail_endpoint("slow", 900.0),
+                    detail_endpoint("fast", 100.0),
+                ],
+            });
+        });
+
+    // When the page asks by latency descending.
+    let reply = dispatch(
+        ClientMsg::MarketDetail {
+            model_id: "openrouter/a/cheap".to_owned(),
+            view: jinn_webui2_msg::DetailViewBody {
+                sort: jinn_webui2_msg::DetailSortBody::Lat,
+                dir: jinn_webui2_msg::MarketDirBody::Desc,
+            },
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the sentinel leads and the slow endpoint comes first.
+    let [ServerMsg::MarketDetail(body)] = reply.frames.as_slice() else {
+        unreachable!("a detail request answers a detail frame");
+    };
+    assert!(body.endpoints[0].is_default);
+    let names: Vec<&str> = body.endpoints.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["Default", "slow (slow)", "fast (fast)"]);
+    assert_eq!(body.view.sort, jinn_webui2_msg::DetailSortBody::Lat);
+}
+
+/// One endpoint for the detail tests: named for its tag, with the
+/// given latency.
+fn detail_endpoint(tag: &str, latency: f64) -> jinn_model_market_msg::MarketEndpointRow {
+    jinn_model_market_msg::MarketEndpointRow {
+        tag: tag.to_owned(),
+        provider_name: tag.to_owned(),
+        prompt_price: 1e-6,
+        completion_price: 4e-6,
+        cache_read_price: None,
+        latency_p50_ms: Some(latency),
+        throughput_p50: Some(40.0),
+        uptime_1d: Some(0.99),
+        quantization: None,
+        overrides: Vec::new(),
+    }
 }
 
 #[rstest::rstest]
@@ -8393,6 +8497,7 @@ async fn market_detail_names_the_models_pinned_endpoint() {
     let reply = dispatch(
         ClientMsg::MarketDetail {
             model_id: "openrouter/a/cheap".to_owned(),
+            view: jinn_webui2_msg::DetailViewBody::default(),
         },
         &h.handle,
         &h.jump_cancelled,
@@ -8553,6 +8658,7 @@ async fn an_endpoints_load_pushes_the_detail_only_to_the_pinned_model() {
         &h,
         ClientMsg::MarketDetail {
             model_id: "openrouter/a/cheap".to_owned(),
+            view: jinn_webui2_msg::DetailViewBody::default(),
         },
     )
     .await;

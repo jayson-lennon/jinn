@@ -334,6 +334,10 @@ export const scratchMarket = {
   dearName: "e2e-beta/e2e-dear:free",
   /** The tag of the cheap model's one provider endpoint. */
   endpointTag: "e2e-azure/us-east",
+  /** The dear model's two endpoints, named so a name sort orders them
+   * one way and a latency sort the other. */
+  dearFastTag: "e2e-fast",
+  dearSlowTag: "e2e-slow",
 };
 
 /** A fresh stamp, in the envelope's own format. */
@@ -397,6 +401,37 @@ function marketEndpoints() {
   ];
 }
 
+/** The dear model's endpoint rows: the pricier one is the faster, so a
+ * PROJ sort and a LAT sort order them oppositely. */
+function dearMarketEndpoints() {
+  return [
+    {
+      tag: scratchMarket.dearSlowTag,
+      provider_name: "E2E Slow",
+      prompt_price: 0.000001,
+      completion_price: 0.000004,
+      cache_read_price: null,
+      latency_p50_ms: 900.0,
+      throughput_p50: 30.0,
+      uptime_1d: 0.99,
+      quantization: null,
+      overrides: [],
+    },
+    {
+      tag: scratchMarket.dearFastTag,
+      provider_name: "E2E Fast",
+      prompt_price: 0.000005,
+      completion_price: 0.000020,
+      cache_read_price: null,
+      latency_p50_ms: 100.0,
+      throughput_p50: 60.0,
+      uptime_1d: 0.999,
+      quantization: null,
+      overrides: [],
+    },
+  ];
+}
+
 /** The actor's endpoint cache name: separators flattened to underscores. */
 function endpointCacheName(modelId) {
   return `endpoints-${modelId.replace(/[/:]/g, "_")}.json`;
@@ -413,6 +448,10 @@ function writeMarket(root) {
   fs.writeFileSync(
     path.join(dir, endpointCacheName(scratchMarket.cheapId)),
     JSON.stringify({ fetched_at: nowStamp(), value: marketEndpoints() }),
+  );
+  fs.writeFileSync(
+    path.join(dir, endpointCacheName(scratchMarket.dearId)),
+    JSON.stringify({ fetched_at: nowStamp(), value: dearMarketEndpoints() }),
   );
 }
 

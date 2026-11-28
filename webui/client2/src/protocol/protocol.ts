@@ -160,6 +160,16 @@ export type MarketSort = 'proj' | 'in' | 'out' | 'cache' | 'eci' | 'vals' | 'mod
 /** A sort direction. */
 export type MarketDir = 'asc' | 'desc';
 
+/** Which detail column the endpoint rows are sorted by. */
+export type DetailSort = 'endpoint' | 'proj' | 'in' | 'out' | 'cache' | 'lat' | 'tp' | 'up';
+
+/** The detail page's sort. The Default row is pinned to the top in
+ * every sort. */
+export interface DetailView {
+  sort: DetailSort;
+  dir: MarketDir;
+}
+
 /** Which token mix PROJ projects under: the shipped constant, or the
  * session tree's measured usage. */
 export type MarketMix = 'fixed' | 'usage';
@@ -171,8 +181,11 @@ export interface MarketRow {
   author: string;
   slug: string;
   variant: string | null;
-  /** The name, split into matched and plain runs for the filter. */
+  /** The name's base (`author/slug`), split into matched and plain runs. */
   name_runs: TextRun[];
+  /** The `:variant` suffix as its own runs, so the page can dim it.
+   * Empty when no variant. */
+  variant_runs: TextRun[];
   proj: string;
   in_m: string;
   out_m: string;
@@ -329,7 +342,7 @@ export type ClientMsg =
   | { type: 'model_rows'; filter: string }
   | { type: 'market_open'; view: MarketView }
   | { type: 'market_rows'; view: MarketView }
-  | { type: 'market_detail'; model_id: string }
+  | { type: 'market_detail'; model_id: string; view: DetailView }
   | { type: 'market_use'; model_id: string; tag: string | null }
   | { type: 'market_refresh' }
   | { type: 'skill_rows'; filter: string }
@@ -426,11 +439,13 @@ export type ServerMsg =
       updated: string | null;
       mix_label: string;
       active_id: string | null;
+      mix_degraded: boolean;
     }
   | {
       type: 'market_detail';
       session_id: string;
       model_id: string;
+      view: DetailView;
       context_length: number | null;
       is_free: boolean;
       has_overrides: boolean;

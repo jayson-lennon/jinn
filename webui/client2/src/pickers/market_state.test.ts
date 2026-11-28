@@ -4,8 +4,11 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
+  DEFAULT_DETAIL_VIEW,
   DEFAULT_MARKET_VIEW,
   dirArrow,
+  naturalDetailDir,
+  nextDetailSort,
   isMarketSort,
   loadMarketPrefs,
   modelPageUrl,
@@ -14,7 +17,7 @@ import {
   openingView,
   saveMarketPrefs,
 } from './market_state';
-import type { MarketSort, MarketView } from '../protocol/protocol';
+import type { DetailSort, MarketSort, MarketView } from '../protocol/protocol';
 
 const SORTS: readonly MarketSort[] = ['proj', 'in', 'out', 'cache', 'eci', 'vals', 'model'];
 
@@ -61,6 +64,41 @@ describe('next sort', () => {
   it('keeps the filter and the mix', () => {
     const view: MarketView = { filter: 'claude', sort: 'proj', dir: 'asc', mix: 'usage' };
     expect(nextSort(view, 'in')).toEqual({ filter: 'claude', sort: 'in', dir: 'asc', mix: 'usage' });
+  });
+});
+
+describe('the detail sort', () => {
+  it.each([
+    ['endpoint', 'asc'],
+    ['proj', 'asc'],
+    ['in', 'asc'],
+    ['out', 'asc'],
+    ['cache', 'asc'],
+    ['lat', 'asc'],
+    ['tp', 'desc'],
+    ['up', 'desc'],
+  ] as [DetailSort, 'asc' | 'desc'][])('%s takes %s when first tapped', (sort, dir) => {
+    expect(naturalDetailDir(sort)).toBe(dir);
+  });
+
+  it('opens on projected cost ascending', () => {
+    expect(DEFAULT_DETAIL_VIEW).toEqual({ sort: 'proj', dir: 'asc' });
+  });
+
+  it('a new column takes its natural direction and leaves the rest', () => {
+    const next = nextDetailSort(DEFAULT_DETAIL_VIEW, 'up');
+    expect(next).toEqual({ sort: 'up', dir: 'desc' });
+  });
+
+  it('a second tap on the active column reverses it', () => {
+    const first = nextDetailSort(DEFAULT_DETAIL_VIEW, 'up');
+    const second = nextDetailSort(first, 'up');
+    expect(second).toEqual({ sort: 'up', dir: 'asc' });
+  });
+
+  it('the default view reversed stays on the same column', () => {
+    const next = nextDetailSort(DEFAULT_DETAIL_VIEW, 'proj');
+    expect(next).toEqual({ sort: 'proj', dir: 'desc' });
   });
 });
 

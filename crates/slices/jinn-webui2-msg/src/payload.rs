@@ -568,6 +568,45 @@ pub enum MarketDirBody {
     Desc,
 }
 
+/// Which detail column the endpoint rows are sorted by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DetailSortBody {
+    /// The endpoint's display name, lexicographic.
+    Endpoint,
+    /// Projected $/turn under the active mix — the default.
+    Proj,
+    /// Endpoint prompt price, $/M.
+    In,
+    /// Endpoint completion price, $/M.
+    Out,
+    /// Endpoint cached-input read price, $/M.
+    Cache,
+    /// Median time-to-first-token, ms.
+    Lat,
+    /// Median output throughput, tok/s.
+    Tp,
+    /// One-day uptime fraction.
+    Up,
+}
+
+/// The detail page's sort: the column and its direction. The Default
+/// row is pinned to the top in every sort.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetailViewBody {
+    pub sort: DetailSortBody,
+    pub dir: MarketDirBody,
+}
+
+impl Default for DetailViewBody {
+    fn default() -> Self {
+        Self {
+            sort: DetailSortBody::Proj,
+            dir: MarketDirBody::Asc,
+        }
+    }
+}
+
 /// Where the market's PROJ mix comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -601,6 +640,10 @@ pub struct MarketRowsBody {
     /// The session's current model id, when it is a single selection —
     /// the row the list marks as current. `None` for an alloy or none.
     pub active_id: Option<String>,
+    /// The view asked for the session tree's usage but the tree has no
+    /// measured usage yet, so the mix fell back to the fixed constant —
+    /// the label reads `fixed` while the toggle reads `usage`.
+    pub mix_degraded: bool,
 }
 
 /// One market row, as the wire carries it: the numbers pre-formatted by
@@ -615,8 +658,12 @@ pub struct MarketRowBody {
     pub slug: String,
     /// The variant suffix (`free`, `thinking`), without the colon.
     pub variant: Option<String>,
-    /// The display name, split into runs the filter matched and plain.
+    /// The name's base (`author/slug`), split into runs the filter
+    /// matched and plain.
     pub name_runs: Vec<TextRunBody>,
+    /// The `:variant` suffix as its own runs, so the page dims it while
+    /// the filter's highlight rides over it. Empty when no variant.
+    pub variant_runs: Vec<TextRunBody>,
     /// Projected $/turn under the active mix (e.g. `$0.5100`).
     pub proj: String,
     /// Prompt price, $/M.
@@ -640,6 +687,9 @@ pub struct MarketDetailBody {
     pub session_id: SessionId,
     /// The model the detail belongs to.
     pub model_id: String,
+    /// The detail sort the endpoints answer — the echo that lets the
+    /// page drop a frame for a sort it has moved past.
+    pub view: DetailViewBody,
     /// Advertised context window, in tokens.
     pub context_length: Option<u32>,
     /// The listing id ends in `:free`.

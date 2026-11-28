@@ -13,7 +13,6 @@
 
 use jinn_model_market_msg::DetailSort;
 use jinn_model_market_msg::MarketDataState;
-use jinn_model_market_msg::MarketEndpointRow;
 use jinn_model_market_msg::MarketRow;
 use jinn_model_market_msg::MarketUiState;
 
@@ -25,64 +24,21 @@ pub use jinn_model_market_msg::resolve_mix;
 pub use jinn_model_market_msg::row_name;
 pub use jinn_model_market_msg::sort_key;
 
-/// One detail-mode row: the auto-route sentinel or a provider endpoint.
-///
-/// A render-time projection, recomputed every frame like PROJ — the
-/// sentinel is synthetic (its prices come from the model's `MarketRow`),
-/// so it is not stored anywhere.
-#[derive(Debug, Clone, PartialEq)]
-pub enum DetailRow {
-    /// The auto-route sentinel: prices come from the model's
-    /// `MarketRow`; ENTER publishes the model-only switch (`tag: None`).
-    Default,
-    /// One provider endpoint; ENTER pins it (`tag: Some`).
-    Endpoint(MarketEndpointRow),
-}
+pub use jinn_model_market_msg::DetailRow;
+pub use jinn_model_market_msg::endpoint_label;
 
-impl DetailRow {
-    /// The row's display name: `provider_name` plus a ` (tag)` for a
-    /// non-empty tag, `Default` for the sentinel — the `Endpoint`
-    /// sort's tie-break key.
-    #[must_use]
-    pub fn display_name(&self) -> String {
-        match self {
-            Self::Default => "Default".to_owned(),
-            Self::Endpoint(endpoint) => endpoint_label(endpoint),
-        }
-    }
-
-    /// The row's prices: `(prompt, completion, cache)` as sort keys —
-    /// the sentinel with no model row left yields `None`s, so a missing
-    /// listing sorts last like any unpublished value.
-    fn sort_prices(&self, model: Option<&MarketRow>) -> (Option<f64>, Option<f64>, Option<f64>) {
-        match self {
-            Self::Default => match model {
-                Some(row) => (
-                    row.prompt_price.into(),
-                    row.completion_price.into(),
-                    row.cache_read_price,
-                ),
-                None => (None, None, None),
-            },
-            Self::Endpoint(endpoint) => (
-                endpoint.prompt_price.into(),
-                endpoint.completion_price.into(),
-                endpoint.cache_read_price,
-            ),
-        }
-    }
-}
-
-/// An endpoint's display label: `provider_name` plus ` (tag)` when the
-/// tag is non-empty — the ENDPOINT cell's text and the name-sort's
-/// tie-break key.
+/// The fuzzy match offsets of the active filter against one row's
+/// display name, as the `[Range<usize>]` slices the selection widget's
+/// highlighter takes — `None` with no filter.
 #[must_use]
-pub fn endpoint_label(endpoint: &MarketEndpointRow) -> String {
-    if endpoint.tag.is_empty() {
-        endpoint.provider_name.clone()
-    } else {
-        format!("{} ({})", endpoint.provider_name, endpoint.tag)
-    }
+pub fn match_ranges(row: &MarketRow, ui: &MarketUiState) -> Option<Vec<std::ops::Range<usize>>> {
+    match_ranges_for(row, &ui.filter)
+}
+
+/// The model's listing row, for the sentinel's prices.
+fn model_row<'a>(data: &'a MarketDataState, ui: &MarketUiState) -> Option<&'a MarketRow> {
+    let pinned = ui.detail_model.as_ref()?;
+    data.rows.iter().find(|row| row.id == *pinned)
 }
 
 /// The detail mode's visible projection: the Default sentinel first,
@@ -94,17 +50,8 @@ pub fn endpoint_label(endpoint: &MarketEndpointRow) -> String {
 /// mismatched detail is the loading state, not an empty table.
 #[must_use]
 pub fn detail_rows(data: &MarketDataState, ui: &MarketUiState) -> Option<Vec<DetailRow>> {
-    let detail = data.detail.as_ref()?;
     let pinned = ui.detail_model.as_ref()?;
-    (detail.model_id == *pinned).then(|| {
-        let mut rows: Vec<DetailRow> = detail
-            .endpoints
-            .iter()
-            .map(|endpoint| DetailRow::Endpoint(endpoint.clone()))
-            .collect();
-        rows.insert(0, DetailRow::Default);
-        rows
-    })
+    jinn_model_market_msg::detail_rows(pinned, data.detail.as_ref())
 }
 
 /// The visible projection: the contract's fuzzy filter over
@@ -121,27 +68,7 @@ pub fn visible_rows(data: &MarketDataState, ui: &MarketUiState) -> Vec<MarketRow
     )
 }
 
-/// The fuzzy match offsets of the active filter against one row's
-/// display name, as the `[Range<usize>]` slices the selection widget's
-/// highlighter takes — `None` with no filter.
-#[must_use]
-pub fn match_ranges(row: &MarketRow, ui: &MarketUiState) -> Option<Vec<std::ops::Range<usize>>> {
-    match_ranges_for(row, &ui.filter)
-}
-
-/// The model's listing row, for the sentinel's prices.
-fn model_row<'a>(data: &'a MarketDataState, ui: &MarketUiState) -> Option<&'a MarketRow> {
-    let pinned = ui.detail_model.as_ref()?;
-    data.rows.iter().find(|row| row.id == *pinned)
-}
-
-/// The detail sort key for one row, mirroring [`sort_key`]'s
-/// `None`-sorts-last rule.
-///
-/// `Endpoint` is the name-sort: `None` key, tie-broken by display name,
-/// like the table's `Model`. The sentinel's price keys come from the
-/// model's listing row; a missing row (a refresh emptied the table
-/// mid-mode) sorts as a `None` key — a fallback, never a panic.
+/// The detail sort key for one row under the UI's detail sort column.
 #[must_use]
 pub fn detail_sort_key(
     row: &DetailRow,
@@ -149,37 +76,11 @@ pub fn detail_sort_key(
     model: Option<&MarketRow>,
     mix: (u32, f64, u32),
 ) -> Option<f64> {
-    match col {
-        DetailSort::Endpoint => None,
-        DetailSort::Proj => match row {
-            DetailRow::Default => model.map(|m| projected_cents(m, mix)),
-            DetailRow::Endpoint(endpoint) => Some(projected_cents_for(
-                endpoint.prompt_price,
-                endpoint.completion_price,
-                endpoint.cache_read_price,
-                mix,
-            )),
-        },
-        DetailSort::In => row.sort_prices(model).0,
-        DetailSort::Out => row.sort_prices(model).1,
-        DetailSort::Cache => row.sort_prices(model).2,
-        DetailSort::Lat => match row {
-            DetailRow::Default => None,
-            DetailRow::Endpoint(endpoint) => endpoint.latency_p50_ms,
-        },
-        DetailSort::Tp => match row {
-            DetailRow::Default => None,
-            DetailRow::Endpoint(endpoint) => endpoint.throughput_p50,
-        },
-        DetailSort::Up => match row {
-            DetailRow::Default => None,
-            DetailRow::Endpoint(endpoint) => endpoint.uptime_1d,
-        },
-    }
+    jinn_model_market_msg::detail_sort_key(row, col, model, mix)
 }
 
 /// Compares two detail rows under the UI's detail sort column and
-/// direction — the same `None`-last semantics as [`compare_rows`].
+/// direction.
 #[must_use]
 pub fn detail_compare_rows(
     a: &DetailRow,
@@ -188,36 +89,29 @@ pub fn detail_compare_rows(
     model: Option<&MarketRow>,
     mix: (u32, f64, u32),
 ) -> std::cmp::Ordering {
-    match (
-        detail_sort_key(a, ui.detail_sort_col, model, mix),
-        detail_sort_key(b, ui.detail_sort_col, model, mix),
-    ) {
-        (Some(av), Some(bv)) => {
-            let ord = av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal);
-            if ui.detail_sort_desc {
-                ord.reverse()
-            } else {
-                ord
-            }
-        }
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => a.display_name().cmp(&b.display_name()),
-    }
+    jinn_model_market_msg::detail_compare_rows(
+        a,
+        b,
+        ui.detail_sort_col,
+        ui.detail_sort_desc,
+        model,
+        mix,
+    )
 }
 
 /// The detail projection, sorted for render: the Default sentinel stays
-/// row 0 — the safe action sits at zero keystrokes in every sort, the
-/// same position the endpoint picker prepends its sentinel to — and the
-/// endpoint rows sort by the detail sort.
+/// row 0 — the safe action sits at zero keystrokes in every sort — and
+/// the endpoint rows sort by the detail sort.
 #[must_use]
 pub fn sorted_detail_rows(data: &MarketDataState, ui: &MarketUiState) -> Option<Vec<DetailRow>> {
-    let model = model_row(data, ui);
-    let mut rows = detail_rows(data, ui)?;
-    let sentinel = rows.remove(0);
-    rows.sort_by(|a, b| detail_compare_rows(a, b, ui, model, ui.active_mix));
-    rows.insert(0, sentinel);
-    Some(rows)
+    jinn_model_market_msg::sorted_detail_rows(
+        ui.detail_model.as_deref()?,
+        data.detail.as_ref(),
+        model_row(data, ui),
+        ui.detail_sort_col,
+        ui.detail_sort_desc,
+        ui.active_mix,
+    )
 }
 
 /// The detail row at the mode's highlight, if any.
@@ -268,6 +162,7 @@ mod detail_projection_tests {
     #![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
 
     use super::*;
+    use jinn_model_market_msg::MarketEndpointRow;
     use jinn_model_market_msg::PROJECTION_MIX;
 
     /// A `MarketRow` the detail fixtures drill into.

@@ -206,6 +206,25 @@
   color: var(--accent);
 }
 
+/* The tapped header while its sort is in flight: the label dims and the
+   shared dots overlay it. The button is the positioning context and keeps
+   its box — the spinner is absolute, so the grid never moves. */
+.market-head button {
+  position: relative;
+}
+
+.market-head button.sorting .sort-label {
+  opacity: 0;
+}
+
+.market-head .sort-busy {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  margin-top: -6px;
+  color: var(--accent);
+}
+
 /* Rows. */
 .m-row {
   width: 100%;
@@ -225,6 +244,18 @@
 }
 
 .m-row .m-name {
+  font-weight: 600;
+}
+
+/* A glyph the filter matched, in the base name or the dimmed variant:
+   the accent, as in every other picker — never the browser's yellow. */
+.market-status .m-degraded {
+  color: var(--fg-faint);
+}
+
+.m-row .m-name mark {
+  background: transparent;
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -349,8 +380,8 @@ a.market-icon-btn {
   color: var(--fg-faint);
 }
 
-.e-head > span {
-  min-height: 32px;
+.e-head > button {
+  min-height: 40px;
 }
 
 .e-row {
@@ -422,7 +453,7 @@ a.market-icon-btn {
   color: var(--fg-dim);
 }
 
-.e-head > span {
+.e-head > button {
   text-align: right;
 }
 .e-head .e-name {

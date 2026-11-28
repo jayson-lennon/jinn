@@ -17,17 +17,19 @@
 use jinn_core_types::{ModelSelection, SessionId};
 use jinn_kernel::common::actor_deps::BusPublish as _;
 use jinn_model_market_msg::{
-    FetchEndpoints, FetchModels, MarketDataState, MarketEndpointRow, MarketRow, MixSource,
-    PROJECTION_MIX, RefreshAll, SortColumn, cache_column, dollars, eci_column, filter_and_sort,
-    ms_column, name_runs, percent_column, price_per_million, projected_cents, projected_cents_for,
-    resolve_mix, throughput_column, vals_column,
+    DetailRow, DetailSort, FetchEndpoints, FetchModels, MarketDataState, MarketEndpointRow,
+    MarketRow, MixSource, NameRun, PROJECTION_MIX, RefreshAll, SortColumn, cache_column, dollars,
+    eci_column, filter_and_sort, ms_column, name_runs, percent_column, price_per_million,
+    projected_cents, projected_cents_for, resolve_mix, sorted_detail_rows, throughput_column,
+    vals_column,
 };
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_provider_selection_msg::{ProviderSwitch, SetEndpointDefault};
 use jinn_session_state::aggregate_tree_stats;
 use jinn_webui2_msg::{
-    MarketDetailBody, MarketDirBody, MarketEndpointBody, MarketMixBody, MarketRowBody,
-    MarketRowsBody, MarketSortBody, MarketStaleBody, MarketViewBody, ServerMsg, TextRunBody,
+    DetailSortBody, DetailViewBody, MarketDetailBody, MarketDirBody, MarketEndpointBody,
+    MarketMixBody, MarketRowBody, MarketRowsBody, MarketSortBody, MarketStaleBody, MarketViewBody,
+    ServerMsg, TextRunBody,
 };
 
 use crate::{
@@ -69,7 +71,7 @@ pub fn rows(out: &OutboundHandle, view: MarketViewBody) -> Reply {
 /// Asks for one model's endpoint detail. The cell answers at once when it
 /// already holds this model's detail; otherwise the fetch is published and
 /// the reply is the loading shape — the detail lands as a push.
-pub async fn detail(out: &OutboundHandle, model_id: String) -> Reply {
+pub async fn detail(out: &OutboundHandle, model_id: String, view: DetailViewBody) -> Reply {
     let Some(session_id) = active_session(out) else {
         return refused(&Refusal::NoActiveSession);
     };
@@ -77,12 +79,13 @@ pub async fn detail(out: &OutboundHandle, model_id: String) -> Reply {
         return refused(&Refusal::UnknownMarketModel(model_id.clone()));
     }
     out.remember_market_pinned(&model_id);
+    out.remember_market_detail_view(view);
     let mix = remembered_mix(out);
     let (endpoints, loading) = {
         let cell = out.market_cell().read();
         match cell.detail.as_ref() {
             Some(detail) if detail.model_id == model_id => {
-                (endpoint_bodies(&cell, &model_id, mix), false)
+                (endpoint_bodies(&cell, &model_id, mix, view), false)
             }
             _ => (Vec::new(), true),
         }
@@ -98,6 +101,7 @@ pub async fn detail(out: &OutboundHandle, model_id: String) -> Reply {
         out,
         &session_id,
         &model_id,
+        view,
         endpoints,
         loading,
     )))
@@ -163,6 +167,7 @@ pub(crate) fn detail_changed(handle: &OutboundHandle) {
         return;
     };
     let mix = resolve_mix(contract_mix(&view), Some(tree_usage(handle, &session_id)));
+    let detail_view = handle.market_detail_view();
     let body = {
         let cell = handle.market_cell().read();
         match cell.detail.as_ref() {
@@ -170,7 +175,8 @@ pub(crate) fn detail_changed(handle: &OutboundHandle) {
                 handle,
                 &session_id,
                 &pinned,
-                endpoint_bodies(&cell, &pinned, mix),
+                detail_view,
+                endpoint_bodies(&cell, &pinned, mix, detail_view),
                 false,
             ),
             _ => return,
@@ -224,6 +230,14 @@ fn is_known_model(out: &OutboundHandle, model_id: &str) -> bool {
         .any(|row| row.id == model_id)
 }
 
+/// Whether a `usage` view fell back to the fixed constant: the tree
+/// has no measured usage, so the toggle reads `usage` while the label
+/// reads `fixed` — the page names the fallback rather than staying silent.
+fn mix_degraded(view: &MarketViewBody, usage: (u64, u64, u64, u64)) -> bool {
+    matches!(view.mix, MarketMixBody::Usage)
+        && resolve_mix(MixSource::Usage, Some(usage)) == PROJECTION_MIX
+}
+
 /// The mix the remembered view resolves to, for a detail asked outside a
 /// rows frame — the constant when no market is open.
 fn remembered_mix(out: &OutboundHandle) -> Mix {
@@ -240,6 +254,7 @@ fn rows_frame(
     view: &MarketViewBody,
     session_id: &SessionId,
 ) -> (MarketRowsBody, bool) {
+    let mix_degraded = mix_degraded(view, tree_usage(out, session_id));
     let mix = resolve_mix(contract_mix(view), Some(tree_usage(out, session_id)));
     let (rows, total, loading, updated, active_id) = {
         let cell = out.market_cell().read();
@@ -274,6 +289,7 @@ fn rows_frame(
         updated: (!updated.is_empty()).then_some(updated),
         mix_label: mix_label(mix),
         active_id,
+        mix_degraded,
     };
     (body, total == 0)
 }
@@ -353,20 +369,25 @@ fn contract_mix(view: &MarketViewBody) -> MixSource {
     }
 }
 
+fn to_text_runs(runs: Vec<NameRun>) -> Vec<TextRunBody> {
+    runs.into_iter()
+        .map(|run| TextRunBody {
+            text: run.text,
+            matched: run.matched,
+        })
+        .collect()
+}
+
 /// One listing as the wire carries it.
 fn row_body(row: &MarketRow, filter: &str, mix: Mix, active: Option<&str>) -> MarketRowBody {
+    let (base_runs, variant_runs) = name_runs(row, filter);
     MarketRowBody {
         id: row.id.clone(),
         author: row.author.clone(),
         slug: row.slug.clone(),
         variant: row.variant.clone(),
-        name_runs: name_runs(row, filter)
-            .into_iter()
-            .map(|run| TextRunBody {
-                text: run.text,
-                matched: run.matched,
-            })
-            .collect(),
+        name_runs: to_text_runs(base_runs),
+        variant_runs: to_text_runs(variant_runs),
         proj: dollars(projected_cents(row, mix)),
         in_m: price_per_million(row.prompt_price),
         out_m: price_per_million(row.completion_price),
@@ -379,24 +400,46 @@ fn row_body(row: &MarketRow, filter: &str, mix: Mix, active: Option<&str>) -> Ma
 
 /// The endpoint rows: the auto-route sentinel first, priced from the
 /// model's listing, then every endpoint in fetch order.
-fn endpoint_bodies(cell: &MarketDataState, model_id: &str, mix: Mix) -> Vec<MarketEndpointBody> {
-    let mut rows: Vec<MarketEndpointBody> = cell
-        .rows
-        .iter()
-        .filter(|row| row.id == model_id)
-        .map(|listing| sentinel_body(listing, mix))
-        .collect();
-    let endpoints = cell
-        .detail
-        .as_ref()
-        .filter(|detail| detail.model_id == model_id)
-        .map_or(&[][..], |detail| detail.endpoints.as_slice());
-    rows.extend(
-        endpoints
-            .iter()
-            .map(|endpoint| endpoint_body(endpoint, mix)),
+fn endpoint_bodies(
+    cell: &MarketDataState,
+    model_id: &str,
+    mix: Mix,
+    view: DetailViewBody,
+) -> Vec<MarketEndpointBody> {
+    // The Default sentinel leads only when the listing row exists: it
+    // prices from that row. The TUI's own projection sorts the rest.
+    let Some(model) = cell.rows.iter().find(|row| row.id == model_id) else {
+        return Vec::new();
+    };
+    let sorted = sorted_detail_rows(
+        model_id,
+        cell.detail.as_ref(),
+        Some(model),
+        contract_detail_sort(view),
+        matches!(view.dir, MarketDirBody::Desc),
+        mix,
     );
-    rows
+    sorted.map_or_else(Vec::new, |rows| {
+        rows.iter()
+            .map(|row| match row {
+                DetailRow::Default => sentinel_body(model, mix),
+                DetailRow::Endpoint(endpoint) => endpoint_body(endpoint, mix),
+            })
+            .collect()
+    })
+}
+
+fn contract_detail_sort(view: DetailViewBody) -> DetailSort {
+    match view.sort {
+        DetailSortBody::Endpoint => DetailSort::Endpoint,
+        DetailSortBody::Proj => DetailSort::Proj,
+        DetailSortBody::In => DetailSort::In,
+        DetailSortBody::Out => DetailSort::Out,
+        DetailSortBody::Cache => DetailSort::Cache,
+        DetailSortBody::Lat => DetailSort::Lat,
+        DetailSortBody::Tp => DetailSort::Tp,
+        DetailSortBody::Up => DetailSort::Up,
+    }
 }
 
 /// The auto-route sentinel: the model's listing row, auto-routed. The
@@ -452,6 +495,7 @@ fn detail_body(
     out: &OutboundHandle,
     session_id: &SessionId,
     model_id: &str,
+    view: DetailViewBody,
     endpoints: Vec<MarketEndpointBody>,
     loading: bool,
 ) -> MarketDetailBody {
@@ -475,6 +519,7 @@ fn detail_body(
     MarketDetailBody {
         session_id: session_id.clone(),
         model_id: model_id.to_owned(),
+        view,
         context_length,
         is_free,
         has_overrides,

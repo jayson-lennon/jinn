@@ -6,7 +6,7 @@
 
 use jinn_core_types::{ChatEntryId, SessionId};
 
-use crate::payload::{ImageUploadBody, MarketViewBody};
+use crate::payload::{DetailViewBody, ImageUploadBody, MarketViewBody};
 use serde::{Deserialize, Serialize};
 
 /// A message from the browser.
@@ -220,6 +220,8 @@ pub enum ClientMsg {
     MarketDetail {
         /// The full listing id (`openrouter/{author}/{slug}[:variant]`).
         model_id: String,
+        /// The sort the endpoint rows answer.
+        view: DetailViewBody,
     },
     /// Switch the active session's model to `model_id`, and pin — or
     /// with a `None` tag, clear — its OpenRouter routing endpoint.

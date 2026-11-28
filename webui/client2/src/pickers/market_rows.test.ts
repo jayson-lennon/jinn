@@ -14,6 +14,7 @@ import {
   resetMarketDetail,
   sameMarketView,
 } from './market_rows';
+import { DEFAULT_DETAIL_VIEW } from './market_state';
 import type { MarketEndpoint, MarketRow, MarketView } from '../protocol/protocol';
 
 /** Awaits the microtask a store write needs before it can be read back. */
@@ -24,7 +25,7 @@ async function settled(): Promise<void> {
 const VIEW: MarketView = { filter: '', sort: 'proj', dir: 'asc', mix: 'fixed' };
 
 /** A rows frame for `view`, carrying `rows`. */
-function rowsFrame(view: MarketView, rows: MarketRow[], extra: Partial<{ session_id: string; loading: boolean }> = {}) {
+function rowsFrame(view: MarketView, rows: MarketRow[], extra: Partial<{ session_id: string; loading: boolean; mix_degraded: boolean }> = {}) {
   return {
     type: 'market_rows' as const,
     session_id: 's1',
@@ -34,6 +35,7 @@ function rowsFrame(view: MarketView, rows: MarketRow[], extra: Partial<{ session
     loading: false,
     updated: '3h ago',
     mix_label: 'fixed 10M·98%·50k',
+    mix_degraded: false,
     active_id: null,
     ...extra,
   };
@@ -47,6 +49,7 @@ function row(id: string): MarketRow {
     slug: id,
     variant: null,
     name_runs: [{ text: id, matched: false }],
+    variant_runs: [],
     proj: '$0.5100',
     in_m: '$3.0000/M',
     out_m: '$15.0000/M',
@@ -120,6 +123,7 @@ describe('applyMarketRows', () => {
     await onDefaultView(store);
     store.set((s) => {
       s.marketView = { ...VIEW, sort: 'eci', dir: 'desc' };
+      s.marketSorting = 'eci';
     });
     await settled();
 
@@ -127,8 +131,26 @@ describe('applyMarketRows', () => {
     applyMarketRows(store, rowsFrame({ ...VIEW }, [row('a/one')]));
     await settled();
 
-    // Then nothing lands.
+    // Then nothing lands, and the ECI header is still waiting.
     expect(store.state.marketRows).toEqual([]);
+    expect(store.state.marketSorting).toBe('eci');
+  });
+
+  it('clears the tapped header’s marker when its frame lands', async () => {
+    // Given a page whose PROJ header is waiting.
+    const store = createStore();
+    await onDefaultView(store);
+    store.set((s) => {
+      s.marketSorting = 'proj';
+    });
+    await settled();
+
+    // When the view's frame lands.
+    applyMarketRows(store, rowsFrame({ ...VIEW }, [row('a/one')]));
+    await settled();
+
+    // Then the marker is gone.
+    expect(store.state.marketSorting).toBeNull();
   });
 
   it('drops a frame for a session the page has left', async () => {
@@ -182,6 +204,24 @@ describe('applyMarketRows', () => {
     expect(store.state.marketStale).toBeNull();
   });
 
+  it('flags a usage mix that fell back to the fixed constant', async () => {
+    // Given the page asking for the tree's usage on a tree with none.
+    const store = createStore();
+    await onDefaultView(store);
+    const usage = { ...VIEW, mix: 'usage' as const };
+    store.set((s) => {
+      s.marketView = usage;
+    });
+    await settled();
+
+    // When the frame lands degraded.
+    applyMarketRows(store, rowsFrame(usage, [row('a/one')], { mix_degraded: true }));
+    await settled();
+
+    // Then the page knows the mix fell back.
+    expect(store.state.marketMixDegraded).toBe(true);
+  });
+
   it('marks the active model the frame names', async () => {
     // Given a page on the default view.
     const store = createStore();
@@ -205,7 +245,7 @@ describe('applyMarketDetail', () => {
     const store = createStore();
     store.set((s) => {
       s.marketPinnedId = 'a/one';
-      s.marketEndpointsLoading = true;
+      s.marketDetailSorting = 'proj';
     });
     await settled();
 
@@ -214,6 +254,7 @@ describe('applyMarketDetail', () => {
       type: 'market_detail',
       session_id: 's1',
       model_id: 'a/one',
+      view: DEFAULT_DETAIL_VIEW,
       context_length: 200_000,
       is_free: false,
       has_overrides: true,
@@ -225,8 +266,69 @@ describe('applyMarketDetail', () => {
 
     // Then the endpoints, the loading flag and the facts land.
     expect(store.state.marketEndpoints.map((e) => e.name)).toEqual(['Default', 'Azure (azure)']);
-    expect(store.state.marketEndpointsLoading).toBe(false);
+    expect(store.state.marketDetailSorting).toBeNull();
     expect(store.state.marketModelFacts).toEqual({ context_length: 200_000, is_free: false, has_overrides: true, pinned_tag: null });
+  });
+
+  it('drops a frame for a detail sort the page has moved past', async () => {
+    // Given the page pinned to a model, now sorted by latency.
+    const store = createStore();
+    await onDefaultView(store);
+    store.set((s) => {
+      s.marketPinnedId = 'a/one';
+      s.marketDetailView = { sort: 'lat', dir: 'asc' };
+      s.marketDetailSorting = 'lat';
+    });
+    await settled();
+
+    // When a frame for the earlier projection sort lands.
+    applyMarketDetail(store, {
+      type: 'market_detail',
+      session_id: 's1',
+      model_id: 'a/one',
+      view: DEFAULT_DETAIL_VIEW,
+      context_length: null,
+      is_free: false,
+      has_overrides: false,
+      endpoints: [endpoint(null)],
+      loading: false,
+      pinned_tag: null,
+    });
+    await settled();
+
+    // Then nothing lands, and the LAT header is still waiting.
+    expect(store.state.marketEndpoints).toEqual([]);
+    expect(store.state.marketDetailSorting).toBe('lat');
+  });
+
+  it('clears the tapped header’s marker when its frame lands', async () => {
+    // Given a page pinned to a model, its LAT header waiting.
+    const store = createStore();
+    await onDefaultView(store);
+    store.set((s) => {
+      s.marketPinnedId = 'a/one';
+      s.marketDetailView = { sort: 'lat', dir: 'asc' };
+      s.marketDetailSorting = 'lat';
+    });
+    await settled();
+
+    // When the latency sort's frame lands.
+    applyMarketDetail(store, {
+      type: 'market_detail',
+      session_id: 's1',
+      model_id: 'a/one',
+      view: { sort: 'lat', dir: 'asc' },
+      context_length: null,
+      is_free: false,
+      has_overrides: false,
+      endpoints: [endpoint(null)],
+      loading: false,
+      pinned_tag: null,
+    });
+    await settled();
+
+    // Then the marker is gone.
+    expect(store.state.marketDetailSorting).toBeNull();
   });
 
   it('drops a frame for a model the page has backed out of', async () => {
@@ -242,6 +344,7 @@ describe('applyMarketDetail', () => {
       type: 'market_detail',
       session_id: 's1',
       model_id: 'a/one',
+      view: DEFAULT_DETAIL_VIEW,
       context_length: null,
       is_free: false,
       has_overrides: false,
@@ -282,7 +385,7 @@ describe('resetMarketDetail', () => {
     store.set((s) => {
       s.marketPinnedId = 'a/one';
       s.marketEndpoints = [endpoint(null)];
-      s.marketEndpointsLoading = true;
+      s.marketDetailSorting = 'proj';
       s.marketModelFacts = { context_length: 1, is_free: false, has_overrides: false, pinned_tag: null };
     });
     await settled();
@@ -294,7 +397,7 @@ describe('resetMarketDetail', () => {
     // Then the detail state is cleared.
     expect(store.state.marketPinnedId).toBeNull();
     expect(store.state.marketEndpoints).toEqual([]);
-    expect(store.state.marketEndpointsLoading).toBe(false);
+    expect(store.state.marketDetailSorting).toBeNull();
     expect(store.state.marketModelFacts).toBeNull();
   });
 });

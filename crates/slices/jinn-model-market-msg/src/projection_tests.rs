@@ -8,7 +8,9 @@
 #![allow(clippy::indexing_slicing, reason = "test code")]
 
 use super::*;
-use crate::ui_state::{PROJECTION_MIX, SortColumn};
+use crate::data_state::MarketDetail;
+use crate::row::MarketEndpointRow;
+use crate::ui_state::{DetailSort, PROJECTION_MIX, SortColumn};
 
 /// A `MarketRow` priced for the projection tests: everything else
 /// defaults away (empty ids, no variant, no ECI).
@@ -200,10 +202,15 @@ fn name_runs_split_the_matched_glyphs_from_the_plain_ones() {
     let row = named_row("a", "small");
 
     // When the runs resolve.
-    let runs = name_runs(&row, "a l");
+    let (runs, variant_runs) = name_runs(&row, "a l");
 
-    // Then concatenating the runs rebuilds the name, and exactly the
-    // two matched glyphs are marked.
+    // Then concatenating the runs rebuilds the name, exactly the two
+    // matched glyphs are marked, and a row without a variant has no
+    // suffix runs.
+    assert!(
+        variant_runs.is_empty(),
+        "a row without a variant has no suffix runs"
+    );
     let joined: String = runs.iter().map(|r| r.text.as_str()).collect();
     let marked: String = runs
         .iter()
@@ -220,12 +227,167 @@ fn name_runs_are_one_plain_run_without_a_filter() {
     let row = named_row("a", "small");
 
     // When the runs resolve.
-    let runs = name_runs(&row, "");
+    let (runs, _variant_runs) = name_runs(&row, "");
 
     // Then the whole name is one unmatched run.
     assert_eq!(runs.len(), 1);
     assert!(!runs[0].matched);
     assert_eq!(runs[0].text, "a/small");
+}
+
+#[rstest::rstest]
+fn name_runs_put_the_variant_in_its_own_segment() {
+    // Given `a/small:free` and the filter `fr`, which lands in the suffix.
+    let row = MarketRow {
+        variant: Some("free".to_owned()),
+        ..named_row("a", "small")
+    };
+
+    // When the runs resolve.
+    let (base, suffix) = name_runs(&row, "fr");
+
+    // Then the base is whole and plain, and the suffix carries the match.
+    assert_eq!(base.len(), 1);
+    assert_eq!(base[0].text, "a/small");
+    assert!(!base[0].matched);
+    let joined: String = suffix.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(joined, ":free");
+    let marked: String = suffix
+        .iter()
+        .filter(|r| r.matched)
+        .map(|r| r.text.as_str())
+        .collect();
+    assert_eq!(marked, "fr");
+}
+
+// ── Detail sort ──────────────────────────────────────────────────────
+
+fn endpoint_row(tag: &str, price: f64, latency: Option<f64>) -> MarketEndpointRow {
+    MarketEndpointRow {
+        tag: tag.to_owned(),
+        provider_name: "Lambda".to_owned(),
+        prompt_price: price,
+        completion_price: price * 4.0,
+        cache_read_price: None,
+        latency_p50_ms: latency,
+        throughput_p50: Some(40.0),
+        uptime_1d: Some(0.99),
+        quantization: None,
+        overrides: Vec::new(),
+    }
+}
+
+fn two_endpoints() -> MarketDetail {
+    MarketDetail {
+        model_id: "a/model".to_owned(),
+        endpoints: vec![
+            endpoint_row("slow", 1e-6, Some(900.0)),
+            endpoint_row("fast", 3e-6, Some(100.0)),
+        ],
+    }
+}
+
+#[rstest::rstest]
+fn detail_sort_puts_the_lowest_latency_first_ascending() {
+    // Given two endpoints, the pricier one faster.
+    let detail = two_endpoints();
+
+    // When sorted by latency ascending.
+    let rows = sorted_detail_rows(
+        "a/model",
+        Some(&detail),
+        None,
+        DetailSort::Lat,
+        false,
+        PROJECTION_MIX,
+    )
+    .expect("the detail belongs to the model");
+
+    // Then the sentinel leads and the fast endpoint is next.
+    assert!(matches!(rows[0], DetailRow::Default));
+    assert_eq!(rows[1].display_name(), "Lambda (fast)");
+    assert_eq!(rows[2].display_name(), "Lambda (slow)");
+}
+
+#[rstest::rstest]
+fn detail_sort_reverses_on_a_descending_direction() {
+    // Given the same two endpoints.
+    let detail = two_endpoints();
+
+    // When sorted by latency descending.
+    let rows = sorted_detail_rows(
+        "a/model",
+        Some(&detail),
+        None,
+        DetailSort::Lat,
+        true,
+        PROJECTION_MIX,
+    )
+    .expect("the detail belongs to the model");
+
+    // Then the slow endpoint leads the endpoints.
+    assert!(matches!(rows[0], DetailRow::Default));
+    assert_eq!(rows[1].display_name(), "Lambda (slow)");
+    assert_eq!(rows[2].display_name(), "Lambda (fast)");
+}
+
+#[rstest::rstest]
+fn detail_name_sort_reverses_with_the_direction() {
+    // Given two endpoints whose names order one way ascending.
+    let mut detail = two_endpoints();
+    detail.endpoints[0].tag = "zeta".to_owned();
+    detail.endpoints[1].tag = "alpha".to_owned();
+
+    // When sorted by endpoint ascending.
+    let asc = sorted_detail_rows(
+        "a/model",
+        Some(&detail),
+        None,
+        DetailSort::Endpoint,
+        false,
+        PROJECTION_MIX,
+    )
+    .expect("the detail belongs to the model");
+
+    // Then alpha leads; descending, zeta leads — the name tie-break
+    // follows the direction, as the table's Model column does.
+    assert_eq!(asc[1].display_name(), "Lambda (alpha)");
+    let desc = sorted_detail_rows(
+        "a/model",
+        Some(&detail),
+        None,
+        DetailSort::Endpoint,
+        true,
+        PROJECTION_MIX,
+    )
+    .expect("the detail belongs to the model");
+    assert_eq!(desc[1].display_name(), "Lambda (zeta)");
+}
+
+#[rstest::rstest]
+fn detail_sort_keeps_the_sentinel_first_in_every_sort() {
+    // Given a detail whose sentinel sorts nowhere special.
+    let detail = two_endpoints();
+
+    // When sorted under every column in both directions.
+    for col in [
+        DetailSort::Endpoint,
+        DetailSort::Proj,
+        DetailSort::In,
+        DetailSort::Out,
+        DetailSort::Cache,
+        DetailSort::Lat,
+        DetailSort::Tp,
+        DetailSort::Up,
+    ] {
+        for desc in [false, true] {
+            // Then the sentinel is row 0.
+            let rows =
+                sorted_detail_rows("a/model", Some(&detail), None, col, desc, PROJECTION_MIX)
+                    .expect("the detail belongs to the model");
+            assert!(matches!(rows[0], DetailRow::Default), "{col:?} desc={desc}");
+        }
+    }
 }
 
 // ── Sort ─────────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ use std::time::Duration;
 use jinn_core_types::SessionId;
 use jinn_kernel::{State, common::actor_deps::BusPublish};
 use jinn_slices::bus::BusService;
+use jinn_webui2_msg::DetailViewBody;
 use jinn_webui2_msg::MarketViewBody;
 use jinn_webui2_msg::ServerMsg;
 use parking_lot::Mutex;
@@ -155,6 +156,9 @@ pub struct OutboundHandle {
     /// The model whose detail page is open, so an endpoints push answers
     /// only a page still showing it.
     market_pinned: Arc<Mutex<Option<String>>>,
+    /// The detail page's sort, so an endpoints push answers in the sort
+    /// the page last asked.
+    market_detail_view: Arc<Mutex<DetailViewBody>>,
 }
 
 impl OutboundHandle {
@@ -239,6 +243,17 @@ impl OutboundHandle {
     pub(crate) fn market_pinned(&self) -> Option<String> {
         self.market_pinned.lock().clone()
     }
+
+    /// Records the detail page's sort.
+    pub(crate) fn remember_market_detail_view(&self, view: DetailViewBody) {
+        *self.market_detail_view.lock() = view;
+    }
+
+    /// The detail page's sort — the default until a page asks otherwise.
+    #[must_use]
+    pub(crate) fn market_detail_view(&self) -> DetailViewBody {
+        *self.market_detail_view.lock()
+    }
 }
 
 mod handlers;
@@ -313,6 +328,7 @@ impl OutboundHandle {
             tearing_down: Arc::new(Mutex::new(std::collections::HashSet::new())),
             market_view: Arc::new(Mutex::new(None)),
             market_pinned: Arc::new(Mutex::new(None)),
+            market_detail_view: Arc::new(Mutex::new(DetailViewBody::default())),
         }
     }
 
