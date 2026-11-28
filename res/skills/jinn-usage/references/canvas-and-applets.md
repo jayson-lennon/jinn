@@ -11,14 +11,15 @@ the session that built it is gone.
 
 Ask naturally: "chart my benchmark numbers", "show me how this state
 machine works", "make an interactive demo of that algorithm". The agent
-writes the page, serves it, and puts the URL in its reply. jinn does not
-open your browser; you click the link.
+writes the page, serves it, and puts the URL in its reply. You click the
+link to open it.
 
 What you get:
 
 - **Libraries included.** Chart.js, Mermaid, KaTeX, three.js, p5, Vega,
   and more are embedded in the jinn binary and served offline at
-  `/vendor/…`; the agent picks one and never needs npm or the network.
+  `/vendor/…`; the agent picks one, and npm and the network stay out of
+  it.
 - **Live reload.** Every save to the page (or its data files) refreshes
   your tab. Say "make the bars red" and watch it change: the tab is a
   live view of the file.
@@ -55,13 +56,14 @@ build an applet from scratch. Either way:
 - In the web UI, the `☰` menu's **Applets** item opens the saved applets
   as a filterable list of new-tab links; rename, delete, and kiosk are
   the TUI's (`webui.md` → [Pickers](webui.md#pickers)).
-- An applet is a **snapshot**: later improvements to the canvas page it
-  came from never change it, and it does not live-reload. Ask the agent
-  to re-promote (a fresh copy) when you want the improvements.
+- An applet is a **snapshot**. Later improvements to the canvas page it
+  came from stay on the canvas; the applet keeps the copy it was made
+  from. Ask the agent to re-promote (a fresh copy) when you want the
+  improvements.
 - Hand edits work too: each applet is a plain directory with
   `index.html` plus any data files, cataloged in `applets.json` beside
   them. The picker rescans when opened, so external changes show up; an
   applet whose directory is deleted disappears from the list.
 
-Renaming and deleting in the picker rewrite the catalog: the picker,
-not the file, is the source of truth for titles and order.
+Renaming and deleting in the picker rewrite the catalog. The picker is
+the source of truth for titles and order.
