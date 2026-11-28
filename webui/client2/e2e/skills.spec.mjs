@@ -190,15 +190,30 @@ test.with({ skill: true })("the + button loads the skill into the transcript", a
   // When clicking the row's + button.
   await row.locator("[data-testid=\"skill-load\"]").click();
 
-  // Then the transcript shows the skill's call and its result, and the
+  // Then the transcript shows the skill's call and its result — the result
+  // headed by the skill's name, not the XML the body is pinned as — and the
   // modal stays open with the row now marked loaded.
   const result = page
     .locator(`${sel.TRANSCRIPT} ${sel.ENTRY("tool_result")}`)
     .filter({ hasText: SKILL_NAME });
   await expect(result).toBeVisible();
+  await expect(result.locator("summary")).toContainText("skill");
+  await expect(result.locator("summary")).toContainText(`❖ ${SKILL_NAME}`);
   await expect(result.locator("summary")).toContainText("success");
+
+  // And the modal stays open with the row now marked loaded.
   await expect(page.locator(sel.SKILLS_MODAL)).toBeVisible();
   await expect(row).toHaveAttribute("data-loaded", "true");
+
+  // And once the modal is closed, opening the result shows the skill's body,
+  // with no wrapping tag.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(sel.SKILLS_MODAL)).toBeHidden();
+  await result.locator("summary").click();
+  const body = result.locator('[data-testid="skill-result"]');
+  await expect(body).toBeVisible();
+  await expect(body).toContainText("e2e-scratch-skill-body-marker");
+  await expect(result).not.toContainText("<skill");
 });
 
 test.with({ skill: true })("a loaded skill's toggle is disabled, so it cannot be switched off", async ({

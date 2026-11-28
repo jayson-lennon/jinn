@@ -106,7 +106,7 @@ dashboard row names the new port.
 
 ## Gotchas
 
-- **The CLI needs the instance alive, not just installed.** `jinn remote
+- **The CLI needs the instance running.** `jinn remote
   instances` reads the registry, then probes each port. A crashed instance
   leaves a stale row that the probe filters out of every listing.
   Conversely, a *running* instance from a build that predates `[remote]`

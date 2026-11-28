@@ -74,3 +74,14 @@
 .tool summary { cursor: pointer; color: var(--fg-dim); }
 .tool summary:hover { color: var(--fg); }
 
+/* ---- canvas metrics ---- */
+/* The click events a canvas page collected, which ride the next message as a
+   block. Collapsed to one quiet line above the user's words, so jinn's own
+   bookkeeping never competes with what the user typed; the terminal greys
+   the block in place for the same reason. */
+.canvas-metrics { margin-bottom: 4px; }
+.canvas-metrics summary { cursor: pointer; color: var(--fg-faint); font-size: 12px; }
+.canvas-metrics summary:hover { color: var(--fg-dim); }
+.canvas-metrics[open] > summary { margin-bottom: 4px; }
+.canvas-metrics .entry-text { color: var(--fg-dim); font-size: 13px; }
+

@@ -108,10 +108,19 @@
   top: auto;
   bottom: 100%;
 }
-.rail-action {
-  width: 100%;
-  padding: 8px 10px;
+/* The two controls under the tabs share one row: Archive takes the rest of
+   the width and keeps its label centred in it; `+` is a square beside it.
+   `margin-bottom` lives on the row, so the gap to the list below is one. */
+.rail-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
   margin-bottom: 10px;
+}
+.rail-action {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 10px;
   background: transparent;
   color: var(--fg-dim);
   border: 1px dashed var(--border);
@@ -120,6 +129,21 @@
   text-align: center;
 }
 .rail-action:hover { color: var(--fg); border-color: var(--fg-faint); }
+/* The square. A stretched flex item takes the row's height but still sizes
+   its width to its content, so `aspect-ratio` alone has no free axis to act
+   on: the box came out wider than tall by the padding's difference. The
+   height is pinned instead, derived only from what `.rail-action` already
+   declares — one normal line box, the 8px padding top and bottom, the 1px
+   border on each side — never from a number of its own, so the two controls
+   cannot drift apart. The ratio makes the width follow; `flex: none` keeps
+   the box from stretching across the row. */
+.rail-new {
+  flex: none;
+  aspect-ratio: 1;
+  height: calc(1lh + 18px);
+  padding: 0;
+  line-height: normal;
+}
 /* `minmax(0, 1fr)`: an implicit `auto` track sizes to its widest item's
    content — a `nowrap` title — and widens the list past the rail, so
    neither the title's ellipsis nor the kebab's position could hold. */

@@ -52,13 +52,13 @@ The web UI's composer takes images three ways, all ingested when you send:
   photo library on phones). Several at once works.
 - **A URL in the text**: any `https://…` link ending in
   `.png .jpg .jpeg .gif .webp` is fetched and attached at send. The
-  link stays visible in the message. Other links are never fetched.
+  link stays visible in the message. Other links stay text.
 
 Pending images show as removable chips above the composer. A 5 MB
 per-image cap applies; oversize, non-image, or failed-URL sends are
 refused with a message naming the offender. Images render inline on the
-sent message in the transcript, and the same vision gate applies: a
-model not confirmed image-capable blocks the attachment (mark it via
+sent message in the transcript, and the same vision gate applies: the
+attachment needs a model confirmed image-capable (mark it via
 `[[providers.model_info]]` `input_modalities` in providers.toml — the
 web UI honors the marker even before the first model refresh).
 
@@ -66,7 +66,7 @@ The `#` token works in the web composer too: a `#` at a word boundary opens
 the same popup above the draft, `Tab` inserts the bare `#name`, and a tap
 picks on a phone. The `@path` and `/command` tokens are the TUI's: the web
 composer sends that text verbatim and attaches an image through the `+`
-beside the draft instead of `@path`. `Ctrl+Enter` and `Shift+Enter` send
+beside the draft. `Ctrl+Enter` and `Shift+Enter` send
 when idle and queue while a turn runs (`Enter` inserts a newline — the
 reverse of the TUI's `<enter>` / `<s-enter>`). The popup and composer keys:
 `webui.md` → [Keys and buttons](webui.md#keys-and-buttons).

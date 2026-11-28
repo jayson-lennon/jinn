@@ -359,6 +359,7 @@ export function App(): JSX.Element {
         setOpen={(next: boolean): void => {
           setDrawerOpen(next);
         }}
+        onNewSession={openNewSession}
       />
       <main class="main">
         <TitleBar

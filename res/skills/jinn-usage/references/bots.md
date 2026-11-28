@@ -139,7 +139,7 @@ reported: <prior_report>."` A standalone bot's default is empty.
 - `manual` runs only when you re-run it (`G` in the Sessions,
   Bots, or Library sidebar sections).
 - `parent_completed` runs after a **parent turn completes successfully**.
-  An errored or cancelled parent turn does not fire it.
+  An errored or cancelled turn leaves it asleep.
 
 A trigger fires **at most once per completed parent turn**; a busy
 parent can set off a run after every one of its turns. Bots whose
