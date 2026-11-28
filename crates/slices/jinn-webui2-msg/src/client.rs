@@ -6,7 +6,7 @@
 
 use jinn_core_types::{ChatEntryId, SessionId};
 
-use crate::payload::{DetailViewBody, ImageUploadBody, MarketViewBody};
+use crate::payload::{DetailViewBody, ImageUploadBody, MarketViewBody, PushSubscriptionBody};
 use serde::{Deserialize, Serialize};
 
 /// A message from the browser.
@@ -242,6 +242,23 @@ pub enum ClientMsg {
         /// The raw args text; empty for none.
         args: String,
     },
+    /// Register or refresh this browser's push subscription, so the server
+    /// can reach the page while no page of the origin is running. Sent on
+    /// every load, so a row that went stale under another key or another
+    /// origin is replaced by the one that works now.
+    PushSubscribe(Box<PushSubscriptionBody>),
+    /// Drop this browser's push subscription: the page asked to stop
+    /// receiving notifications.
+    PushUnsubscribe {
+        /// The subscription's endpoint, as the browser issued it.
+        endpoint: String,
+    },
+    /// A notification was tapped: activate the session it names, exactly as
+    /// a click on its rail row does, so every surface moves to the message.
+    NotificationOpened {
+        /// The session the notification named.
+        session_id: SessionId,
+    },
 }
 
 #[must_use]
@@ -287,5 +304,8 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::MarketDetail { .. } => "market_detail",
         ClientMsg::MarketUse { .. } => "market_use",
         ClientMsg::MarketRefresh => "market_refresh",
+        ClientMsg::PushSubscribe(_) => "push_subscribe",
+        ClientMsg::PushUnsubscribe { .. } => "push_unsubscribe",
+        ClientMsg::NotificationOpened { .. } => "notification_opened",
     }
 }

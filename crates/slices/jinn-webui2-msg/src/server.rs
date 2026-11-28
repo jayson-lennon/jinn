@@ -8,8 +8,8 @@ use crate::payload::{
     AppletRowsBody, ContextUsageBody, DashMcpRowsBody, DashPinRowsBody, DashTasksBody,
     EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, MarketDetailBody, MarketRowsBody,
     MarketStaleBody, McpRowsBody, ModelBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody,
-    PhaseBody, PickerRowsBody, PromptTemplatesBody, SessionStatsBody, SessionsBody, SkillRowsBody,
-    SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
+    PhaseBody, PickerRowsBody, PromptTemplatesBody, PushInfoBody, SessionStatsBody, SessionsBody,
+    SkillRowsBody, SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -84,6 +84,11 @@ pub enum ServerMsg {
     MarketDetail(MarketDetailBody),
     /// A market refresh step failed; stale data stands.
     MarketStale(MarketStaleBody),
+    /// What the page needs to subscribe to push: whether the server can
+    /// send pushes, and the key it signs them with. Sent as its own frame
+    /// after every `hello` reply, and nowhere else — the key pair never
+    /// changes while the server runs.
+    PushInfo(PushInfoBody),
     /// A request was refused.
     Error(ErrorBody),
     /// A `hello` answered with nothing to send: the page's cursor is the
@@ -134,6 +139,7 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::MarketRows(_) => "market_rows",
         ServerMsg::MarketDetail(_) => "market_detail",
         ServerMsg::MarketStale(_) => "market_stale",
+        ServerMsg::PushInfo(_) => "push_info",
         ServerMsg::Error(_) => "error",
         ServerMsg::Current => "current",
         ServerMsg::Ping => "ping",

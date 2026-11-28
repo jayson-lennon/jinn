@@ -76,7 +76,12 @@ struct Asset {
 /// The two built client files, then the committed icon set the page shell
 /// and the web manifest name. Every one is linked by `name.<sha256>.ext`,
 /// so a changed file is a new URL and a cached copy can never outlive it.
-const ASSETS: [Asset; 7] = [
+///
+/// The service worker is the one exception to that rule: it is served at a
+/// fixed, unhashed URL (`/sw.js`) and revalidated on every fetch, because a
+/// browser only checks for a new worker at the URL it registered. It still
+/// rides this table so its bytes are embedded and pinned like the rest.
+const ASSETS: [Asset; 8] = [
     Asset {
         served: "client2.js",
         content_type: "text/javascript; charset=utf-8",
@@ -85,6 +90,11 @@ const ASSETS: [Asset; 7] = [
     Asset {
         served: "client2.css",
         content_type: "text/css; charset=utf-8",
+        encoding: Encoding::Gzip,
+    },
+    Asset {
+        served: "sw.js",
+        content_type: "text/javascript; charset=utf-8",
         encoding: Encoding::Gzip,
     },
     Asset {

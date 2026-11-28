@@ -203,6 +203,14 @@ export interface ViewState {
   /** When the page last saw each session (RFC 3339), for the unread mark.
    *  A row is unread when its settle time is newer than its entry here. */
   lastSeen: Record<string, string>;
+  /** Whether the server can send pushes at all — it holds a key pair. False
+   *  until a `push_info` frame says otherwise, and false for a server whose
+   *  data dir could not be read or written. Distinct from the page's own
+   *  scheme: an http page cannot subscribe even when this is true. */
+  pushSupported: boolean;
+  /** The server's push public key, unpadded base64url, as `push_info`
+   *  carried it; null when the server holds none. */
+  pushPublicKey: string | null;
 }
 
 const INITIAL_STATE: ViewState = {
@@ -271,6 +279,8 @@ const INITIAL_STATE: ViewState = {
   synced: false,
   hydrating: true,
   lastSeen: {},
+  pushSupported: false,
+  pushPublicKey: null,
 };
 
 /** The reactive store: read `state` as a plain object; write through `set`. */
@@ -309,6 +319,13 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
     case 'theme': {
       store.set((s) => {
         s.theme = msg.theme;
+      });
+      return;
+    }
+    case 'push_info': {
+      store.set((s) => {
+        s.pushSupported = msg.supported;
+        s.pushPublicKey = msg.public_key;
       });
       return;
     }
