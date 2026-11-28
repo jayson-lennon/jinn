@@ -139,8 +139,8 @@ calls: write a conversion script that emits a JSONL file, then call
 `"node": {...}` or `"edge": {...}`. Node lines: `label`, `key`, optional
 `props`/`weight`/`embed_text` (embedded locally, like `graph_upsert_node`).
 Edge lines: `label`, `from`, `to` plus optional `props`/`weight`/`valid_from`/`valid_to`;
-`from`/`to` are `Label:key` strings (split at the first colon, so keys may
-contain colons; labels may not). The engine enforces the contract:
+`from`/`to` are `Label:key` strings, split at the first colon. Keys may
+contain colons; labels stay colon-free. The engine enforces the contract:
 
 - **Line order is free.** All nodes are upserted before any edge endpoint
   resolves, so an edge may reference a node declared later in the file or

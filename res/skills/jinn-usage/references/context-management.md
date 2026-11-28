@@ -103,17 +103,18 @@ the handoff rarely fires. The tuning lives in `jinn.toml`:
   (opt-in via `enabled = true`). When enabled, at the next
   model-request boundary after accumulated work reaches
   `workset_trigger_tokens`, jinn asks the same session model to write
-  a handoff recap of the work so far — no tools are callable during
-  that turn — then drops everything except pins and the recap from
+  a handoff recap of the work so far. That turn runs with tools
+  withheld. jinn then drops everything except pins and the recap from
   context and continues: your own past messages fold away with the rest
   of the conversation, and the recap is the sole task carrier. The fire
   line is
   work-relative: it counts the assembled prompt minus its system share
-  (system prompt, tools, skills), so a large system floor never sits
-  at the fire line and cannot eat the budget. An unset
-  `workset_trigger_tokens` never fires. Right after a fold the size
+  (system prompt, tools, skills), so a large system floor leaves the
+  whole budget to the work. An unset `workset_trigger_tokens` keeps
+  the gate shut. Right after a fold the size
   cache is invalidated, so the gate passes until the next honest size
-  recalculation — a fold never re-fires on the fresh, tiny context.
+  recalculation; a fold lands on the fresh, tiny context and waits for
+  it to grow again.
   The recap turn is visible in the transcript and jumpable with `]c`/`[c`
   like any compaction summary; a handoff cancelled mid-turn applies
   nothing and the gate re-fires on the next request. A handoff fired

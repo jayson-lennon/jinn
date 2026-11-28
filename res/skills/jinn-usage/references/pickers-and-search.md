@@ -51,7 +51,8 @@ highlights:
   PROJ → IN → OUT → CACHE → ECI → VALS → MODEL), reverse with `s`, `<enter>`
   switches/pins the model, `<enter>` again in detail mode shows pricing and
   performance detail, `O` opens the highlighted model's openrouter.ai page
-  in your OS default browser. Rows with no score for a column show `#`.
+  in your OS default browser. A row with no score for a column shows `#`
+  there.
 - **Tool / Skill**: `<Tab>` toggles the highlighted entry on/off for this
   session. Toggles are per-session and persist for the session; the
   `tool_filter` / `skill_filter` defaults in `jinn.toml` stay as written.
@@ -74,10 +75,11 @@ highlights:
   one, `<c-enter>` starts a session there with a lifecycle recipe.
 - **Workflow**: `<c-r>` re-scans the workflows directory.
 - **Task list**: `<c-n>` starts a new session.
-- **In the web UI** there are no `<leader>s` keys. The `☰` menu opens the
-  same Skill, Persona, Tool, and MCP server lists as modals — each a filter
+- **In the web UI the pickers live behind the `☰` menu**, which stands in
+  for the TUI's `<leader>s` keys. It opens the
+  same Skill, Persona, Tool, and MCP server lists as modals: each a filter
   bar over rows the TUI picker's own builder made, and a row click applies
-  at once with no staging — and its **Applets** item opens the saved
+  at once. Its **Applets** item opens the saved
   applets. The persona list is also reached by clicking the persona name in
   the status bar, and the MCP list by clicking the dash's MCP section.
   The markdown preview, the inspector panes, and the context-cost footer
