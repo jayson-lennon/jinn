@@ -515,6 +515,181 @@ pub struct ModelRowBody {
     pub provider_runs: Vec<TextRunBody>,
 }
 
+// ── Model market ─────────────────────────────────────────────────────
+//
+// The OpenRouter model market's frames. The rows are the server's own,
+// built through the contract crate's projection in the view the page
+// last asked for, and every frame echoes that view so the page can drop
+// a late answer to text the user typed past.
+
+/// The view the market's rows answer: the filter, the sort column and
+/// direction, and the projection mix. A twin of the market contract's
+/// own enums — a message crate never depends on another message crate —
+/// converted at the server's boundary, like [`SessionRowOrigin`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketViewBody {
+    /// The filter the rows answer (empty for the unfiltered catalog).
+    pub filter: String,
+    /// The column the rows are sorted by.
+    pub sort: MarketSortBody,
+    /// The sort direction.
+    pub dir: MarketDirBody,
+    /// Where the PROJ column's token mix comes from.
+    pub mix: MarketMixBody,
+}
+
+/// Which market column the sort is keyed on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarketSortBody {
+    /// Projected $/turn under the active mix — the default.
+    Proj,
+    /// Prompt price, $/M.
+    In,
+    /// Completion price, $/M.
+    Out,
+    /// Cached-input read price, $/M.
+    Cache,
+    /// Epoch Capabilities Index.
+    Eci,
+    /// Vals Index overall accuracy.
+    Vals,
+    /// `author/slug[:variant]`, lexicographic.
+    Model,
+}
+
+/// The market's sort direction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarketDirBody {
+    /// Ascending.
+    Asc,
+    /// Descending.
+    Desc,
+}
+
+/// Where the market's PROJ mix comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarketMixBody {
+    /// The shipped constant mix — the default.
+    Fixed,
+    /// The session tree's measured usage.
+    Usage,
+}
+
+/// The market's rows for one view.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MarketRowsBody {
+    /// The session the page was viewing when it asked. A frame for a
+    /// session the page has left is dropped — the mix is tree-derived.
+    pub session_id: SessionId,
+    /// The view the rows answer.
+    pub view: MarketViewBody,
+    /// The rows, filtered and sorted under the view.
+    pub rows: Vec<MarketRowBody>,
+    /// How many listings the catalog holds before the filter.
+    pub total: u32,
+    /// True while a models fetch is in flight.
+    pub loading: bool,
+    /// When the catalog was last fetched, as the server's own "Xh ago"
+    /// string — `None` before the first load.
+    pub updated: Option<String>,
+    /// The resolved mix as a display label (`fixed 10M·98%·50k`), so the
+    /// page renders the status line and computes nothing.
+    pub mix_label: String,
+    /// The session's current model id, when it is a single selection —
+    /// the row the list marks as current. `None` for an alloy or none.
+    pub active_id: Option<String>,
+}
+
+/// One market row, as the wire carries it: the numbers pre-formatted by
+/// the same formatters the terminal's table renders through.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketRowBody {
+    /// The full selection id (`openrouter/{author}/{slug}[:variant]`).
+    pub id: String,
+    /// The listing's author namespace.
+    pub author: String,
+    /// The model's slug.
+    pub slug: String,
+    /// The variant suffix (`free`, `thinking`), without the colon.
+    pub variant: Option<String>,
+    /// The display name, split into runs the filter matched and plain.
+    pub name_runs: Vec<TextRunBody>,
+    /// Projected $/turn under the active mix (e.g. `$0.5100`).
+    pub proj: String,
+    /// Prompt price, $/M.
+    pub in_m: String,
+    /// Completion price, $/M.
+    pub out_m: String,
+    /// Cached-input read price, $/M (`-` when unpublished).
+    pub cache_m: String,
+    /// ECI score (`-` when unmatched).
+    pub eci: String,
+    /// Vals Index accuracy (`-` when unmatched).
+    pub vals: String,
+    /// Whether this row is the session's current model.
+    pub is_active: bool,
+}
+
+/// One model's endpoint detail, as the wire carries it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketDetailBody {
+    /// The session the page was viewing when it asked.
+    pub session_id: SessionId,
+    /// The model the detail belongs to.
+    pub model_id: String,
+    /// Advertised context window, in tokens.
+    pub context_length: Option<u32>,
+    /// The listing id ends in `:free`.
+    pub is_free: bool,
+    /// The listing advertises conditional pricing overrides.
+    pub has_overrides: bool,
+    /// The auto-route sentinel first, then every endpoint.
+    pub endpoints: Vec<MarketEndpointBody>,
+    /// True while the endpoint fetch is in flight.
+    pub loading: bool,
+    /// The routing tag this model is pinned to in `providers.toml`, or
+    /// `None` when it auto-routes. The page needs it to tell a no-op
+    /// "use" (the Default row on the active, unpinned model) from an
+    /// un-pin (the Default row on the active, pinned model).
+    pub pinned_tag: Option<String>,
+}
+
+/// One endpoint row of the detail page. The sentinel's prices come from
+/// the model's own listing; an endpoint's are its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketEndpointBody {
+    /// The routing tag, `None` for the auto-route sentinel.
+    pub tag: Option<String>,
+    /// The display name: the provider's name plus the tag.
+    pub name: String,
+    /// Projected $/turn under the active mix.
+    pub proj: String,
+    /// Prompt price, $/M.
+    pub in_m: String,
+    /// Completion price, $/M.
+    pub out_m: String,
+    /// Cached-input read price, $/M (`-` when unpublished).
+    pub cache_m: String,
+    /// Median time-to-first-token, ms (`-` when unpublished).
+    pub latency: String,
+    /// Median output throughput, tok/s (`-` when unpublished).
+    pub throughput: String,
+    /// One-day uptime, percent (`-` when unpublished).
+    pub uptime: String,
+    /// Whether this is the auto-route sentinel.
+    pub is_default: bool,
+}
+
+/// A market refresh step failed; stale data stands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketStaleBody {
+    /// The failure, as the status line and the toast show it.
+    pub message: String,
+}
+
 /// One run of a skill row's text: a stretch the filter matched, or did
 /// not. The browser renders the matched runs highlighted and the rest
 /// plain; the split is the shared filter's, cut on grapheme boundaries.

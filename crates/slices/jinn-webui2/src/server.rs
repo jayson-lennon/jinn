@@ -591,17 +591,36 @@ async fn interpret(
 /// The flag is read a second time once the slot is held, because a drain
 /// parked on a full channel cannot see a cancel until the writer makes
 /// room — and the page it was waiting to send must not go out anyway.
+/// The page's frame channel is gone: its socket closed while a reply
+/// was being written. Nothing reads the error beyond its presence.
+#[derive(Debug, wherror::Error)]
+#[error(debug)]
+struct Closed;
+
+impl From<tokio::sync::mpsc::error::SendError<ServerMsg>> for Closed {
+    fn from(_: tokio::sync::mpsc::error::SendError<ServerMsg>) -> Self {
+        Self
+    }
+}
+
+/// Writes a reply's frames to the page's channel, or parks a jump's
+/// frames in a cancellable drain.
+///
+/// # Errors
+///
+/// Returns [`Closed`] when the page's channel is gone — its socket
+/// closed while the reply was being written.
 async fn deliver(
     reply: protocol::Reply,
     frames_tx: &tokio::sync::mpsc::Sender<ServerMsg>,
     drain: &mut std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
     draining: &mut bool,
-) -> Result<(), tokio::sync::mpsc::error::SendError<ServerMsg>> {
+) -> Result<(), Closed> {
     use std::sync::atomic::Ordering;
 
     let Some(cancel_flag) = reply.cancel_flag else {
         for frame in reply.frames {
-            frames_tx.send(frame).await?;
+            frames_tx.send(frame).await.map_err(Closed::from)?;
         }
         return Ok(());
     };
@@ -695,6 +714,11 @@ mod attachment_route_tests {
                     &jinn_applets_msg::applets_picker_slot(),
                 )
                 .expect("the catalog registers the applets picker slot");
+        let market_cell = slices
+            .reader::<jinn_model_market_msg::MarketDataState>(
+                &jinn_model_market_msg::market_data_slot(),
+            )
+            .expect("the catalog registers the model-market data slot");
         let services = jinn_kernel::TestServices::builder()
             .providers(jinn_provider_config::ProvidersConfig {
                 providers: std::collections::BTreeMap::new(),
@@ -721,6 +745,7 @@ mod attachment_route_tests {
                 mcp_runtime_cell,
                 applets_catalog_cell,
                 applets_picker_cell,
+                market_cell,
             }),
             version: "test".to_owned(),
             health: crate::health::WebUi2Health::new(note_bus),

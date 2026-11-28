@@ -30,13 +30,18 @@ import {
   applySkillRows,
   applyToolRows,
 } from '../pickers/picker_rows';
-import { applyError } from '../overlays/toast_state';
+import { applyError, pushToast } from '../overlays/toast_state';
+import { applyMarketDetail, applyMarketRows, applyMarketStale, resetMarketDetail, sameMarketView } from '../pickers/market_rows';
+import { DEFAULT_MARKET_VIEW } from '../pickers/market_state';
 import type {
   AppletRow,
   DashMcpRow,
   DashPinRow,
   DashTasks,
   EntryEnvelope,
+  MarketEndpoint,
+  MarketRow,
+  MarketView,
   McpRow,
   ModelRow,
   PersonaRow,
@@ -119,6 +124,26 @@ export interface ViewState {
   pickerFilter: string;
   modelRows: ModelRow[];
   modelFilter: string;
+  /** The market's rows, in `marketView` — the view the page last asked
+   * for, echoed by every frame so a late one can be dropped. */
+  marketRows: MarketRow[];
+  /** The filter box's text. The request carries it in `marketView.filter`. */
+  marketFilter: string;
+  marketView: MarketView;
+  /** The catalog's size before the filter — the status line's count. */
+  marketTotal: number;
+  marketLoading: boolean;
+  /** A failed fetch's note; the rows stand and a later frame clears it. */
+  marketStale: string | null;
+  marketUpdated: string | null;
+  marketMixLabel: string;
+  /** The model whose detail page is open, or null on the list. */
+  marketPinnedId: string | null;
+  marketModelFacts: { context_length: number | null; is_free: boolean; has_overrides: boolean; pinned_tag: string | null } | null;
+  marketEndpoints: MarketEndpoint[];
+  marketEndpointsLoading: boolean;
+  /** The active session's model, as the last rows frame named it. */
+  marketActiveId: string | null;
   /** The skills modal's rows, for the filter the page last asked for. */
   skillRows: SkillRow[];
   skillFilter: string;
@@ -195,6 +220,19 @@ const INITIAL_STATE: ViewState = {
   pickerFilter: '',
   modelRows: [],
   modelFilter: '',
+  marketRows: [],
+  marketFilter: '',
+  marketView: { ...DEFAULT_MARKET_VIEW },
+  marketTotal: 0,
+  marketLoading: false,
+  marketStale: null,
+  marketUpdated: null,
+  marketMixLabel: '',
+  marketPinnedId: null,
+  marketModelFacts: null,
+  marketEndpoints: [],
+  marketEndpointsLoading: false,
+  marketActiveId: null,
   skillRows: [],
   skillFilter: '',
   toolRows: [],
@@ -322,6 +360,18 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
     }
     case 'model_rows': {
       applyModelRows(store, msg);
+      return;
+    }
+    case 'market_rows': {
+      applyMarketRows(store, msg);
+      return;
+    }
+    case 'market_detail': {
+      applyMarketDetail(store, msg);
+      return;
+    }
+    case 'market_stale': {
+      applyMarketStale(store, msg);
       return;
     }
     case 'skill_rows': {

@@ -355,6 +355,12 @@ fn harness_seeded(
     let applets_picker_cell = slices
         .reader::<jinn_applets_msg::AppletsPickerState>(&jinn_applets_msg::applets_picker_slot())
         .expect("the catalog registers the applets picker slot");
+    let market_cell =
+        slices
+            .reader::<jinn_model_market_msg::MarketDataState>(
+                &jinn_model_market_msg::market_data_slot(),
+            )
+            .expect("the catalog registers the model-market data slot");
 
     seed_personas(&personas_cell, &seed.personas);
     seed_tools(&registry_cell, &seed.tools);
@@ -399,6 +405,7 @@ fn harness_seeded(
         mcp_runtime_cell,
         applets_catalog_cell,
         applets_picker_cell,
+        market_cell,
     });
     Harness {
         handle,
@@ -8049,4 +8056,520 @@ fn a_changed_pin_set_is_pushed_to_an_open_dash() {
     let frames = drain(&mut inbox);
     let body = one_pin_rows(&frames).expect("one dash_pin_rows frame");
     assert_eq!(body.rows.len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Model market
+// ---------------------------------------------------------------------------
+
+/// A market view asking for the default: no filter, PROJ ascending, the
+/// fixed mix.
+fn default_market_view() -> jinn_webui2_msg::MarketViewBody {
+    jinn_webui2_msg::MarketViewBody {
+        filter: String::new(),
+        sort: jinn_webui2_msg::MarketSortBody::Proj,
+        dir: jinn_webui2_msg::MarketDirBody::Asc,
+        mix: jinn_webui2_msg::MarketMixBody::Fixed,
+    }
+}
+
+/// Writes two priced listings into the market data cell.
+fn seed_market_rows(h: &Harness) {
+    h.handle
+        .market_cell()
+        .update(|cell: &mut jinn_model_market_msg::MarketDataState| {
+            cell.rows = vec![
+                jinn_model_market_msg::MarketRow {
+                    id: "openrouter/a/cheap".to_owned(),
+                    author: "a".to_owned(),
+                    slug: "cheap".to_owned(),
+                    variant: None,
+                    prompt_price: 1e-6,
+                    completion_price: 1e-6,
+                    cache_read_price: None,
+                    has_overrides: false,
+                    context_length: Some(200_000),
+                    eci: Some(50.0),
+                    eci_ci: None,
+                    vals: None,
+                    is_free: false,
+                },
+                jinn_model_market_msg::MarketRow {
+                    id: "openrouter/a/dear".to_owned(),
+                    author: "a".to_owned(),
+                    slug: "dear".to_owned(),
+                    variant: Some("free".to_owned()),
+                    prompt_price: 3e-6,
+                    completion_price: 15e-6,
+                    cache_read_price: Some(3e-7),
+                    has_overrides: true,
+                    context_length: None,
+                    eci: None,
+                    eci_ci: None,
+                    vals: Some(61.5),
+                    is_free: true,
+                },
+            ];
+        });
+}
+
+/// The single frame a market request answers, as its rows body.
+fn market_rows_frame(reply: &Reply) -> &jinn_webui2_msg::MarketRowsBody {
+    let [ServerMsg::MarketRows(body)] = reply.frames.as_slice() else {
+        unreachable!("a market request answers market rows, got {reply:?}");
+    };
+    body
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_open_on_an_empty_catalog_publishes_the_models_fetch() {
+    // Given no listings in the cell.
+    let h = harness();
+
+    // When the page opens the market.
+    say(
+        &h,
+        ClientMsg::MarketOpen {
+            view: default_market_view(),
+        },
+    )
+    .await;
+
+    // Then the popup's own fetch is published.
+    assert_eq!(
+        h.audit
+            .of_type::<jinn_model_market_msg::FetchModels>()
+            .len(),
+        1
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_open_on_a_loaded_catalog_publishes_nothing() {
+    // Given two listings.
+    let h = harness();
+    seed_market_rows(&h);
+
+    // When the page opens the market.
+    say(
+        &h,
+        ClientMsg::MarketOpen {
+            view: default_market_view(),
+        },
+    )
+    .await;
+
+    // Then no fetch is published: the cell already answers.
+    assert!(
+        h.audit
+            .of_type::<jinn_model_market_msg::FetchModels>()
+            .is_empty()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_rows_answer_in_the_asked_view() {
+    // Given two listings and a view sorted by ECI descending.
+    let h = harness();
+    seed_market_rows(&h);
+    let mut view = default_market_view();
+    view.sort = jinn_webui2_msg::MarketSortBody::Eci;
+    view.dir = jinn_webui2_msg::MarketDirBody::Desc;
+
+    // When the page asks for that view.
+    let reply = dispatch(
+        ClientMsg::MarketRows { view: view.clone() },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the frame echoes the view, and the ECI-valued row leads.
+    let body = market_rows_frame(&reply);
+    assert_eq!(body.view, view);
+    assert_eq!(body.rows[0].id, "openrouter/a/cheap");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_rows_format_the_cells_through_the_contract_formatters() {
+    // Given a listing with every column set.
+    let h = harness();
+    seed_market_rows(&h);
+
+    // When the page asks for rows sorted by name descending, so `dear` leads.
+    let mut view = default_market_view();
+    view.sort = jinn_webui2_msg::MarketSortBody::Model;
+    view.dir = jinn_webui2_msg::MarketDirBody::Desc;
+    let reply = dispatch(ClientMsg::MarketRows { view }, &h.handle, &h.jump_cancelled).await;
+
+    // Then the row carries the terminal's own cell strings.
+    let row = &market_rows_frame(&reply).rows[0];
+    assert_eq!(row.in_m, "$3.0000/M");
+    assert_eq!(row.out_m, "$15.0000/M");
+    assert_eq!(row.cache_m, "$0.3000/M");
+    assert_eq!(row.eci, "-");
+    assert_eq!(row.vals, "61.50");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_rows_mark_the_active_model() {
+    // Given the session on one of the two listings.
+    let h = harness();
+    seed_market_rows(&h);
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_model(ModelSelection::Single("openrouter/a/dear".to_owned()));
+
+    // When the page asks for rows.
+    let reply = dispatch(
+        ClientMsg::MarketRows {
+            view: default_market_view(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then that row alone is marked, and the frame names it.
+    let body = market_rows_frame(&reply);
+    assert_eq!(body.active_id.as_deref(), Some("openrouter/a/dear"));
+    assert_eq!(body.rows.iter().filter(|row| row.is_active).count(), 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_rows_remember_the_view_for_a_push() {
+    // Given two listings and a view sorted by ECI descending.
+    let h = harness();
+    seed_market_rows(&h);
+    let mut view = default_market_view();
+    view.sort = jinn_webui2_msg::MarketSortBody::Eci;
+    view.dir = jinn_webui2_msg::MarketDirBody::Desc;
+    say(&h, ClientMsg::MarketRows { view: view.clone() }).await;
+
+    // When a catalog load lands.
+    crate::market::rows_changed(&h.handle);
+
+    // Then the remembered view is the one the push answers in.
+    assert_eq!(h.handle.market_view().map(|(v, _)| v), Some(view));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_detail_for_an_unknown_model_is_refused() {
+    // Given a catalog without that listing.
+    let h = harness();
+    seed_market_rows(&h);
+
+    // When the page asks for another model's detail.
+    let reply = dispatch(
+        ClientMsg::MarketDetail {
+            model_id: "openrouter/a/missing".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the request is refused, and no fetch is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert!(
+        h.audit
+            .of_type::<jinn_model_market_msg::FetchEndpoints>()
+            .is_empty()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_detail_for_an_uncached_model_publishes_the_fetch_at_the_max_sequence() {
+    // Given a listing whose detail the cell does not hold.
+    let h = harness();
+    seed_market_rows(&h);
+
+    // When the page asks for its detail.
+    let reply = dispatch(
+        ClientMsg::MarketDetail {
+            model_id: "openrouter/a/cheap".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the fetch rides at the maximum sequence, and the reply is loading.
+    let fetches = h.audit.of_type::<jinn_model_market_msg::FetchEndpoints>();
+    assert_eq!(fetches.len(), 1);
+    assert_eq!(fetches[0].seq, u64::MAX);
+    let [ServerMsg::MarketDetail(body)] = reply.frames.as_slice() else {
+        unreachable!("a detail request answers a detail frame");
+    };
+    assert!(body.loading);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_detail_for_a_cached_model_answers_from_the_cell() {
+    // Given the cell already holding this model's detail.
+    let h = harness();
+    seed_market_rows(&h);
+    h.handle
+        .market_cell()
+        .update(|cell: &mut jinn_model_market_msg::MarketDataState| {
+            cell.detail = Some(jinn_model_market_msg::MarketDetail {
+                model_id: "openrouter/a/cheap".to_owned(),
+                endpoints: vec![jinn_model_market_msg::MarketEndpointRow {
+                    tag: "azure/us-east".to_owned(),
+                    provider_name: "Azure".to_owned(),
+                    prompt_price: 1.2e-6,
+                    completion_price: 4.5e-6,
+                    cache_read_price: Some(0.9e-7),
+                    latency_p50_ms: Some(1159.0),
+                    throughput_p50: Some(38.0),
+                    uptime_1d: Some(0.992),
+                    quantization: None,
+                    overrides: Vec::new(),
+                }],
+            });
+        });
+
+    // When the page asks for its detail.
+    let reply = dispatch(
+        ClientMsg::MarketDetail {
+            model_id: "openrouter/a/cheap".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the reply is loaded, the sentinel leads, and no fetch is published.
+    assert!(
+        h.audit
+            .of_type::<jinn_model_market_msg::FetchEndpoints>()
+            .is_empty()
+    );
+    let [ServerMsg::MarketDetail(body)] = reply.frames.as_slice() else {
+        unreachable!("a detail request answers a detail frame");
+    };
+    assert!(!body.loading);
+    assert_eq!(body.endpoints.len(), 2);
+    assert!(body.endpoints[0].is_default);
+    assert_eq!(body.endpoints[1].name, "Azure (azure/us-east)");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_detail_names_the_models_pinned_endpoint() {
+    // Given a config pinning this model to an endpoint, and the cell
+    // holding its detail.
+    let h = harness_with_providers(jinn_provider_config::ProvidersConfig {
+        providers: std::collections::BTreeMap::new(),
+        aliases: vec![],
+        default_provider: None,
+        endpoint_defaults: vec![jinn_provider_config::EndpointDefault {
+            model: "openrouter/a/cheap".to_owned(),
+            tag: "azure/us-east".to_owned(),
+        }],
+    });
+    seed_market_rows(&h);
+    h.handle
+        .market_cell()
+        .update(|cell: &mut jinn_model_market_msg::MarketDataState| {
+            cell.detail = Some(jinn_model_market_msg::MarketDetail {
+                model_id: "openrouter/a/cheap".to_owned(),
+                endpoints: Vec::new(),
+            });
+        });
+
+    // When the page asks for its detail.
+    let reply = dispatch(
+        ClientMsg::MarketDetail {
+            model_id: "openrouter/a/cheap".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the frame carries the pinned tag.
+    let [ServerMsg::MarketDetail(body)] = reply.frames.as_slice() else {
+        unreachable!("a detail request answers a detail frame");
+    };
+    assert_eq!(body.pinned_tag.as_deref(), Some("azure/us-east"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_use_publishes_switch_then_last_model_then_the_endpoint_pin() {
+    // Given a loaded catalog.
+    let h = harness();
+    seed_market_rows(&h);
+
+    // When the page uses a model and pins one of its endpoints.
+    say(
+        &h,
+        ClientMsg::MarketUse {
+            model_id: "openrouter/a/cheap".to_owned(),
+            tag: Some("azure/us-east".to_owned()),
+        },
+    )
+    .await;
+
+    // Then the terminal's confirm sequence is published in order.
+    assert_eq!(
+        h.audit.names(),
+        ["ProviderSwitch", "UpdateAppState", "SetEndpointDefault"]
+    );
+    let pins = h
+        .audit
+        .of_type::<jinn_provider_selection_msg::SetEndpointDefault>();
+    assert_eq!(pins[0].model, "openrouter/a/cheap");
+    assert_eq!(pins[0].tag.as_deref(), Some("azure/us-east"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_use_without_a_tag_clears_the_pin() {
+    // Given a loaded catalog.
+    let h = harness();
+    seed_market_rows(&h);
+
+    // When the page uses a model with no endpoint tag.
+    say(
+        &h,
+        ClientMsg::MarketUse {
+            model_id: "openrouter/a/cheap".to_owned(),
+            tag: None,
+        },
+    )
+    .await;
+
+    // Then the pin command carries no tag — auto-route.
+    let pins = h
+        .audit
+        .of_type::<jinn_provider_selection_msg::SetEndpointDefault>();
+    assert_eq!(pins[0].tag, None);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn market_refresh_publishes_the_popup_refresh() {
+    // Given a harness.
+    let h = harness();
+
+    // When the page presses refresh.
+    say(&h, ClientMsg::MarketRefresh).await;
+
+    // Then the popup's own refresh-all is published, once.
+    assert_eq!(
+        h.audit.of_type::<jinn_model_market_msg::RefreshAll>().len(),
+        1
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_failed_refresh_pushes_a_stale_frame_to_an_open_market() {
+    // Given an open market and a connected page.
+    let h = harness();
+    seed_market_rows(&h);
+    say(
+        &h,
+        ClientMsg::MarketOpen {
+            view: default_market_view(),
+        },
+    )
+    .await;
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When a refresh step fails.
+    crate::market::refresh_failed(&h.handle, "models fetch failed");
+
+    // Then the page is told, with the failure's own text.
+    let frames = drain(&mut inbox);
+    assert!(matches!(
+        frames.as_slice(),
+        [ServerMsg::MarketStale(body)] if body.message == "models fetch failed"
+    ));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_failed_refresh_pushes_nothing_with_no_market_open() {
+    // Given no market open and a connected page.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+
+    // When a refresh step fails.
+    crate::market::refresh_failed(&h.handle, "models fetch failed");
+
+    // Then the page hears nothing.
+    assert!(drain(&mut inbox).is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_catalog_load_pushes_fresh_rows_to_an_open_market() {
+    // Given an open market on an empty catalog, and a connected page.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    say(
+        &h,
+        ClientMsg::MarketOpen {
+            view: default_market_view(),
+        },
+    )
+    .await;
+    let _ = drain(&mut inbox);
+    seed_market_rows(&h);
+
+    // When the catalog load lands.
+    crate::market::rows_changed(&h.handle);
+
+    // Then the page receives the rows in its view.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::MarketRows(body)] = frames.as_slice() else {
+        unreachable!("a catalog load pushes market rows");
+    };
+    assert_eq!(body.rows.len(), 2);
+    assert_eq!(body.view, default_market_view());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_endpoints_load_pushes_the_detail_only_to_the_pinned_model() {
+    // Given a detail page open on `cheap`, and a connected page.
+    let h = harness();
+    seed_market_rows(&h);
+    say(
+        &h,
+        ClientMsg::MarketDetail {
+            model_id: "openrouter/a/cheap".to_owned(),
+        },
+    )
+    .await;
+    let (_id, mut inbox, _connection) = h.handle.register();
+    let _ = drain(&mut inbox);
+
+    // When the cell's detail lands for another model.
+    h.handle
+        .market_cell()
+        .update(|cell: &mut jinn_model_market_msg::MarketDataState| {
+            cell.detail = Some(jinn_model_market_msg::MarketDetail {
+                model_id: "openrouter/a/dear".to_owned(),
+                endpoints: Vec::new(),
+            });
+        });
+    crate::market::detail_changed(&h.handle);
+
+    // Then nothing is pushed: the page is still on its spinner.
+    assert!(drain(&mut inbox).is_empty());
 }

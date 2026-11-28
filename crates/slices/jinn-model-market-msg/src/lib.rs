@@ -15,18 +15,24 @@
 
 mod commands;
 mod data_state;
+mod projection;
 mod row;
 mod scores;
 mod ui_state;
 
 pub use commands::*;
 pub use data_state::{MarketDataState, MarketDetail, market_data_slot};
+pub use projection::{
+    EMPTY_CELL, NameRun, age_stamp, all_terms_match, cache_column, compare_rows, dollars,
+    eci_column, filter_and_sort, filter_terms, match_ranges, model_page_url, ms_column, name_runs,
+    percent_column, price_per_million, projected_cents, projected_cents_for, resolve_mix, row_name,
+    sort_key, throughput_column, vals_column,
+};
 pub use row::{MarketEndpointRow, MarketRow};
 pub use scores::{EciIndex, EciScore, EciSource, ValsIndex, ValsScore, ValsSource};
 pub use ui_state::{
     DETAIL_SORT_CYCLE, DetailSort, MarketUiState, MixSource, PROJECTION_MIX,
     RESULTS_VIEWPORT_FALLBACK, SORT_CYCLE, SortColumn, market_ui_scope, market_ui_slot,
-    resolve_mix,
 };
 
 #[cfg(test)]

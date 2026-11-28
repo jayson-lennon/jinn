@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import crypto, { randomUUID } from "node:crypto";
 import path from "node:path";
-import { bootJinn, restartJinn, scratchApplet, scratchPrompt, scratchSkill, teardownJinn } from "./harness.mjs";
+import { bootJinn, restartJinn, scratchApplet, scratchMarket, scratchPrompt, scratchSkill, teardownJinn } from "./harness.mjs";
 
 /** How long a reply from a running jinn may take. */
 const REPLY_TIMEOUT_MS = 15_000;
@@ -55,6 +55,16 @@ export const sel = {
   DASH_ROW_VALUE: '[data-testid="dash-stats"] .dash-row-value',
   MODEL_ROW: '[data-testid="model-row"]',
   MODEL_FILTER: '[data-testid="model-filter"]',
+  MODEL_CHOOSER: '[data-testid="model-chooser"]',
+  CHOOSER_MARKET: '[data-testid="chooser-market"]',
+  CHOOSER_PROVIDER: '[data-testid="chooser-provider"]',
+  MARKET_MODAL: '[data-testid="market-modal"]',
+  MARKET_FILTER: '[data-testid="market-filter"]',
+  MARKET_ROW: '[data-testid="market-row"]',
+  MARKET_DETAIL: '[data-testid="market-detail"]',
+  MARKET_ENDPOINT: '[data-testid="market-endpoint"]',
+  MARKET_CLOSE: '[data-testid="market-close"]',
+  MARKET_REFRESH: '[data-testid="market-refresh"]',
   OPEN_PICKER: '[data-testid="open-picker"]',
   PICKER_ROW: '[data-testid="picker-row"]',
   PICKER_FILTER: '[data-testid="picker-filter"]',
@@ -227,6 +237,16 @@ export const BLOCKLESS_PERSONA = "blockless-e2e";
 /** The staged applet the applets spec pivots on. */
 export const APPLET_ID = scratchApplet.id;
 export const APPLET_TITLE = scratchApplet.title;
+
+/** The staged market's cheap listing — the one the market specs pivot on. */
+export const MARKET_CHEAP_ID = scratchMarket.cheapId;
+export const MARKET_CHEAP_NAME = scratchMarket.cheapName;
+/** The staged market's dear listing, with its `:free` variant. */
+export const MARKET_DEAR_ID = scratchMarket.dearId;
+export const MARKET_DEAR_NAME = scratchMarket.dearName;
+/** The cheap model's one provider endpoint, as its row names it. */
+export const MARKET_ENDPOINT_NAME = `E2E Azure (${scratchMarket.endpointTag})`;
+export const MARKET_ENDPOINT_TAG = scratchMarket.endpointTag;
 
 /** The staged prompt template every prompt-popup spec pivots on. */
 export const PROMPT_NAME = scratchPrompt.name;
@@ -855,8 +875,32 @@ export async function openApplets(page) {
  * sample model before any spec runs. The model-picker spec needs the
  * *unselected* state and so drives the chip by hand instead.
  */
-export async function selectModel(page) {
+/** Opens the title bar's model chip's chooser. */
+export async function openModelChooser(page) {
   await page.locator(sel.MODEL_CHIP).click();
+  await expect(page.locator(sel.MODEL_CHOOSER)).toBeVisible();
+}
+
+/** Opens the provider model picker: the chip's chooser, then its
+ * "Provider Model Picker" row. */
+export async function openProviderPicker(page) {
+  await openModelChooser(page);
+  await page.locator(sel.CHOOSER_PROVIDER).click();
+  await expect(page.locator(sel.MODEL_FILTER)).toBeVisible();
+}
+
+/** Opens the OpenRouter model market: the chip's chooser, then its
+ * "OpenRouter Model Market" row. */
+export async function openMarket(page) {
+  await openModelChooser(page);
+  await page.locator(sel.CHOOSER_MARKET).click();
+  await expect(page.locator(sel.MARKET_MODAL)).toBeVisible();
+  // The list page: the rows the staged catalog serves have landed.
+  await expect(page.locator(sel.MARKET_ROW).first()).toBeVisible();
+}
+
+export async function selectModel(page) {
+  await openProviderPicker(page);
   // A row shows its model and its provider as two lines; the chip shows
   // them joined. Match the row by the model it names.
   const row = page.locator(sel.MODEL_ROW).filter({ hasText: MODEL_NAME }).first();
@@ -876,6 +920,7 @@ const test = base.extend({
       textOnly: stage.textOnly === true,
       applet: stage.applet === true,
       prompt: stage.prompt === true,
+      market: stage.market === true,
     });
     await use(run);
     await teardownJinn(run);
