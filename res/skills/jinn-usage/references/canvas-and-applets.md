@@ -25,7 +25,9 @@ What you get:
 - **Your clicks report back.** Interactive pages track what you click
   (quiz answers, slider positions, buttons). The clicks ride your **next
   chat message** as a numbered `<canvas-metrics>` list, so the agent sees
-  what you did without you describing it.
+  what you did without you describing it. The terminal shows the list in
+  its quiet metrics colour; the web UI shows it as a collapsed `canvas
+  metrics · N events · <artifact>` line above your message.
 - **One page at a time.** A second `canvas` call re-targets the same
   server: same URL, your tab follows to the new page. Artifacts live in
   your project directory as plain HTML files; edit them by hand if you

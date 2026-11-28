@@ -143,7 +143,11 @@ by reloading itself — see [Reconnecting](#reconnecting).
   wrapper the model sees. A model's thinking is a single collapsed
   `Thinking` line — click it to read the block; the text still streams in
   while it is collapsed, so opening it mid-turn shows what has arrived so
-  far. Two floating buttons sit at the transcript's
+  far. A message that carries the clicks a canvas page collected shows them
+  as a collapsed `canvas metrics · N events · <artifact>` line above your
+  words, never as the `<canvas-metrics>` tags the model reads. A loaded
+  skill's tool result is headed `skill ❖ <name>`; open it for the skill's
+  body, with the `<skill>` wrapper taken off. Two floating buttons sit at the transcript's
   right edge, each shown only while you are away from that end: an
   up-arrow-to-line button in the top-right corner jumps to the start, a
   down-arrow-to-line button in the bottom-right corner jumps to the end.
@@ -404,7 +408,9 @@ highlighted as you type (debounced).
     there is no staging step. A loaded skill's row is not a toggle.
   - `+` loads the skill's body into context as a pinned tool result,
     enabling the skill first if it was off. A skill already in context
-    has its `+` disabled, so nothing is loaded twice.
+    has its `+` disabled, so nothing is loaded twice. In the transcript the
+    result is headed `skill ❖ <name>`; open it to read the body, with the
+    `<skill>` wrapper the model sees taken off.
 - **Persona** — the menu's **Persona** item, or the persona name in the
   [status bar](#status-bar) under the title bar, opens the personas, in
   their own name-sorted order: a `●` on the session's current persona and a
