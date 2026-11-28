@@ -361,7 +361,7 @@ export function Composer(props: ComposerProps): JSX.Element {
               </button>
             }
           >
-            <button data-testid="queue" onClick={submit} disabled={!hasContent()}>
+            <button class="q" data-testid="queue" onClick={submit} disabled={!hasContent()}>
               Q
               <Show when={queueLen() > 0}>
                 <span class="queue-depth" data-testid="queue-depth">
@@ -369,7 +369,7 @@ export function Composer(props: ComposerProps): JSX.Element {
                 </span>
               </Show>
             </button>
-            <button class="danger" data-testid="cancel" onClick={() => props.send({ type: 'cancel' })}>
+            <button class="cancel" data-testid="cancel" onClick={() => props.send({ type: 'cancel' })}>
               Cancel
             </button>
           </Show>
