@@ -26,17 +26,23 @@
   .drawer-scrim.open { visibility: visible; pointer-events: auto; }
   .sessions-button {
     display: inline-flex;
-    background: var(--bg-raised);
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    min-width: 34px;
+    background: transparent;
     color: var(--fg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 10px;
+    border: 0;
+    border-radius: 0;
+    padding: 0 8px;
     font: inherit;
+    font-size: 15px;
     line-height: 1;
     cursor: pointer;
+    user-select: none;
   }
-  .sessions-button:hover { border-color: var(--accent); }
-  .sessions-button:focus-visible { outline: 1px solid var(--accent); }
+  .sessions-button:hover { background: var(--bg-hover); }
+  .sessions-button:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   /* The `#` button while sessions are unread: the gold fill, and the
      count beside the glyph. The gap keeps `#` and the number apart. */
   .sessions-button.unread {
@@ -74,13 +80,14 @@
 /* The count beside Q: how many messages wait behind the running turn. A
    queued message is not in the transcript until its turn runs, so this is
    the only sign it was taken. On the accent fill it takes the page's own
-   surface and the fill's ink, so it reads as a chip on the fill. */
+   surface and the page's ink — not the fill's ink, which is white in
+   light mode and vanished on the pale chip. */
 .queue-depth {
   margin-left: 6px;
   padding: 0 6px;
   border-radius: 999px;
   background: var(--bg);
-  color: var(--on-fill);
+  color: var(--fg);
   font-size: 12px;
   line-height: 18px;
 }
