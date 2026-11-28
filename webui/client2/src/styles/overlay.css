@@ -1,5 +1,8 @@
 /* ---- reconnect overlay ---- */
-/* A row, so the spinner sits beside the text. */
+/* A row, so the spinner sits beside the text. The overlay has no card: its
+   text and spinner sit straight on the dark scrim, which is dark in BOTH
+   themes — so the ink is the light one in both, never the page's foreground,
+   which in light mode is near-black on a near-black wash. */
 .overlay {
   position: fixed;
   inset: 0;
@@ -8,7 +11,7 @@
   justify-content: center;
   gap: 10px;
   background: var(--scrim);
-  color: var(--fg);
+  color: var(--on-scrim);
   font-size: 15px;
   backdrop-filter: blur(2px);
   z-index: 10;

@@ -422,7 +422,7 @@ export function App(): JSX.Element {
       <Show when={navigating()}>
         <div class="navigating-overlay" data-testid="navigating-overlay">
           <div class="navigating-card">
-            <span class="spinner" aria-hidden="true" />
+            <span class="spinner" aria-hidden="true"><i /></span>
             <span class="navigating-label">Navigating…</span>
             <button
               type="button"
@@ -441,14 +441,14 @@ export function App(): JSX.Element {
       <Show when={store.state.loadingSessionId !== null}>
         <div class="session-load-overlay" role="status" aria-live="polite" data-testid="session-load-overlay">
           <div class="session-load-card">
-            <span class="spinner" aria-hidden="true" />
+            <span class="spinner" aria-hidden="true"><i /></span>
             <span class="session-load-label">Loading session…</span>
           </div>
         </div>
       </Show>
       <Show when={connection() !== 'open'}>
         <div class="overlay" role="status" aria-live="polite" data-testid="overlay">
-          <span class="spinner" aria-hidden="true" />
+          <span class="spinner" aria-hidden="true"><i /></span>
           <span>{connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}</span>
         </div>
       </Show>
