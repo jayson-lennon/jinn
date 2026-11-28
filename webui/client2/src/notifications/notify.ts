@@ -13,6 +13,7 @@
 // it — and is not replayed later.
 
 import type { SessionRow } from '../protocol/protocol';
+import { pushSupported } from './support';
 
 /** How the module reaches the worker. In production, the page's. */
 export interface WorkerChannel {
@@ -41,8 +42,14 @@ const seen = new Map<string, string | null>();
 
 /** Reads a session list the frames just landed, and posts a banner for each
  *  settle that is new since the last list — but only while the page is
- *  hidden. Rows that dropped off the list are forgotten. */
+ *  hidden. Rows that dropped off the list are forgotten.
+ *
+ *  A page without the Push API — plain http — records what it saw and posts
+ *  nothing. The gate lives here rather than in the channel because this is
+ *  the one decision point every settle passes through, and because a hidden
+ *  tab on http would otherwise throw on `navigator.serviceWorker`. */
 export function notifySettles(rows: readonly SessionRow[], channel: WorkerChannel): number {
+  const supported = pushSupported();
   let posted = 0;
   const present = new Set<string>();
   for (const row of rows) {
@@ -60,7 +67,7 @@ export function notifySettles(rows: readonly SessionRow[], channel: WorkerChanne
     // A first sighting is history, not news: the snapshot on load carries
     // every past settle, and none of them is a thing that just happened.
     if (previous === undefined) continue;
-    if (!channel.hidden()) continue;
+    if (!supported || !channel.hidden()) continue;
     void channel.post({
       type: 'settle',
       session_id: row.session_id,

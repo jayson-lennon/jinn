@@ -7,6 +7,11 @@
 - (webui) Archiving a session while viewing it will now switch to another session (or create a new one). Mirrors the TUI behavior.
 - (webui) Thinking blocks are now collapsed by default.
 - (webui) Initial session load performance improved.
+- New logo
+- (weubi) Lighten dark mode slightly.
+- (webui) Light mode now uses white text on darker background.
+- (webui) Buttons now use colored backgrounds instead of just colored borders.
+- (webui) Add push notifications.
 
 ## 2026-11-27 v1.28.0
 

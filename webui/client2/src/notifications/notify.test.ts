@@ -1,7 +1,9 @@
+// @vitest-environment jsdom
+
 // The live-socket settle path: when a hidden page posts a banner, and when
 // it shows nothing.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { notifySettles, reset, type WorkerChannel } from './notify';
 import type { SessionRow } from '../protocol/protocol';
 
@@ -34,8 +36,26 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
   } as SessionRow;
 }
 
+/** Puts the Push API on the page, as a secure context has it. jsdom has
+ *  no `serviceWorker`, which is exactly the plain-http shape, so a test that
+ *  wants the supported case installs it and a test that wants http does
+ *  not. Restored after every test so nothing leaks between them. */
+function supportedPage(): void {
+  Object.defineProperty(navigator, 'serviceWorker', {
+    value: { ready: Promise.resolve({ active: null }) },
+    configurable: true,
+  });
+  vi.stubGlobal('Notification', { permission: 'granted' });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete (navigator as { serviceWorker?: unknown }).serviceWorker;
+});
+
 beforeEach(() => {
   reset();
+  supportedPage();
 });
 
 describe('notifySettles', () => {
@@ -133,5 +153,42 @@ describe('notifySettles', () => {
     // Then a second banner is posted.
     expect(posted).toBe(1);
     expect(c.posted).toHaveLength(2);
+  });
+
+  // The plain-http page: no service worker, so nothing can be posted. This
+  // is the tab that threw `navigator.serviceWorker is undefined` before the
+  // gate moved into notifySettles.
+  describe('without the Push API', () => {
+    beforeEach(() => {
+      delete (navigator as { serviceWorker?: unknown }).serviceWorker;
+    });
+
+    it('posts nothing for a new settle, even while hidden', async () => {
+      // Given a hidden page on http that has seen no settle for the session.
+      const c = channel(true);
+      notifySettles([row()], c);
+      const settled = row({ last_settled_at: '2026-01-01T00:00:00Z' });
+
+      // When a settle arrives.
+      const posted = notifySettles([settled], c);
+
+      // Then nothing is posted.
+      expect(posted).toBe(0);
+      expect(c.posted).toEqual([]);
+    });
+
+    it('still records the settle it saw', () => {
+      // Given a page on http that saw a settle while hidden.
+      const c = channel(true);
+      notifySettles([row()], c);
+      notifySettles([row({ last_settled_at: '2026-01-01T00:00:00Z' })], c);
+
+      // When the page gains the Push API and a newer settle arrives.
+      supportedPage();
+      const posted = notifySettles([row({ last_settled_at: '2026-01-02T00:00:00Z' })], c);
+
+      // Then only the newer settle is news: one banner.
+      expect(posted).toBe(1);
+    });
   });
 });
