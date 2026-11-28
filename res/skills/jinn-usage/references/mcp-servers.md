@@ -92,31 +92,34 @@ args = ["mcp", "smolvm", "--cwd", "<session_cwd>"]
 auto_enable = false
 ```
 
-Enabling it boots **one ephemeral Alpine Linux microVM for this session
-only** — not a singleton. The session's working directory is mounted
-read-write at `/workspace` inside the guest, which is also the default
-working directory, so `vm_run` edits the session's real tree. Two tools:
-`vm_run` (run a shell command via `bash -lc`; the guest has bash, git, and
-python3; returns stdout/stderr/exit code; a command killed at the timeout —
-default 60s, max 600s — returns its partial output with exit code 124) and
-`vm_info` (the machine manifest plus live guest facts: distro, kernel,
-CPUs, memory, the mount, uptime). The VM lives and dies with the server
-process: disabling the server or quitting jinn discards the guest disk,
-while writes to the mounted session directory persist on the host.
+Enabling it boots **one ephemeral Alpine Linux microVM per session**. The
+session's working directory is mounted read-write at `/workspace` inside
+the guest, which is also the default working directory, so `vm_run`
+edits the session's real tree. Two tools:
+
+- `vm_run` runs a shell command via `bash -lc`. The guest has bash, git,
+  and python3. It returns stdout, stderr, and the exit code. A command
+  killed at the timeout (default 60s, max 600s) returns its partial
+  output with exit code 124.
+- `vm_info` returns the machine manifest plus live guest facts: distro,
+  kernel, CPUs, memory, the mount, uptime.
+
+The VM lives and dies with the server process: disabling the server or
+quitting jinn discards the guest disk, while writes to the mounted
+session directory persist on the host.
 
 Requirements: hardware virtualization (KVM on Linux, HVF on macOS). First
-boot needs the network (packages install from Alpine's index) and downloads
-the VM engine once. Boot progress streams live into the server's stderr
-tail in the picker preview while it connects — one line per phase (engine
-download, machine create, guest boot, first-boot package install) with a
-running elapsed-seconds heartbeat, ending in `ready — serving vm_run and
-vm_info`. Machine manifests seed into `~/.config/jinn/smolvm/`
-(`alpine.toml`
-ships; your edits are never overwritten) and every boot reads the file
-from disk — the server refuses to start without it. To boot a different
-manifest, add your own entry:
+boot needs the network (packages install from Alpine's index) and
+downloads the VM engine once. Boot progress streams live into the
+server's stderr tail in the picker preview while it connects: one line
+per phase (engine download, machine create, guest boot, first-boot
+package install) with a running elapsed-seconds heartbeat, ending in `ready —
+serving vm_run and vm_info`. Machine manifests seed into
+`~/.config/jinn/smolvm/`. `alpine.toml` ships, and your edits are never
+overwritten. Every boot reads the file from disk, and the server refuses
+to start without it. To boot a different manifest, add your own entry:
 `args = ["mcp", "smolvm", "--cwd", "<session_cwd>", "--smolfile",
-"/path/to/profile.toml"]` — each `[mcp.<name>]` entry is its own
+"/path/to/profile.toml"]`. Each `[mcp.<name>]` entry is its own
 per-session machine.
 
 ### Browser — one shared headed Chrome
@@ -129,65 +132,72 @@ singleton = true       # one daemon client per machine; the Chrome window itself
 auto_enable = false
 ```
 
-Twelve tools for driving a real headed Chrome: `open_tab` (returns a tab
-id), `list_tabs`, `navigate`, `snapshot` (readable page tree — a
-plain DOM-selector walk, not an accessibility tree — with `e<n>` refs
-over the interactive elements, including same-origin iframe content as
-`f<k>:e<n>` refs and shadow-DOM content as ordinary refs; every
-`iframe` appears as a non-clickable `<iframe>` row with its id/src and
-rect center), `click` (by `tab` + `ref`), `click_at` (by `tab` +
-viewport CSS-px `x`/`y` — last resort; screenshot pixels only map 1:1
-to viewport coordinates when the image width equals `innerWidth`, so
-scaling guesses routinely miss — re-snapshot and use refs instead;
-coordinates are clamped), `type`, `press` (key names like `"Enter"`,
-`"Tab"`), `evaluate` (stealth JS eval: the value of the script's **last
-top-level expression** is returned — statement-shaped scripts like
-`const x = …` return null, so end with an expression or a `return`;
-scripts already ending in an IIFE call — a `})()` tail — are passed
-through unwrapped; script exceptions surface as readable tool errors,
-never silent nulls; pass `frame = "g1"` to evaluate inside a
-cross-origin frame; use evaluate to read the page and snapshot refs
-with `click` to act on it — script-side `.click()` is a synthetic DOM
-event, not trusted input, and some consent widgets ignore it),
-`screenshot` (returns a saved PNG **path** — view it with the
-image-attachment built-in), `wait` (`"navigation"`, `"network_idle"`,
-`{text = "…"}`, or `{ms = n}`), and `close_tab`. **Every tool except
-`open_tab`/`list_tabs` requires the `tab` id** — there is no "whatever
-tab is live" fallback. Cross-origin iframes (consent banners, embedded
-widgets) appear as `[g1] <iframe>` rows with their own `g1:e1`-style
-refs — clickable/typable by ref like any top-frame element. Same-origin
-iframes carry `f<k>:e<n>` refs. A stale ref (frame navigated away or
-re-created) errors with a re-snapshot hint. Overlays and consent
-banners often render after the initial load: if the user mentions
-something the snapshot doesn't show, re-snapshot before measuring or
-clicking.
+Twelve tools for driving a real headed Chrome:
+
+- `open_tab` returns a tab id. `list_tabs` lists them. `navigate` and
+  `type` take the tab too.
+- `snapshot` returns a readable page tree: a plain DOM-selector walk with
+  `e<n>` refs over the interactive elements. Same-origin iframe content
+  appears as `f<k>:e<n>` refs, and shadow-DOM content as ordinary refs.
+  Every `iframe` appears as a `<iframe>` row with its id/src and rect
+  center, and the row is for reading only.
+- `click` takes `tab` + `ref`.
+- `click_at` takes `tab` and viewport CSS-px `x`/`y`. Treat it as a last
+  resort: screenshot pixels map 1:1 to viewport coordinates only when
+  the image width equals `innerWidth`, so scaling guesses routinely
+  miss. Re-snapshot and use refs. Coordinates are clamped.
+- `press` takes key names like `"Enter"` or `"Tab"`.
+- `evaluate` is a stealth JS eval. The value of the script's **last
+  top-level expression** is returned, so statement-shaped scripts like
+  `const x = …` return null; end with an expression or a `return`.
+  Scripts already ending in an IIFE call (a `})()` tail) pass through
+  unwrapped. Script exceptions surface as readable tool errors. Pass
+  `frame = "g1"` to evaluate inside a cross-origin frame.
+- `screenshot` returns a saved PNG **path**; view it with the
+  image-attachment built-in.
+- `wait` takes `"navigation"`, `"network_idle"`, `{text = "…"}`, or
+  `{ms = n}`.
+- `close_tab` closes the tab.
+
+**Every tool except `open_tab`/`list_tabs` requires the `tab` id.**
+Cross-origin iframes (consent banners, embedded widgets) appear as
+`[g1] <iframe>` rows with their own `g1:e1`-style refs, clickable and
+typable by ref like any top-frame element. A stale ref (frame navigated
+away or re-created) errors with a re-snapshot hint.
+
+Use `evaluate` to read the page and snapshot refs with `click` to act on
+it. A script-side `.click()` is a synthetic DOM event, and some consent
+widgets ignore it. Overlays and consent banners often render after the
+initial load, so if the user mentions something the snapshot lacks,
+re-snapshot before measuring or clicking.
 
 The Chrome window is owned by a separate **browser daemon** (`jinn
-browser daemon`), not by jinn or this server: the first tool call
-auto-starts it, it outlives jinn restarts, and every jinn instance and
-`jinn.browser` luau script on the machine shares the same window and
-tabs. `jinn browser status|stop|restart` manage it directly. Tab ids
-from before a Chrome crash are gone (`unknown tab`) — the daemon
-relaunches transparently on the next command and `list_tabs` shows the
-new state. Pick the browser binary with `[browser] binary = "/abs/path"`
-in jinn.toml (unset = auto-detect: PATH first, then install paths;
-branded Chrome preferred, Chromium fallback; a configured path that does
-not resolve refuses the daemon start).
+browser daemon`). The first tool call auto-starts it, and it outlives
+jinn restarts. Every jinn instance and `jinn.browser` luau script on
+the machine shares the same window and tabs. `jinn browser status|stop|restart` manage it directly. Tab ids from before a Chrome
+crash are gone (`unknown tab`); the daemon relaunches on the next
+command and `list_tabs` shows the new state.
 
-Input is stealth-tuned (trusted-input CDP paths, no automation flags,
-no `Runtime.enable`/`Network.enable`), so logged-in sites treat it like
-a normal user window.
+Pick the browser binary with `[browser] binary = "/abs/path"` in
+jinn.toml. Unset, it auto-detects: PATH first, then install paths, with
+branded Chrome preferred over the Chromium fallback. A configured path
+that fails to resolve refuses the **daemon start** and names the path.
+
+Input is stealth-tuned (trusted-input CDP paths, no automation flags, no
+`Runtime.enable`/`Network.enable`), so logged-in sites treat it like a
+normal user window.
 
 ### Lua MCP servers
 
 Any plain Lua file can be an MCP server: point a `[mcp.x]` entry at
 `jinn luau serve` and the script's `jinn.tool` registrations become the
-server's tools. Nothing new to configure — same token expansion, same picker
-toggle, same `<c-r>` restart. Save reusable scripts under the universal
-scripts directory, `~/.local/share/jinn/scripts`, and reference them with the
-`<scripts>` token, which expands to that directory in `args` and env values
-and needs no session — it works on `singleton` and per-session entries alike
-(`<session_cwd>` remains for scripts pinned to one session's tree):
+server's tools. It configures like any other server: same token
+expansion, same picker toggle, same `<c-r>` restart. Save reusable
+scripts under the universal scripts directory,
+`~/.local/share/jinn/scripts`, and reference them with the `<scripts>`
+token. It expands to that directory in `args` and env values and works
+on `singleton` and per-session entries alike. `<session_cwd>` remains
+for scripts pinned to one session's tree:
 
 ```toml
 [mcp.foomart]
@@ -226,10 +236,10 @@ preview. The agent can also restart a dead server itself via its built-in
 ### The web UI's MCP servers view
 
 The `☰` menu's **MCP servers** item (while a session is active) opens a
-modal of every `[mcp.<name>]` entry with its live status badge; a row
-click applies the toggle at once, with no staging. The session dash's
-MCP section opens the same modal. Staging, previews, restarts, and
-per-server detail panes are the TUI's. `webui.md` →
+modal of every `[mcp.<name>]` entry with its live status badge. A row
+click applies the toggle at once. The session dash's MCP section opens
+the same modal. Staging, previews, restarts, and per-server detail panes
+live in the TUI's picker. `webui.md` →
 [Pickers](webui.md#pickers).
 
 ## Tools in context

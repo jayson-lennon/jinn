@@ -403,11 +403,11 @@ loopback or behind a VPN or SSH tunnel you secure:
 bind = "127.0.0.1:8388"   # default: loopback, fixed port (bookmarkable)
 ```
 
-The bind is read once at launch; an edit applies at the next restart,
-never live — reconnecting every open page's socket to a new address is
-not possible, and a taken port stops the launch. Port `0` picks a fresh
-port each launch; the resolved URL is on the Dashboard tab's **webui**
-row. Unlike `[remote]`, a non-loopback bind is accepted as configured.
+The bind is read once at launch; an edit applies at the next restart. An
+open page's socket stays on the address it connected to, and a taken
+port stops the launch. Port `0` picks a fresh port each launch; the
+resolved URL is on the Dashboard tab's **webui** row. Unlike `[remote]`,
+a non-loopback bind is accepted as configured.
 
 **Watchdogs** (turn health; these cancel a turn that has gone bad):
 
@@ -438,18 +438,18 @@ max_argument_chars = 500   # longer arguments are skipped; 0 = no limit
 
 Both watch a tool call against the previous two completed calls of the
 session (same tool name required). The exact watchdog fires on arguments
-and results that are byte-equal after whitespace normalization; the fuzzy
-watchdog fires when both are within `similarity` of their predecessors.
-Either counts with the same accumulator as the tool-failure watchdog — up
-on a repeat, down by one on a differing call, floor at zero — so repeats
-need not be strictly consecutive.
+and results that are byte-equal after whitespace normalization. The
+fuzzy watchdog fires when both are within `similarity` of their
+predecessors. Either counts with the same accumulator as the
+tool-failure watchdog: up on a repeat, down by one on a differing call,
+floor at zero. Repeats need not be strictly consecutive.
 
-The intervention is two-staged per turn: the first time the budget is
-spent, a `RuleInterrupt` guidance entry is injected ("you have called X N
-times with identical arguments and the same result — change approach") and
-the turn continues. If the repeat continues and the budget is spent again,
-the turn is cancelled. `max_repeats = 0` disables a watchdog entirely
-(the actor is not spawned); the other watchdog runs on independently.
+The intervention is two-staged per turn. The first time the budget is
+spent, a `RuleInterrupt` guidance entry is injected ("you have called X
+N times with identical arguments and the same result — change approach")
+and the turn continues. If the repeat continues and the budget is spent
+again, the turn is cancelled. `max_repeats = 0` disables a watchdog
+entirely; the other watchdog runs on independently.
 
 **Stream rules** (regex over the assistant's output as it is produced; the
 only rule kind that can act mid-response):
@@ -576,12 +576,12 @@ TOML escape, and it fails the whole file.
 
 The browser daemon's Chrome. Unset = auto-detect (PATH first, then
 platform install paths; branded Google Chrome preferred, Chromium
-fallback). A set path that does not resolve refuses the **daemon start**
-(not jinn's launch) — the browser is optional tooling, and every tool
-call's error names the configured path. Resolution happens once at
-daemon startup, whichever client (MCP tool, luau script, `jinn browser
-start`) triggered it; `jinn browser status` shows the resolved binary
-and `jinn browser restart` applies an edit. Feature guide: the Browser
+fallback). A set path that fails to resolve refuses the **daemon start**
+and leaves jinn's launch alone; every tool call's error names the
+configured path. Resolution happens once at daemon startup, whichever
+client (MCP tool, luau script, `jinn browser start`) triggered it.
+`jinn browser status` shows the resolved binary and
+`jinn browser restart` applies an edit. Feature guide: the Browser
 section of `mcp-servers.md`.
 
 **Session retention** (database maintenance; every knob defaults to a

@@ -35,8 +35,8 @@ page onto the same sessions — so most features have a TUI and a web way.
    of `webui.md` that describes it — follow that pointer rather than
    answering from the feature reference alone, because a web behavior is
    described in exactly one place. A feature the web lacks is listed under
-   "What the web UI does not do" there — say it is TUI-only; never
-   describe a web control that does not exist.
+   "TUI-only features" there — say it is TUI-only and name the TUI
+   surface that has it.
 4. **Answer with real keybinds.** Every instruction cites a concrete binding:
    "press `p` in normal mode to pin", never "use the pin command". What's
    written here is the **defaults**; the user may be running different ones.
@@ -84,7 +84,7 @@ the current truth) and echo that.
 | File                                   | Covers                                                                                     |
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `references/ui-map.md`                 | The on-screen surfaces, TUI and web UI: layout diagrams, what each element is, where it sits, its keys |
-| `references/webui.md`                  | The web UI (the browser page served at the root of its own port): how to open it, its sidebar (Sessions / Library, the `⋮` row menu, the **Archive** picker), its transcript and `⋮` entry menu, its status bar (persona, context figure) and the session dash behind the figure, its `☰` menu (with its **Notifications** item), its push notifications and where they arrive, its pickers (Skills, Persona, Tools, MCP servers, Applets, the model picker, the OpenRouter model market), its composer keys, reconnecting, what it does not do. The one place a web behavior is described |
+| `references/webui.md`                  | The web UI (the browser page served at the root of its own port): how to open it, its sidebar (Sessions / Library, the `⋮` row menu, the **Archive** picker), its transcript and `⋮` entry menu, its status bar (persona, context figure) and the session dash behind the figure, its `☰` menu (with its **Notifications** item), its push notifications and where they arrive, its pickers (Skills, Persona, Tools, MCP servers, Applets, the model picker, the OpenRouter model market), its composer keys, reconnecting, its TUI-only features. The one place a web behavior is described |
 | `references/keybindings.md`            | Every scope's default bindings, categorized                                                |
 | `references/context-management.md`     | Pinning, context toggles, isolate, compaction/pruning tuning                               |
 | `references/sessions-and-subagents.md` | Sessions (create, switch, rename), the Library, forks, the session tree, subagents/tasks |

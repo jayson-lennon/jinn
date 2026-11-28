@@ -17,4 +17,6 @@
 .entry-status { margin-left: 8px; font-size: 11px; color: var(--fg-faint); }
 .result-failure .entry-status { color: var(--danger); }
 .entry-note { color: var(--fg-faint); font-size: 12px; }
+/* A loaded skill's name beside its tool name in the result's header. */
+.tool .skill-name { margin-left: 6px; color: var(--fg-dim); font-size: inherit; }
 

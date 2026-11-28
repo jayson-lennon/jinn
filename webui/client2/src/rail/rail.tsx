@@ -40,6 +40,8 @@ export interface RailProps {
   /** Whether the drawer is slid in, and the setter that slides it. */
   open: () => boolean;
   setOpen: (open: boolean) => void;
+  /** Opens the New session modal: the same opener the hamburger menu's item uses. */
+  onNewSession: () => void;
 }
 
 export function SessionRail(props: RailProps): JSX.Element {
@@ -145,9 +147,26 @@ export function SessionRail(props: RailProps): JSX.Element {
             Library
           </button>
         </div>
-        <button class="rail-action" data-testid="open-picker" onClick={showPicker}>
-          Archive
-        </button>
+        <div class="rail-actions">
+          <button class="rail-action" data-testid="open-picker" onClick={showPicker}>
+            Archive
+          </button>
+          <button
+            type="button"
+            class="rail-action rail-new"
+            data-testid="new-session-button"
+            aria-label="New session"
+            onClick={() => {
+              // The modal covers the page; the drawer under it is now in
+              // the way, exactly as a picked row leaves it. Inert at desktop
+              // widths, where the open flag does nothing.
+              setOpen(false);
+              props.onNewSession();
+            }}
+          >
+            +
+          </button>
+        </div>
         <ul class="sessions" data-testid="rail-rows">
           <For each={rows()}>
             {(row) => {

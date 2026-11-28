@@ -631,13 +631,11 @@ pub struct ChatInputBoxState {
 
 ### jinn-usage Skill Staleness Check
 
-Before merging, check `res/skills/jinn-usage` for staleness **only if the
-change resulted in a new or changed or removed user-facing behavior** — a
-stale keybind or UI description in the skill misleads every future session,
-which costs the user more than an honest "I don't know". Update `SKILL.md`
-and/or the affected reference when a keybind, screen surface, config
-section, resource family, or workflow the skill documents changed. Rust-internal
-refactors with no user-visible surface skip the check.
+Before merging, check `res/skills/jinn-usage` for staleness whenever a change introduces, changes, or removes user-facing behavior — a keybind, screen surface, config section, resource family, or workflow the skill documents. Rust-internal refactors with no user-visible surface skip the check.
+
+The guide describes jinn as it is now. When a feature changes, rewrite its line to what is true. When it moves, document it where it lives and delete its old line. When it is removed, delete its line. The result reads as though the feature had been born in its final place.
+
+Prefer a positive over a negative, unless the negative is a pure fact. Write what something **is**: "You click the link" over "jinn does not open your browser". "`Esc` does nothing" is a pure fact and stays as it is. Keep a reason only where the user's natural move is the wrong one. The register to match is `res/prompts/judge.md`, `rank.md`, and `falsify.md`. An absence earns a line only where a user's habit would mislead them, and it goes in `webui.md`'s **TUI-only features** list. Quoted output and quoted prompts stay verbatim.
 
 ## 6. Modification Guide
 

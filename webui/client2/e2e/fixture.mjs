@@ -70,6 +70,8 @@ export const sel = {
   MARKET_CLOSE: '[data-testid="market-close"]',
   MARKET_REFRESH: '[data-testid="market-refresh"]',
   OPEN_PICKER: '[data-testid="open-picker"]',
+  /** The sidebar's `+`, beside Archive: opens the New session modal. */
+  NEW_SESSION_BUTTON: '[data-testid="new-session-button"]',
   PICKER_ROW: '[data-testid="picker-row"]',
   PICKER_FILTER: '[data-testid="picker-filter"]',
   /** One picker row, by its depth in the tree. */

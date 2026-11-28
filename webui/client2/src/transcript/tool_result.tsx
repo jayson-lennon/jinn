@@ -1,6 +1,5 @@
 // A tool result: its output, and the full output behind a disclosure.
 
-
 /** Full tool outputs already fetched, by entry id. An output never changes
  * once its entry lands, and re-opening a disclosure must be instant. */
 const toolOutputs = new Map<string, string>();
@@ -8,7 +7,11 @@ const toolOutputs = new Map<string, string>();
 import { createSignal, Show } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg } from '../protocol/protocol';
+import { splitSkillXml } from './raw_blocks';
 import { TOOL_OUTPUT_PREFIX, body } from './shared';
+
+/** The icon the terminal puts before a loaded skill's name. */
+const SKILL_ICON = '\u2756';
 
 export function ToolResultView(props: { value: unknown; sessionId: string | null; entryId: string }): JSX.Element {
   const data = () =>
@@ -19,6 +22,12 @@ export function ToolResultView(props: { value: unknown; sessionId: string | null
       truncation?: unknown;
     } | undefined;
   const status = (): string => (data()?.status ?? 'Pending').toLowerCase();
+  // A loaded skill is pinned as `<skill name="X" …>body</skill>` XML — prompt
+  // machinery, not output to read. The page splits it the way the terminal's
+  // summary label does, so the header names the skill and the body is the
+  // skill's text rather than the wrapping tag. A `skill` result that is not
+  // that shape falls through to the raw text like any other result.
+  const parsed = () => (data()?.name === 'skill' ? splitSkillXml(data()?.content ?? '') : null);
   // The truncation meta is the marker: a result that has one has a full
   // output to fetch, and the bytes stay off the socket until asked for.
   const hasFullOutput = (): boolean => data()?.truncation != null;
@@ -49,9 +58,16 @@ export function ToolResultView(props: { value: unknown; sessionId: string | null
     <details class={`entry-body tool result-${status()}`}>
       <summary>
         <span class="entry-role">tool result</span> <code>{data()?.name}</code>
+        <Show when={parsed() !== null}>
+          <span class="entry-note skill-name" data-testid="skill-name">
+            {SKILL_ICON} {parsed()!.name}
+          </span>
+        </Show>
         <span class="entry-status">{status()}</span>
       </summary>
-      <pre class="entry-text">{data()?.content}</pre>
+      <Show when={parsed() !== null} fallback={<pre class="entry-text">{data()?.content}</pre>}>
+        <pre class="entry-text" data-testid="skill-result">{parsed()!.body}</pre>
+      </Show>
       <Show when={hasFullOutput()}>
         <details
           class="tool-output"
