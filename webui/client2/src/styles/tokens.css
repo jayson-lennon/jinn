@@ -3,20 +3,21 @@
    terminal theme, light from nord-light, and a system mode that follows
    the browser. The names are this page's own; the values are not. */
 :root {
-  /* the page: sonokai's slate, lifted to a mid grey. The terminal's gutter
-     colour read near-black edge to edge on a phone, so the page sits higher
-     and every surface below is a fixed lightness step from this one. */
-  --bg: #474a50;
+  /* the page: sonokai's slate, lifted off the terminal's gutter colour,
+     which read near-black edge to edge on a phone — but not lifted so far
+     that the page grey caught up with the muted text greys and squeezed
+     their lead. Every surface is a fixed lightness step from this one. */
+  --bg: #404349;
   /* the code and preformatted surface, a step below --bg */
-  --bg-code: #404248;
+  --bg-code: #393b41;
   /* one step above --bg */
-  --bg-raised: #4d5056;
+  --bg-raised: #46484f;
   /* the hover step */
-  --bg-hover: #56595f;
+  --bg-hover: #4f5158;
   /* the active step */
-  --bg-active: #5f6168;
+  --bg-active: #575a60;
   /* a user entry's own surface */
-  --bg-user-entry: #52545b;
+  --bg-user-entry: #4b4d54;
   /* sonokai primary_text */
   --fg: #e2e2e3;
   /* secondary text, a step above the page's own lightness */
@@ -24,7 +25,7 @@
   /* a fainter step of the same ramp, for the least important text */
   --fg-faint: #91949e;
   /* a step above the page, with a touch more chroma */
-  --border: #5b5e67;
+  --border: #545760;
   /* sonokai focus_accent — the purple */
   --accent: #c9acec;
   /* sonokai error_text */
@@ -41,7 +42,7 @@
   /* text on the dark scrim, in the one place that paints straight on it */
   --on-scrim: #ffffff;
   /* text on an accent or error fill: the page's own dark ink */
-  --on-fill: #404248;
+  --on-fill: #393b41;
   /* the unread fill: the warm gold an unread session row carries */
   --mark: #ebdca0;
   /* text on the unread gold: a dark ink, in every mode */
