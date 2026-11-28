@@ -2505,3 +2505,18 @@ async fn a_dying_stream_stamps_its_completion_retryable() {
         .expect("the chunk error publishes an error completion");
     assert!(emitted.retryable);
 }
+
+#[rstest::rstest]
+#[test]
+fn elapsed_ms_reports_the_whole_milliseconds_since_an_origin() {
+    // Given an origin exactly 1500 ms in the past.
+    let origin = jiff::Timestamp::now()
+        .checked_sub(jiff::Span::new().milliseconds(1500))
+        .expect("a timestamp 1500 ms ago");
+
+    // When the elapsed whole milliseconds are computed.
+    let elapsed = elapsed_ms(origin);
+
+    // Then it is 1500, plus only the microseconds the call itself took.
+    assert!((1500..=1501).contains(&elapsed), "got {elapsed}");
+}

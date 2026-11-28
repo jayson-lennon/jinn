@@ -6009,6 +6009,7 @@ dependencies = [
  "jinn-llm-support",
  "jinn-mcp-msg",
  "jinn-persona-msg",
+ "jinn-picker",
  "jinn-preferences-config",
  "jinn-provider-config",
  "jinn-provider-selection-msg",

@@ -144,25 +144,33 @@ test("the menu's Archive session archives the session in view", async ({
 test("archiving the viewed session moves the page to another session", async ({
   page,
 }) => {
-  // Given two sessions, the first in view.
+  // Given two sessions, the first in view and the only one holding a marker.
   const first = await viewedSessionId(page);
+  await sendAndWaitForEcho(page, MARKER);
   await createSession(page);
   await page.locator(sel.ROW_WRAP(first)).locator(sel.SESSION_ROW).click();
   await expect(page.locator(sel.ACTIVE_SESSION_ROW)).toHaveAttribute(
     "data-session-id",
     first,
   );
+  // The precondition the move is measured against: the archived session's
+  // marker is what the page shows right now, in its title and transcript.
+  await expect(page.locator(sel.TITLE)).toHaveText(MARKER);
+  await expect(page.locator(sel.TRANSCRIPT)).toContainText(MARKER);
 
   // When the viewed session is archived through the menu.
   await archiveThroughMenu(page);
 
-  // Then its row is gone, and the page is on the other session.
+  // Then the page moved off it: its row is gone, and the title and the
+  // transcript show the other session, which holds no marker.
   await expect(page.locator(sel.ROW_WRAP(first))).toHaveCount(0);
   await expect(page.locator(sel.SESSION_ROW)).toHaveCount(1);
   await expect(page.locator(sel.ACTIVE_SESSION_ROW)).not.toHaveAttribute(
     "data-session-id",
     first,
   );
+  await expect(page.locator(sel.TITLE)).not.toHaveText(MARKER);
+  await expect(page.locator(sel.TRANSCRIPT)).not.toContainText(MARKER);
 });
 
 test("archiving the last session leaves a fresh one active", async ({

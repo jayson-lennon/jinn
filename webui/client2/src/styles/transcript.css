@@ -55,6 +55,19 @@
 .entry-prose blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--fg-dim); }
 .entry-user .entry-text { white-space: pre-wrap; }
 .entry-thinking .entry-prose { color: var(--fg-dim); font-style: italic; }
+.thinking .thinking-header {
+  margin-bottom: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+}
+.thinking .thinking-header:hover { color: var(--fg); }
+.thinking-chevron { display: inline-block; width: 1em; }
+.thinking[data-open='true'] .thinking-header { margin-bottom: 4px; }
 .entry-error { color: var(--danger); }
 .entry-system, .entry-transient { color: var(--fg-dim); }
 

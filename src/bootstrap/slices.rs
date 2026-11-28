@@ -524,14 +524,12 @@ async fn activate_webui2(ctx: &mut Ctx<'_>) -> Result<(), ActivateError> {
     let config_snapshot = ctx.services().config.clone();
     let bus_snapshot = ctx.services().bus.clone();
     let state_snapshot = ctx.state().clone();
-    let store_snapshot = ctx.services().session_store.clone();
     let services_snapshot = ctx.services().clone();
     jinn_webui2::activate(
         &mut ctx.host(),
         &config_snapshot,
         bus_snapshot,
         state_snapshot,
-        store_snapshot,
         &services_snapshot,
     )
     .await?;

@@ -15,6 +15,7 @@ import type { ClientStore } from '../store/store';
 import { beginFork } from '../overlays/session_load';
 import { clearJump } from '../dash/dash';
 import { TranscriptEntry, useEntryMenuDismiss } from './transcript';
+import { NO_THINKING_OPEN, toggleThinking } from './thinking_state';
 
 // ---------------------------------------------------------------------------
 // Transcript
@@ -38,6 +39,13 @@ export function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) =
     setMenuFor(menuFor() === id ? null : id);
   };
   useEntryMenuDismiss(menuFor, () => setMenuFor(null));
+  // Which thinking entries the reader has opened. Page view state too: a
+  // thinking entry is collapsed to its header until clicked, and the text
+  // keeps streaming into the store while it is.
+  const [thinkingOpen, setThinkingOpen] = createSignal(NO_THINKING_OPEN);
+  const toggleThinkingEntry = (id: string): void => {
+    setThinkingOpen(toggleThinking(thinkingOpen(), id));
+  };
   // Follow the stream: when the newest entry grows and the reader is at
   // the bottom, keep them there. A reader who scrolled up is left alone.
   const isNearBottom = (): boolean =>
@@ -189,6 +197,7 @@ export function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) =
                 send: props.send,
                 beginFork: (source) => beginFork(props.store, source),
               }}
+              thinking={{ isOpen: thinkingOpen, toggle: toggleThinkingEntry }}
             />
           )}
         </For>

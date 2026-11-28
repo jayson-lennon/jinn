@@ -2,7 +2,7 @@
 //!
 //! The page raises it itself, the instant it asks the server to activate a
 //! session, and clears it only when the snapshot for *that* session lands, a
-//! refusal answers, or ten seconds pass with neither. It covers the whole
+//! refusal answers, or thirty seconds pass with neither. It covers the whole
 //! page — a second activation cannot fire under it.
 //!
 //! Two tests hold the page's socket with `page.routeWebSocket` so no snapshot
@@ -219,7 +219,28 @@ test("a second click during the load cannot reach the rail", async ({ page }) =>
   await expect(page.locator(sel.SESSION_LOAD)).toBeVisible();
 });
 
-test("a stalled activation clears the overlay at the timeout", async ({ page }) => {
+test("a stalled activation keeps the overlay up past ten seconds", async ({
+  page,
+}) => {
+  // Given the overlay up, and nothing that can ever clear it: the activate
+  // frame is held, so no snapshot and no refusal will arrive.
+  await createSession(page);
+  await holdActivate(page);
+  await page.locator(sel.SESSION_ROW).first().click();
+  await expect(page.locator(sel.SESSION_LOAD)).toBeVisible();
+
+  // Then ten seconds in, the overlay is still up: the budget is thirty, and
+  // a long disk read must not be cut short by the old ten.
+  await page.waitForTimeout(11_000);
+  await expect(page.locator(sel.SESSION_LOAD)).toBeVisible();
+});
+
+test("a stalled activation clears the overlay at the thirty-second timeout", async ({
+  page,
+}) => {
+  // The stall budget alone is the suite's whole per-test timeout, so this
+  // one test is given the room to watch it run out.
+  test.setTimeout(60_000);
   // Given the overlay up, and nothing that can ever clear it: the activate
   // frame is held, so no snapshot and no refusal will arrive.
   await createSession(page);
@@ -230,7 +251,7 @@ test("a stalled activation clears the overlay at the timeout", async ({ page }) 
 
   // Then the stall budget ends it: the overlay clears, the composer names
   // the stall, and the page is still on the session it never left.
-  await expect(page.locator(sel.SESSION_LOAD)).toHaveCount(0, { timeout: 20_000 });
+  await expect(page.locator(sel.SESSION_LOAD)).toHaveCount(0, { timeout: 40_000 });
   await expect(page.locator(sel.COMPOSER_ERROR)).toContainText(STALL_TEXT);
   expect(await viewedSessionId(page)).toBe(before);
 });

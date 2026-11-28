@@ -174,6 +174,14 @@ impl SessionPersistenceActor {
     /// Appends a streaming token to the session's assistant entry,
     /// or to the thinking entry if the token is flagged as reasoning.
     pub(in crate::session_actor) fn on_stream_token(&self, event: &StreamToken) {
+        tracing::debug!(
+            session_id = ?event.session_id,
+            index = event.index,
+            is_thinking = event.is_thinking,
+            token_len = event.token.len(),
+            since_dispatch_ms = elapsed_ms(event.dispatched_at),
+            "session actor: stream token appended"
+        );
         self.state.with_session(|view| {
             let session = view.session.map().get_or_create(&event.session_id);
             match session.phase() {
@@ -848,6 +856,19 @@ fn outcome_from_history(last_entry: Option<ChatEntry>) -> TurnOutcome {
         Some(ChatEntryKind::Error(_)) => TurnOutcome::Error,
         Some(_) | None => TurnOutcome::Succeeded,
     }
+}
+
+/// Whole milliseconds from `origin` to now, by the same conversion
+/// `EntryTiming::ttft` uses — the one origin every token-path log line is
+/// measured against, so a stall is read as a gap between two lines rather
+/// than a difference of two clocks.
+pub(crate) fn elapsed_ms(origin: jiff::Timestamp) -> i64 {
+    let now = jiff::Timestamp::now();
+    now.since(origin)
+        .ok()
+        .and_then(|span| span.total(jiff::Unit::Millisecond).ok())
+        .unwrap_or_default()
+        .round() as i64
 }
 
 #[cfg(test)]
@@ -4767,5 +4788,20 @@ mod tool_loop_round_order {
                     .expect("tool call"),
             "round-2 text must sit below round-1's tool call"
         );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn elapsed_ms_reports_the_whole_milliseconds_since_an_origin() {
+        // Given an origin exactly 1500 ms in the past.
+        let origin = jiff::Timestamp::now()
+            .checked_sub(jiff::Span::new().milliseconds(1500))
+            .expect("a timestamp 1500 ms ago");
+
+        // When the elapsed whole milliseconds are computed.
+        let elapsed = super::elapsed_ms(origin);
+
+        // Then it is 1500, plus only the microseconds the call itself took.
+        assert!((1500..=1501).contains(&elapsed), "got {elapsed}");
     }
 }

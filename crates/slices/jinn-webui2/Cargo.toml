@@ -24,6 +24,7 @@ jinn-session-state = { workspace = true }
 # vocabulary.
 jinn-session-list = { workspace = true }
 jinn-session-store-msg = { workspace = true }
+jinn-picker = { workspace = true }
 jinn-session-history-msg = { workspace = true }
 jinn-context-assembly-msg = { workspace = true }
 jinn-inference-msg = { workspace = true }

@@ -781,7 +781,7 @@ impl MsgHandler<jinn_kernel::protocol::system::ActiveSessionChanged> for Outboun
         msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
         _ctx: &mut MsgCtx<'_>,
     ) {
-        follow_active_session(&self.handle, msg).await;
+        follow_active_session(&self.handle, msg);
     }
 }
 
@@ -796,17 +796,18 @@ impl MsgHandler<jinn_kernel::protocol::system::ActiveSessionChanged> for Outboun
 /// its side; the server does not know which pages those are and sends to
 /// all.
 ///
-/// The activation may still be crossing the store actor's own turn for a
-/// session read from disk, so the pointer is waited for (bounded) first —
-/// the same wait a row click's reply takes.
+/// The store actor publishes this strictly after it has moved the pointer
+/// — on both its branches, the in-memory one and the disk-load one — so the
+/// snapshot is read at once: there is nothing to wait for. A page that asked
+/// for the switch is answered by this frame and by nothing else; the handler
+/// that published the request replies with no frame.
 ///
 /// A free function over the handle so a test drives the real push, with
 /// nothing spawned.
-pub(crate) async fn follow_active_session(
+pub(crate) fn follow_active_session(
     handle: &super::OutboundHandle,
     msg: &jinn_kernel::protocol::system::ActiveSessionChanged,
 ) {
-    crate::actions::wait_for_activation(&handle.deps.state, &msg.session_id).await;
     let crate::snapshot::SnapshotFrame { mut body, window } = crate::frames::snapshot(
         &handle.deps.state,
         &handle.deps.revisions,
@@ -818,6 +819,55 @@ pub(crate) async fn follow_active_session(
     // so the bar is whole on arrival rather than waiting on a change.
     with_status_figure(handle, &mut body);
     handle.broadcast(&ServerMsg::Snapshot(Box::new(body)));
+    tracing::info!(
+        session_id = %msg.session_id,
+        "webui: session snapshot pushed to every page"
+    );
+}
+
+impl MsgHandler<jinn_session_store_msg::SessionPickerEntriesLoaded> for OutboundActor {
+    async fn handle(
+        &mut self,
+        _msg: &jinn_session_store_msg::SessionPickerEntriesLoaded,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        picker_entries_loaded(&self.handle);
+    }
+}
+
+/// Turns the "picker cell written" announcement into the Archive picker's
+/// rows: every entry the store wrote, in the filter the page last asked.
+///
+/// The cell's own tree is read by its full item list, never its filtered
+/// view — the terminal's filter text lives in that tree once a user types
+/// there, and the web's filter is its own. Every entry is taken, unwrapped
+/// to its `SessionTreeEntry`, and re-filtered by the terminal's own tree
+/// filter in the web's filter. Nothing is pushed while no page has asked
+/// for rows: there is no filter to answer in, and a frame nobody is waiting
+/// on would replace an open picker's list with an unfiltered one.
+///
+/// Read the cell, never the event: the event carries nothing but the fact
+/// that the write landed.
+///
+/// A free function over the handle so a test drives the real push, with
+/// nothing spawned.
+pub(crate) fn picker_entries_loaded(handle: &super::OutboundHandle) {
+    let Some(filter) = handle.picker_filter() else {
+        return;
+    };
+    let entries = handle
+        .session_picker_cell()
+        .read()
+        .tree
+        .items()
+        .iter()
+        .map(|item| item.entry().clone())
+        .collect();
+    let rows = crate::actions::session_tree_rows(entries, &filter);
+    handle.broadcast(&ServerMsg::PickerRows(jinn_webui2_msg::PickerRowsBody {
+        filter,
+        rows,
+    }));
 }
 
 impl MsgHandler<jinn_mcp_msg::McpRuntimeStored> for OutboundActor {
@@ -1184,6 +1234,7 @@ pub(crate) fn flush(handle: &super::OutboundHandle) {
     push_dash_rows(handle);
     let growing = growing_fields(handle);
     let mut sent = handle.sent.lock();
+    let mut deltas = Vec::new();
     for (session_id, index, entry, field, current) in growing {
         send_suffix(
             handle,
@@ -1193,8 +1244,25 @@ pub(crate) fn flush(handle: &super::OutboundHandle) {
             &entry,
             field,
             &current,
+            &mut deltas,
         );
     }
+    if !deltas.is_empty() {
+        tracing::info!(
+            delta_count = deltas.len(),
+            oldest_entry_age_ms = deltas
+                .iter()
+                .map(|sent: &SentDelta| sent.entry_age_ms)
+                .min()
+                .unwrap_or_default(),
+            "webui: flush pushed deltas"
+        );
+    }
+}
+
+/// One delta a flush tick pushed, and how old the entry it grew was.
+struct SentDelta {
+    entry_age_ms: i64,
 }
 
 /// The depth of `session_id`'s turn queue, read from committed state.
@@ -1280,6 +1348,7 @@ fn send_suffix(
     entry: &ChatEntry,
     field: DeltaField,
     current: &str,
+    deltas: &mut Vec<SentDelta>,
 ) {
     if !sent.knows(&entry.id) {
         sent.hold(&entry.id);
@@ -1291,6 +1360,21 @@ fn send_suffix(
     }
     handle.broadcast(&crate::frames::delta(session_id, &entry.id, field, chunk));
     sent.changed(entry);
+    deltas.push(SentDelta {
+        entry_age_ms: elapsed_ms(entry.timing.at()),
+    });
+}
+/// Whole milliseconds from `origin` to now, by the same conversion
+/// `EntryTiming::ttft` uses — the one origin every token-path log line is
+/// measured against, so a stall is read as a gap between two lines rather
+/// than a difference of two clocks.
+pub(crate) fn elapsed_ms(origin: jiff::Timestamp) -> i64 {
+    let now = jiff::Timestamp::now();
+    now.since(origin)
+        .ok()
+        .and_then(|span| span.total(jiff::Unit::Millisecond).ok())
+        .unwrap_or_default()
+        .round() as i64
 }
 
 /// One read of the state: every streaming field, with its entry.

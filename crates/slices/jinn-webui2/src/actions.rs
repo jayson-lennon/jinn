@@ -10,12 +10,6 @@
 //! actor that performs the action is the one the TUI drives — never this
 //! slice.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
-use std::time::Duration;
-
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::{
     ChatEntry, ChatEntryId, ContextOverride, ModelSelection, NameFilter, PinPosition, SessionId,
@@ -30,15 +24,19 @@ use jinn_session_history_msg::{PinChatEntry, SetEntryContextOverride, UnpinChatE
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
-    ArchiveSession, PersistSession, SessionForkRequested, SessionLoadRequested, SessionTreeEntry,
-    SetSessionLibrary,
+    ArchiveSession, LoadSessionPickerEntries, PersistSession, SessionForkRequested,
+    SessionLoadRequested, SessionTreeEntry, SetSessionLibrary,
 };
 use jinn_webui2_msg::{
     AppletRowBody, AppletRowsBody, EntriesPageBody, EntryUpsertBody, ErrorBody, ImageUploadBody,
     LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelRowBody, ModelRowsBody,
-    NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PickerRowBody, PickerRowsBody,
-    PromptTemplateBody, ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, ThemeBody, TitleBody,
-    ToolRowBody, ToolRowsBody,
+    NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PickerRowBody, PromptTemplateBody,
+    ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
+    ToolRowsBody,
+};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use crate::{
@@ -57,12 +55,8 @@ pub enum Refusal {
     SessionBusy,
     /// The text was empty or whitespace.
     EmptyText,
-    /// No session with that id is loaded.
-    UnknownSession,
     /// There is no active session.
     NoActiveSession,
-    /// The session store could not be read.
-    StoreUnavailable,
     /// The active session has not discovered a skill by that name.
     UnknownSkill,
     /// The active session's registry offers no tool by that name.
@@ -77,12 +71,8 @@ pub enum Refusal {
     EntryIsPinned,
     /// The theme is not one of the three modes.
     UnknownTheme(String),
-    /// No live session and nothing in the store carries that id.
-    UnknownLibraryTarget(SessionId),
     /// The session to archive is running a turn.
     ArchiveSessionBusy,
-    /// The session to archive is already archived.
-    AlreadyArchived(SessionId),
     /// The request named no configured `[[project.entry]]`.
     UnknownProject(String),
     /// A configured project path is neither `~`-prefixed nor absolute.
@@ -106,9 +96,7 @@ impl Refusal {
         match self {
             Self::SessionBusy => "session is busy — queue the message instead".to_owned(),
             Self::EmptyText => "message is empty".to_owned(),
-            Self::UnknownSession => "unknown session".to_owned(),
             Self::NoActiveSession => "no active session".to_owned(),
-            Self::StoreUnavailable => "session store unavailable".to_owned(),
             Self::UnknownSkill => "unknown skill".to_owned(),
             Self::UnknownTool => "unknown tool".to_owned(),
             Self::UnknownMcpServer => "unknown mcp server".to_owned(),
@@ -118,11 +106,7 @@ impl Refusal {
             Self::UnknownTheme(theme) => {
                 format!("unknown theme `{theme}` (want light, dark, or system)")
             }
-            Self::UnknownLibraryTarget(id) => {
-                format!("no session with id {id} is live or stored")
-            }
             Self::ArchiveSessionBusy => "session is busy — cancel the turn first".to_owned(),
-            Self::AlreadyArchived(id) => format!("session {id} is already archived"),
             Self::UnknownProject(project) => {
                 format!("project {project:?} is not a configured [[project.entry]]")
             }
@@ -479,75 +463,34 @@ pub async fn cancel(out: &OutboundHandle) -> Reply {
 
 /// Switches the instance's active session.
 ///
-/// Mirrors the terminal: `begin_load` and `set_active`, then
-/// `SessionLoadRequested`. The terminal only requests the load when its
-/// line cache says the session is unmeasured; the web has no line cache,
-/// so it always requests it, and the store's no-op for an in-memory
-/// session is harmless.
+/// Mirrors the terminal's own activation (`jinn_chat_log_view`'s
+/// `activate_session`): the pointer moves at once, then one
+/// `SessionLoadRequested` carries the switch to the store actor. The
+/// terminal asks only when its line cache says the session is unmeasured;
+/// the web has no line cache, so it always asks, and the store actor's
+/// in-memory branch is a pointer move with no disk read.
+///
+/// Nothing is read and nothing is answered here. This slice holds no
+/// session store: whether the id names a session is the store actor's to
+/// decide, and the page's whole view of the switched-to session reaches it
+/// through the outbound actor's `ActiveSessionChanged` snapshot, exactly as
+/// a switch made in the terminal reaches every page.
 pub async fn activate_session(out: &OutboundHandle, session_id: SessionId) -> Reply {
-    let state = out.state();
-    // A session that is only archived is not in memory, and that is not a
-    // reason to refuse: the store actor reads it from disk and unarchives
-    // it on the same load request. Only an id the store does not hold can
-    // never become active, so only that one is refused, before anything
-    // is published.
-    if !state.read().session.contains(&session_id) {
-        let stored = out.session_store().load_session(&session_id).await;
-        match stored {
-            Ok(Some(_)) => {}
-            Ok(None) => return refused(&Refusal::UnknownSession),
-            Err(_) => return refused(&Refusal::StoreUnavailable),
-        }
-    }
     {
-        let mut guard = state.write();
+        let mut guard = out.state().write();
         guard.session.begin_load(session_id.clone());
         guard.session.set_active(session_id.clone());
     }
+    tracing::info!(
+        session_id = %session_id,
+        "webui: session load requested — the store actor takes it from here"
+    );
     out.publish(SessionLoadRequested {
-        session_id: session_id.clone(),
+        session_id,
         content_width: None,
     })
     .await;
-    // The store actor applies the activation on its own turn, and an
-    // archived session is read from disk first. The snapshot below is
-    // drawn from live state, so it waits (bounded) for that to land; a
-    // snapshot drawn mid-load would describe the session just left.
-    wait_for_activation(state, &session_id).await;
-    // The page is now looking at a different session, so it is told so
-    // wholesale: which session it views, that session's title, model and
-    // phase, and its transcript from the start. Everything the page shows
-    // is replaced in the one arm that already applies a snapshot.
-    //
-    // The load ends with a reconcile that broadcasts the session's entries
-    // as upserts, before this reply is built, so the page can receive the
-    // same entries twice: once as upserts and once in the snapshot below.
-    // That is harmless only because the page applies an upsert by id, so a
-    // repeat replaces rather than duplicates.
-    snapshot_reply(out)
-}
-
-/// How long an activation is given to land before the page is answered
-/// with whatever state is current. Long enough for a disk read, short
-/// enough that a store that never answers does not hang the click.
-const ACTIVATION_BUDGET: Duration = Duration::from_millis(2_000);
-
-/// How often the active pointer is re-read while waiting.
-const ACTIVATION_POLL: Duration = Duration::from_millis(5);
-
-/// Waits until `session_id` is the active session, or the budget runs out.
-///
-/// The read guard is taken, checked, and dropped before each sleep; it is
-/// never held across the await.
-pub(crate) async fn wait_for_activation(state: &jinn_kernel::State, session_id: &SessionId) {
-    let deadline = tokio::time::Instant::now() + ACTIVATION_BUDGET;
-    while *state.read().session.active_session_id() != *session_id {
-        let now = tokio::time::Instant::now();
-        if now >= deadline {
-            return;
-        }
-        tokio::time::sleep((deadline - now).min(ACTIVATION_POLL)).await;
-    }
+    Reply::none()
 }
 
 /// Switches the active session's model.
@@ -610,31 +553,23 @@ fn write_title(state: &jinn_kernel::State, title: &str) -> Option<SessionId> {
 
 /// The stored-session picker's rows for a filter.
 ///
-/// Every session the store knows — loaded or archived — as the terminal's
-/// session picker shows it: a tree, forked sessions under their parent,
-/// filtered by the terminal's own tree filter and capped at
-/// [`PICKER_ROW_CAP`] whole trees.
+/// The Archive picker's rows.
+///
+/// Parity: the terminal's own session picker (`open_session_picker`),
+/// message for message. Publishes the existing `LoadSessionPickerEntries`
+/// and nothing else: the store actor reads the summaries, writes the rows
+/// into the picker's cell, and announces `SessionPickerEntriesLoaded`. The
+/// outbound actor turns that into the `PickerRows` frame, in the filter
+/// recorded here — so the reply itself carries no frame.
+///
+/// This slice holds no session store, so nothing is read here. A publish
+/// only enqueues: it does not wait for the store actor to handle the
+/// command, so the cell cannot be read back in this handler, which is why
+/// the rows arrive as a push.
 pub async fn picker_rows(out: &OutboundHandle, filter: String) -> Reply {
-    let rows = match stored_rows(out, &filter).await {
-        Ok(rows) => rows,
-        Err(report) => {
-            tracing::warn!(error = %report, "web UI could not read stored sessions");
-            return refused(&Refusal::StoreUnavailable);
-        }
-    };
-    Reply::one(ServerMsg::PickerRows(PickerRowsBody { filter, rows }))
-}
-
-async fn stored_rows(
-    out: &OutboundHandle,
-    filter: &str,
-) -> Result<Vec<PickerRowBody>, error_stack::Report<jinn_session_state::SessionStoreError>> {
-    // One read: every session, loaded and archived alike, each with the
-    // parent and project the tree needs.
-    let summaries = out.session_store().load_summaries().await?;
-    let theme = out.state().read().frontend.theme.clone();
-    let entries = jinn_session_store_msg::session_tree_entries(summaries, &theme);
-    Ok(session_tree_rows(entries, filter))
+    out.remember_picker_filter(&filter);
+    out.publish(LoadSessionPickerEntries).await;
+    Reply::none()
 }
 
 /// The stored-session picker's rows: the terminal's own tree filter over
@@ -1690,25 +1625,16 @@ pub async fn set_theme(out: &OutboundHandle, theme: String) -> Reply {
     Reply::one(ServerMsg::Theme(ThemeBody { theme }))
 }
 
-/// Adds a session to, or removes it from, the library.
+/// Sets a session's Library membership.
 ///
-/// Publishes the existing `SetSessionLibrary` command and nothing else: the
-/// store actor persists the column, mirrors the flag into the in-memory
-/// session, and announces `SessionLibraryMembershipChanged` — which the
-/// outbound actor turns into a fresh sessions frame for every page. The web UI
-/// writes no membership state of its own; a second writer would race the
-/// store actor's single-writer path.
-///
-/// An id neither live nor stored is refused before the publish.
+/// Parity: the sidebar's `L`, message for message. Publishes the existing
+/// `SetSessionLibrary` command and nothing else: the store actor is the
+/// single writer of the membership flag, mirrors it into the in-memory
+/// session, and announces `SessionLibraryMembershipChanged`, which the
+/// outbound actor turns into the session-list frame. Nothing is validated
+/// here — this slice holds no session store, so whether the id is known is
+/// the store actor's to decide.
 pub async fn set_library(out: &OutboundHandle, session_id: SessionId, in_library: bool) -> Reply {
-    let known_live = out.state().read().session.contains(&session_id);
-    if !known_live {
-        match out.session_store().load_session(&session_id).await {
-            Ok(Some(_)) => {}
-            Ok(None) => return refused(&Refusal::UnknownLibraryTarget(session_id)),
-            Err(_) => return refused(&Refusal::StoreUnavailable),
-        }
-    }
     out.publish(SetSessionLibrary {
         session_id,
         in_library,
@@ -1727,27 +1653,13 @@ pub async fn set_library(out: &OutboundHandle, session_id: SessionId, in_library
 /// frame and the snapshot that move every page, so the reply itself carries
 /// no frame: a TUI-initiated archive reaches the page the same way.
 ///
-/// A session running a turn is refused before the publish. The store's
-/// single-session archive has no busy guard of its own — that is the
-/// caller's job, and the TUI's `a` key does it in `validate_session_close`.
-/// An id that is neither live nor stored is refused the same way, and a
-/// stored-but-not-live id is one already in the archive.
+/// This slice holds no session store, so the command is published whether
+/// the id names a live session, an archived one, or nothing: the store
+/// actor is the one authority on what the store holds, and its own
+/// `SessionArchiveFailed` reaches the page when the archive cannot run.
 pub async fn archive_session(out: &OutboundHandle, session_id: SessionId) -> Reply {
-    // Owned, so the read guard drops before the store await below.
-    let phase = out
-        .state()
-        .read()
-        .session
-        .get(&session_id)
-        .map(jinn_kernel::ChatSessionState::phase);
-    match phase {
-        Some(phase) if phase.is_working() => return refused(&Refusal::ArchiveSessionBusy),
-        Some(_) => {}
-        None => match out.session_store().load_session(&session_id).await {
-            Ok(Some(_)) => return refused(&Refusal::AlreadyArchived(session_id)),
-            Ok(None) => return refused(&Refusal::UnknownSession),
-            Err(_) => return refused(&Refusal::StoreUnavailable),
-        },
+    if session_is_working(out, &session_id) {
+        return refused(&Refusal::ArchiveSessionBusy);
     }
     out.publish(ArchiveSession { session_id }).await;
     Reply::none()
@@ -1768,30 +1680,28 @@ pub async fn archive_session(out: &OutboundHandle, session_id: SessionId) -> Rep
 /// particular the fallback archives silently: a toast would need a
 /// server-to-page message the terminal has no counterpart for.
 ///
-/// A session running a turn is refused before the publish, with the same
-/// sentence `archive_session` refuses with — one busy refusal cannot
-/// disagree with itself. An id that is neither live nor stored is refused
-/// the same way, and a stored-but-not-live id is one already in the archive.
+/// A session running a turn is refused with the same sentence
+/// `archive_session` refuses with — one busy refusal cannot disagree with
+/// itself.
 pub async fn teardown_session(out: &OutboundHandle, session_id: SessionId) -> Reply {
-    // Owned, so the read guard drops before the store await below.
-    let phase = out
-        .state()
-        .read()
-        .session
-        .get(&session_id)
-        .map(jinn_kernel::ChatSessionState::phase);
-    match phase {
-        Some(phase) if phase.is_working() => return refused(&Refusal::ArchiveSessionBusy),
-        Some(_) => {}
-        None => match out.session_store().load_session(&session_id).await {
-            Ok(Some(_)) => return refused(&Refusal::AlreadyArchived(session_id)),
-            Ok(None) => return refused(&Refusal::UnknownSession),
-            Err(_) => return refused(&Refusal::StoreUnavailable),
-        },
+    if session_is_working(out, &session_id) {
+        return refused(&Refusal::ArchiveSessionBusy);
     }
     out.publish(jinn_session_lifecycle_msg::CloseSession { session_id })
         .await;
     Reply::none()
+}
+
+/// Whether the named session is in memory and running a turn — the
+/// terminal's own `validate_session_close` test, on the session the page
+/// named rather than the sidebar's selection. A session not in memory is
+/// not busy: the store actor is the one authority on what the store holds.
+fn session_is_working(out: &OutboundHandle, session_id: &SessionId) -> bool {
+    out.state()
+        .read()
+        .session
+        .get(session_id)
+        .is_some_and(|session| session.phase().is_working())
 }
 
 /// Asks the provider registry to rediscover its models.
@@ -2043,12 +1953,14 @@ pub fn new_session_options(out: &OutboundHandle) -> Reply {
 /// `jinn_kernel::Bridge`, the same drain the TUI's intent handler uses — no
 /// new schema, no typed publish.
 ///
-/// The session is created active instance-wide. This handler publishes no
-/// `ActiveSessionChanged` of its own: the shared path's closures announce
-/// the creation, and the store actor publishes the activation fact on the
-/// paths that move the pointer. The outbound actor turns that fact into the
-/// snapshot every page follows; the reply here is the snapshot the asking
-/// page needs so it never waits on the event.
+/// The session is created active instance-wide, and the handler announces
+/// that the pointer moved with the one `ActiveSessionChanged` every
+/// activation path publishes — the kernel's intent handler publishes it for
+/// the terminal's own new-session action, and this path runs the shared
+/// creation outside that handler, so it publishes the same fact itself. The
+/// outbound actor turns it into the snapshot every page follows, so nothing
+/// is replied here: the asking page is answered by the same push every other
+/// page is.
 pub async fn create_session(
     out: &OutboundHandle,
     project: String,
@@ -2059,8 +1971,11 @@ pub async fn create_session(
         Ok(created) => created,
         Err(refusal) => return refused(&refusal),
     };
-    wait_for_activation(out.state(), &created).await;
-    snapshot_reply(out)
+    out.publish(jinn_kernel::protocol::system::ActiveSessionChanged {
+        session_id: created,
+    })
+    .await;
+    Reply::none()
 }
 
 /// The validated creation: every refusal happens before any state is

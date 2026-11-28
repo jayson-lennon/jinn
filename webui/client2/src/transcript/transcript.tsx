@@ -19,14 +19,24 @@ import { IntersessionView } from './intersession';
 import { NoticeView } from './notice';
 import { ProseView } from './prose';
 import { RuleInterruptView } from './rule_interrupt';
+import { ThinkingView } from './thinking';
 import { ToolCallView } from './tool_call';
 import { ToolResultView } from './tool_result';
 import { TransientView } from './transient';
 import { UserView } from './user';
 import { body, str } from './shared';
+import type { ThinkingOpen } from './thinking_state';
 import { isOptimistic } from './transcript_entries';
 
 /** The route prefix an attachment's `<img>` is served from. */
+/** What a thinking entry needs to know and flip whether it is expanded. */
+export interface ThinkingProps {
+  /** The ids of the thinking entries currently open. */
+  isOpen: () => ThinkingOpen;
+  /** Flips the named thinking entry. */
+  toggle: (id: string) => void;
+}
+
 /** What an entry's `⋮` needs to open its menu and act on the entry. */
 export interface EntryMenuProps {
   /** The id of the entry whose menu is open, or null when none is. */
@@ -98,7 +108,12 @@ function fitPopup(node: HTMLElement): void {
   });
 }
 
-export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: string | null; menu: EntryMenuProps }): JSX.Element {
+export function TranscriptEntry(props: {
+  envelope: EntryEnvelope;
+  sessionId: string | null;
+  menu: EntryMenuProps;
+  thinking: ThinkingProps;
+}): JSX.Element {
   const kind = (): EntryKind => props.envelope.kind;
   const id = (): string => props.envelope.entry.id;
   const pinned = (): boolean => isPinned(props.envelope);
@@ -116,7 +131,12 @@ export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: str
       data-entry-id={id()}
     >
       <span class="pin-mark" aria-hidden="true">📌</span>
-      <Switch kind={kind()} envelope={props.envelope} sessionId={props.sessionId} />
+      <Switch
+        kind={kind()}
+        envelope={props.envelope}
+        sessionId={props.sessionId}
+        thinking={props.thinking}
+      />
       <Show when={real()}>
         <span class="entry-menu">
           <button
@@ -196,14 +216,29 @@ export function TranscriptEntry(props: { envelope: EntryEnvelope; sessionId: str
 
 /** The persisted map's single value, whatever its tag. */
 
-function Switch(props: { kind: EntryKind; envelope: EntryEnvelope; sessionId: string | null }): JSX.Element {
+function Switch(props: {
+  kind: EntryKind;
+  envelope: EntryEnvelope;
+  sessionId: string | null;
+  thinking: ThinkingProps;
+}): JSX.Element {
   switch (props.kind) {
     case 'user':
       return <UserView envelope={props.envelope} sessionId={props.sessionId} />;
     case 'system':
     case 'error':
-    case 'thinking':
       return <NoticeView kind={props.kind} text={str(body(props.envelope))} />;
+    case 'thinking': {
+      const id = props.envelope.entry.id;
+      return (
+        <ThinkingView
+          id={id}
+          text={str(body(props.envelope))}
+          open={() => props.thinking.isOpen().has(id)}
+          toggle={() => props.thinking.toggle(id)}
+        />
+      );
+    }
     case 'transient':
       return <TransientView envelope={props.envelope} />;
     case 'assistant':

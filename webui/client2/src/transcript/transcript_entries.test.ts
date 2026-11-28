@@ -231,6 +231,25 @@ describe('applyEntryDelta', () => {
     expect(inner.Thinking.text).toBe('hmm');
   });
 
+  it('a thinking delta leaves the entry itself where it was', async () => {
+    // Given a thinking entry holding one chunk, as the only entry.
+    const store = createStore();
+    applyEntryUpsert(store, upsertMsg(0, entry('t', { Thinking: { text: 'hmm' } })));
+    await settled();
+
+    // When a second thinking delta arrives for it while it is collapsed.
+    applyEntryDelta(store, deltaMsg('t', 'thinking', ' more'));
+    await settled();
+
+    // Then only the text grew: the entry keeps its id and its place, so
+    // nothing about its collapsed state has anything to react to.
+    const [only] = store.state.entries;
+    expect(only!.entry.id).toBe('t');
+    expect(store.state.entries).toHaveLength(1);
+    const inner = only!.entry.kind as { Thinking: { text: string } };
+    expect(inner.Thinking.text).toBe('hmm more');
+  });
+
   it('an args chunk lands on a tool call', async () => {
     // Given a tool call holding no arguments.
     const store = createStore();

@@ -131,7 +131,10 @@ by reloading itself — see [Reconnecting](#reconnecting).
   interrupt, such as a watchdog stopping a repeated tool call — is a
   yellow-tinted block collapsed to `⚡ Rule fired: <rule> · <reason>`;
   open it to read the guidance, shown without the `<system-interrupt>`
-  wrapper the model sees. Two floating buttons sit at the transcript's
+  wrapper the model sees. A model's thinking is a single collapsed
+  `Thinking` line — click it to read the block; the text still streams in
+  while it is collapsed, so opening it mid-turn shows what has arrived so
+  far. Two floating buttons sit at the transcript's
   right edge, each shown only while you are away from that end: an
   up-arrow-to-line button in the top-right corner jumps to the start, a
   down-arrow-to-line button in the bottom-right corner jumps to the end.

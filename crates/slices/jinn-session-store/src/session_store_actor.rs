@@ -4,7 +4,7 @@
 //! shared session state and then releases the state lock before publishing or
 //! persisting.
 
-mod handlers;
+pub(crate) mod handlers;
 
 use jinn_boot_msg::EnvironmentLoaded;
 use jinn_chat_log_view_msg::{ArmLayoutDeadline, LayoutChatSession};
@@ -16,7 +16,8 @@ use jinn_session_store_msg::PersistSession;
 use jinn_session_store_msg::SessionLoadRequested;
 use jinn_session_store_msg::{ArchiveSession, ArchiveSessionTree};
 use jinn_session_store_msg::{
-    LoadLibraryEntries, LoadSessionPickerEntries, LoadSessionTree, StartupHydrationFinished,
+    LoadLibraryEntries, LoadSessionPickerEntries, LoadSessionTree, SessionPickerEntriesLoaded,
+    StartupHydrationFinished,
 };
 use jinn_session_store_msg::{SessionForkRequested, SetSessionLibrary};
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
@@ -156,6 +157,11 @@ impl SessionStoreActor {
             // push-only surface (the the web UI rail) would spin forever: the
             // flush gate drops an undeclared type silently.
             .emits::<StartupHydrationFinished>()
+            // The picker's cell was written from the store. Without this
+            // declaration the flush gate drops it, and the web UI's Archive
+            // picker — push-only, with no store of its own — never learns
+            // its rows are there.
+            .emits::<SessionPickerEntriesLoaded>()
             .mailbox(
                 SESSION_STORE_MAILBOX_CAPACITY,
                 trouper::inbox::OverloadPolicy::Block,
