@@ -4650,6 +4650,7 @@ dependencies = [
 name = "jinn-model-market-msg"
 version = "1.28.0"
 dependencies = [
+ "fuzzy-matcher",
  "jiff",
  "jinn-core-types",
  "jinn-slices",
@@ -4657,6 +4658,7 @@ dependencies = [
  "serde",
  "serde_json",
  "trouper",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -6008,6 +6010,7 @@ dependencies = [
  "jinn-kernel",
  "jinn-llm-support",
  "jinn-mcp-msg",
+ "jinn-model-market-msg",
  "jinn-persona-msg",
  "jinn-preferences-config",
  "jinn-provider-config",

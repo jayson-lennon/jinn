@@ -1,11 +1,10 @@
 //! The model picker's Refresh models button and its busy state.
 
-import { expect, sel, test } from "./fixture.mjs";
+import { expect, openProviderPicker, sel, test } from "./fixture.mjs";
 
 /** Opens the model picker through the title bar's model chip. */
 async function openModelPicker(page) {
-  await page.locator(sel.MODEL_CHIP).click();
-  await expect(page.locator(sel.MODEL_FILTER)).toBeVisible();
+  await openProviderPicker(page);
 }
 
 /** The refresh summaries the transcript holds. */

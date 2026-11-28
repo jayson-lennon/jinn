@@ -6,10 +6,10 @@
 
 use crate::payload::{
     AppletRowsBody, ContextUsageBody, DashMcpRowsBody, DashPinRowsBody, DashTasksBody,
-    EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody, ModelBody,
-    ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody, PickerRowsBody,
-    PromptTemplatesBody, SessionStatsBody, SessionsBody, SkillRowsBody, SnapshotBody, ThemeBody,
-    TitleBody, ToolRowsBody,
+    EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, MarketDetailBody, MarketRowsBody,
+    MarketStaleBody, McpRowsBody, ModelBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody,
+    PhaseBody, PickerRowsBody, PromptTemplatesBody, SessionStatsBody, SessionsBody, SkillRowsBody,
+    SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +78,12 @@ pub enum ServerMsg {
     DashTasks(Box<DashTasksBody>),
     /// The dash's enabled MCP servers and their live status.
     DashMcpRows(DashMcpRowsBody),
+    /// The model market's rows for the view the page last asked for.
+    MarketRows(MarketRowsBody),
+    /// One model's endpoint detail.
+    MarketDetail(MarketDetailBody),
+    /// A market refresh step failed; stale data stands.
+    MarketStale(MarketStaleBody),
     /// A request was refused.
     Error(ErrorBody),
     /// A `hello` answered with nothing to send: the page's cursor is the
@@ -125,6 +131,9 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::DashPinRows(_) => "dash_pin_rows",
         ServerMsg::DashTasks(_) => "dash_tasks",
         ServerMsg::DashMcpRows(_) => "dash_mcp_rows",
+        ServerMsg::MarketRows(_) => "market_rows",
+        ServerMsg::MarketDetail(_) => "market_detail",
+        ServerMsg::MarketStale(_) => "market_stale",
         ServerMsg::Error(_) => "error",
         ServerMsg::Current => "current",
         ServerMsg::Ping => "ping",
