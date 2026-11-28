@@ -103,13 +103,17 @@ by reloading itself — see [Reconnecting](#reconnecting).
   rank order, so a filter never leaves a parent whose children were cut
   off. Choosing a row activates it; an archived session is loaded from
   disk and leaves the archive. It is the only way to reach an archived
-  session from the web — the sidebar lists loaded sessions only.
-- **New session** — the menu's **New session** item opens a modal with a
-  Project select, a Lifecycle select (blank by default), and **Setup
-  arguments** when the chosen lifecycle declares any. **Create session**
-  makes the new session active and the page moves to it. With no
-  `[[project.entry]]` configured the modal says so instead of showing a
-  form.
+  session from the web — the sidebar lists loaded sessions only. A square
+  **`+`** button sits to the right of the **Archive** button, on the same
+  row.
+- **New session** — the sidebar's **`+`** button, beside **Archive**, opens
+  a modal with a Project select, a Lifecycle select (blank by default), and
+  **Setup arguments** when the chosen lifecycle declares any; the menu's
+  **New session** item opens the same modal. **Create session** makes the
+  new session active and the page moves to it. On a phone, tapping the
+  **`+`** closes the drawer behind the modal. The **`+`** is shown at every
+  time, with or without an active session. With no `[[project.entry]]`
+  configured the modal says so instead of showing a form.
 - **Follows the active session** — when the active session changes
   anywhere (another web UI page, the TUI), every web UI page
   switches to it. Nothing the user has typed holds the page back: an
