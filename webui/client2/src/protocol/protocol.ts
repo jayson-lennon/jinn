@@ -301,7 +301,14 @@ export type ClientMsg =
       project: string;
       lifecycle: string;
       args: string;
-    };
+    }
+  /** Register or refresh this browser's push subscription. Sent on every
+   *  load, so a row that went stale under another key or another origin is
+   *  replaced by the one that works now. */
+  | { type: 'push_subscribe'; endpoint: string; keys: { p256dh: string; auth: string } }
+  | { type: 'push_unsubscribe'; endpoint: string }
+  /** A notification was tapped: activate the session it names. */
+  | { type: 'notification_opened'; session_id: string };
 
 /** Server -> browser. Exactly one fact per frame. */
 export type ServerMsg =
@@ -364,6 +371,11 @@ export type ServerMsg =
   | { type: 'prompt_templates'; session_id: string; templates: PromptTemplate[] }
   | { type: 'new_session_options'; projects: string[]; lifecycles: LifecycleOption[] }
   | { type: 'theme'; theme: Theme }
+  /** What the page needs to subscribe to push: whether the server can send
+   *  pushes, and the key it signs them with. Arrives in the `hello` reply.
+   *  A null key means the server holds none — notifications are then
+   *  unavailable for a reason other than the page's scheme. */
+  | { type: 'push_info'; supported: boolean; public_key: string | null }
   | { type: 'error'; message: string }
   | { type: 'current' }
   | { type: 'ping' };

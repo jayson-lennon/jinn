@@ -22,9 +22,10 @@ use crate::payload::{
     EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
     LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelBody, ModelRowBody,
     ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PhaseBody,
-    PickerRowBody, PickerRowsBody, PromptTemplateBody, PromptTemplatesBody, SessionRowBody,
-    SessionRowOrigin, SessionStatsBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody,
-    TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody, TreeStatsBody,
+    PickerRowBody, PickerRowsBody, PromptTemplateBody, PromptTemplatesBody, PushInfoBody,
+    PushKeysBody, PushSubscriptionBody, SessionRowBody, SessionRowOrigin, SessionStatsBody,
+    SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody,
+    ToolRowBody, ToolRowsBody, TreeStatsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 use jinn_tools_msg::TaskStatus;
@@ -1921,6 +1922,91 @@ fn client_create_session_round_trips() {
 
     // Then it is unchanged.
     assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_push_subscribe_round_trips_with_its_keys() {
+    // Given a subscription as a push manager issues it.
+    let msg = ClientMsg::PushSubscribe(Box::new(PushSubscriptionBody {
+        endpoint: "https://push.example/send/abc".to_owned(),
+        keys: PushKeysBody {
+            p256dh: "BP…".to_owned(),
+            auth: "secret".to_owned(),
+        },
+    }));
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the endpoint and both keys survive, under the `push_subscribe` tag.
+    assert_eq!(back, msg);
+    assert_eq!(json_of_client(&back)["type"], "push_subscribe");
+}
+
+#[rstest]
+#[test]
+fn client_push_unsubscribe_round_trips() {
+    // Given an unsubscribe naming one endpoint.
+    let msg = ClientMsg::PushUnsubscribe {
+        endpoint: "https://push.example/send/abc".to_owned(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then it is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest]
+#[test]
+fn client_notification_opened_round_trips() {
+    // Given a tap naming one session.
+    let msg = ClientMsg::NotificationOpened {
+        session_id: SessionId::new(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the session survives, under the `notification_opened` tag.
+    assert_eq!(back, msg);
+    assert_eq!(json_of_client(&back)["type"], "notification_opened");
+}
+
+#[rstest]
+#[test]
+fn server_push_info_carries_the_public_key_when_supported() {
+    // Given a server that holds a key pair.
+    let msg = ServerMsg::PushInfo(PushInfoBody {
+        supported: true,
+        public_key: Some("BPublic".to_owned()),
+    });
+
+    // When it is serialized.
+    let json = json_of(&msg);
+
+    // Then the key rides as that string.
+    assert_eq!(json["supported"], true);
+    assert_eq!(json["public_key"], "BPublic");
+}
+
+#[rstest]
+#[test]
+fn server_push_info_carries_a_null_key_when_unsupported() {
+    // Given a server with no key pair.
+    let msg = ServerMsg::PushInfo(PushInfoBody {
+        supported: false,
+        public_key: None,
+    });
+
+    // When it is serialized.
+    let json = json_of(&msg);
+
+    // Then the key is JSON null, not an absent key.
+    assert_eq!(json["supported"], false);
+    assert_eq!(json["public_key"], serde_json::Value::Null);
 }
 
 #[rstest]

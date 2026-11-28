@@ -474,6 +474,9 @@ dialoguer = "0.12"
 arboard = "3"
 libc = "0.2"
 rand = "0.9"
+# `p256 0.13` takes an RNG from `rand_core 0.6`, which the workspace's `rand 0.9`
+# cannot provide; this is that version, with `OsRng` turned on.
+rand_core06 = { package = "rand_core", version = "0.6", features = ["getrandom"] }
 reasoning-parser = "1.2"
 mockito = "1.7"
 reqwest = { version = "0.13", default-features = false, features = [
@@ -505,6 +508,13 @@ uuid = { version = "1.23.1", features = ["v4", "v5", "v7", "serde"] }
 # Tokenization
 tiktoken = "3"
 base64 = "0.22"
+# Web Push, as the web UI's notification path implements it: a P-256 key
+# pair signs each request (RFC 8292) and agrees on the key an aes128gcm
+# payload is sealed with (RFC 8291). Pure-Rust, no OpenSSL.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "ecdh", "pem", "std"] }
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc", "std"] }
+hkdf = { version = "0.12", default-features = false }
+hmac = { version = "0.12", default-features = false }
 # Markdown rendering for the export slice (HTML + markdown exporters).
 # `default-features = false` drops pulldown-cmark's `getopts` binary, which
 # would otherwise pull a CLI-only crate into the library graph.

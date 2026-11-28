@@ -8,8 +8,8 @@ use crate::payload::{
     AppletRowsBody, ContextUsageBody, DashMcpRowsBody, DashPinRowsBody, DashTasksBody,
     EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody, ModelBody,
     ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody, PickerRowsBody,
-    PromptTemplatesBody, SessionStatsBody, SessionsBody, SkillRowsBody, SnapshotBody, ThemeBody,
-    TitleBody, ToolRowsBody,
+    PromptTemplatesBody, PushInfoBody, SessionStatsBody, SessionsBody, SkillRowsBody, SnapshotBody,
+    ThemeBody, TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +78,11 @@ pub enum ServerMsg {
     DashTasks(Box<DashTasksBody>),
     /// The dash's enabled MCP servers and their live status.
     DashMcpRows(DashMcpRowsBody),
+    /// What the page needs to subscribe to push: whether the server can
+    /// send pushes, and the key it signs them with. Carried on the snapshot
+    /// and in the `hello` reply, and nowhere else — the key pair never
+    /// changes while the server runs.
+    PushInfo(PushInfoBody),
     /// A request was refused.
     Error(ErrorBody),
     /// A `hello` answered with nothing to send: the page's cursor is the
@@ -125,6 +130,7 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::DashPinRows(_) => "dash_pin_rows",
         ServerMsg::DashTasks(_) => "dash_tasks",
         ServerMsg::DashMcpRows(_) => "dash_mcp_rows",
+        ServerMsg::PushInfo(_) => "push_info",
         ServerMsg::Error(_) => "error",
         ServerMsg::Current => "current",
         ServerMsg::Ping => "ping",

@@ -476,6 +476,35 @@ describe('error', () => {
   });
 });
 
+describe('push_info', () => {
+  it('lands the support flag and the key the frame carries', async () => {
+    // Given a page that has heard nothing about push.
+    const store = await viewingS1();
+
+    // When a push_info frame names a key.
+    apply(store, { type: 'push_info', supported: true, public_key: 'BPublic' });
+    await settled();
+
+    // Then both facts are the frame's.
+    expect(store.state.pushSupported).toBe(true);
+    expect(store.state.pushPublicKey).toBe('BPublic');
+  });
+
+  it('a frame with no key reports push unsupported', async () => {
+    // Given a page told the server holds a key.
+    const store = await viewingS1();
+    apply(store, { type: 'push_info', supported: true, public_key: 'BPublic' });
+
+    // When a push_info frame says the server holds none.
+    apply(store, { type: 'push_info', supported: false, public_key: null });
+    await settled();
+
+    // Then the page reports neither.
+    expect(store.state.pushSupported).toBe(false);
+    expect(store.state.pushPublicKey).toBeNull();
+  });
+});
+
 describe('current and ping', () => {
   it.each([
     ['current', { type: 'current' } as ServerMsg],

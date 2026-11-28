@@ -80,6 +80,20 @@ marked-path = { workspace = true }
 # Session rows carry each session's last settle-to-Idle time as the core
 # `Timestamp` — the phase event's own type.
 jiff = { workspace = true }
+# Web Push: the P-256 pair each instance signs with and agrees on a payload
+# key with, the AES-GCM record the payload is sealed into, and the HKDF that
+# mixes the subscription's auth secret into that key (RFC 8291, RFC 8292).
+p256 = { workspace = true }
+aes-gcm = { workspace = true }
+hkdf = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+rand = { workspace = true }
+rand_core06 = { workspace = true }
+# The push store is one TOML file under the data dir.
+toml = { workspace = true }
+# A notification's title is bounded by grapheme cluster, never by byte.
+unicode-segmentation = { workspace = true }
 trouper = { workspace = true }
 tokio = { workspace = true }
 # The socket's read and write halves run as two tasks over one connection.
@@ -103,6 +117,11 @@ sha2 = "0.10"
 # The streaming-batch tests pause the clock so the window is asserted
 # without sleeping.
 tokio = { workspace = true, features = ["test-util"] }
+# Installs the rustls provider at test-binary start: the push sender's
+# tests build a reqwest client, which panics without one. `ctor` runs the
+# hook before any test, the way `jinn-kernel`'s test binary does.
+ctor = "0.8"
+rustls = { workspace = true }
 rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 # Tests resolve the provider cell from the same catalog boot registers it in.
@@ -118,6 +137,8 @@ jinn-turn-dispatch-msg = { workspace = true }
 async-trait = { workspace = true }
 # The route tests dispatch through the real router via oneshot.
 tower = { version = "0.5", features = ["util"] }
+# The sender's tests answer pushes from a local mock push service.
+mockito = { workspace = true }
 
 [lints]
 workspace = true

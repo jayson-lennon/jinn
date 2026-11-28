@@ -10,6 +10,7 @@
 import type { ClientStore } from '../store/store';
 import { belongsToViewedSession } from '../store/store';
 import { saveLastSeen, viewedRowSettledAt } from './last_seen';
+import { notifySettles, pageChannel } from '../notifications/notify';
 import type { ServerMsg } from '../protocol/protocol';
 
 /** `sessions`: both lists, and the hydration flag every session-list frame sets. */
@@ -35,6 +36,11 @@ export function applySessions(store: ClientStore, msg: Extract<ServerMsg, { type
   if (changed) {
     saveLastSeen(store.state.lastSeen, msg.rows, msg.library);
   }
+  // The live-socket path to a banner: a settle that is new since the last
+  // list, posted to the worker while the page is hidden. It keeps its own
+  // memory — the gold mark's last-seen map is written for the viewed
+  // session on every frame and cannot say whether a settle is new.
+  notifySettles([...msg.rows, ...msg.library], pageChannel);
 }
 
 /** `title`: the bar and the sidebar row, from one message. */

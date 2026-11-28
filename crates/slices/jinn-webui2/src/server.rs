@@ -152,6 +152,7 @@ pub fn router(shared: Arc<ServerShared>) -> Router {
     Router::new()
         .route("/", get(page))
         .route("/manifest.webmanifest", get(manifest))
+        .route("/sw.js", get(service_worker))
         .route("/ws", get(ws_handler))
         .route("/vendor/{*path}", get(vendor))
         .route("/attachment/{session}/{entry}/{ordinal}", get(attachment))
@@ -180,6 +181,37 @@ async fn manifest() -> Response {
             (header::CACHE_CONTROL, "no-cache"),
         ],
         MANIFEST.as_str(),
+    )
+        .into_response()
+}
+
+/// The service worker, at the fixed URL the page registers it from.
+///
+/// Served unhashed and always revalidated: a browser checks for a new
+/// worker only at the URL it registered, so an immutable or hashed name
+/// would pin the first worker forever. The bytes are still this build's,
+/// embedded and pinned through the vendor table — only the URL is stable.
+async fn service_worker() -> Response {
+    let Some(asset) = vendor_assets::VENDOR_ASSETS
+        .iter()
+        .find(|a| a.path == "sw.js")
+    else {
+        return (StatusCode::NOT_FOUND, "no service worker in this build").into_response();
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+            (header::CONTENT_ENCODING, "gzip"),
+            // The worker's scope is the whole origin. `/sw.js` would get
+            // that by default; naming it keeps a future path change from
+            // silently narrowing it.
+            (
+                header::HeaderName::from_static("service-worker-allowed"),
+                "/",
+            ),
+        ],
+        asset.bytes,
     )
         .into_response()
 }
@@ -710,6 +742,10 @@ mod attachment_route_tests {
                 connections: crate::connections::ConnectionRegistry::default(),
                 revisions: crate::revision::RevisionTracker::default(),
                 settles: crate::settle::SettleTracker::default(),
+                push: crate::push::notify::PushSender {
+                    store: crate::push::store::PushStore::in_memory(),
+                    contact: "mailto:test@example.com".to_owned(),
+                },
                 session_store: jinn_session_state::SessionStoreService::new(Arc::new(
                     jinn_kernel::common::services::test_services::FakeSessionStore,
                 )),
@@ -1064,6 +1100,67 @@ mod attachment_route_tests {
 
         // Then there is none, whatever the ordinal.
         assert!(found.is_none());
+    }
+}
+
+/// The service worker route: a fixed URL, always revalidated, with the
+/// whole origin as its scope.
+#[cfg(test)]
+mod service_worker_route_tests {
+    use super::*;
+
+    async fn get() -> Response {
+        service_worker().await
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_worker_is_served_at_its_fixed_url_as_javascript() {
+        // When the worker is fetched.
+        let response = get().await;
+
+        // Then it is the build's worker, as JavaScript.
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("text/javascript; charset=utf-8")
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_worker_is_always_revalidated_never_immutable() {
+        // When the worker is fetched.
+        let response = get().await;
+
+        // Then the browser is told to revalidate it: a new worker is only
+        // ever noticed at the URL it was registered from.
+        let cache = response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert_eq!(cache, "no-cache");
+        assert!(!cache.contains("immutable"));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_workers_scope_is_the_whole_origin() {
+        // When the worker is fetched.
+        let response = get().await;
+
+        // Then its scope is named as the origin root.
+        assert_eq!(
+            response
+                .headers()
+                .get("service-worker-allowed")
+                .and_then(|v| v.to_str().ok()),
+            Some("/")
+        );
     }
 }
 
