@@ -19,8 +19,26 @@
 .title-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   padding: 10px 18px;
   border-bottom: 1px solid var(--border);
 }
+
+/* The bar's two icon controls — the phone's `#` and the hamburger — as
+   one pill: a single border and radius around both, a hairline between
+   them, each segment its own hover surface and focus ring. The pill is
+   exactly the controls' height, border included, so it lines up with
+   the title and model chip beside it. At desktop widths the `#` is not
+   rendered, and the pill holds the hamburger alone. */
+.title-group {
+  display: inline-flex;
+  align-items: stretch;
+  flex: none;
+  height: 34px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.title-group > * + * { border-left: 1px solid var(--border); }
 

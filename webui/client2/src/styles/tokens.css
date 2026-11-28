@@ -1,7 +1,10 @@
 /* The web UI page. Every colour is a token, so a theme is one place.
    The values: dark lifted from the sonokai
-   terminal theme, light from nord-light, and a system mode that follows
-   the browser. The names are this page's own; the values are not. */
+   terminal theme, light from vim-one's one-light, and a system mode that
+   follows the browser. The names are this page's own; the values are not.
+   The light text tokens are one's own hues deepened one step where the
+   pure value fell under the 4.5:1 text floor on one's near-white page;
+   the comment on each names the source and the reason. */
 :root {
   /* the page: sonokai's slate, lifted off the terminal's gutter colour,
      which read near-black edge to edge on a phone — but not lifted so far
@@ -59,37 +62,38 @@
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 :root[data-theme="light"] {
-  /* nord-light gutter_bg (Snow Storm, Nord6) */
-  --bg: #eceff4;
-  /* nord-light infopopup_bg (Nord4) */
-  --bg-raised: #e5e9f0;
-  /* nord-light gutter_context_included, a step below --bg */
-  --bg-code: #e2e6ee;
-  /* nord-light picker_highlight_bg */
-  --bg-hover: #e7edf5;
-  /* nord-light picker_selected_bg */
-  --bg-active: #dce6f2;
-  /* nord-light user_block_bg (Nord4) */
-  --bg-user-entry: #e5e9f0;
-  /* nord-light primary_text (Polar Night, Nord0) */
-  --fg: #2e3440;
-  /* nord-light muted_text, lifted to clear 3:1 */
-  --fg-dim: #67768f;
-  /* a fainter step of the same ramp */
-  --fg-faint: #7b88a1;
-  /* nord-light border_unfocused (Snow Storm, Nord4) */
-  --border: #d8dee9;
-  /* nord-light focus_accent (Frost, Nord10), deepened for the text floor */
-  --accent: #4a6e95;
-  /* nord-light error_text (Aurora red, Nord11), deepened */
-  --danger: #a8404a;
-  /* nord-light success (Aurora green, Nord14), deepened */
-  --ok: #3d6b2a;
-  /* warning text and its block tint: Nord13 yellow, deepened to hold on
-     a pale page */
-  --warn: #8a6d1f;
-  --warn-bg: rgba(235, 203, 139, .22);
-  --warn-border: rgba(138, 109, 31, .45);
+  /* one-light syntax_bg */
+  --bg: #fafafa;
+  /* one-light syntax_cursor: the raised surface, one step up */
+  --bg-raised: #f0f0f0;
+  /* the same step, under code */
+  --bg-code: #f0f0f0;
+  /* one-light syntax_cursor: the hover step */
+  --bg-hover: #f0f0f0;
+  /* one-light pmenu */
+  --bg-active: #dfdfdf;
+  /* a user entry's own surface, the raised step */
+  --bg-user-entry: #f0f0f0;
+  /* one-light mono-1 */
+  --fg: #494b53;
+  /* one-light mono-2 (5.0:1 on the page) */
+  --fg-dim: #696c77;
+  /* one-light mono-3 */
+  --fg-faint: #a0a1a7;
+  /* one-light special_grey */
+  --border: #d3d3d3;
+  /* one-light syntax_accent (#526fff), deepened one step to 4.8:1 on
+     the page and 5.0:1 under white ink */
+  --accent: #4361ee;
+  /* one-light hue_5_2, the deeper red (5.5:1) */
+  --danger: #ca1243;
+  /* one-light hue_4 green (#50a14f), deepened to 5.0:1 */
+  --ok: #3d7a3c;
+  /* one-light hue_6, the text orange (4.7:1), for warning text */
+  --warn: #986801;
+  /* the block tint of the same hue */
+  --warn-bg: rgba(152, 104, 1, .10);
+  --warn-border: rgba(152, 104, 1, .40);
   /* the scrim keeps its dark wash over the pale palette */
   --scrim: rgba(0, 0, 0, .55);
   /* text on the dark scrim: light, as in dark mode */
@@ -97,43 +101,44 @@
   /* on fills: white. The light theme's accent and error are deep colours,
      and the page's dark ink on them failed the contrast floor. */
   --on-fill: #ffffff;
-  /* the unread fill: the light-mode unread gold */
-  --mark: #ebcb8b;
-  /* text on the unread gold: the dark ink, as it was */
-  --on-mark: #2e3440;
+  /* the unread fill: one's hue_6_2 gold lifted to a tint the dark ink
+     reads on (4.7:1) */
+  --mark: #e6b84a;
+  /* text on the unread gold: the page's own ink */
+  --on-mark: #494b53;
   /* the two kind colours are the terminal's own, unchanged in light mode */
   --subagent: #b29ef0;
   --bot: #ff69b4;
   /* the shadow a raised card casts, lighter over a pale page */
-  --shadow: rgba(46, 52, 64, .18);
+  --shadow: rgba(73, 75, 83, .18);
   color-scheme: light;
 }
 @media (prefers-color-scheme: light) {
   :root[data-theme="system"], :root:not([data-theme]) {
-    --bg: #eceff4;
-    --bg-raised: #e5e9f0;
-    --bg-code: #e2e6ee;
-    --bg-hover: #e7edf5;
-    --bg-active: #dce6f2;
-    --bg-user-entry: #e5e9f0;
-    --fg: #2e3440;
-    --fg-dim: #67768f;
-    --fg-faint: #7b88a1;
-    --border: #d8dee9;
-    --accent: #4a6e95;
-    --danger: #a8404a;
-    --ok: #3d6b2a;
-    --warn: #8a6d1f;
-    --warn-bg: rgba(235, 203, 139, .22);
-    --warn-border: rgba(138, 109, 31, .45);
+    --bg: #fafafa;
+    --bg-raised: #f0f0f0;
+    --bg-code: #f0f0f0;
+    --bg-hover: #f0f0f0;
+    --bg-active: #dfdfdf;
+    --bg-user-entry: #f0f0f0;
+    --fg: #494b53;
+    --fg-dim: #696c77;
+    --fg-faint: #a0a1a7;
+    --border: #d3d3d3;
+    --accent: #4361ee;
+    --danger: #ca1243;
+    --ok: #3d7a3c;
+    --warn: #986801;
+    --warn-bg: rgba(152, 104, 1, .10);
+    --warn-border: rgba(152, 104, 1, .40);
     --scrim: rgba(0, 0, 0, .55);
     --on-scrim: #ffffff;
     --on-fill: #ffffff;
-    --mark: #ebcb8b;
-    --on-mark: #2e3440;
+    --mark: #e6b84a;
+    --on-mark: #494b53;
     --subagent: #b29ef0;
     --bot: #ff69b4;
-    --shadow: rgba(46, 52, 64, .18);
+    --shadow: rgba(73, 75, 83, .18);
     color-scheme: light;
   }
 }

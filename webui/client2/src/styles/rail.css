@@ -8,10 +8,10 @@
   overflow-y: auto;
 }
 /* The title bar's `#`: a phone control — the rail is pinned in place at
-   desktop widths and there is nothing to toggle. It takes its size the
-   way its neighbours do, from the same padding and line-height, so it is
-   as tall as the hamburger and the model chip beside it; `flex: none`
-   keeps it from ever stretching across the bar. */
+   desktop widths and there is nothing to toggle. Hidden here; the phone
+   media query (phone.css) shows it as the left segment of the title
+   group's pill, beside the hamburger. `flex: none` keeps it from ever
+   stretching across the bar. */
 .sessions-button {
   display: none;
   flex: none;
