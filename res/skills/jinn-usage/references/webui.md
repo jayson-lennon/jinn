@@ -229,9 +229,11 @@ uses, so every figure matches the TUI's. From top to bottom:
 
 - **Session** — the model, context figure, tokens sent and received,
   cost, turns, working time, cache hit rate (when the provider reports
-  one), and the directory, one per line. While the session tree holds
-  more than one session, a **Tree** disclosure carries the whole tree's
-  totals. The figures update live while the dash is open.
+  one), and the directory, one per line. The directory is a button: click
+  it to open the [change-directory modal](#change-directory). While the
+  session tree holds more than one session, a **Tree** disclosure carries
+  the whole tree's totals. The figures update live while the dash is open,
+  and the directory follows a change made in the terminal too.
 - **MCP servers** — the session's enabled servers with their live
   status, or **No MCP servers enabled**. Clicking anywhere in the
   section closes the dash and opens the MCP picker.
@@ -248,6 +250,28 @@ uses, so every figure matches the TUI's. From top to bottom:
 
 `Esc` or a click outside the card closes it; switching sessions closes
 it too.
+
+## Change directory
+
+A modal for changing the session's working directory from the page — the
+web UI's equivalent of the TUI's `<leader>cd` popup. Open it by clicking
+the **directory** row in the [session dash](#session-dash); the dash
+closes and the modal takes its place.
+
+The field starts with the session's current directory, `~`-shortened and
+fully selected, so typing replaces it. Accept `~` and paths relative to
+the session's cwd; a line under the field is the verdict, resolved by the
+server through the same resolver the TUI popup uses, each time the text
+pauses for a moment: green with the resolved path for an existing
+directory, red **not a directory: …** for a missing path or a file, and a
+muted hint while the field is empty. The verdict is asked 100 ms after
+the last keystroke, so a burst of typing costs one check.
+
+**Accept** is enabled only while the verdict is green and current — an
+edit disables it at once and the next green re-enables it. Clicking it
+changes the cwd and closes the modal. **Cancel**, `Esc`, or a click
+outside the card closes the modal without changing anything. There is no
+ghost completion. Switching sessions closes an open modal too.
 
 ## Entry menu
 
@@ -457,7 +481,7 @@ There are no keybinds beyond these:
 | `Tab` with the `#` prompt popup open | Inserts the highlighted template as a bare `#name`. |
 | `↑` / `↓` with the `#` prompt popup open | Moves the highlight; the best match starts highlighted, at the bottom. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
-| `Esc` | Closes the top overlay, one at a time: the `#` prompt popup, the title editor, an entry's `⋮` popup, a session row's `⋮` popup, the session dash, any picker modal (Skills, Persona, Tools, MCP servers, Applets, the model chooser, the model picker, the model market, the Archive picker), the New session modal, the `☰` menu, or the phone drawer. |
+| `Esc` | Closes the top overlay, one at a time: the `#` prompt popup, the title editor, an entry's `⋮` popup, a session row's `⋮` popup, the session dash, any picker modal (Skills, Persona, Tools, MCP servers, Applets, the model chooser, the model picker, the model market, the Archive picker), the New session modal, the Change directory modal, the `☰` menu, or the phone drawer. |
 | `Esc` on the **Loading session…** overlay | Does nothing. That overlay ends only when the load ends. |
 | `Esc` on the **Navigating…** overlay | Does nothing. Its **Cancel** button is the one way out. |
 

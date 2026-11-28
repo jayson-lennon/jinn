@@ -21,18 +21,18 @@ use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, Updat
 use jinn_preferences_config::schemas::mcp::McpServersConfig;
 use jinn_provider_selection_msg::{ProviderSwitch, RefreshModels};
 use jinn_session_history_msg::{PinChatEntry, SetEntryContextOverride, UnpinChatEntry};
-use jinn_session_lifecycle_msg::command_template::CommandTemplate;
+use jinn_session_lifecycle_msg::{SetSessionCwd, command_template::CommandTemplate};
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
     ArchiveSession, LoadSessionPickerEntries, PersistSession, SessionForkRequested,
     SessionLoadRequested, SessionTreeEntry, SetSessionLibrary,
 };
 use jinn_webui2_msg::{
-    AppletRowBody, AppletRowsBody, EntriesPageBody, EntryUpsertBody, ErrorBody, ImageUploadBody,
-    LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelRowBody, ModelRowsBody,
-    NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PickerRowBody, PromptTemplateBody,
-    PushInfoBody, PushKeysBody, ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, ThemeBody,
-    TitleBody, ToolRowBody, ToolRowsBody,
+    AppletRowBody, AppletRowsBody, CwdCheckBody, CwdVerdict, EntriesPageBody, EntryUpsertBody,
+    ErrorBody, ImageUploadBody, LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody,
+    ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody,
+    PickerRowBody, PromptTemplateBody, PushInfoBody, PushKeysBody, ServerMsg, SkillRowBody,
+    SkillRowsBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
 use std::sync::{
     Arc,
@@ -90,6 +90,13 @@ pub enum Refusal {
         /// How many the setup template requires.
         want: usize,
     },
+    /// A path the cwd modal's Accept named resolves to no directory. The
+    /// button is disabled unless the last check was green, so this guards
+    /// a check the user typed past — or a frame the page never drew.
+    NotADirectory {
+        /// The path as it resolved, which names what is wrong.
+        path: String,
+    },
 }
 
 impl Refusal {
@@ -127,6 +134,7 @@ impl Refusal {
                 have,
                 want,
             } => format!("lifecycle {lifecycle:?} takes {want} argument(s), got {have}"),
+            Self::NotADirectory { path } => format!("not a directory: {path}"),
         }
     }
 }
@@ -1649,6 +1657,72 @@ pub async fn set_theme(out: &OutboundHandle, theme: String) -> Reply {
     })
     .await;
     Reply::one(ServerMsg::Theme(ThemeBody { theme }))
+}
+
+/// The active session's id and cwd, for the two cwd-modal handlers.
+///
+/// `None` while no session is active: the handlers refuse with
+/// [`Refusal::NoActiveSession`], the way `rename` does.
+fn active_cwd(
+    out: &OutboundHandle,
+) -> Option<(SessionId, marked_path::MarkedPathBuf<marked_path::Absolute>)> {
+    let guard = out.state().read();
+    let session_id = guard.session.active_session_id().clone();
+    let session = guard.session.get(&session_id)?;
+    Some((session_id, session.cwd().clone()))
+}
+
+/// Resolves one draft path the way the terminal's cwd popup resolves it.
+///
+/// Parity: the popup's live footer — the same pure resolver, against the
+/// same base — so the page's red/green verdict can never disagree with
+/// the terminal's. The reply echoes the text untrimmed: the page matches
+/// a reply against its draft by equality, and the resolver trims on its
+/// own.
+pub fn check_cwd(out: &OutboundHandle, text: String) -> Reply {
+    let Some((session_id, cwd)) = active_cwd(out) else {
+        return refused(&Refusal::NoActiveSession);
+    };
+    let verdict = match jinn_cwd_msg::resolve_cwd_input(&text, &cwd) {
+        jinn_cwd_msg::CwdResolution::Ok(path) => CwdVerdict::Ok {
+            path: path.to_string(),
+        },
+        jinn_cwd_msg::CwdResolution::Empty => CwdVerdict::Empty,
+        jinn_cwd_msg::CwdResolution::NotADir(path) => CwdVerdict::NotADirectory { path },
+    };
+    Reply::one(ServerMsg::CwdCheck(CwdCheckBody {
+        session_id,
+        text,
+        verdict,
+    }))
+}
+
+/// Changes the active session's working directory.
+///
+/// Parity: the terminal cwd popup's confirm — resolve, then publish
+/// `SetSessionCwd` and nothing else. The lifecycle actor applies the cwd
+/// and announces `SessionCwdChanged`, which the outbound actor turns into
+/// the frame every page follows; nothing is written here and the reply
+/// carries no frame. The path is resolved again rather than trusted: the
+/// page disables Accept unless its last check was green, and this is the
+/// guard behind that.
+pub async fn set_cwd(out: &OutboundHandle, text: String) -> Reply {
+    let Some((session_id, cwd)) = active_cwd(out) else {
+        return refused(&Refusal::NoActiveSession);
+    };
+    let path = match jinn_cwd_msg::resolve_cwd_input(&text, &cwd) {
+        jinn_cwd_msg::CwdResolution::Ok(path) => path,
+        jinn_cwd_msg::CwdResolution::Empty => return refused(&Refusal::EmptyText),
+        jinn_cwd_msg::CwdResolution::NotADir(path) => {
+            return refused(&Refusal::NotADirectory { path });
+        }
+    };
+    out.publish(SetSessionCwd {
+        session_id,
+        cwd: path,
+    })
+    .await;
+    Reply::none()
 }
 
 /// Sets a session's Library membership.

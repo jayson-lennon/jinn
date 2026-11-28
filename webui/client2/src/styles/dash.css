@@ -68,6 +68,16 @@
   color: var(--fg-dim);
   font-size: 12px;
 }
+/* The directory row is the change-directory modal's entry: a button that
+   reads as the plain value it sits beside. */
+.dash-cwd-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.dash-cwd-button:hover, .dash-cwd-button:focus-visible { color: var(--accent); text-decoration: underline; }
 
 /* The tree totals fold away: a phone sees the session's figures first. */
 .dash-tree {

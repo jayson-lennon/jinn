@@ -17,17 +17,17 @@ use jinn_slices::PhaseView;
 use rstest::rstest;
 
 use crate::payload::{
-    AppletRowBody, AppletRowsBody, ContextUsageBody, DashMcpRowBody, DashMcpRowsBody,
-    DashPinRowBody, DashPinRowsBody, DashTaskPhaseBody, DashTaskRowBody, DashTasksBody, DeltaField,
-    DetailSortBody, DetailViewBody, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody,
-    ImageUploadBody, LifecycleOptionBody, MarketDetailBody, MarketDirBody, MarketEndpointBody,
-    MarketMixBody, MarketRowBody, MarketRowsBody, MarketSortBody, MarketStaleBody, MarketViewBody,
-    McpBadgeBody, McpRowBody, McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody,
-    NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PhaseBody, PickerRowBody,
-    PickerRowsBody, PromptTemplateBody, PromptTemplatesBody, PushInfoBody, PushKeysBody,
-    PushSubscriptionBody, SessionRowBody, SessionRowOrigin, SessionStatsBody, SessionsBody,
-    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
-    ToolRowsBody, TreeStatsBody,
+    AppletRowBody, AppletRowsBody, ContextUsageBody, CwdBody, CwdCheckBody, CwdVerdict,
+    DashMcpRowBody, DashMcpRowsBody, DashPinRowBody, DashPinRowsBody, DashTaskPhaseBody,
+    DashTaskRowBody, DashTasksBody, DeltaField, DetailSortBody, DetailViewBody, EntryDeltaBody,
+    EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody, LifecycleOptionBody,
+    MarketDetailBody, MarketDirBody, MarketEndpointBody, MarketMixBody, MarketRowBody,
+    MarketRowsBody, MarketSortBody, MarketStaleBody, MarketViewBody, McpBadgeBody, McpRowBody,
+    McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody,
+    PersonaRowsBody, PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody,
+    PromptTemplatesBody, PushInfoBody, PushKeysBody, PushSubscriptionBody, SessionRowBody,
+    SessionRowOrigin, SessionStatsBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody,
+    TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody, TreeStatsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 use jinn_tools_msg::TaskStatus;
@@ -1569,6 +1569,21 @@ fn server_variant_carries_its_snake_case_tag() {
             "market_stale",
         ),
         (
+            ServerMsg::CwdCheck(CwdCheckBody {
+                session_id: SessionId::new(),
+                text: String::new(),
+                verdict: CwdVerdict::Empty,
+            }),
+            "cwd_check",
+        ),
+        (
+            ServerMsg::SessionCwd(CwdBody {
+                session_id: SessionId::new(),
+                cwd: String::new(),
+            }),
+            "session_cwd",
+        ),
+        (
             ServerMsg::Error(ErrorBody {
                 message: String::new(),
             }),
@@ -1765,6 +1780,18 @@ fn client_variant_carries_its_snake_case_tag() {
             "market_use",
         ),
         (ClientMsg::MarketRefresh, "market_refresh"),
+        (
+            ClientMsg::CheckCwd {
+                text: String::new(),
+            },
+            "check_cwd",
+        ),
+        (
+            ClientMsg::SetCwd {
+                text: String::new(),
+            },
+            "set_cwd",
+        ),
     ];
 
     // Then every variant's wire tag matches its snake_case name.
@@ -2913,4 +2940,134 @@ fn server_dash_mcp_rows_round_trip_with_their_badges() {
     assert_eq!(json["rows"][1]["badge"], "dead");
     assert_eq!(json_of(&back), json_of(&msg));
     assert_eq!(crate::server::tag_of(&back), "dash_mcp_rows");
+}
+
+#[rstest]
+#[test]
+fn client_check_cwd_round_trips_with_its_text() {
+    // Given a check for a path with whitespace the page may still hold.
+    let msg = ClientMsg::CheckCwd {
+        text: "  ~/code ".to_owned(),
+    };
+
+    // When it is serialized and read back.
+    let json = json_of_client(&msg);
+    let back = roundtrip(&msg);
+
+    // Then the text survives verbatim, and the tag is the bare snake_case name.
+    assert_eq!(back, msg);
+    assert_eq!(
+        json,
+        serde_json::json!({ "type": "check_cwd", "text": "  ~/code " })
+    );
+}
+
+#[rstest]
+#[test]
+fn client_set_cwd_round_trips_with_its_text() {
+    // Given an accept for a path.
+    let msg = ClientMsg::SetCwd {
+        text: "~/code".to_owned(),
+    };
+
+    // When it is serialized and read back.
+    let json = json_of_client(&msg);
+    let back = roundtrip(&msg);
+
+    // Then the path survives verbatim, and the tag is the bare snake_case name.
+    assert_eq!(back, msg);
+    assert_eq!(
+        json,
+        serde_json::json!({ "type": "set_cwd", "text": "~/code" })
+    );
+}
+
+#[rstest]
+#[test]
+fn server_cwd_check_round_trips_with_an_ok_verdict() {
+    // Given an ok verdict: the resolved directory's canonical path.
+    let msg = ServerMsg::CwdCheck(CwdCheckBody {
+        session_id: SessionId::new(),
+        text: "~/code".to_owned(),
+        verdict: CwdVerdict::Ok {
+            path: "/home/me/code".to_owned(),
+        },
+    });
+
+    // When it is serialized and read back.
+    let json = serde_json::to_value(&msg).expect("cwd check serializes");
+    let back = roundtrip_server(&msg);
+
+    // Then the verdict is internally tagged and its path flattened beside it.
+    assert_eq!(json["type"], "cwd_check");
+    assert_eq!(json["text"], "~/code");
+    assert_eq!(
+        json["verdict"],
+        serde_json::json!({ "kind": "ok", "path": "/home/me/code" })
+    );
+    assert_eq!(json_of(&back), json_of(&msg));
+    assert_eq!(crate::server::tag_of(&back), "cwd_check");
+}
+
+#[rstest]
+#[test]
+fn server_cwd_check_round_trips_with_a_not_a_directory_verdict() {
+    // Given a not-a-directory verdict: the offending path.
+    let msg = ServerMsg::CwdCheck(CwdCheckBody {
+        session_id: SessionId::new(),
+        text: "nope".to_owned(),
+        verdict: CwdVerdict::NotADirectory {
+            path: "/home/me/nope".to_owned(),
+        },
+    });
+
+    // When it is serialized and read back.
+    let json = serde_json::to_value(&msg).expect("cwd check serializes");
+    let back = roundtrip_server(&msg);
+
+    // Then the verdict's tag is its snake_case word, and the frame is unchanged.
+    assert_eq!(
+        json["verdict"],
+        serde_json::json!({ "kind": "not_a_directory", "path": "/home/me/nope" })
+    );
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_cwd_check_round_trips_with_an_empty_verdict() {
+    // Given an empty verdict: nothing typed yet.
+    let msg = ServerMsg::CwdCheck(CwdCheckBody {
+        session_id: SessionId::new(),
+        text: String::new(),
+        verdict: CwdVerdict::Empty,
+    });
+
+    // When it is serialized and read back.
+    let json = serde_json::to_value(&msg).expect("cwd check serializes");
+    let back = roundtrip_server(&msg);
+
+    // Then the verdict carries its tag as a bare object with no path beside
+    // it, and the frame is unchanged.
+    assert_eq!(json["verdict"], serde_json::json!({ "kind": "empty" }));
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn server_session_cwd_round_trips_with_the_shortened_path() {
+    // Given a cwd change pushed to every page.
+    let msg = ServerMsg::SessionCwd(CwdBody {
+        session_id: SessionId::new(),
+        cwd: "~/code/jinn".to_owned(),
+    });
+
+    // When it is serialized and read back.
+    let json = serde_json::to_value(&msg).expect("session cwd serializes");
+    let back = roundtrip_server(&msg);
+
+    // Then the path is flattened beside the tag, and the frame is unchanged.
+    assert_eq!(json["cwd"], serde_json::json!("~/code/jinn"));
+    assert_eq!(json_of(&back), json_of(&msg));
+    assert_eq!(crate::server::tag_of(&back), "session_cwd");
 }

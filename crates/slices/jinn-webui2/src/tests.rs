@@ -27,13 +27,15 @@ use jinn_provider_selection_msg::ProviderSwitch;
 use jinn_session_history_msg::{
     ChatEntryPinChanged, PinChatEntry, SetEntryContextOverride, UnpinChatEntry,
 };
-use jinn_session_lifecycle_msg::{CloseSession, SessionTeardownFinished, SessionTeardownStarted};
+use jinn_session_lifecycle_msg::{
+    CloseSession, SessionCwdChanged, SessionTeardownFinished, SessionTeardownStarted, SetSessionCwd,
+};
 use jinn_session_msg::MarkSessionInteracted;
 use jinn_session_store_msg::{
     ArchiveSession, PersistSession, SessionForkRequested, SessionLoadRequested, SetSessionLibrary,
 };
 use jinn_slices::bus::BusService;
-use jinn_webui2_msg::{ClientMsg, EntryEnvelope, ServerMsg};
+use jinn_webui2_msg::{ClientMsg, CwdVerdict, EntryEnvelope, ServerMsg};
 
 use crate::{
     actions,
@@ -5194,6 +5196,312 @@ async fn applets_rescanned_with_no_modal_open_pushes_nothing() {
 
     // Then nothing was pushed — nobody is looking.
     assert_eq!(drain(&mut inbox).len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Cwd modal
+// ---------------------------------------------------------------------------
+
+/// A harness whose active session runs in `dir`, so a relative draft path
+/// resolves against it the way a real session's would.
+fn harness_in(dir: &marked_path::MarkedPathBuf<marked_path::Absolute>) -> Harness {
+    let h = harness();
+    h.state
+        .write()
+        .session
+        .active_session_mut()
+        .set_cwd(dir.clone());
+    h
+}
+
+/// A temp root holding a real subdirectory `sub` and a regular file `a_file`.
+/// The second element is the root itself, already typed as absolute.
+fn cwd_fixture() -> (
+    jinn_testutil::JinnTempDir,
+    marked_path::MarkedPathBuf<marked_path::Absolute>,
+) {
+    let dir = jinn_testutil::tempdir();
+    std::fs::create_dir_all(dir.path.join("sub").expect("temp root joins a bare name"))
+        .expect("fixture subdirectory is created");
+    std::fs::write(
+        dir.path
+            .join("a_file")
+            .expect("temp root joins a bare name"),
+        "x",
+    )
+    .expect("fixture file is written");
+    let root = dir.path.clone();
+    (dir, root)
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn check_cwd_of_an_existing_directory_answers_ok_with_the_canonical_path() {
+    // Given a session running in a directory that holds `sub`.
+    let (dir, root) = cwd_fixture();
+    let h = harness_in(&root);
+
+    // When the page asks about the relative path `sub`.
+    let reply = dispatch(
+        ClientMsg::CheckCwd {
+            text: "sub".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the verdict is ok, carrying the resolved subdirectory.
+    let [ServerMsg::CwdCheck(body)] = reply.frames.as_slice() else {
+        unreachable!("the check answers one cwd_check frame");
+    };
+    let sub = dir.path.join("sub").expect("temp root joins a bare name");
+    assert_eq!(
+        body.verdict,
+        CwdVerdict::Ok {
+            path: sub.to_string()
+        }
+    );
+    // And the frame names the session the check resolved against.
+    assert_eq!(body.session_id, active_id(&h.state));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn check_cwd_echoes_the_text_untrimmed() {
+    // Given a session running in a directory that holds `sub`.
+    let (_dir, root) = cwd_fixture();
+    let h = harness_in(&root);
+
+    // When the page asks about ` sub `, whitespace included.
+    let reply = dispatch(
+        ClientMsg::CheckCwd {
+            text: " sub ".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the reply's text is exactly what was sent — the page matches a
+    // reply against its draft by equality.
+    let [ServerMsg::CwdCheck(body)] = reply.frames.as_slice() else {
+        unreachable!("the check answers one cwd_check frame");
+    };
+    assert_eq!(body.text, " sub ");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn check_cwd_of_a_file_answers_not_a_directory() {
+    // Given a session running in a directory that holds the file `a_file`.
+    let (_dir, root) = cwd_fixture();
+    let h = harness_in(&root);
+
+    // When the page asks about the file.
+    let reply = dispatch(
+        ClientMsg::CheckCwd {
+            text: "a_file".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the verdict is not_a_directory, naming the file.
+    let [ServerMsg::CwdCheck(body)] = reply.frames.as_slice() else {
+        unreachable!("the check answers one cwd_check frame");
+    };
+    assert!(matches!(
+        body.verdict,
+        CwdVerdict::NotADirectory { ref path } if path.ends_with("a_file")
+    ));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn check_cwd_of_whitespace_answers_empty() {
+    // Given a session.
+    let h = harness();
+
+    // When the page asks about whitespace.
+    let reply = dispatch(
+        ClientMsg::CheckCwd {
+            text: "   ".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the verdict is empty.
+    let [ServerMsg::CwdCheck(body)] = reply.frames.as_slice() else {
+        unreachable!("the check answers one cwd_check frame");
+    };
+    assert_eq!(body.verdict, CwdVerdict::Empty);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn check_cwd_with_no_active_session_is_refused() {
+    // Given an instance with no active session.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.state.write().session.remove_without_replacement(&id);
+
+    // When the page asks about a path.
+    let reply = dispatch(
+        ClientMsg::CheckCwd {
+            text: "~/code".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the page is refused.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn set_cwd_publishes_set_session_cwd_with_the_resolved_path() {
+    // Given a session running in a directory that holds `sub`.
+    let (dir, root) = cwd_fixture();
+    let h = harness_in(&root);
+    let id = active_id(&h.state);
+
+    // When the page accepts the relative path `sub`.
+    say(
+        &h,
+        ClientMsg::SetCwd {
+            text: "sub".to_owned(),
+        },
+    )
+    .await;
+
+    // Then exactly one SetSessionCwd is published, naming the session and
+    // the resolved subdirectory — the terminal popup's own command.
+    let published = h.audit.of_type::<SetSessionCwd>();
+    assert_eq!(published.len(), 1);
+    let sub = dir.path.join("sub").expect("temp root joins a bare name");
+    assert_eq!(published[0].session_id, id);
+    assert_eq!(published[0].cwd, sub);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn set_cwd_writes_nothing_to_the_session_itself() {
+    // Given a session running in a directory that holds `sub`.
+    let (_dir, root) = cwd_fixture();
+    let h = harness_in(&root);
+
+    // When the page accepts the relative path `sub`.
+    say(
+        &h,
+        ClientMsg::SetCwd {
+            text: "sub".to_owned(),
+        },
+    )
+    .await;
+
+    // Then the session's cwd is untouched: the lifecycle actor applies the
+    // command, not the page's handler.
+    assert_eq!(h.state.read().session.active_session().cwd(), &root);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn set_cwd_of_a_missing_path_is_refused_and_publishes_nothing() {
+    // Given a session running in a directory that holds no `nope`.
+    let (_dir, root) = cwd_fixture();
+    let h = harness_in(&root);
+
+    // When the page accepts the path `nope`.
+    let reply = dispatch(
+        ClientMsg::SetCwd {
+            text: "nope".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the page is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn set_cwd_of_whitespace_is_refused() {
+    // Given a session.
+    let h = harness();
+
+    // When the page accepts whitespace.
+    let reply = dispatch(
+        ClientMsg::SetCwd {
+            text: "  ".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the page is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn set_cwd_with_no_active_session_is_refused() {
+    // Given an instance with no active session.
+    let h = harness();
+    let id = active_id(&h.state);
+    h.state.write().session.remove_without_replacement(&id);
+
+    // When the page accepts a path.
+    let reply = dispatch(
+        ClientMsg::SetCwd {
+            text: "~/code".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the page is refused and nothing is published.
+    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
+    assert_eq!(h.audit.names().len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn session_cwd_changed_pushes_one_session_cwd_frame() {
+    // Given a connected page and a session's new cwd.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    let id = active_id(&h.state);
+    let cwd = marked_path::MarkedPathBuf::<marked_path::Absolute>::new("/tmp/somewhere/else")
+        .expect("a literal absolute path");
+
+    // When the lifecycle actor announces the change.
+    crate::outbound::session_cwd_changed(
+        &h.handle,
+        &SessionCwdChanged {
+            session_id: id.clone(),
+            cwd: cwd.clone(),
+        },
+    );
+
+    // Then one frame reaches the page, naming the session and the shortened path.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::SessionCwd(body)] = frames.as_slice() else {
+        unreachable!("the event pushes one cwd frame");
+    };
+    assert_eq!(body.session_id, id);
+    assert_eq!(body.cwd, jinn_common::shorten_path(&cwd));
 }
 
 // ---------------------------------------------------------------------------

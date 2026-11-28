@@ -124,5 +124,7 @@ pub async fn dispatch(
             lifecycle,
             args,
         } => actions::create_session(out, project, lifecycle, args).await,
+        ClientMsg::CheckCwd { text } => actions::check_cwd(out, text),
+        ClientMsg::SetCwd { text } => actions::set_cwd(out, text).await,
     }
 }

@@ -14,7 +14,7 @@
  *  `protocol_version.test.ts`, which reads the Rust source. Bumping the
  *  server's constant without this one fails the cargo build, because the
  *  client's unit tests run inside `build.rs`. */
-export const BUNDLE_PROTOCOL_VERSION = 4;
+export const BUNDLE_PROTOCOL_VERSION = 5;
 
 /** What the page does when the server speaks another protocol version.
  *

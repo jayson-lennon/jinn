@@ -5,11 +5,12 @@
 //! variant is a compile error until it has a handler.
 
 use crate::payload::{
-    AppletRowsBody, ContextUsageBody, DashMcpRowsBody, DashPinRowsBody, DashTasksBody,
-    EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, MarketDetailBody, MarketRowsBody,
-    MarketStaleBody, McpRowsBody, ModelBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody,
-    PhaseBody, PickerRowsBody, PromptTemplatesBody, PushInfoBody, SessionStatsBody, SessionsBody,
-    SkillRowsBody, SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
+    AppletRowsBody, ContextUsageBody, CwdBody, CwdCheckBody, DashMcpRowsBody, DashPinRowsBody,
+    DashTasksBody, EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, MarketDetailBody,
+    MarketRowsBody, MarketStaleBody, McpRowsBody, ModelBody, ModelRowsBody, NewSessionOptionsBody,
+    PersonaRowsBody, PhaseBody, PickerRowsBody, PromptTemplatesBody, PushInfoBody,
+    SessionStatsBody, SessionsBody, SkillRowsBody, SnapshotBody, ThemeBody, TitleBody,
+    ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +79,13 @@ pub enum ServerMsg {
     DashTasks(Box<DashTasksBody>),
     /// The dash's enabled MCP servers and their live status.
     DashMcpRows(DashMcpRowsBody),
+    /// The answer to a `CheckCwd`: the verdict for exactly the text the
+    /// page asked about, resolved the way the terminal's cwd popup
+    /// resolves it.
+    CwdCheck(CwdCheckBody),
+    /// A session's working directory changed — from the page, the
+    /// terminal, or another page. The dash's directory row follows it.
+    SessionCwd(CwdBody),
     /// The model market's rows for the view the page last asked for.
     MarketRows(MarketRowsBody),
     /// One model's endpoint detail.
@@ -136,6 +144,8 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::DashPinRows(_) => "dash_pin_rows",
         ServerMsg::DashTasks(_) => "dash_tasks",
         ServerMsg::DashMcpRows(_) => "dash_mcp_rows",
+        ServerMsg::CwdCheck(_) => "cwd_check",
+        ServerMsg::SessionCwd(_) => "session_cwd",
         ServerMsg::MarketRows(_) => "market_rows",
         ServerMsg::MarketDetail(_) => "market_detail",
         ServerMsg::MarketStale(_) => "market_stale",

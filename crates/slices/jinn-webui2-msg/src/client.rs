@@ -259,6 +259,22 @@ pub enum ClientMsg {
         /// The session the notification named.
         session_id: SessionId,
     },
+    /// Ask whether `text` names an existing directory, resolved against
+    /// the active session's cwd the way the terminal's cwd popup resolves
+    /// it. The reply echoes the text, so the page drops an answer to
+    /// something the user has typed past. Refused when no session is active.
+    CheckCwd {
+        /// The draft path, as the page holds it — not trimmed here.
+        text: String,
+    },
+    /// Change the active session's working directory to the directory
+    /// `text` resolves to: the terminal popup's confirm, publishing the
+    /// same command. Refused when `text` is empty or resolves to no
+    /// directory, or when no session is active.
+    SetCwd {
+        /// The path to resolve against the active session's cwd.
+        text: String,
+    },
 }
 
 #[must_use]
@@ -307,5 +323,7 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::PushSubscribe(_) => "push_subscribe",
         ClientMsg::PushUnsubscribe { .. } => "push_unsubscribe",
         ClientMsg::NotificationOpened { .. } => "notification_opened",
+        ClientMsg::CheckCwd { .. } => "check_cwd",
+        ClientMsg::SetCwd { .. } => "set_cwd",
     }
 }

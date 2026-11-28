@@ -43,6 +43,13 @@ export const sel = {
   DASH_SCRIM: '[data-testid="dash-scrim"]',
   DASH: '[data-testid="dash"]',
   DASH_STATS: '[data-testid="dash-stats"]',
+  /** The dash's directory row: the change-directory modal's entry. */
+  DASH_CWD: '[data-testid="dash-cwd"]',
+  CWD_MODAL: '[data-testid="cwd-modal"]',
+  CWD_INPUT: '[data-testid="cwd-input"]',
+  CWD_FOOTER: '[data-testid="cwd-footer"]',
+  CWD_ACCEPT: '[data-testid="cwd-accept"]',
+  CWD_CANCEL: '[data-testid="cwd-cancel"]',
   DASH_MCP: '[data-testid="dash-mcp"]',
   DASH_TASKS: '[data-testid="dash-tasks"]',
   DASH_PINS: '[data-testid="dash-pins"]',

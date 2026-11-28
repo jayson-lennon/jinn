@@ -36,6 +36,8 @@ import { reset as resetSettles } from '../notifications/notify';
 import { SessionStatus } from './status';
 import { StatusBar } from './statusbar';
 import { Dash } from '../dash/session_dash';
+import { CwdModal } from '../cwd/cwd_modal';
+import { openCwdModal } from '../cwd/cwd_state';
 import { cancelJump, openDash } from '../dash/dash';
 import { NewSessionModal } from '../pickers/new-session';
 import { Toasts } from '../overlays/toast';
@@ -419,7 +421,10 @@ export function App(): JSX.Element {
         />
       </Show>
       <Show when={store.state.dashOpen}>
-        <Dash store={store} send={send} onOpenMcp={openMcp} />
+        <Dash store={store} send={send} onOpenMcp={openMcp} onOpenCwd={(cwd) => openCwdModal(store, send, cwd)} />
+      </Show>
+      <Show when={store.state.cwdOpen}>
+        <CwdModal store={store} send={send} />
       </Show>
       <Show when={mcpOpen()}>
         <McpModal

@@ -337,6 +337,27 @@ export interface SessionStats {
   tree: TreeStats | null;
 }
 
+/** A directory-path verdict from the server, resolved the way the terminal
+ *  cwd popup resolves one. Internally tagged by `kind` on the wire — the
+ *  empty case is a bare `{ kind: 'empty' }` object, not a string. */
+export type CwdVerdict =
+  | { kind: 'ok'; path: string }
+  | { kind: 'empty' }
+  | { kind: 'not_a_directory'; path: string };
+
+/** The answer to a `check_cwd`: the verdict for exactly the text asked about. */
+export interface CwdCheck {
+  session_id: string;
+  text: string;
+  verdict: CwdVerdict;
+}
+
+/** A session's working directory, shortened as the dash shows it. */
+export interface SessionCwdBody {
+  session_id: string;
+  cwd: string;
+}
+
 /** One pinned entry, labeled as the terminal sidebar labels it. */
 export interface DashPinRow {
   entry_id: string;
@@ -443,7 +464,14 @@ export type ClientMsg =
   | { type: 'push_subscribe'; endpoint: string; keys: { p256dh: string; auth: string } }
   | { type: 'push_unsubscribe'; endpoint: string }
   /** A notification was tapped: activate the session it names. */
-  | { type: 'notification_opened'; session_id: string };
+  | { type: 'notification_opened'; session_id: string }
+  /** Ask whether a draft path names an existing directory, resolved against
+   *  the active session's cwd the way the terminal's cwd popup resolves it.
+   *  The answer echoes the text; the page drops one it has typed past. */
+  | { type: 'check_cwd'; text: string }
+  /** Change the active session's cwd to the directory the text resolves to —
+   *  the terminal popup's confirm. Refused for an empty or unresolvable path. */
+  | { type: 'set_cwd'; text: string };
 
 /** Server -> browser. Exactly one fact per frame. */
 export type ServerMsg =
@@ -506,6 +534,11 @@ export type ServerMsg =
   | { type: 'dash_pin_rows'; session_id: string; rows: DashPinRow[] }
   | ({ type: 'dash_tasks'; session_id: string } & DashTasks)
   | { type: 'dash_mcp_rows'; session_id: string; rows: DashMcpRow[] }
+  /** The answer to a `check_cwd`: the verdict for exactly the text asked. */
+  | ({ type: 'cwd_check' } & CwdCheck)
+  /** A session's cwd changed — here or in the terminal. The dash's row
+   *  follows it; an open modal's draft is left alone. */
+  | ({ type: 'session_cwd' } & SessionCwdBody)
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }
   | { type: 'model_rows'; session_id: string; filter: string; rows: ModelRow[] }
   | {

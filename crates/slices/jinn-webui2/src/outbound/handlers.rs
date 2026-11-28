@@ -837,6 +837,34 @@ pub(crate) fn teardown_finished(
     sessions_changed(handle);
 }
 
+impl MsgHandler<jinn_session_lifecycle_msg::SessionCwdChanged> for OutboundActor {
+    async fn handle(
+        &mut self,
+        msg: &jinn_session_lifecycle_msg::SessionCwdChanged,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        session_cwd_changed(&self.handle, msg);
+    }
+}
+
+/// Turns one `SessionCwdChanged` into the frame the dash row follows.
+///
+/// The lifecycle actor publishes this strictly after it writes the cwd, so
+/// the event's own path is the fact — never a state read, which a second
+/// change may already have moved past. The path is shortened the way the
+/// dash's statistics shorten it, so the row reads the same before and after
+/// the next statistics push. A cwd changed in the terminal reaches every
+/// open page this way, with no reload.
+pub(crate) fn session_cwd_changed(
+    handle: &super::OutboundHandle,
+    msg: &jinn_session_lifecycle_msg::SessionCwdChanged,
+) {
+    handle.broadcast(&ServerMsg::SessionCwd(jinn_webui2_msg::CwdBody {
+        session_id: msg.session_id.clone(),
+        cwd: jinn_common::shorten_path(&msg.cwd),
+    }));
+}
+
 impl MsgHandler<jinn_kernel::protocol::system::ActiveSessionChanged> for OutboundActor {
     async fn handle(
         &mut self,

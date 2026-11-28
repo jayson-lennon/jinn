@@ -161,6 +161,53 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
 /* As the composer's filled buttons: the fill stays under the pointer. */
 .new-session-submit:hover { background: var(--accent); filter: brightness(1.08); }
 
+/* The change-directory modal, beside the new-session modal it mirrors. */
+.cwd-title { margin: 0 0 12px; font-size: 16px; }
+.cwd-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font: inherit;
+}
+.cwd-input:focus { outline: none; border-color: var(--accent); }
+.cwd-footer {
+  margin-top: 6px;
+  min-height: 1.4em;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+/* The footer keeps the last verdict's colour while the next one is in
+   flight: it reads as steady, and only Accept goes dark on an edit. */
+.cwd-footer[data-tone='ok'] { color: var(--ok); }
+.cwd-footer[data-tone='bad'] { color: var(--danger); }
+.cwd-footer[data-tone='none'] { color: var(--fg-dim); }
+.cwd-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.cwd-cancel, .cwd-accept {
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font: inherit;
+  cursor: pointer;
+}
+.cwd-cancel {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+.cwd-cancel:hover { border-color: var(--accent); }
+.cwd-accept {
+  background: var(--accent);
+  color: var(--on-fill);
+  border: 0;
+}
+.cwd-accept:hover { filter: brightness(1.08); }
+/* A disabled Accept keeps its fill at reduced opacity, so the button does
+   not vanish while a verdict is in flight and the eye can find it again. */
+.cwd-accept:disabled { opacity: 0.45; cursor: default; filter: none; }
+
 /* The menu's segmented color-mode group. */
 .menu-group {
   display: flex;
