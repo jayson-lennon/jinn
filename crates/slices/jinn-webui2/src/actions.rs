@@ -79,6 +79,8 @@ pub enum Refusal {
     BadProjectPath(String),
     /// The lifecycle value is not blank and not a configured script name.
     UnknownLifecycle(String),
+    /// The market's data cell carries no listing with that id.
+    UnknownMarketModel(String),
     /// The args parsed to fewer values than the lifecycle's setup declares.
     MissingArgs {
         /// The lifecycle whose minimum was missed.
@@ -113,6 +115,10 @@ impl Refusal {
             Self::BadProjectPath(path) => {
                 format!("configured project path {path:?} is neither ~-prefixed nor absolute")
             }
+            Self::UnknownMarketModel(id) => {
+                format!("no market listing named {id}")
+            }
+
             Self::UnknownLifecycle(name) => {
                 format!("lifecycle {name:?} is not a configured [[session_lifecycle.script]]")
             }
@@ -125,7 +131,7 @@ impl Refusal {
     }
 }
 
-fn refused(reason: &Refusal) -> Reply {
+pub(crate) fn refused(reason: &Refusal) -> Reply {
     let message = reason.sentence();
     Reply::one(ServerMsg::Error(ErrorBody { message }))
 }

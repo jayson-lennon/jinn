@@ -81,6 +81,7 @@ use jinn_model_market_msg::RefreshAll;
 use jinn_model_market_msg::RefreshFailed;
 use jinn_model_market_msg::ValsIndex;
 use jinn_model_market_msg::ValsLoaded;
+use jinn_model_market_msg::model_page_url;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_slices::TypedCell;
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
@@ -167,17 +168,6 @@ impl PageOpener for SilentPageOpener {
     fn name(&self) -> &'static str {
         "silent"
     }
-}
-
-/// The openrouter.ai page for a listing id: the id minus its
-/// `openrouter/` prefix, appended to the site root. The remainder *is*
-/// OpenRouter's page path verbatim, variant suffix (`:free`,
-/// `:thinking`) included; a prefix-miss falls back to the raw id —
-/// defensive only, `MarketRow.id` is prefixed by construction.
-#[must_use]
-pub fn model_page_url(model_id: &str) -> String {
-    let rest = model_id.strip_prefix("openrouter/").unwrap_or(model_id);
-    format!("https://openrouter.ai/{rest}")
 }
 
 /// The OpenRouter market actor.

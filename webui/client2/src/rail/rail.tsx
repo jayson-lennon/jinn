@@ -241,7 +241,7 @@ export function SessionRail(props: RailProps): JSX.Element {
           </For>
           <Show when={!props.store.state.synced || props.store.state.hydrating}>
             <li class="rail-loading" data-testid="rail-loading" role="status" aria-live="polite">
-              <span class="spinner spinner-small" aria-hidden="true" />
+              <span class="spinner spinner-small" aria-hidden="true"><i /></span>
               loading sessions…
             </li>
           </Show>

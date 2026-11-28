@@ -28,6 +28,7 @@ mod connections;
 mod frames;
 pub(crate) mod health;
 mod listener;
+mod market;
 mod outbound;
 mod page;
 mod protocol;
@@ -49,111 +50,6 @@ pub enum WebUi2ActivationError {
     /// The configured address could not be bound.
     #[error(debug)]
     Bind,
-}
-
-/// The cells the outbound actor reads, resolved from the one catalog.
-#[derive(Debug)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "every field is a cell and is named for the cell it holds; dropping the postfix would leave `provider` and `personas` reading as the values rather than the cells that carry them"
-)]
-pub(crate) struct OutboundCells {
-    provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
-    personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
-    mcp_runtime_cell: jinn_slices::TypedCell<jinn_mcp_msg::McpRuntimeState>,
-    applets_catalog_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
-    applets_picker_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
-    work_time_cell: jinn_slices::TypedCell<jinn_work_time_msg::WorkingTimeState>,
-    session_picker_cell: jinn_slices::TypedCell<jinn_session_store_msg::SessionPickerState>,
-}
-
-/// Resolves the seven cells the outbound actor reads. Every one is a
-/// bootstrap assertion: a missing slot is a broken boot order and must abort
-/// launch, not continue degraded.
-pub(crate) fn resolve_outbound_cells(
-    host: &mut jinn_slices::SliceHost<'_, jinn_slices::RenderFacts>,
-) -> OutboundCells {
-    OutboundCells {
-        #[expect(
-            clippy::expect_used,
-            reason = "bootstrap assertion: a missing provider slot is a broken boot order and must abort launch, not continue degraded"
-        )]
-        provider_cell: host
-            .slices()
-            .reader::<jinn_provider_selection_msg::ProviderCell>(
-                &jinn_provider_selection_msg::provider_state_slot(),
-            )
-            .expect("the cell catalog registers the provider slot before any slice activates"),
-
-        // The persona catalog and the MCP runtime projection, for the persona
-        // and MCP pickers' rows. Resolved the same way, from the same catalog.
-        #[expect(
-            clippy::expect_used,
-            reason = "bootstrap assertion: a missing persona slot is a broken boot order and must abort launch, not continue degraded"
-        )]
-        personas_cell: host
-            .slices()
-            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            .expect("the cell catalog registers the persona slot before any slice activates"),
-        #[expect(
-            clippy::expect_used,
-            reason = "bootstrap assertion: a missing MCP runtime slot is a broken boot order and must abort launch, not continue degraded"
-        )]
-        mcp_runtime_cell: host
-            .slices()
-            .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
-            .expect("the cell catalog registers the MCP runtime slot before any slice activates"),
-
-        // The applets catalog and the applets picker, for the applets modal's
-        // rows and the server's serving phase. Resolved the same way.
-        #[expect(
-            clippy::expect_used,
-            reason = "bootstrap assertion: a missing applets catalog slot is a broken boot order and must abort launch, not continue degraded"
-        )]
-        applets_catalog_cell: host
-            .slices()
-            .reader::<jinn_applets_msg::AppletsCatalog>(&jinn_applets_msg::applets_catalog_slot())
-            .expect(
-                "the cell catalog registers the applets catalog slot before any slice activates",
-            ),
-        #[expect(
-            clippy::expect_used,
-            reason = "bootstrap assertion: a missing applets picker slot is a broken boot order and must abort launch, not continue degraded"
-        )]
-        applets_picker_cell:
-            host.slices()
-                .reader::<jinn_applets_msg::AppletsPickerState>(
-                    &jinn_applets_msg::applets_picker_slot(),
-                )
-                .expect(
-                    "the cell catalog registers the applets picker slot before any slice activates",
-                ),
-
-        #[expect(
-            clippy::expect_used,
-            reason = "bootstrap assertion: a missing work-time slot is a broken boot order and must abort launch, not continue degraded"
-        )]
-        work_time_cell: host
-            .slices()
-            .reader::<jinn_work_time_msg::WorkingTimeState>(&jinn_work_time_msg::work_time_slot())
-            .expect("the cell catalog registers the work-time slot before any slice activates"),
-
-        // The session store slice's picker cell, for the Archive picker's rows:
-        // the store actor writes them, and the outbound actor reads them when the
-        // write is announced.
-        #[expect(
-            clippy::expect_used,
-            reason = "bootstrap assertion: a missing session-picker slot is a broken boot order and must abort launch, not continue degraded"
-        )]
-        session_picker_cell: host
-            .slices()
-            .reader::<jinn_session_store_msg::SessionPickerState>(
-                &jinn_session_store_msg::session_picker_slot(),
-            )
-            .expect(
-                "the cell catalog registers the session-picker slot before any slice activates",
-            ),
-    }
 }
 
 /// Installs the web UI: spawns its outbound actor and binds its listener.
@@ -191,15 +87,47 @@ pub async fn activate(
 
     // The provider cell, for the model picker's rows. Resolved from the
     // shared catalog the way the terminal's picker resolves it.
-    let OutboundCells {
-        provider_cell,
-        personas_cell,
-        mcp_runtime_cell,
-        applets_catalog_cell,
-        applets_picker_cell,
-        work_time_cell,
-        session_picker_cell,
-    } = resolve_outbound_cells(host);
+    let provider_cell = resolve_cell::<jinn_provider_selection_msg::ProviderCell>(
+        host,
+        &jinn_provider_selection_msg::provider_state_slot(),
+    );
+
+    // The persona catalog and the MCP runtime projection, for the persona
+    // and MCP pickers' rows. Resolved the same way, from the same catalog.
+    let personas_cell =
+        resolve_cell::<jinn_persona_msg::Personas>(host, &jinn_persona_msg::personas_slot());
+    let mcp_runtime_cell =
+        resolve_cell::<jinn_mcp_msg::McpRuntimeState>(host, &jinn_mcp_msg::mcp_runtime_slot());
+
+    // The applets catalog and the applets picker, for the applets modal's
+    // rows and the server's serving phase. Resolved the same way.
+    let applets_catalog_cell = resolve_cell::<jinn_applets_msg::AppletsCatalog>(
+        host,
+        &jinn_applets_msg::applets_catalog_slot(),
+    );
+    let applets_picker_cell = resolve_cell::<jinn_applets_msg::AppletsPickerState>(
+        host,
+        &jinn_applets_msg::applets_picker_slot(),
+    );
+
+    let work_time_cell = resolve_cell::<jinn_work_time_msg::WorkingTimeState>(
+        host,
+        &jinn_work_time_msg::work_time_slot(),
+    );
+
+    // The model-market data cell, for the market modal's rows and detail.
+    // Resolved from the shared catalog the way the terminal popup does.
+    let market_cell = resolve_cell::<jinn_model_market_msg::MarketDataState>(
+        host,
+        &jinn_model_market_msg::market_data_slot(),
+    );
+    // The session store slice's picker cell, for the Archive picker's rows:
+    // the store actor writes them, and the outbound actor reads them when the
+    // write is announced.
+    let session_picker_cell = resolve_cell::<jinn_session_store_msg::SessionPickerState>(
+        host,
+        &jinn_session_store_msg::session_picker_slot(),
+    );
 
     let outbound = outbound::spawn(
         host.system(),
@@ -216,6 +144,7 @@ pub async fn activate(
             mcp_runtime_cell,
             applets_catalog_cell,
             applets_picker_cell,
+            market_cell,
             session_picker_cell,
             config: services.config.clone(),
         },
@@ -240,4 +169,25 @@ pub async fn activate(
 
     tracing::info!(url = %bound.connection_note(), "web UI listening");
     Ok(())
+}
+
+/// Resolves one read-only cell from the shared catalog.
+///
+/// # Panics
+///
+/// Panics when the catalog has not registered the slot. That is a
+/// boot-order bug, not a runtime condition: the catalog runs before any
+/// slice activates, so a missing slot means the boot is broken and must
+/// abort rather than continue degraded.
+#[expect(
+    clippy::expect_used,
+    reason = "bootstrap assertion: a missing cell slot is a broken boot order and must abort launch, not continue degraded"
+)]
+fn resolve_cell<T: Send + Sync + 'static>(
+    host: &SliceHost<'_, jinn_slices::RenderFacts>,
+    slot: &jinn_slices::SlotKey,
+) -> jinn_slices::TypedCell<T> {
+    host.slices()
+        .reader::<T>(slot)
+        .expect("the cell catalog registers every web UI slot before any slice activates")
 }

@@ -577,6 +577,47 @@ pub(crate) fn prompt_templates_loaded(
     ));
 }
 
+// ── Model market ─────────────────────────────────────────────────────
+//
+// The market's data events, one handler each. Every one of these lands
+// after the actor's cell write, so the handler reads the cell and never
+// the event's payload — except `RefreshFailed`, whose message is the one
+// fact nowhere else in a pushable form.
+
+impl MsgHandler<jinn_model_market_msg::ModelsLoaded> for OutboundActor {
+    async fn handle(&mut self, _msg: &jinn_model_market_msg::ModelsLoaded, _ctx: &mut MsgCtx<'_>) {
+        crate::market::rows_changed(&self.handle);
+    }
+}
+
+impl MsgHandler<jinn_model_market_msg::EciLoaded> for OutboundActor {
+    async fn handle(&mut self, _msg: &jinn_model_market_msg::EciLoaded, _ctx: &mut MsgCtx<'_>) {
+        crate::market::rows_changed(&self.handle);
+    }
+}
+
+impl MsgHandler<jinn_model_market_msg::ValsLoaded> for OutboundActor {
+    async fn handle(&mut self, _msg: &jinn_model_market_msg::ValsLoaded, _ctx: &mut MsgCtx<'_>) {
+        crate::market::rows_changed(&self.handle);
+    }
+}
+
+impl MsgHandler<jinn_model_market_msg::EndpointsLoaded> for OutboundActor {
+    async fn handle(
+        &mut self,
+        _msg: &jinn_model_market_msg::EndpointsLoaded,
+        _ctx: &mut MsgCtx<'_>,
+    ) {
+        crate::market::detail_changed(&self.handle);
+    }
+}
+
+impl MsgHandler<jinn_model_market_msg::RefreshFailed> for OutboundActor {
+    async fn handle(&mut self, msg: &jinn_model_market_msg::RefreshFailed, _ctx: &mut MsgCtx<'_>) {
+        crate::market::refresh_failed(&self.handle, &msg.message);
+    }
+}
+
 impl MsgHandler<jinn_provider_selection_msg::ModelCacheStored> for OutboundActor {
     async fn handle(
         &mut self,

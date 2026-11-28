@@ -175,7 +175,7 @@ export function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) =
       <section class="transcript" data-testid="transcript" ref={node} onScroll={onTranscriptScroll}>
         <Show when={props.store.state.loadingMore}>
           <div class="older-spinner" data-testid="older-spinner">
-            <span class="spinner spinner-small" aria-hidden="true" /> loading older entries…
+            <span class="spinner spinner-small" aria-hidden="true"><i /></span> loading older entries…
           </div>
         </Show>
         <Show when={!props.store.state.loadingMore && props.store.state.entriesBefore > 0}>

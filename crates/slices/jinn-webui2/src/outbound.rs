@@ -19,6 +19,8 @@ use std::time::Duration;
 use jinn_core_types::SessionId;
 use jinn_kernel::{State, common::actor_deps::BusPublish};
 use jinn_slices::bus::BusService;
+use jinn_webui2_msg::DetailViewBody;
+use jinn_webui2_msg::MarketViewBody;
 use jinn_webui2_msg::ServerMsg;
 use parking_lot::Mutex;
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
@@ -83,6 +85,9 @@ pub struct OutboundActorDeps {
     pub applets_catalog_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsCatalog>,
     /// The applets slice's picker cell, read for the server's serving phase.
     pub applets_picker_cell: jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState>,
+    /// The model-market slice's data cell: the fetched OpenRouter table,
+    /// the score indexes, and the one model's endpoint detail.
+    pub market_cell: jinn_slices::TypedCell<jinn_model_market_msg::MarketDataState>,
     /// The session store slice's picker cell: the Archive picker's rows, which
     /// the store actor writes and this slice only reads.
     pub session_picker_cell: jinn_slices::TypedCell<jinn_session_store_msg::SessionPickerState>,
@@ -149,6 +154,18 @@ pub struct OutboundHandle {
     /// row built at any instant carries the right flag. Set by the teardown
     /// started event, cleared by the finished one; in memory only.
     tearing_down: Arc<Mutex<std::collections::HashSet<SessionId>>>,
+    /// The view the market modal last asked for, and the session it was
+    /// viewing — the view a data push answers in, and the session whose
+    /// tree the mix derives from. `None` while no market is open. Not
+    /// keyed by session: the catalog is instance-wide, so there is one
+    /// open market, not one per session.
+    market_view: Arc<Mutex<Option<(MarketViewBody, SessionId)>>>,
+    /// The model whose detail page is open, so an endpoints push answers
+    /// only a page still showing it.
+    market_pinned: Arc<Mutex<Option<String>>>,
+    /// The detail page's sort, so an endpoints push answers in the sort
+    /// the page last asked.
+    market_detail_view: Arc<Mutex<DetailViewBody>>,
 }
 
 impl OutboundHandle {
@@ -202,6 +219,47 @@ impl OutboundHandle {
     #[must_use]
     pub(crate) fn applet_filter(&self) -> Option<String> {
         self.applet_filter.lock().clone()
+    }
+
+    /// The model-market data cell.
+    #[must_use]
+    pub fn market_cell(&self) -> &jinn_slices::TypedCell<jinn_model_market_msg::MarketDataState> {
+        &self.deps.market_cell
+    }
+
+    /// Records the view the market modal last asked for, and the session
+    /// it was viewing when it asked.
+    pub(crate) fn remember_market_view(&self, view: MarketViewBody, session_id: SessionId) {
+        *self.market_view.lock() = Some((view, session_id));
+    }
+
+    /// The view the market modal last asked for and the session it was
+    /// viewing, or `None` while no market is open.
+    #[must_use]
+    pub(crate) fn market_view(&self) -> Option<(MarketViewBody, SessionId)> {
+        self.market_view.lock().clone()
+    }
+
+    /// Records the model whose detail page is open.
+    pub(crate) fn remember_market_pinned(&self, model_id: &str) {
+        *self.market_pinned.lock() = Some(model_id.to_owned());
+    }
+
+    /// The model whose detail page is open, or `None`.
+    #[must_use]
+    pub(crate) fn market_pinned(&self) -> Option<String> {
+        self.market_pinned.lock().clone()
+    }
+
+    /// Records the detail page's sort.
+    pub(crate) fn remember_market_detail_view(&self, view: DetailViewBody) {
+        *self.market_detail_view.lock() = view;
+    }
+
+    /// The detail page's sort — the default until a page asks otherwise.
+    #[must_use]
+    pub(crate) fn market_detail_view(&self) -> DetailViewBody {
+        *self.market_detail_view.lock()
     }
 
     /// Records the filter the Archive picker last asked for — the one the
@@ -289,6 +347,9 @@ impl OutboundHandle {
             told_dash: Arc::new(Mutex::new(HashMap::new())),
             told_dash_rows: Arc::new(Mutex::new(HashMap::new())),
             tearing_down: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            market_view: Arc::new(Mutex::new(None)),
+            market_pinned: Arc::new(Mutex::new(None)),
+            market_detail_view: Arc::new(Mutex::new(DetailViewBody::default())),
         }
     }
 
@@ -496,6 +557,14 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         .handles::<jinn_context_assembly_msg::ContextOverrideChanged>()
         .handles::<jinn_chat_input_msg::ChatEntrySubmitted>()
         .handles::<jinn_provider_selection_msg::ProviderSwitched>()
+        // The market's data events: each lands after the actor's cell
+        // write, so the handler reads the cell and pushes fresh rows.
+        // All are Events, so a second declarant is the normal case.
+        .handles::<jinn_model_market_msg::ModelsLoaded>()
+        .handles::<jinn_model_market_msg::EndpointsLoaded>()
+        .handles::<jinn_model_market_msg::EciLoaded>()
+        .handles::<jinn_model_market_msg::ValsLoaded>()
+        .handles::<jinn_model_market_msg::RefreshFailed>()
         .handles::<jinn_session_store_msg::SessionLoadCompleted>()
         // Startup hydration ended: the event lands strictly after the
         // session map's hydration flag is cleared, so a page re-reading the

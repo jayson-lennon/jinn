@@ -5,7 +5,7 @@
 //! but does not actually clamp the layout fails here, where a screenshot
 //! review would miss it.
 
-import { createSession, expect, sel, sendAndWaitForEcho, test } from "./fixture.mjs";
+import { createSession, expect, sel, sendAndWaitForEcho, test, openProviderPicker } from "./fixture.mjs";
 
 const DESKTOP = { width: 1280, height: 800 };
 
@@ -136,7 +136,7 @@ test("the model picker shows each model's name at full height", async ({
 }) => {
   // Given the model picker, open.
   await page.setViewportSize(DESKTOP);
-  await page.locator(sel.MODEL_CHIP).click();
+  await openProviderPicker(page);
 
   // Then the row's title has real height.
   const height = await titleHeight(page, sel.MODEL_ROW);

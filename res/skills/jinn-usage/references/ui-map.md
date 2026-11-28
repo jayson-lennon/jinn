@@ -74,8 +74,8 @@ pinning, exclusion, and the audit popup all operate here (see
 see Popups below.
 
 ### Streaming indicator
-The 1-row line between the chat log and the input box. A spinner plus
-"Working..." while the active session is sending/streaming/compacting; idle
+The 1-row line between the chat log and the input box. Three breathing
+dots plus "Working..." while the active session is sending/streaming/compacting; idle
 rows are blank. Shows a queued-message count when messages are waiting.
 The right edge names the session kind (subagent / bot) in its own color at
 all times, busy or idle alike.
@@ -199,7 +199,7 @@ fixed column drawn here, and the `#` is not shown.
 | A gold Sessions / Library tab | Its list holds an unread session, so the mark is never behind the other list. | `webui.md` |
 | `●` after a session title | That session's turn is running. | `webui.md` |
 | The session title | Click to rename in place: `Enter` commits, `Esc` cancels. | `webui.md` |
-| `[provider/model]` | The model chip. Opens the model picker; its **Refresh models** button asks the registry to rediscover and stays busy until the fresh rows land. | `webui.md` |
+| `[provider/model]` | The model chip. Opens a two-row chooser: **OpenRouter Model Market** (the catalog's prices and scores as a phone-first table) or **Provider Model Picker** (whose **Refresh models** button asks the registry to rediscover). | `webui.md` |
 | The persona name / `12.3k/???` | The status bar, under the title bar. Left: the session's persona — click it to open the persona picker. Right: the context usage figure, the same one the TUI status bar shows (`used%/max` or `used/???` when the model's window is unknown) — click it to open the session dash. | `webui.md` |
 | The card under `12.3k/???` | The **session dash**: the session's statistics (model, context, tokens, cost, turns, working time, cache, directory), its enabled MCP servers, its task list, and its pinned entries — every figure the TUI's own. Click the MCP section to open the picker; click a pin to jump the transcript to it. `Esc` or a click outside closes it. | `webui.md` |
 | `[chip: … ✕]` | A pending image, one per chip, above the composer. Arrives from a paste, the `+`, or an `https://` image URL already sent. `✕` removes it. | `webui.md` |
@@ -251,6 +251,8 @@ fixed column drawn here, and the `#` is not shown.
 | Every `<leader>s*` chooser | Pickers (see `pickers-and-search.md`) |
 | The web UI's address | Dashboard tab, **webui** row |
 | The web UI page's `☰` / `#` / `[provider/model]` buttons | Web UI title bar |
+| The web UI's "OpenRouter Model Market / Provider Model Picker" chooser | Behind the model chip — [Web UI layout](#web-ui-layout) |
+| The web UI's model market (PROJ · IN/M · OUT/M · CACH/M · ECI · VALS table, mix/⟳, detail page with endpoints and ⧉ popout) | Behind the model chip's chooser — [Web UI layout](#web-ui-layout) |
 | The web UI page's title (click to rename) | Web UI title bar |
 | The web UI page's persona name | Web UI status bar, under the title bar — click it for the persona picker |
 | The web UI page's context usage figure (`12.3k/???`) | Web UI status bar, under the title bar — click it for the session dash |

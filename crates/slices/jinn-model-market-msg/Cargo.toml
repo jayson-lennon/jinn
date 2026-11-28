@@ -10,6 +10,11 @@ jinn-slices = { workspace = true }
 jiff = { workspace = true }
 serde = { workspace = true }
 trouper = { workspace = true }
+# The market filter is SkimMatcherV2 — the terminal picker's own matcher — so
+# one filter cannot drift between the surfaces.
+fuzzy-matcher = { workspace = true }
+# The name's matched/plain runs are cut on grapheme boundaries.
+unicode-segmentation = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

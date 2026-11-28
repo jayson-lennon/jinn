@@ -31,6 +31,9 @@ jinn-inference-msg = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-provider-selection-msg = { workspace = true }
+# The market's rows are the model-market contract's projection over the
+# slice's data cell; its commands are the popup's own.
+jinn-model-market-msg = { workspace = true }
 jinn-provider-config = { workspace = true }
 jinn-tools-msg = { workspace = true }
 # The skills modal's rows are filtered by the terminal picker's own matcher,
