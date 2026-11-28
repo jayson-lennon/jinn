@@ -199,7 +199,11 @@ function PinsSection(props: { readonly store: ClientStore; readonly send: Send }
               title={row.text}
               onClick={() => jump(row.entry_id)}
             >
-              {row.text}
+              {/* The label and the arrow are siblings, not one text node:
+                  a long label ellipsises inside its own box and never
+                  crowds the arrow's column. */}
+              <span class="dash-pin-label">{row.text}</span>
+              <span class="dash-pin-arrow" aria-hidden="true">❯</span>
             </button>
           )}
         </For>

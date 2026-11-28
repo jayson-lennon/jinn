@@ -75,10 +75,7 @@
 }
 .dash-tree > summary {
   cursor: pointer;
-  color: var(--fg-dim);
-}
-.dash-tree > summary:hover {
-  color: var(--fg);
+  color: var(--accent);
 }
 .dash-tree-rows {
   margin-top: 4px;
@@ -86,7 +83,10 @@
   border-left: 1px solid var(--border);
 }
 
-/* MCP: the whole section is one button, so a tap anywhere opens the picker. */
+/* MCP: the whole section is one button, so a tap anywhere opens the
+   picker. The title is the affordance — clickable text is accent-
+   coloured on this page — and the rows are its content, left in the
+   page ink. */
 .dash-mcp {
   display: block;
   width: 100%;
@@ -100,6 +100,7 @@
   text-align: left;
   cursor: pointer;
 }
+.dash-mcp .dash-section-title { color: var(--accent); }
 .dash-mcp:hover {
   background: var(--bg-hover);
 }
@@ -153,12 +154,18 @@
   color: var(--fg-dim);
 }
 
-/* Pins: one button per row, the server's already-truncated label. */
+/* Pins: one button per row, the server's already-truncated label, and a
+   trailing arrow that says the row goes somewhere. The label stays in the
+   page ink — a sentence or a path in accent would be heavy — and the
+   arrow alone carries the affordance. The two are flex siblings so a long
+   label ellipsises in its own column and never crowds the arrow. */
 .dash-pin {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  padding: 4px 6px;
-  margin: 0 -6px;
+  padding: 10px 6px;
+  margin: -6px -6px;
   background: transparent;
   border: 0;
   border-radius: var(--radius);
@@ -166,9 +173,19 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  white-space: nowrap;
+}
+.dash-pin-label {
+  flex: 1 1 0;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-pin-arrow {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1;
 }
 .dash-pin:hover {
   background: var(--bg-hover);

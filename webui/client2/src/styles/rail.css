@@ -59,13 +59,20 @@
 /* A row and its kebab sit on one line; the session button takes the rest. */
 .session-row { display: flex; align-items: center; gap: 2px; }
 .session-row .session { flex: 1 1 0; min-width: 0; }
-.row-menu { position: relative; flex: 0 0 auto; white-space: nowrap; }
+/* The wrapper stretches to the row's full height and the button fills
+   it, so a tap anywhere on the row's right edge opens the menu; the
+   glyph stays centred, and the hover fill covers the whole height. */
+.row-menu { position: relative; flex: 0 0 auto; white-space: nowrap; align-self: stretch; display: flex; }
 .row-menu-button {
+  flex: 1;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
   background: transparent;
   color: var(--fg-faint);
   border: 0;
   border-radius: 5px;
-  padding: 4px 8px;
+  padding: 0;
   font: inherit;
   line-height: 1;
   cursor: pointer;

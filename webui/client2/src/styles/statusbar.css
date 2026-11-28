@@ -1,4 +1,8 @@
 /* ---- status bar: the persona, the context figure ---- */
+/* Both are clickable text, and clickable text on this page is accent-
+   coloured — the transcript's links already say so. The pointer cursor
+   and the hover fill below are the only other signals, and neither
+   exists on a phone, where the web UI is mostly used. */
 .status-bar {
   display: flex;
   align-items: center;
@@ -11,10 +15,13 @@
 }
 .status-persona {
   background: transparent;
-  color: inherit;
+  color: var(--accent);
   border: 0;
-  padding: 2px 6px;
-  margin-left: -6px;
+  /* The tap area is grown by padding and pulled back by a matching
+     negative margin, so the bar's height — which the transcript's grid
+     track follows — is exactly what it was. */
+  padding: 10px 6px;
+  margin: -8px 0 -8px -6px;
   border-radius: var(--radius);
   font: inherit;
   cursor: pointer;
@@ -30,10 +37,11 @@
 .status-context {
   white-space: nowrap;
   background: transparent;
-  color: inherit;
+  color: var(--accent);
   border: 0;
-  padding: 2px 6px;
-  margin-right: -6px;
+  /* The persona button's tap-area arithmetic, mirrored on the right. */
+  padding: 10px 6px;
+  margin: -8px -6px -8px 0;
   border-radius: var(--radius);
   font: inherit;
   cursor: pointer;
