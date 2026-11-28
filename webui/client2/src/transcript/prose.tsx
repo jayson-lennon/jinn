@@ -2,13 +2,20 @@
 
 import type { JSX } from '@solidjs/web';
 import type { EntryEnvelope, EntryKind } from '../protocol/protocol';
+import { debugStream } from '../protocol/debug_stream';
 import { renderMarkdown } from '../markdown/markdown';
 import { body, str } from './shared';
 
 export function ProseView(props: { kind: EntryKind; envelope: EntryEnvelope }): JSX.Element {
   // Markdown needs a real element to hold its sanitized HTML. The entry id
   // rides along so each entry's footnote anchors are its own.
-  const html = (): string => renderMarkdown(str(body(props.envelope)), props.envelope.entry.id);
+  const html = (): string => {
+    const text = str(body(props.envelope));
+    // One line per re-render: the last hop of the stream trace, and the
+    // one that says whether a delta the store applied ever reached the DOM.
+    debugStream('render', { entry: props.envelope.entry.id, chars: text.length });
+    return renderMarkdown(text, props.envelope.entry.id);
+  };
   return (
     <div class="entry-body">
       <span class="entry-role">{props.kind}</span>

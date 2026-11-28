@@ -3,15 +3,41 @@
 //
 // A kind file imports from here; nothing here imports from a kind file.
 
-import type { EntryEnvelope } from '../protocol/protocol';
+import type { EntryEnvelope, EntryKind, EntryKindBody, EntryKindMap } from '../protocol/protocol';
 
 export const ATTACHMENT_PREFIX = '/attachment/';
 export const TOOL_OUTPUT_PREFIX = '/tool-output/';
 
-export function body(envelope: EntryEnvelope): unknown {
-  const inner = envelope.entry.kind as Record<string, unknown>;
-  const tag = Object.keys(inner)[0];
-  return tag === undefined ? {} : inner[tag];
+/** The PascalCase tag the persisted map carries for a kind name. */
+const TAG: { [K in EntryKind]: keyof EntryKindMap[K] } = {
+  user: 'User',
+  system: 'System',
+  error: 'Error',
+  assistant: 'Assistant',
+  actor: 'Actor',
+  thinking: 'Thinking',
+  tool_call: 'ToolCall',
+  tool_result: 'ToolResult',
+  transient: 'Transient',
+  compaction: 'Compaction',
+  annotation: 'Annotation',
+  rule_interrupt: 'RuleInterrupt',
+  intersession: 'Intersession',
+};
+
+/**
+ * An entry's body: the text itself for a string variant (`Assistant`), the
+ * struct for a struct variant (`ToolCall`).
+ *
+ * Typed by the envelope's own kind name, which is the one the page
+ * dispatches on: the persisted map is read under that name's tag, so a map
+ * whose tag disagrees with its envelope reads as undefined rather than as a
+ * body of the wrong kind. The result is typed, so a consumer that reads
+ * `text` off an `Assistant` — a string — does not compile.
+ */
+export function body<K extends EntryKind>(envelope: EntryEnvelope<K>): EntryKindBody<K> {
+  const tag = TAG[envelope.kind];
+  return (envelope.entry.kind as Record<string, unknown>)[tag] as EntryKindBody<K>;
 }
 
 export function str(value: unknown): string {

@@ -99,3 +99,47 @@ test("a citation to a non-http address is never a link", async ({ page, jinn }) 
   await expect(sources.locator(".citation-title")).toHaveText("Hostile");
   await expect(sources.locator(".citation-url")).toHaveText("javascript:alert(1)");
 });
+
+/** Seeds a thinking entry holding `text` in the viewed session's store and
+ *  reopens the page on it. The sample provider's `!think` streams the
+ *  `<think>` tags as assistant text in this harness (the reasoning parser
+ *  that would split them is a provider setting), so a real thinking entry
+ *  is staged the way an annotation is: straight into the store. Its kind is
+ *  a bare string on the wire — `Thinking(String)`. Returns the entry. */
+async function givenThinkingEntry(page, jinn, text) {
+  await sendAndWaitForEcho(page, "a session with a thinking entry");
+  const sessionId = await viewedSessionId(page);
+  const title = await viewedSessionTitle(page);
+  seedEntry(jinn, sessionId, JSON.stringify({ Thinking: text }));
+  await restartJinn(jinn);
+  await page.goto(jinn.baseUrl);
+  await expect(page.locator(sel.OVERLAY)).toHaveCount(0, { timeout: 20_000 });
+  await openSession(page, sessionId, title);
+  return page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY("thinking")}`).last();
+}
+
+test("a thinking entry renders collapsed to its header", async ({ page, jinn }) => {
+  // Given a thinking entry holding a sentence of its own.
+  const thinking = await givenThinkingEntry(page, jinn, "the reader should not see this unclicked");
+
+  // Then the block is one header line, and its text is nowhere on the page.
+  await expect(thinking.locator('[data-testid="thinking-header"]')).toContainText("Thinking");
+  await expect(thinking.locator('[data-testid="thinking-body"]')).toHaveCount(0);
+  await expect(page.locator(sel.TRANSCRIPT)).not.toContainText(
+    "the reader should not see this unclicked",
+  );
+});
+
+test("clicking a thinking entry's header expands its text", async ({ page, jinn }) => {
+  // Given a thinking entry, collapsed.
+  const thinking = await givenThinkingEntry(page, jinn, "now the reader sees this");
+  await expect(thinking.locator('[data-testid="thinking-body"]')).toHaveCount(0);
+
+  // When its header is clicked.
+  await thinking.locator('[data-testid="thinking-header"]').click();
+
+  // Then the block's whole text is shown.
+  await expect(thinking.locator('[data-testid="thinking-body"]')).toHaveText(
+    "now the reader sees this",
+  );
+});

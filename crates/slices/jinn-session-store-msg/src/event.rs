@@ -33,6 +33,18 @@ pub struct StartupHydrationFinished;
 
 impl jinn_slices::BusMessage for StartupHydrationFinished {}
 
+/// Emitted after the session picker's cell is written with the store's rows.
+///
+/// Published strictly after the cell write, on every path that writes it.
+/// The terminal re-reads that cell on every frame and needs no announcement;
+/// a push-only surface — the web UI's Archive picker — cannot, so this event
+/// is how it learns fresh rows are there to be read.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
+#[schema(description = "The session picker's rows were written from the store.")]
+pub struct SessionPickerEntriesLoaded;
+
+impl jinn_slices::BusMessage for SessionPickerEntriesLoaded {}
+
 /// Emitted after a session's library membership changes.
 ///
 /// Library membership is a durable flag on the session, so this event tells
@@ -54,7 +66,10 @@ impl jinn_slices::BusMessage for SessionLibraryMembershipChanged {}
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code")]
 
-    use super::{SessionLibraryMembershipChanged, SessionLoadCompleted, StartupHydrationFinished};
+    use super::{
+        SessionLibraryMembershipChanged, SessionLoadCompleted, SessionPickerEntriesLoaded,
+        StartupHydrationFinished,
+    };
     use jinn_core_types::SessionId;
 
     #[rstest::rstest]
@@ -70,6 +85,21 @@ mod tests {
         // Then the wire form is the bare unit, and it reads back as the event.
         assert_eq!(json, "null");
         let _: StartupHydrationFinished = restored;
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn session_picker_entries_loaded_round_trips() {
+        // Given the field-less event.
+        let event = SessionPickerEntriesLoaded;
+
+        // When it is serialized and deserialized.
+        let json = serde_json::to_string(&event).unwrap();
+        let restored: SessionPickerEntriesLoaded = serde_json::from_str(&json).unwrap();
+
+        // Then the wire form is the bare unit, and it reads back as the event.
+        assert_eq!(json, "null");
+        let _: SessionPickerEntriesLoaded = restored;
     }
 
     #[rstest::rstest]

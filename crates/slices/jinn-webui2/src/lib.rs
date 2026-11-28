@@ -87,7 +87,6 @@ pub async fn activate(
     config: &ConfigLayer,
     bus: BusService,
     state: State,
-    session_store: jinn_session_state::SessionStoreService,
     services: &Services,
 ) -> Result<(), error_stack::Report<WebUi2ActivationError>> {
     let webui2_config = config
@@ -135,6 +134,13 @@ pub async fn activate(
         host,
         &jinn_model_market_msg::market_data_slot(),
     );
+    // The session store slice's picker cell, for the Archive picker's rows:
+    // the store actor writes them, and the outbound actor reads them when the
+    // write is announced.
+    let session_picker_cell = resolve_cell::<jinn_session_store_msg::SessionPickerState>(
+        host,
+        &jinn_session_store_msg::session_picker_slot(),
+    );
 
     // The push sender: the instance's key pair and every browser's
     // subscription, in one file under the data dir. Each instance signs as
@@ -153,12 +159,12 @@ pub async fn activate(
             services: services.clone(),
             provider_cell,
             work_time_cell,
-            session_store,
             personas_cell,
             mcp_runtime_cell,
             applets_catalog_cell,
             applets_picker_cell,
             market_cell,
+            session_picker_cell,
             config: services.config.clone(),
         },
     );

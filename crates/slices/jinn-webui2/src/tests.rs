@@ -58,229 +58,13 @@ fn harness() -> Harness {
     harness_with_providers(empty_providers())
 }
 
-/// A harness whose session store keeps what is saved into it, so a test
-/// can hold a session that is stored and not in memory.
-fn harness_with_store() -> Harness {
-    harness_with(empty_providers(), Arc::new(KeepingSessionStore::default()))
-}
-
-/// A session store that remembers every snapshot saved to it and answers
-/// reads from that set, and nothing else. What the kernel's test services
-/// hand out accepts a save and forgets it, which makes "is this session in
-/// the store?" unanswerable.
-#[derive(Debug, Default)]
-struct KeepingSessionStore {
-    saved: std::sync::Mutex<Vec<jinn_session_state::SessionSnapshot>>,
-    /// The library membership each stored session carries. A no-op
-    /// `set_in_library` and empty summaries would let a library test pass
-    /// without proving anything, so the store records the flag and reports
-    /// it back, the way the real one does.
-    library: std::sync::Mutex<std::collections::HashMap<jinn_core_types::SessionId, bool>>,
-}
-
-impl KeepingSessionStore {
-    fn snapshots(&self) -> Vec<jinn_session_state::SessionSnapshot> {
-        self.saved.lock().expect("store lock").clone()
-    }
-}
-
-#[async_trait::async_trait]
-impl jinn_session_state::SessionStore for KeepingSessionStore {
-    fn name(&self) -> &'static str {
-        "keeping"
-    }
-
-    async fn save(
-        &self,
-        snapshot: &jinn_session_state::SessionSnapshot,
-    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
-        let mut saved = self.saved.lock().expect("store lock");
-        saved.retain(|held| held.metadata.session_id != snapshot.metadata.session_id);
-        saved.push(snapshot.clone());
-        Ok(())
-    }
-
-    /// One summary per stored session, carrying the library flag the
-    /// store holds for it — so `library_members()` filters real rows.
-    async fn load_summaries(
-        &self,
-    ) -> Result<
-        Vec<jinn_session_store_msg::SessionSummary>,
-        error_stack::Report<jinn_session_state::SessionStoreError>,
-    > {
-        let library = self.library.lock().expect("library lock");
-        Ok(self
-            .snapshots()
-            .into_iter()
-            .map(|snapshot| jinn_session_store_msg::SessionSummary {
-                session_id: snapshot.metadata.session_id.clone(),
-                title: snapshot.metadata.title.clone().unwrap_or_default(),
-                updated_at: snapshot.metadata.updated_at,
-                created_at: snapshot.metadata.created_at,
-                session_state: jinn_session_store_msg::SessionState::Loaded,
-                in_library: *library.get(&snapshot.metadata.session_id).unwrap_or(&false),
-                is_bot: false,
-                parent_session: None,
-                project: None,
-            })
-            .collect())
-    }
-
-    async fn load_session(
-        &self,
-        session_id: &jinn_core_types::SessionId,
-    ) -> Result<
-        Option<jinn_session_state::SessionSnapshot>,
-        error_stack::Report<jinn_session_state::SessionStoreError>,
-    > {
-        Ok(self
-            .snapshots()
-            .into_iter()
-            .find(|snapshot| &snapshot.metadata.session_id == session_id))
-    }
-
-    async fn delete(
-        &self,
-        _session_id: &jinn_core_types::SessionId,
-    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
-        Ok(())
-    }
-
-    async fn fork(
-        &self,
-        _source_session_id: &jinn_core_types::SessionId,
-        _at_ordinal: usize,
-    ) -> Result<
-        jinn_core_types::SessionId,
-        error_stack::Report<jinn_session_state::SessionStoreError>,
-    > {
-        Ok(jinn_core_types::SessionId::new())
-    }
-
-    async fn set_archived(
-        &self,
-        _session_id: &jinn_core_types::SessionId,
-        _archived: bool,
-    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
-        Ok(())
-    }
-
-    async fn set_archived_many(
-        &self,
-        _session_ids: &[jinn_core_types::SessionId],
-        _archived: bool,
-    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
-        Ok(())
-    }
-
-    async fn set_in_library(
-        &self,
-        session_id: &jinn_core_types::SessionId,
-        in_library: bool,
-    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
-        self.library
-            .lock()
-            .expect("library lock")
-            .insert(session_id.clone(), in_library);
-        Ok(())
-    }
-
-    async fn load_unarchived_summaries(
-        &self,
-    ) -> Result<
-        Vec<jinn_session_store_msg::SessionSummary>,
-        error_stack::Report<jinn_session_state::SessionStoreError>,
-    > {
-        self.load_summaries().await
-    }
-
-    async fn dirty_session_ids(
-        &self,
-    ) -> Result<
-        Vec<jinn_core_types::SessionId>,
-        error_stack::Report<jinn_session_state::SessionStoreError>,
-    > {
-        Ok(Vec::new())
-    }
-
-    async fn reindex_session_chunk(
-        &self,
-        _session_id: &jinn_core_types::SessionId,
-        _max_entries: usize,
-    ) -> Result<bool, error_stack::Report<jinn_session_state::SessionStoreError>> {
-        Ok(true)
-    }
-
-    async fn pending_dirty_count(
-        &self,
-    ) -> Result<usize, error_stack::Report<jinn_session_state::SessionStoreError>> {
-        Ok(0)
-    }
-
-    async fn search(
-        &self,
-        _params: jinn_session_store_msg::SearchParams,
-    ) -> Result<
-        jinn_session_store_msg::SearchOutcome,
-        error_stack::Report<jinn_session_state::SessionStoreError>,
-    > {
-        Ok(jinn_session_store_msg::SearchOutcome {
-            total_matches: 0,
-            per_session: Vec::new(),
-            hits: Vec::new(),
-        })
-    }
-
-    async fn fetch_window(
-        &self,
-        _session_id: &jinn_core_types::SessionId,
-        _anchor: &jinn_core_types::ChatEntryId,
-        _context: usize,
-    ) -> Result<
-        Option<jinn_session_store_msg::TranscriptWindow>,
-        error_stack::Report<jinn_session_state::SessionStoreError>,
-    > {
-        Ok(None)
-    }
-
-    async fn fetch_tail(
-        &self,
-        _session_id: &jinn_core_types::SessionId,
-        _limit: usize,
-    ) -> Result<
-        Option<jinn_session_store_msg::TranscriptWindow>,
-        error_stack::Report<jinn_session_state::SessionStoreError>,
-    > {
-        Ok(None)
-    }
-}
-
-/// A registry with nothing in it: the picker has no rows to offer.
-fn empty_providers() -> jinn_provider_config::ProvidersConfig {
-    jinn_provider_config::ProvidersConfig {
-        providers: std::collections::BTreeMap::new(),
-        aliases: vec![],
-        default_provider: None,
-        endpoint_defaults: vec![],
-    }
-}
-
-/// A harness over a registry seeded with the given providers, so the
-/// model picker has rows to filter.
 fn harness_with_providers(providers: jinn_provider_config::ProvidersConfig) -> Harness {
-    harness_with(
-        providers,
-        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
-    )
+    harness_with(providers)
 }
 
-/// A harness over a registry seeded with the given providers and a
-/// session store of the caller's choosing.
-fn harness_with(
-    providers: jinn_provider_config::ProvidersConfig,
-    store: Arc<dyn jinn_session_state::SessionStore>,
-) -> Harness {
-    harness_seeded(providers, store, &Seed::default())
+/// A harness over a registry seeded with the given providers.
+fn harness_with(providers: jinn_provider_config::ProvidersConfig) -> Harness {
+    harness_seeded(providers, &Seed::default())
 }
 
 /// What a harness pre-loads into the cells the picker rows read.
@@ -313,11 +97,7 @@ struct Seed {
 
 /// A harness over a registry, a session store, and a pre-seeded set of
 /// cells.
-fn harness_seeded(
-    providers: jinn_provider_config::ProvidersConfig,
-    store: Arc<dyn jinn_session_state::SessionStore>,
-    seed: &Seed,
-) -> Harness {
+fn harness_seeded(providers: jinn_provider_config::ProvidersConfig, seed: &Seed) -> Harness {
     let (bus, audit) = BusService::new_recording();
     // One `Slices`, registered with the catalog once, is both the registry
     // the cells are resolved from and the one the state carries: the
@@ -361,6 +141,11 @@ fn harness_seeded(
                 &jinn_model_market_msg::market_data_slot(),
             )
             .expect("the catalog registers the model-market data slot");
+    let session_picker_cell = slices
+        .reader::<jinn_session_store_msg::SessionPickerState>(
+            &jinn_session_store_msg::session_picker_slot(),
+        )
+        .expect("the catalog registers the session picker slot");
 
     seed_personas(&personas_cell, &seed.personas);
     seed_tools(&registry_cell, &seed.tools);
@@ -396,7 +181,6 @@ fn harness_seeded(
         connections: ConnectionRegistry::default(),
         revisions: RevisionTracker::default(),
         settles: crate::settle::SettleTracker::default(),
-        session_store: jinn_session_state::SessionStoreService::new(store),
         config: services.config.clone(),
         services,
         provider_cell,
@@ -410,6 +194,7 @@ fn harness_seeded(
             store: crate::push::store::PushStore::in_memory(),
             contact: "mailto:test@example.com".to_owned(),
         },
+        session_picker_cell,
     });
     Harness {
         handle,
@@ -450,7 +235,6 @@ fn harness_with_applets(
 ) -> Harness {
     harness_seeded(
         empty_providers(),
-        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
         &Seed {
             applets: applets.to_vec(),
             applets_serving: serving,
@@ -810,7 +594,30 @@ async fn activate_switches_the_active_session() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn activate_replies_with_a_snapshot_of_the_activated_session() {
+async fn activate_of_a_session_not_in_memory_publishes_the_load_request() {
+    // Given an id no in-memory session carries — an archived one, on disk.
+    let h = harness();
+
+    // When the page asks to activate it.
+    let reply = dispatch(
+        ClientMsg::ActivateSession {
+            session_id: jinn_core_types::SessionId::new(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the load is requested for the store to read, and the handler
+    // answers nothing itself.
+    let loads = h.audit.of_type::<SessionLoadRequested>();
+    assert_eq!(loads.len(), 1);
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn activate_replies_with_no_frame() {
     // Given two loaded sessions.
     let h = harness();
     let second = jinn_core_types::SessionId::new();
@@ -818,65 +625,15 @@ async fn activate_replies_with_a_snapshot_of_the_activated_session() {
 
     // When the page activates the second.
     let reply = dispatch(
-        ClientMsg::ActivateSession {
-            session_id: second.clone(),
-        },
+        ClientMsg::ActivateSession { session_id: second },
         &h.handle,
         &h.jump_cancelled,
     )
     .await;
 
-    // Then the page is told it now views that session.
-    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
-        unreachable!("an activation answers a snapshot");
-    };
-    assert_eq!(snapshot.session_id, Some(second));
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn activate_replies_with_the_activated_sessions_transcript() {
-    // Given two loaded sessions, each with its own entry.
-    let h = harness();
-    push(&h.state, ChatEntry::user("first session's entry"));
-    let second = jinn_core_types::SessionId::new();
-    {
-        let mut guard = h.state.write();
-        let session = guard.session.get_or_create(&second);
-        session.push_entry(ChatEntry::user("second session's entry"));
-    }
-
-    // When the page activates the second.
-    let reply = dispatch(
-        ClientMsg::ActivateSession {
-            session_id: second.clone(),
-        },
-        &h.handle,
-        &h.jump_cancelled,
-    )
-    .await;
-
-    // Then the snapshot carries the second session's entry alone.
-    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
-        unreachable!("an activation answers a snapshot");
-    };
-    let texts: Vec<String> = snapshot
-        .entries
-        .iter()
-        .map(|envelope| serde_json::to_string(&envelope.entry).unwrap_or_default())
-        .collect();
-    assert!(
-        texts
-            .iter()
-            .any(|text| text.contains("second session's entry")),
-        "the snapshot carries the activated session's entry: {texts:?}"
-    );
-    assert!(
-        !texts
-            .iter()
-            .any(|text| text.contains("first session's entry")),
-        "the snapshot carries no entry from the session it left: {texts:?}"
-    );
+    // Then the handler answers nothing: the snapshot is the outbound
+    // actor's push, on the store's own event.
+    assert!(reply.frames.is_empty());
 }
 
 #[rstest::rstest]
@@ -901,51 +658,6 @@ async fn activate_publishes_a_load_request_without_a_width() {
     assert_eq!(loads.len(), 1);
     assert_eq!(loads[0].session_id, second);
     assert_eq!(loads[0].content_width, None);
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn activate_of_an_unknown_session_is_refused() {
-    // Given a page naming a session that is not loaded.
-    let h = harness();
-
-    // When it asks to activate that session.
-    let reply = dispatch(
-        ClientMsg::ActivateSession {
-            session_id: jinn_core_types::SessionId::new(),
-        },
-        &h.handle,
-        &h.jump_cancelled,
-    )
-    .await;
-
-    // Then the page is told so, and nothing is published.
-    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn activate_of_a_stored_session_loads_it_instead_of_refusing() {
-    // Given a session that is in the store but not in memory.
-    let h = harness_with_store();
-    let session_id = store_only_session(&h, "archived notes").await;
-
-    // When the page asks to activate it.
-    let reply = dispatch(
-        ClientMsg::ActivateSession {
-            session_id: session_id.clone(),
-        },
-        &h.handle,
-        &h.jump_cancelled,
-    )
-    .await;
-
-    // Then the load is requested, and the page is answered with a snapshot
-    // of the stored session rather than an error.
-    let loads = h.audit.of_type::<SessionLoadRequested>();
-    assert_eq!(loads.len(), 1);
-    assert_eq!(loads[0].session_id, session_id);
-    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
 }
 
 // ---------------------------------------------------------------------------
@@ -1605,23 +1317,6 @@ fn active_last_entry_id(state: &State) -> jinn_core_types::ChatEntryId {
 // Stored-session picker
 // ---------------------------------------------------------------------------
 
-/// A session with two entries, written to the store only: it is on disk
-/// and not in memory, which is what an archived session is.
-async fn store_only_session(h: &Harness, title: &str) -> jinn_core_types::SessionId {
-    let mut session = jinn_session_state::ChatSessionState::new();
-    let id = jinn_core_types::SessionId::new();
-    session.set_session_id(id.clone());
-    session.set_title(title.to_owned());
-    session.push_entry(ChatEntry::user("from the archive"));
-    session.push_entry(ChatEntry::assistant("restored from disk"));
-    h.handle
-        .session_store()
-        .save(&session.capture_snapshot())
-        .await
-        .expect("seed the store");
-    id
-}
-
 fn summary(title: &str) -> jinn_session_store_msg::SessionSummary {
     jinn_session_store_msg::SessionSummary {
         session_id: jinn_core_types::SessionId::new(),
@@ -1921,42 +1616,30 @@ fn picker_row_carries_the_last_modified_time() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn picker_rows_on_an_empty_store_answers_no_rows() {
-    // Given a store with no sessions.
+async fn the_picker_push_of_an_empty_cell_carries_no_rows() {
+    // Given a connected page that asked for rows, and a store that wrote
+    // nothing into the picker cell.
     let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    h.handle.remember_picker_filter("");
+    install_picker_items(&h, Vec::new());
+    crate::outbound::picker_entries_loaded(&h.handle);
 
-    // When the page asks for the picker's rows.
-    let reply = dispatch(
-        ClientMsg::PickerRows {
-            filter: String::new(),
-        },
-        &h.handle,
-        &h.jump_cancelled,
-    )
-    .await;
-
-    // Then it gets an empty, well-formed answer rather than an error.
-    let [ServerMsg::PickerRows(body)] = reply.frames.as_slice() else {
-        unreachable!("a picker request answers picker rows");
+    // Then one well-formed rows frame reaches the page, holding no rows.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::PickerRows(body)] = frames.as_slice() else {
+        unreachable!("the announcement pushes one rows frame");
     };
     assert_eq!(body.rows, Vec::new());
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn picker_rows_list_an_unarchived_session_once() {
-    // Given a store holding one unarchived session — the read that used to
-    // list it twice.
-    let h = harness_with_store();
-    let mut session = jinn_session_state::ChatSessionState::new();
-    session.set_title("only once".to_owned());
-    h.handle
-        .session_store()
-        .save(&session.capture_snapshot())
-        .await
-        .expect("seed the store");
+async fn picker_rows_publishes_the_load_command_and_replies_nothing() {
+    // Given a page with the Archive picker open on no filter.
+    let h = harness();
 
-    // When the page asks for the picker's rows.
+    // When it asks for rows.
     let reply = dispatch(
         ClientMsg::PickerRows {
             filter: String::new(),
@@ -1966,11 +1649,123 @@ async fn picker_rows_list_an_unarchived_session_once() {
     )
     .await;
 
-    // Then the session appears exactly once.
-    let [ServerMsg::PickerRows(body)] = reply.frames.as_slice() else {
-        unreachable!("a picker request answers picker rows");
+    // Then the terminal's own load command is published, and the handler
+    // answers nothing: the rows come back as a push.
+    let loads = h
+        .audit
+        .of_type::<jinn_session_store_msg::LoadSessionPickerEntries>();
+    assert_eq!(loads.len(), 1);
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn picker_rows_remembers_the_filter_it_was_asked_in() {
+    // Given a page with the Archive picker open.
+    let h = harness();
+
+    // When it asks for rows under a filter.
+    let _ = dispatch(
+        ClientMsg::PickerRows {
+            filter: "notes".to_owned(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then that filter is the one the store's announcement answers in.
+    assert_eq!(h.handle.picker_filter().as_deref(), Some("notes"));
+}
+
+/// The entries the store would write into the picker cell for sessions
+/// with the given titles — built by the msg crate's own builder, as the
+/// store actor builds them.
+fn picker_entries(titles: &[&str]) -> Vec<jinn_session_store_msg::SessionTreeEntry> {
+    let summaries = titles.iter().map(|t| summary(t)).collect();
+    jinn_session_store_msg::session_tree_entries(summaries, &jinn_theme::default_theme())
+}
+
+/// Puts entries into the picker cell, as the store actor does, and fires
+/// the announcement that follows its write.
+fn store_writes_picker_cell(h: &Harness, titles: &[&str]) {
+    let entries = picker_entries(titles);
+    install_picker_items(h, entries);
+    crate::outbound::picker_entries_loaded(&h.handle);
+}
+
+/// Puts entries into the picker cell the way the store actor does: each
+/// wrapped in the picker's item type, around an empty hook set.
+fn install_picker_items(h: &Harness, entries: Vec<jinn_session_store_msg::SessionTreeEntry>) {
+    let items = jinn_picker::make_items_with_hooks(entries, jinn_picker::PickerItemHooks::new());
+    h.handle.session_picker_cell().update(|picker| {
+        picker.tree.set_items(items);
+    });
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_picker_push_answers_in_the_filter_the_page_asked() {
+    // Given a connected page that asked for rows under "alpha", and a store
+    // that then wrote two sessions into the picker cell.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    h.handle.remember_picker_filter("alpha");
+    store_writes_picker_cell(&h, &["alpha notes", "beta notes"]);
+
+    // When the store's announcement is handled.
+    // (run inside `store_writes_picker_cell`, right after the write)
+
+    // Then one rows frame reaches the page, naming that filter, holding
+    // only the matching session.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::PickerRows(body)] = frames.as_slice() else {
+        unreachable!("the announcement pushes one rows frame");
     };
+    assert_eq!(body.filter, "alpha");
     assert_eq!(body.rows.len(), 1);
+    assert_eq!(body.rows[0].title, "alpha notes");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_picker_push_ignores_the_filter_typed_into_the_terminals_own_tree() {
+    // Given a page that asked for every row, and a picker cell whose own
+    // tree carries filter text typed in the terminal.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    h.handle.remember_picker_filter("");
+    install_picker_items(&h, picker_entries(&["alpha notes", "beta notes"]));
+    h.handle
+        .session_picker_cell()
+        .update(|picker| picker.tree.insert_text("alpha"));
+
+    // When the store's announcement is handled.
+    crate::outbound::picker_entries_loaded(&h.handle);
+
+    // Then the push holds every entry — the terminal's filter is not the
+    // web's — and the page is not narrowed by it.
+    let frames = drain(&mut inbox);
+    let [ServerMsg::PickerRows(body)] = frames.as_slice() else {
+        unreachable!("the announcement pushes one rows frame");
+    };
+    assert_eq!(body.rows.len(), 2);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_picker_push_stays_silent_while_no_page_has_asked() {
+    // Given a connected page that has not opened the Archive picker, and a
+    // store that writes the picker cell.
+    let h = harness();
+    let (_id, mut inbox, _connection) = h.handle.register();
+    store_writes_picker_cell(&h, &["alpha notes"]);
+
+    // When the store's announcement is handled.
+    // (run inside `store_writes_picker_cell`, right after the write)
+
+    // Then nothing is pushed: there is no filter to answer in.
+    assert!(drain(&mut inbox).is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -2002,6 +1797,16 @@ async fn model_rows_with_no_configured_providers_answers_no_rows() {
 
 /// Two providers whose model names share no letters with each other's
 /// provider: a filter for one can only be satisfied by a real match.
+/// A registry with nothing in it: the picker has no rows to offer.
+fn empty_providers() -> jinn_provider_config::ProvidersConfig {
+    jinn_provider_config::ProvidersConfig {
+        providers: std::collections::BTreeMap::new(),
+        aliases: vec![],
+        default_provider: None,
+        endpoint_defaults: vec![],
+    }
+}
+
 fn two_providers() -> jinn_provider_config::ProvidersConfig {
     let entry = |model: &str| jinn_provider_config::ProviderEntry {
         backend: "sample".to_owned(),
@@ -2540,10 +2345,13 @@ fn a_later_flush_sends_only_the_text_arrived_since() {
     stream_tokens(&page, &["!", " Done"]);
     let frames = flush_frames(&mut page);
 
-    // Then the delta carries only the new text.
+    // Then the delta carries only the new text, from where the text already
+    // sent ends: the page applies a chunk by its offset, so the offset and
+    // the text are one contract and both are pinned here.
     assert!(matches!(
         frames.as_slice(),
-        [ServerMsg::EntryDelta(body)] if body.chunk == "! Done"
+        [ServerMsg::EntryDelta(body)]
+            if body.chunk == "! Done" && body.offset_bytes == "Hello world".len()
     ));
 }
 
@@ -3929,7 +3737,6 @@ async fn loading_an_undiscovered_skill_is_refused() {
 fn harness_with_tools(tools: &[(&'static str, &'static str)]) -> Harness {
     harness_seeded(
         empty_providers(),
-        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
         &Seed {
             tools: tools.to_vec(),
             ..Seed::default()
@@ -4216,7 +4023,6 @@ async fn toggling_an_unknown_tool_is_refused() {
 fn harness_with_mcp(servers: &[(&'static str, &'static str)]) -> Harness {
     harness_seeded(
         empty_providers(),
-        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
         &Seed {
             mcp_servers: servers.to_vec(),
             ..Seed::default()
@@ -4629,7 +4435,6 @@ async fn a_runtime_store_for_a_session_with_no_mcp_modal_pushes_nothing() {
 fn harness_with_personas(personas: &[(&'static str, &'static str, bool)]) -> Harness {
     harness_seeded(
         empty_providers(),
-        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
         &Seed {
             personas: personas.to_vec(),
             ..Seed::default()
@@ -5492,11 +5297,11 @@ async fn set_library_publishes_the_store_command() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn set_library_of_an_unknown_session_is_refused() {
-    // Given a page with an empty store.
-    let h = harness_with_store();
+async fn set_library_of_an_id_in_neither_memory_nor_the_store_publishes_anyway() {
+    // Given an id no session carries — there is no pre-read to refuse it.
+    let h = harness();
 
-    // When the page names a session nothing knows.
+    // When the page sets its library flag.
     let reply = dispatch(
         ClientMsg::SetLibrary {
             session_id: jinn_core_types::SessionId::new(),
@@ -5507,9 +5312,10 @@ async fn set_library_of_an_unknown_session_is_refused() {
     )
     .await;
 
-    // Then the request is refused and the store is not asked.
-    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
-    assert_eq!(h.audit.names().len(), 0);
+    // Then the store's command is published anyway, and nothing is replied.
+    let commands = h.audit.of_type::<SetSessionLibrary>();
+    assert_eq!(commands.len(), 1);
+    assert!(reply.frames.is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -5524,18 +5330,44 @@ async fn archive_session_publishes_the_store_command() {
     let id = active_id(&h.state);
 
     // When the page archives it.
-    say(
-        &h,
+    let reply = dispatch(
         ClientMsg::ArchiveSession {
             session_id: id.clone(),
         },
+        &h.handle,
+        &h.jump_cancelled,
     )
     .await;
 
-    // Then the store's command is published, naming the session.
+    // Then the store's command is published, naming the session, and
+    // nothing is replied.
     let commands = h.audit.of_type::<ArchiveSession>();
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].session_id, id);
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_of_a_session_not_in_memory_publishes_the_archive_command() {
+    // Given an id no in-memory session carries — an archived one, on disk.
+    let h = harness();
+
+    // When the page archives it.
+    let reply = dispatch(
+        ClientMsg::ArchiveSession {
+            session_id: jinn_core_types::SessionId::new(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the store's command is published for the store to resolve, and
+    // nothing is replied.
+    let commands = h.audit.of_type::<ArchiveSession>();
+    assert_eq!(commands.len(), 1);
+    assert!(reply.frames.is_empty());
 }
 
 #[rstest::rstest]
@@ -5594,52 +5426,6 @@ async fn archive_of_a_busy_session_names_the_busy_reason() {
     assert_eq!(error.message, "session is busy — cancel the turn first");
 }
 
-#[rstest::rstest]
-#[tokio::test]
-async fn archive_of_an_unknown_session_is_refused() {
-    // Given a page with an empty store.
-    let h = harness_with_store();
-
-    // When the page names a session nothing knows.
-    let reply = dispatch(
-        ClientMsg::ArchiveSession {
-            session_id: jinn_core_types::SessionId::new(),
-        },
-        &h.handle,
-        &h.jump_cancelled,
-    )
-    .await;
-
-    // Then the request is refused and nothing is published.
-    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
-    assert_eq!(h.audit.names().len(), 0);
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn archive_of_a_stored_only_session_is_refused_as_already_archived() {
-    // Given a session that is on disk and not in memory — an archived one.
-    let h = harness_with_store();
-    let id = store_only_session(&h, "already archived").await;
-
-    // When the page archives it again.
-    let reply = dispatch(
-        ClientMsg::ArchiveSession {
-            session_id: id.clone(),
-        },
-        &h.handle,
-        &h.jump_cancelled,
-    )
-    .await;
-
-    // Then the page is told it is already archived and nothing is published.
-    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
-        panic!("expected one error frame, got {:?}", reply.frames);
-    };
-    assert_eq!(error.message, format!("session {id} is already archived"));
-    assert_eq!(h.audit.names().len(), 0);
-}
-
 // ---------------------------------------------------------------------------
 // Teardown + archive (the terminal's `x`)
 // ---------------------------------------------------------------------------
@@ -5666,6 +5452,29 @@ async fn teardown_publishes_the_close_command() {
     let commands = h.audit.of_type::<CloseSession>();
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].session_id, id);
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn teardown_of_a_session_not_in_memory_publishes_the_close_command() {
+    // Given an id no in-memory session carries — an archived one, on disk.
+    let h = harness();
+
+    // When the page tears it down.
+    let reply = dispatch(
+        ClientMsg::TeardownSession {
+            session_id: jinn_core_types::SessionId::new(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the close command is published for the store to resolve, and
+    // nothing is replied.
+    let commands = h.audit.of_type::<CloseSession>();
+    assert_eq!(commands.len(), 1);
     assert!(reply.frames.is_empty());
 }
 
@@ -5725,52 +5534,6 @@ async fn teardown_of_a_busy_session_names_the_busy_reason() {
     assert_eq!(error.message, "session is busy — cancel the turn first");
 }
 
-#[rstest::rstest]
-#[tokio::test]
-async fn teardown_of_an_unknown_session_is_refused() {
-    // Given a page with an empty store.
-    let h = harness_with_store();
-
-    // When the page names a session nothing knows.
-    let reply = dispatch(
-        ClientMsg::TeardownSession {
-            session_id: jinn_core_types::SessionId::new(),
-        },
-        &h.handle,
-        &h.jump_cancelled,
-    )
-    .await;
-
-    // Then the request is refused and nothing is published.
-    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Error(_)]));
-    assert_eq!(h.audit.names().len(), 0);
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn teardown_of_a_stored_only_session_is_refused_as_already_archived() {
-    // Given a session that is on disk and not in memory — an archived one.
-    let h = harness_with_store();
-    let id = store_only_session(&h, "already archived").await;
-
-    // When the page tears it down.
-    let reply = dispatch(
-        ClientMsg::TeardownSession {
-            session_id: id.clone(),
-        },
-        &h.handle,
-        &h.jump_cancelled,
-    )
-    .await;
-
-    // Then the page is told it is already archived and nothing is published.
-    let [ServerMsg::Error(error)] = reply.frames.as_slice() else {
-        panic!("expected one error frame, got {:?}", reply.frames);
-    };
-    assert_eq!(error.message, format!("session {id} is already archived"));
-    assert_eq!(h.audit.names().len(), 0);
-}
-
 // ---------------------------------------------------------------------------
 // Model refresh
 // ---------------------------------------------------------------------------
@@ -5823,7 +5586,6 @@ fn two_arg_lifecycle() -> jinn_preferences_config::schemas::SessionLifecycle {
 fn harness_with_project_and_lifecycle() -> Harness {
     harness_seeded(
         empty_providers(),
-        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
         &Seed {
             projects: vec![demo_project()],
             lifecycles: vec![two_arg_lifecycle()],
@@ -5858,7 +5620,6 @@ fn new_session_options_name_a_named_placeholder_as_the_template_spells_it() {
     // Given a lifecycle whose setup takes a named argument.
     let h = harness_seeded(
         empty_providers(),
-        Arc::new(jinn_kernel::common::services::test_services::FakeSessionStore),
         &Seed {
             projects: vec![demo_project()],
             lifecycles: vec![jinn_preferences_config::schemas::SessionLifecycle {
@@ -5982,7 +5743,7 @@ async fn create_session_with_the_blank_lifecycle_makes_the_new_session_active() 
     let before = active_id(&h.state);
 
     // When the page creates a session with no lifecycle.
-    let reply = dispatch(
+    let _ = dispatch(
         ClientMsg::CreateSession {
             project: "/tmp/demo-project".to_owned(),
             lifecycle: String::new(),
@@ -5995,8 +5756,75 @@ async fn create_session_with_the_blank_lifecycle_makes_the_new_session_active() 
 
     // Then the instance's active session is a new one.
     assert_ne!(active_id(&h.state), before);
-    // And the page is answered with a snapshot of it.
-    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn create_session_announces_the_move_and_replies_nothing() {
+    // Given a config with one project.
+    let h = harness_with_project_and_lifecycle();
+
+    // When the page creates a session with no lifecycle.
+    let reply = dispatch(
+        ClientMsg::CreateSession {
+            project: "/tmp/demo-project".to_owned(),
+            lifecycle: String::new(),
+            args: String::new(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then the move is announced for the new session, as every activation
+    // path announces it, and nothing is replied.
+    let moves = h
+        .audit
+        .of_type::<jinn_kernel::protocol::system::ActiveSessionChanged>();
+    assert_eq!(moves.len(), 1);
+    assert_eq!(moves[0].session_id, active_id(&h.state));
+    assert!(reply.frames.is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_refused_create_session_announces_nothing() {
+    // Given a config with one project.
+    let h = harness_with_project_and_lifecycle();
+
+    // When the page creates a session under a project that is not configured.
+    let _ = dispatch(
+        ClientMsg::CreateSession {
+            project: "/tmp/not-configured".to_owned(),
+            lifecycle: String::new(),
+            args: String::new(),
+        },
+        &h.handle,
+        &h.jump_cancelled,
+    )
+    .await;
+
+    // Then no pointer move is announced: the pointer never moved.
+    assert!(
+        h.audit
+            .of_type::<jinn_kernel::protocol::system::ActiveSessionChanged>()
+            .is_empty()
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn elapsed_ms_reports_the_whole_milliseconds_since_an_origin() {
+    // Given an origin exactly 1500 ms in the past.
+    let origin = jiff::Timestamp::now()
+        .checked_sub(jiff::Span::new().milliseconds(1500))
+        .expect("a timestamp 1500 ms ago");
+
+    // When the elapsed whole milliseconds are computed.
+    let elapsed = crate::outbound::elapsed_ms(origin);
+
+    // Then it is 1500, plus only the microseconds the call itself took.
+    assert!((1500..=1501).contains(&elapsed), "got {elapsed}");
 }
 
 // ---------------------------------------------------------------------------
@@ -6536,8 +6364,7 @@ async fn active_session_changed_pushes_one_snapshot() {
         &jinn_kernel::protocol::system::ActiveSessionChanged {
             session_id: active_id(&h.state),
         },
-    )
-    .await;
+    );
 
     // Then the page receives exactly one snapshot, of that session.
     let frames = drain(&mut inbox);
@@ -6561,8 +6388,7 @@ async fn follow_snapshot_marks_the_new_sessions_history_delivered() {
         &jinn_kernel::protocol::system::ActiveSessionChanged {
             session_id: active_id(&h.state),
         },
-    )
-    .await;
+    );
 
     // Then a later flush streams nothing: the snapshot already carried it.
     let _ = drain(&mut inbox);

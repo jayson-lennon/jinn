@@ -37,6 +37,69 @@ impl MsgHandler<HydrateCompleted> for SessionStoreActor {
     }
 }
 
+/// How long one session's disk read took, and what it brought back.
+///
+/// A record rather than a bare log call so the timing is computed in one
+/// place a test can hold: a log line cannot be read back, its inputs can.
+/// How long one session's disk read took, and what it brought back.
+///
+/// A record rather than a bare log call so the timing is computed in one
+/// place a test can hold: a log line cannot be read back, its inputs can.
+/// How long one session's disk read took, and what it brought back.
+///
+/// A record rather than a bare log call so the timing is computed in one
+/// place a test can hold: a log line cannot be read back, its inputs can.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DiskRead {
+    /// Whole milliseconds the read took.
+    elapsed_ms: u64,
+    /// How many entries the session holds.
+    entry_count: usize,
+}
+
+impl DiskRead {
+    /// The record for a read that took `elapsed` and returned `entry_count`
+    /// entries.
+    #[must_use]
+    pub(crate) fn finished(elapsed: std::time::Duration, entry_count: usize) -> Self {
+        Self {
+            elapsed_ms: elapsed.as_millis() as u64,
+            entry_count,
+        }
+    }
+
+    /// Both numbers, for a test to hold.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn into_parts(self) -> (u64, usize) {
+        (self.elapsed_ms, self.entry_count)
+    }
+}
+
+/// How long the reactivation save after a load took.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReactivationSave {
+    /// Whole milliseconds the save took.
+    elapsed_ms: u64,
+}
+
+impl ReactivationSave {
+    /// The record for a save that took `elapsed`.
+    #[must_use]
+    pub(crate) fn finished(elapsed: std::time::Duration) -> Self {
+        Self {
+            elapsed_ms: elapsed.as_millis() as u64,
+        }
+    }
+
+    /// The number, for a test to hold.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn into_millis(self) -> u64 {
+        self.elapsed_ms
+    }
+}
+
 impl SessionStoreActor {
     /// Rebuilds a live session whose capture numbering outranks storage's record.
     ///
@@ -326,8 +389,15 @@ impl SessionStoreActor {
         // reaches the monitor asynchronously, so the cell may still be empty
         // here, and a stamp from it would rewrite the stored blob with no
         // intervals — erasing exactly what this load restored.
+        let save_started = std::time::Instant::now();
         self.save_active_session_stamping(&session_id, Some(working_intervals))
             .await;
+        let save = ReactivationSave::finished(save_started.elapsed());
+        tracing::info!(
+            session_id = %session_id,
+            reactivation_save_ms = save.elapsed_ms,
+            "session load: reactivation save written"
+        );
         self.publish(SessionLoadCompleted { session_id }).await;
     }
 
@@ -548,16 +618,38 @@ impl SessionStoreActor {
         // whose line cache has gone stale. The activation itself is announced
         // by `on_activate_in_memory` through `ActiveSessionChanged`.
         if self.state.read().session.get(&payload.session_id).is_some() {
+            tracing::info!(
+                session_id = %payload.session_id,
+                "session load: in memory, no disk read"
+            );
             self.on_activate_in_memory(ctx, payload).await;
             return;
         }
 
+        tracing::info!(
+            session_id = %payload.session_id,
+            "session load: not in memory, reading from disk"
+        );
         let store = self.services.session_store.clone();
+        let read_started = std::time::Instant::now();
         match store.load_session(&payload.session_id).await {
             Ok(Some(session)) => {
+                let read = DiskRead::finished(read_started.elapsed(), session.entries.len());
+                tracing::info!(
+                    session_id = %payload.session_id,
+                    entry_count = read.entry_count,
+                    disk_read_ms = read.elapsed_ms,
+                    "session load: read from disk"
+                );
+                let unarchive_started = std::time::Instant::now();
                 if let Err(error) = store.set_archived(&payload.session_id, false).await {
                     tracing::warn!(?error, "failed to unarchive session on load");
                 }
+                tracing::info!(
+                    session_id = %payload.session_id,
+                    unarchive_ms = unarchive_started.elapsed().as_millis() as u64,
+                    "session load: unarchived"
+                );
                 self.restore_loaded_session(ctx, session).await;
                 self.hydrate_tree_frozen_nodes(&store, &payload.session_id)
                     .await;

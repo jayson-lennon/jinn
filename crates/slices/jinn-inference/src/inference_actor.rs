@@ -921,6 +921,18 @@ async fn publish_stream_completed(
     .await;
 }
 
+/// Whole milliseconds from `origin` to now, by the same conversion
+/// `EntryTiming::ttft` uses — the one origin every token-path log line is
+/// measured against, so a stall is read as a gap between two lines rather
+/// than a difference of two clocks.
+fn elapsed_ms(origin: jiff::Timestamp) -> i64 {
+    let now = jiff::Timestamp::now();
+    now.since(origin)
+        .ok()
+        .and_then(|span| span.total(jiff::Unit::Millisecond).ok())
+        .unwrap_or_default()
+        .round() as i64
+}
 /// Handles a `StreamEvent::Text`: parses reasoning/normal split, publishes both.
 async fn handle_text_event(
     bus: &BusService,
@@ -935,6 +947,7 @@ async fn handle_text_event(
         session_id = ?sid,
         token_len = token.len(),
         token_preview = %token.get(..token.len().min(50)).unwrap_or_default(),
+        since_dispatch_ms = elapsed_ms(dispatched_at),
         "LLM ACTOR StreamEvent::Text"
     );
     // Asked before any publish, so a delta that trips a rule has not yet
@@ -979,6 +992,7 @@ async fn handle_reasoning_event(
         session_id = ?sid,
         token_len = token.len(),
         token_preview = %token.get(..token.len().min(50)).unwrap_or_default(),
+        since_dispatch_ms = elapsed_ms(dispatched_at),
         "LLM ACTOR StreamEvent::Reasoning"
     );
     if let Some(session) = rules.as_mut()

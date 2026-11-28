@@ -275,9 +275,15 @@ fn parse_ids(session_raw: &str, entry_raw: &str) -> Option<(SessionId, ChatEntry
     Some((session_id, entry_id))
 }
 
-/// Resolves one entry's fact from live state first (a bounded wait, since
-/// a just-sent entry may still be crossing the bus) and then from the
-/// session store, for a session no longer in memory.
+/// Resolves one entry's fact from live state, waiting a bounded time for
+/// an entry still crossing the bus.
+///
+/// A just-sent entry can be asked for before its append has landed, so the
+/// live state is polled under a short budget. Nothing else is read: this
+/// listener holds no session store, because a session a page is viewing is
+/// in memory — activating an archived session unarchives it — so live state
+/// is the only place the fact can be. When the budget runs out the answer is
+/// `None`, and each route answers 404 as it does for any miss.
 ///
 /// `find` reads the fact off an entry. It returns `None` for any entry
 /// that is not the one asked for or does not carry the fact. The read
@@ -303,31 +309,19 @@ where
         };
         match found {
             Some(fact) => return Some(fact),
-            None if tokio::time::Instant::now() >= deadline => break,
+            None if tokio::time::Instant::now() >= deadline => return None,
             None => tokio::time::sleep(ATTACHMENT_POLL_INTERVAL).await,
         }
     }
-
-    // Archived: the store's hydrated snapshot carries the entries whole.
-    shared
-        .outbound
-        .session_store()
-        .load_session(session_id)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|snapshot| snapshot.entries.iter().find_map(&find))
 }
 
 /// `GET /attachment/{session}/{entry}/{ordinal}` — one attachment's
 /// bytes, for the transcript's `<img>`.
 ///
-/// Resolution order: live state first (a bounded
-/// wait — a just-sent entry may still be crossing the bus), then the
-/// session store's persisted entry for a session no longer in memory, then
-/// 404. The response is immutable: entry ids never reuse and an
-/// attachment's bytes never change once attached, so the browser caches
-/// it forever and never re-fetches.
+/// Resolved from live state, under a bounded wait — a just-sent entry may
+/// still be crossing the bus — and 404 when it never lands. The response is
+/// immutable: entry ids never reuse and an attachment's bytes never change
+/// once attached, so the browser caches it forever and never re-fetches.
 async fn attachment(
     AxumState(shared): AxumState<Arc<ServerShared>>,
     Path((session_raw, entry_raw, ordinal_raw)): Path<(String, String, String)>,
@@ -751,6 +745,11 @@ mod attachment_route_tests {
                 &jinn_model_market_msg::market_data_slot(),
             )
             .expect("the catalog registers the model-market data slot");
+        let session_picker_cell = slices
+            .reader::<jinn_session_store_msg::SessionPickerState>(
+                &jinn_session_store_msg::session_picker_slot(),
+            )
+            .expect("the catalog registers the session picker slot");
         let services = jinn_kernel::TestServices::builder()
             .providers(jinn_provider_config::ProvidersConfig {
                 providers: std::collections::BTreeMap::new(),
@@ -770,9 +769,6 @@ mod attachment_route_tests {
                     store: crate::push::store::PushStore::in_memory(),
                     contact: "mailto:test@example.com".to_owned(),
                 },
-                session_store: jinn_session_state::SessionStoreService::new(Arc::new(
-                    jinn_kernel::common::services::test_services::FakeSessionStore,
-                )),
                 config: services.config.clone(),
                 services,
                 provider_cell,
@@ -782,6 +778,7 @@ mod attachment_route_tests {
                 applets_catalog_cell,
                 applets_picker_cell,
                 market_cell,
+                session_picker_cell,
             }),
             version: "test".to_owned(),
             health: crate::health::WebUi2Health::new(note_bus),
@@ -948,6 +945,29 @@ mod attachment_route_tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test(start_paused = true)]
+    async fn attachment_route_answers_404_for_a_session_not_in_memory() {
+        // Given no session in memory carries the id the browser asks for.
+        let shared = shared();
+
+        // When the browser asks for an attachment of that session.
+        let response = tokio::time::timeout(
+            ATTACHMENT_CONVERGENCE_BUDGET + Duration::from_secs(1),
+            get(
+                &shared,
+                &jinn_core_types::SessionId::new().to_string(),
+                &jinn_core_types::ChatEntryId::new().to_string(),
+                "0",
+            ),
+        )
+        .await
+        .expect("the bounded wait ends");
+
+        // Then the answer is 404 — live state is the only place it is read from.
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[rstest::rstest]
     #[tokio::test]
     async fn attachment_route_answers_400_for_a_malformed_session_id() {
         // Given a server.
@@ -1072,6 +1092,28 @@ mod attachment_route_tests {
             full_output_of(&shared, &session_id.to_string(), &entry_id.to_string()).await;
 
         // Then the answer is 404.
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test(start_paused = true)]
+    async fn tool_output_route_answers_404_for_a_session_not_in_memory() {
+        // Given no session in memory carries the id the page asks for.
+        let shared = shared();
+
+        // When the page fetches an entry's full output of that session.
+        let response = tokio::time::timeout(
+            ATTACHMENT_CONVERGENCE_BUDGET + Duration::from_secs(1),
+            full_output_of(
+                &shared,
+                &jinn_core_types::SessionId::new().to_string(),
+                &jinn_core_types::ChatEntryId::new().to_string(),
+            ),
+        )
+        .await
+        .expect("the bounded wait ends");
+
+        // Then the answer is 404 — live state is the only place it is read from.
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 

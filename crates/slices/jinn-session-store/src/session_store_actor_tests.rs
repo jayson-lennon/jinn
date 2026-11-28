@@ -1745,6 +1745,69 @@ fn has_discovery_summary(session: &ChatSessionState) -> bool {
 }
 
 #[rstest::rstest]
+#[test]
+fn a_disk_read_record_carries_its_duration_and_entry_count() {
+    // Given a read that took 1500 ms and brought back 12 entries.
+    let elapsed = Duration::from_millis(1500);
+
+    // When the record is built.
+    let read = crate::session_store_actor::handlers::load::DiskRead::finished(elapsed, 12);
+
+    // Then it carries both numbers, in the unit the log line names.
+    assert_eq!(read.into_parts(), (1500, 12));
+}
+
+#[rstest::rstest]
+#[test]
+fn a_reactivation_save_record_carries_its_duration() {
+    // Given a save that took 40 ms.
+    let elapsed = Duration::from_millis(40);
+
+    // When the record is built.
+    let save = crate::session_store_actor::handlers::load::ReactivationSave::finished(elapsed);
+
+    // Then it carries the duration, in the unit the log line names.
+    assert_eq!(save.into_millis(), 40);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_disk_load_runs_its_logged_path_to_the_completion_event() {
+    // Given a session stored on disk and absent from the live map.
+    let fixture = actor_fixture().await;
+    let stored_id = SessionId::new();
+    {
+        let mut stored = ChatSessionState::new();
+        stored.set_session_id(stored_id.clone());
+        stored.push_entry(jinn_core_types::ChatEntry::user("stored on disk"));
+        fixture
+            .store
+            .save(&stored.capture_snapshot())
+            .await
+            .expect("save the stored session");
+    }
+    assert!(!fixture.state.read().session.contains(&stored_id));
+    let completed = fixture
+        .harness
+        .spawn_recorder::<SessionLoadCompleted>()
+        .await;
+
+    // When it is loaded from disk — the path every load log line sits on.
+    fixture
+        .harness
+        .publish(SessionLoadRequested {
+            session_id: stored_id.clone(),
+            content_width: None,
+        })
+        .await;
+
+    // Then the path runs to its last line: the completion is published
+    // only after the read, the restore, and the reactivation save.
+    let completed = await_recorded(&completed, 1, Duration::from_secs(10)).await;
+    assert_eq!(completed[0].session_id, stored_id);
+}
+
+#[rstest::rstest]
 #[tokio::test]
 async fn a_disk_load_publishes_load_completed_and_runs_discovery() {
     // Given a session stored on disk, not in the live map, whose project

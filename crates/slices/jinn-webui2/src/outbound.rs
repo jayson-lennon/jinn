@@ -80,8 +80,6 @@ pub struct OutboundActorDeps {
     /// The work-time slice's cell: each session's working intervals, which
     /// the dash's working-time figure and the tree aggregate are measured over.
     pub work_time_cell: jinn_slices::TypedCell<jinn_work_time_msg::WorkingTimeState>,
-    /// The session store, for the stored-session picker's rows.
-    pub session_store: jinn_session_state::SessionStoreService,
     /// The persona slice's cell: the scanned persona catalog.
     pub personas_cell: jinn_slices::TypedCell<jinn_persona_msg::Personas>,
     /// The MCP slice's runtime cell: the live connection status projection.
@@ -94,6 +92,9 @@ pub struct OutboundActorDeps {
     /// The model-market slice's data cell: the fetched OpenRouter table,
     /// the score indexes, and the one model's endpoint detail.
     pub market_cell: jinn_slices::TypedCell<jinn_model_market_msg::MarketDataState>,
+    /// The session store slice's picker cell: the Archive picker's rows, which
+    /// the store actor writes and this slice only reads.
+    pub session_picker_cell: jinn_slices::TypedCell<jinn_session_store_msg::SessionPickerState>,
     /// The live configuration layer, for the `[mcp.<name>]` catalog.
     pub config: jinn_config::ConfigLayer,
 }
@@ -132,6 +133,12 @@ pub struct OutboundHandle {
     /// has asked. Not keyed by session: the saved-app catalog is
     /// instance-wide, so there is one open applets view, not one per session.
     applet_filter: Arc<Mutex<Option<String>>>,
+    /// The filter the Archive picker last asked for, or `None` while no
+    /// picker has asked. Not keyed by session: the stored-session list is
+    /// instance-wide, so there is one open picker, not one per session. The
+    /// dispatch records it; the actor reads it when the store announces the
+    /// picker cell was written.
+    picker_filter: Arc<Mutex<Option<String>>>,
     /// The queue depth each session's pages were last told, so the tick
     /// pushes a frame only when the depth has actually changed.
     told_queue_lens: Arc<Mutex<std::collections::HashMap<SessionId, usize>>>,
@@ -258,6 +265,19 @@ impl OutboundHandle {
     pub(crate) fn market_detail_view(&self) -> DetailViewBody {
         *self.market_detail_view.lock()
     }
+
+    /// Records the filter the Archive picker last asked for — the one the
+    /// store's "picker cell written" announcement answers in.
+    pub(crate) fn remember_picker_filter(&self, filter: &str) {
+        *self.picker_filter.lock() = Some(filter.to_owned());
+    }
+
+    /// The filter the Archive picker last asked for, or `None` while no
+    /// picker has asked since the handle was built.
+    #[must_use]
+    pub(crate) fn picker_filter(&self) -> Option<String> {
+        self.picker_filter.lock().clone()
+    }
 }
 
 mod handlers;
@@ -269,11 +289,11 @@ pub(crate) use handlers::with_status_figure;
 
 #[cfg(test)]
 pub(crate) use handlers::{
-    applets_rescanned, applets_serving_changed, archive_failed, context_override_changed, flush,
-    follow_active_session, library_membership_changed, mcp_runtime_stored, model_cache_stored,
-    phase_changed, pin_changed, prompt_templates_loaded, provider_switched, reconcile,
-    sessions_changed, skills_loaded, startup_hydration_finished, teardown_finished,
-    teardown_started,
+    applets_rescanned, applets_serving_changed, archive_failed, context_override_changed,
+    elapsed_ms, flush, follow_active_session, library_membership_changed, mcp_runtime_stored,
+    model_cache_stored, phase_changed, picker_entries_loaded, pin_changed, prompt_templates_loaded,
+    provider_switched, reconcile, sessions_changed, skills_loaded, startup_hydration_finished,
+    teardown_finished, teardown_started,
 };
 
 /// The outbound actor.
@@ -324,6 +344,7 @@ impl OutboundHandle {
             sent: Arc::new(Mutex::new(handlers::SentLengths::default())),
             row_filters: Arc::new(Mutex::new(std::collections::HashMap::new())),
             applet_filter: Arc::new(Mutex::new(None)),
+            picker_filter: Arc::new(Mutex::new(None)),
             told_queue_lens: Arc::new(Mutex::new(std::collections::HashMap::new())),
             told_status: Arc::new(Mutex::new(HashMap::new())),
             dash_open: Arc::new(Mutex::new(0)),
@@ -441,12 +462,6 @@ impl OutboundHandle {
         &self.deps.services
     }
 
-    /// The session store, for the stored-session picker's rows.
-    #[must_use]
-    pub fn session_store(&self) -> &jinn_session_state::SessionStoreService {
-        &self.deps.session_store
-    }
-
     /// Records that a page opened a dash. The next tick pushes the session's
     /// full statistics: the entry the tick would otherwise compare against is
     /// dropped, so the first read while open is a push, not a baseline.
@@ -505,6 +520,14 @@ impl OutboundHandle {
         &self,
     ) -> &jinn_slices::TypedCell<jinn_applets_msg::AppletsPickerState> {
         &self.deps.applets_picker_cell
+    }
+
+    /// The session store slice's picker cell (the Archive picker's rows).
+    #[must_use]
+    pub fn session_picker_cell(
+        &self,
+    ) -> &jinn_slices::TypedCell<jinn_session_store_msg::SessionPickerState> {
+        &self.deps.session_picker_cell
     }
 
     /// The live configuration layer (the `[mcp.<name>]` catalog).
@@ -578,6 +601,11 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         .handles::<jinn_provider_selection_msg::ModelCacheStored>()
         // The store actor wrote a membership: both sidebar lists re-read.
         .handles::<jinn_session_store_msg::SessionLibraryMembershipChanged>()
+        // The store actor wrote the session picker's cell: a page that asked
+        // for the Archive picker's rows receives them now, built from the
+        // cell in the filter it asked. Read the cell, never the event — the
+        // event carries nothing but the fact that the write landed.
+        .handles::<jinn_session_store_msg::SessionPickerEntriesLoaded>()
         // An archive landed: the row leaves every page's rail. An archived
         // active session's successor arrives through the
         // `ActiveSessionChanged` snapshot below. Never `SessionRemoved`: it

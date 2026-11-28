@@ -24,16 +24,78 @@ export type EntryKind =
   | 'rule_interrupt'
   | 'intersession';
 
+/** The core entry's persisted kind map, one member per `ChatEntryKind`
+ *  variant, keyed by the snake_case kind name the envelope carries.
+ *
+ *  Five variants are a bare string — `System`, `Error`, `Assistant`,
+ *  `Thinking`, `Transient` — and their body IS the text. The rest are
+ *  structs, and their text is one named field of the body. That difference
+ *  is the whole reason this type exists: typed as `unknown`, a consumer
+ *  cannot tell a string variant from a struct one, and the delta handler
+ *  once read `Assistant` as `{ text }` and silently dropped every chunk.
+ *
+ *  A struct's fields are the ones the page reads, transcribed from the Rust
+ *  enum; the rest of its fields stay `unknown`. This is mirrored by hand,
+ *  like the rest of this file, so a variant changed on the server is a
+ *  change here. */
+export type EntryKindMap = {
+  user: { User: { display: string; expanded: string } };
+  system: { System: string };
+  error: { Error: string };
+  assistant: { Assistant: string };
+  actor: { Actor: { source: string; text: string } };
+  thinking: { Thinking: string };
+  tool_call: { ToolCall: { id: string; name: string; arguments: string } };
+  tool_result: {
+    ToolResult: {
+      id: string;
+      name: string;
+      content: string;
+      status: 'Pending' | 'Success' | 'Failure';
+      truncation?: { truncated_by: string; total_lines: number; total_bytes: number };
+    };
+  };
+  transient: { Transient: string };
+  compaction: {
+    Compaction: {
+      summary: string;
+      tokens_before: number;
+      tokens_after: number;
+      entries_compacted: number;
+      model_used: string;
+    };
+  };
+  annotation: { Annotation: { citations: { url: string; title: string }[] } };
+  rule_interrupt: { RuleInterrupt: { rule: string; body: string } };
+  intersession: {
+    Intersession: {
+      source_session: string;
+      source_name: string | null;
+      target_session: string;
+      text: string;
+    };
+  };
+};
+
+/** The body of one entry kind: the text itself for a string variant, the
+ *  struct for a struct variant. */
+export type EntryKindBody<K extends EntryKind = EntryKind> = EntryKindMap[K][keyof EntryKindMap[K]];
+
+/** A persisted kind map whose kind is not yet known: one of the thirteen
+ *  single-key maps, and only ever one. This is the wire's own shape when a
+ *  frame is still untyped, and what a map built at runtime is typed as. */
+export type AnyEntryKindMap = EntryKindMap[keyof EntryKindMap];
+
 /** One transcript entry: its kind name, and the core entry as persisted —
  * minus two fields the page never reads from the socket. A tool result's
  * `full_content` is fetched from `/tool-output/...` when its disclosure
  * opens (its `truncation` meta stays, as the marker that there is one), and
  * an attachment's `data` bytes are fetched from `/attachment/...`. */
-export interface EntryEnvelope {
-  kind: EntryKind;
+export interface EntryEnvelope<K extends EntryKind = EntryKind> {
+  kind: K;
   entry: {
     id: string;
-    kind: Record<string, unknown>;
+    kind: EntryKindMap[K];
     timing?: unknown;
     pin_position?: unknown;
     context_override?: string;
@@ -421,7 +483,17 @@ export type ServerMsg =
       /** How many entries precede this page's oldest. */
       entries_before: number;
     }
-  | { type: 'entry_delta'; session_id: string; entry_id: string; field: DeltaField; chunk: string }
+  | {
+      type: 'entry_delta';
+      session_id: string;
+      entry_id: string;
+      field: DeltaField;
+      /** Where `chunk` starts, as a byte offset into the field's UTF-8 text.
+       *  The page applies a chunk by this offset rather than appending it,
+       *  because a whole-entry upsert can deliver the same words first. */
+      offset_bytes: number;
+      chunk: string;
+    }
   | { type: 'phase'; session_id: string; phase: Phase; queue_len: number }
   | { type: 'sessions'; rows: SessionRow[]; library: SessionRow[]; hydrating: boolean }
   | { type: 'model'; session_id: string; label: string }

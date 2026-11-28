@@ -6191,6 +6191,7 @@ dependencies = [
  "jinn-mcp-msg",
  "jinn-model-market-msg",
  "jinn-persona-msg",
+ "jinn-picker",
  "jinn-preferences-config",
  "jinn-provider-config",
  "jinn-provider-selection-msg",

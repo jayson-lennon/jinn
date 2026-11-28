@@ -366,7 +366,17 @@ pub struct EntryDeltaBody {
     pub entry_id: ChatEntryId,
     /// Which field the chunk extends.
     pub field: DeltaField,
-    /// The text to append.
+    /// Where the chunk starts, as a byte offset into the field's UTF-8 text.
+    ///
+    /// A streaming entry reaches the page two ways at once: this delta, and
+    /// a whole-entry upsert sent whenever the entry changed. The two are not
+    /// ordered, so a delta can arrive after an upsert that already delivered
+    /// part of what it carries. The page applies a chunk by this offset
+    /// rather than appending it, so the words land once whatever the order.
+    /// It is bytes, not characters, because the server's own cursor is; the
+    /// page converts it to its string's index.
+    pub offset_bytes: usize,
+    /// The text the field holds from that offset on.
     pub chunk: String,
 }
 

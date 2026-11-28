@@ -1,11 +1,13 @@
 //! Session picker hydration from the store.
 
-use jinn_session_store_msg::LoadSessionPickerEntries;
+use jinn_kernel::common::actor_deps::BusPublish;
+use jinn_session_store_msg::{LoadSessionPickerEntries, SessionPickerEntriesLoaded};
 
 use crate::session_store_actor::SessionStoreActor;
 
 impl SessionStoreActor {
-    /// Loads session tree entries from storage into the session picker.
+    /// Loads session tree entries from storage into the session picker, then
+    /// announces the write.
     pub(crate) async fn handle_load_session_picker_entries(
         &self,
         _payload: &LoadSessionPickerEntries,
@@ -23,5 +25,10 @@ impl SessionStoreActor {
         self.session_picker_cell.update(|picker| {
             crate::session_picker_actions::load(picker, entries);
         });
+        // Strictly after the cell write: a reader woken by this event sees
+        // the fresh rows. The terminal never needs it — it re-reads the cell
+        // every frame — but the web UI's Archive picker is push-only, and
+        // this is how its rows reach the page.
+        self.publish(SessionPickerEntriesLoaded).await;
     }
 }

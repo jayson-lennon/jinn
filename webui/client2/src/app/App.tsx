@@ -49,7 +49,7 @@ import { applyThemeBar } from './theme_bar';
  * answers means the socket is dead or the server is wedged — an overlay that
  * can never clear is the one outcome the timeout exists to rule out.
  */
-const SESSION_LOAD_STALL_MS = 10_000;
+const SESSION_LOAD_STALL_MS = 30_000;
 /** How long a jump must be under way before the navigating overlay shows, so
  *  a jump that lands at once — the common case on a quick link — never
  *  flashes it. */
