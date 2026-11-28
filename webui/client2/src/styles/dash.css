@@ -65,8 +65,31 @@
 .dash-row-value[data-health='degraded'] { color: var(--warn); }
 .dash-row-value[data-health='poor'] { color: var(--danger); }
 .dash-cwd {
-  color: var(--fg-dim);
   font-size: 12px;
+}
+/* The directory row is the change-directory modal's entry, and takes the
+   page's clickable-text treatment (the status bar's persona and context
+   figure, this card's MCP and tree titles): accent-coloured at rest so a
+   phone, which has neither cursor nor hover, can still see it is tappable,
+   with a hover fill and focus ring where a pointer exists. The hover pill's
+   padding is pulled back with a negative margin so the value stays flush
+   with the other right-aligned rows. */
+.dash-cwd-button {
+  background: transparent;
+  color: var(--accent);
+  border: 0;
+  padding: 2px 6px;
+  margin-right: -6px;
+  border-radius: var(--radius);
+  font: inherit;
+  cursor: pointer;
+}
+.dash-cwd-button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.dash-cwd-button:focus-visible {
+  outline: 1px solid var(--accent);
 }
 
 /* The tree totals fold away: a phone sees the session's figures first. */

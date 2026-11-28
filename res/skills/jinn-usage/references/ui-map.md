@@ -193,7 +193,7 @@ fixed column drawn here, and the `#` button goes away.
 | `Sessions` / `Library` | The sidebar's two-segment control. Chooses which list it shows: the loaded sessions outside the library, or the library members. Exactly one shows at a time. | `webui.md` |
 | `⋮` on a session row | The row's menu. **add to library** / **remove from library** moves the session to the other list; **teardown + archive** runs the session's teardown lifecycle and then archives it (the terminal's `x`); **archive** archives that session and skips the teardown. | `webui.md` |
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui.md` |
-| `+` (beside `Archive`) | A square button that opens the New session modal — the same one the menu's **New session** item opens. Shown at every time, with or without an active session; on a phone, tapping it closes the drawer. | `webui.md` |
+| `+` (beside `Archive`) | A square button filled in the accent colour that opens the New session modal — the same one the menu's **New session** item opens. Shown at every time, with or without an active session; on a phone, tapping it closes the drawer. | `webui.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui.md` |
 | **Loading session…** card | A full-page overlay with three breathing dots, raised the instant a session row or an Archive row is picked and cleared when that session arrives. Covers everything; `Esc` does nothing on it. | `webui.md` |
 | A gold session row | That session finished a turn while the page viewed another one. Viewing it clears the mark. | `webui.md` |
@@ -207,6 +207,7 @@ fixed column drawn here, and the `#` button goes away.
 | `[img]` on a user message | An image the message carried. | `webui.md` |
 | `[⇱]` top-right of the transcript | **Jump to start** — an up arrow against a bar above it. Shown only while scrolled away from the top; click to land on the first entry. | `webui.md` |
 | `[⇲]` bottom-right of the transcript | **Jump to end** — a down arrow against a bar below it. Shown only while scrolled away from the end; click to land on the newest entry and follow the stream again. | `webui.md` |
+| **Change directory** (from the dash) | A modal for changing the session's working directory. The field is seeded with the current directory and a line beneath it is the server's red/green verdict for the typed path, asked 100 ms after the last keystroke. **Accept** is enabled only while green and current; **Cancel**, `Esc`, or an outside click dismisses. | `webui.md` |
 | `⋮` at an entry's bottom-right | Every transcript entry's menu, always visible at every width. **Pin** pins the entry at its relative position and it shows a 📌; pinned, the item reads **Unpin**. **Exclude from context / Include in context** flips the entry's override (absent on a pinned entry). **Fork** forks the session at that entry, as the TUI's `f` does, and the page moves onto the new session. `Esc`, an outside click, or picking an item closes it. | `webui.md` |
 | 📌 at an entry's left edge | A pinned entry — always in context, and pinned at its relative position. | `webui.md` |
 | `[Message jinn…]` | The composer's draft. `Enter` inserts a newline; `Ctrl+Enter` and `Shift+Enter` send. An image with no text sends. | `webui.md` |
@@ -220,7 +221,7 @@ fixed column drawn here, and the `#` button goes away.
 | **Applets** (menu) | A modal over the saved applets, newest first, each a new-tab link while the applets server is serving and a disabled line while it is offline; a status line names the serving bind, and a filter narrows by title. | `webui.md` |
 | `serving http://<bind>` / `<server offline>` | The applets modal's status line: where the applets server is reachable, or that it is down (rows disabled). | `webui.md` |
 | **New session** (menu) | A modal with a Project select, a Lifecycle select, **Setup arguments** when the lifecycle declares any, and **Create session**. The new session becomes active and the page moves to it. | `webui.md` |
-| **Light | Dark | System** (menu) | The color mode. Saved to `state.toml`; **System** follows the browser. | `webui.md` |
+| **Light | Dark | System** (menu) | The color mode, as one pill with a hairline between the three; the chosen mode is filled with an accent underline. Saved to `state.toml`; **System** follows the browser. | `webui.md` |
 | `#` (phone only) | Below 768px, at the title bar's left. Opens the sidebar as an off-canvas drawer; a scrim tap, `Esc`, or picking a row closes it. Gold with a count while sessions are unread. | `webui.md` |
 | The skills modal | A filter bar and the session's discovered skills — a `●` / `○` mark, name, description, a `project` badge on project skills, and a `+`. A row click toggles at once; `+` loads the body into context. | `webui.md` |
 | The tools modal | A filter bar and one row per tool the session's registry offers — a `✓` (enabled) / `✗` (disabled) mark, the name, the description's first sentence. A row click commits at once and the modal stays open; a mis-click is undone by clicking the row again. | `webui.md` |

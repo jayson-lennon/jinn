@@ -63,6 +63,13 @@ jinn-applets-msg = { workspace = true }
 # the outbound actor subscribes that crate's `PromptTemplatesLoaded`.
 # Contract crate only: never the session-init implementation slice.
 jinn-session-init-msg = { workspace = true }
+# The change-directory modal's red/green verdict is the terminal cwd popup's
+# own resolver: `~`, relative paths, canonicalization, `is_dir` — one
+# resolver cannot let the two surfaces disagree about what counts as a
+# directory. Contract crate only: never the cwd implementation slice.
+jinn-cwd-msg = { workspace = true }
+# A pushed cwd change carries the `~`-shortened path the dash shows.
+jinn-common = { workspace = true }
 # `TextRun` — the matched/plain split the shared skill filter returns.
 jinn-selection-widget = { workspace = true }
 # The composer's image attachments ingest through the `read_image` tool's

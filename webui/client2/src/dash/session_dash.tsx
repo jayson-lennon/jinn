@@ -79,7 +79,7 @@ function TreeBlock(props: { readonly tree: TreeStats }): JSX.Element {
   );
 }
 
-function Statistics(props: { readonly stats: SessionStats }): JSX.Element {
+function Statistics(props: { readonly stats: SessionStats; readonly onOpenCwd: () => void }): JSX.Element {
   return (
     <div class="dash-section" data-testid="dash-stats">
       <h3 class="dash-section-title">Session</h3>
@@ -97,7 +97,14 @@ function Statistics(props: { readonly stats: SessionStats }): JSX.Element {
       </Show>
       <div class="dash-row">
         <span class="dash-row-label">Directory</span>
-        <span class="dash-row-value dash-cwd">{props.stats.cwd}</span>
+        <button
+          type="button"
+          class="dash-row-value dash-cwd dash-cwd-button"
+          data-testid="dash-cwd"
+          onClick={props.onOpenCwd}
+        >
+          {props.stats.cwd}
+        </button>
       </div>
     </div>
   );
@@ -220,6 +227,9 @@ export function Dash(props: {
   readonly store: ClientStore;
   readonly send: Send;
   readonly onOpenMcp: () => void;
+  /** Opens the change-directory modal seeded with the directory row's
+   *  cwd, read before the dash closes and drops the row. */
+  readonly onOpenCwd: (cwd: string) => void;
 }): JSX.Element {
   const close = (): void => closeDash(props.store);
 
@@ -241,7 +251,10 @@ export function Dash(props: {
         }}
       />
       <div class="dash" role="dialog" aria-label="Session dash" data-testid="dash">
-        <Statistics stats={props.store.state.dashStats ?? emptyStats()} />
+        <Statistics
+          stats={props.store.state.dashStats ?? emptyStats()}
+          onOpenCwd={() => props.onOpenCwd(props.store.state.dashStats?.cwd ?? '')}
+        />
         <McpSection store={props.store} onOpen={props.onOpenMcp} />
         <PinsSection store={props.store} send={props.send} />
         <TasksSection tasks={props.store.state.dashTasks} />

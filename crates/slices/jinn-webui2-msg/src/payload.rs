@@ -1099,6 +1099,50 @@ pub struct SessionStatsBody {
     pub tree: Option<TreeStatsBody>,
 }
 
+/// A directory-path verdict, resolved by the server through the terminal
+/// cwd popup's own resolver.
+///
+/// Internally tagged by `kind`, so a verdict reads as one word on the wire
+/// (`ok`, `empty`, `not_a_directory`) with its path flattened beside it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CwdVerdict {
+    /// Resolved to an existing directory; carries the canonical path.
+    Ok {
+        /// The canonical path the input resolved to.
+        path: String,
+    },
+    /// Empty or whitespace-only input.
+    Empty,
+    /// Does not exist or is not a directory; carries the offending path.
+    NotADirectory {
+        /// The path as it resolved, which names what is wrong.
+        path: String,
+    },
+}
+
+/// The answer to a `CheckCwd`: the verdict for exactly the text asked about.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CwdCheckBody {
+    /// The session whose cwd was the resolve base, so a page that has
+    /// switched sessions drops a late frame.
+    pub session_id: SessionId,
+    /// The text the check resolved, verbatim as the page sent it. The page
+    /// drops a reply whose text is not its current draft, so an older reply
+    /// never overwrites a newer one.
+    pub text: String,
+    pub verdict: CwdVerdict,
+}
+
+/// A session's working directory changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CwdBody {
+    /// The session whose cwd changed.
+    pub session_id: SessionId,
+    /// The new working directory, shortened as the dash shows it.
+    pub cwd: String,
+}
+
 /// One pinned entry, as the terminal sidebar's pins section labels it: the
 /// badge, the kind prefix, and the truncated content, already assembled.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

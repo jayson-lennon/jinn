@@ -292,8 +292,8 @@ pub(crate) use handlers::{
     applets_rescanned, applets_serving_changed, archive_failed, context_override_changed,
     elapsed_ms, flush, follow_active_session, library_membership_changed, mcp_runtime_stored,
     model_cache_stored, phase_changed, picker_entries_loaded, pin_changed, prompt_templates_loaded,
-    provider_switched, reconcile, sessions_changed, skills_loaded, startup_hydration_finished,
-    teardown_finished, teardown_started,
+    provider_switched, reconcile, session_cwd_changed, sessions_changed, skills_loaded,
+    startup_hydration_finished, teardown_finished, teardown_started,
 };
 
 /// The outbound actor.
@@ -619,6 +619,11 @@ pub fn spawn(system: &ActorSystem, deps: OutboundActorDeps) -> OutboundHandle {
         // lights the dot on every page the same way.
         .handles::<jinn_session_lifecycle_msg::SessionTeardownStarted>()
         .handles::<jinn_session_lifecycle_msg::SessionTeardownFinished>()
+        // A session's cwd changed — from the page's own modal, the terminal's
+        // popup, or a lifecycle setup. The lifecycle actor publishes this
+        // strictly after its state write, so the handler reads the event's
+        // own path, and every page's dash row follows it live.
+        .handles::<jinn_session_lifecycle_msg::SessionCwdChanged>()
         // The applets slice rescanned its catalog, or its server changed
         // phase: an open applets modal receives fresh rows. Both are Events
         // (broadcast), so a second declarant beside the applets slice's own

@@ -18,6 +18,7 @@ import { resolveLoadingAfterSnapshot } from '../overlays/session_load';
 import { resetSessionPickerRows } from '../pickers/picker_rows';
 import { resetMarketDetail } from '../pickers/market_rows';
 import { resetDash } from '../dash/dash';
+import { resetCwd } from '../cwd/cwd_state';
 import type { ServerMsg } from '../protocol/protocol';
 import { reloadIfStale } from '../protocol/protocol_version';
 
@@ -65,6 +66,9 @@ export function applySnapshot(store: ClientStore, msg: Extract<ServerMsg, { type
     // The dash describes one session: a switch closes it and drops the
     // other session's facts and any jump still in flight.
     resetDash(s);
+    // The change-directory modal's draft is a path for the session the page
+    // just left, and its verdict was resolved against the old cwd.
+    resetCwd(s);
     // The page is now viewing this session: whatever settled before
     // this moment is seen. One arm covers a click on the page and a
     // switch made elsewhere that the page follows — both land here.

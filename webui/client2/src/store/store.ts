@@ -21,6 +21,7 @@ import { applySnapshot } from './snapshot';
 import { applyEntriesPage, applyEntryDelta, applyEntryUpsert } from '../transcript/transcript_entries';
 import { applySessions, applyTitle } from '../rail/session_rows';
 import { applyDashMcpRows, applyDashPinRows, applyDashTasks, applySessionStats, clearJumpTarget } from '../dash/dash';
+import { applyCwdCheck, applySessionCwd, type CwdVerdictState } from '../cwd/cwd_state';
 import {
   applyAppletRows,
   applyMcpRows,
@@ -88,6 +89,15 @@ export interface ViewState {
   dashTasks: DashTasks | null;
   /** The dash's enabled MCP servers with their live status. */
   dashMcp: DashMcpRow[];
+  /** True while the change-directory modal is open. */
+  cwdOpen: boolean;
+  /** The modal's draft path. Seeded from the dash's directory row on open;
+   *  a cwd change landing from elsewhere never touches it. */
+  cwdDraft: string;
+  /** The draft's verdict as the server last resolved it, and whether the
+   *  text has moved on since. The footer shows the verdict; Accept is
+   *  enabled only while it is green and not stale. */
+  cwdVerdict: CwdVerdictState;
   /** The entry a pin tap asked the transcript to scroll to once it is
    *  held, or null. Cleared when the scroll happens, when the jump is
    *  refused, or by a snapshot. */
@@ -226,6 +236,9 @@ const INITIAL_STATE: ViewState = {
   dashPins: [],
   dashTasks: null,
   dashMcp: [],
+  cwdOpen: false,
+  cwdDraft: '',
+  cwdVerdict: { verdict: { kind: 'empty' }, stale: true },
   jumpTarget: null,
   navigating: false,
   revision: 0,
@@ -389,6 +402,12 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
       return;
     case 'dash_mcp_rows':
       applyDashMcpRows(store, msg);
+      return;
+    case 'cwd_check':
+      applyCwdCheck(store, msg);
+      return;
+    case 'session_cwd':
+      applySessionCwd(store, msg);
       return;
     case 'picker_rows': {
       applyPickerRows(store, msg);
