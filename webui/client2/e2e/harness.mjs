@@ -316,6 +316,146 @@ function writePrompt(root, prompt) {
 }
 
 /**
+ * The staged OpenRouter market: two listings whose PROJ order is fixed
+ * (the cheap one first), and the cheap one's endpoint detail.
+ *
+ * The scratch instance has no OpenRouter provider and the tier is
+ * network-free, so the actor's disk cache is what the market serves. The
+ * files are the actor's own stamped envelope (`{ fetched_at, value }`)
+ * under the scratch cache's `jinn/openrouter` directory, stamped at the
+ * write so they sit well inside the models TTL.
+ */
+export const scratchMarket = {
+  /** The cheap listing — the one every market spec pivots on. */
+  cheapId: "openrouter/e2e-alpha/e2e-cheap",
+  cheapName: "e2e-alpha/e2e-cheap",
+  /** The dear listing, with a variant suffix and no ECI score. */
+  dearId: "openrouter/e2e-beta/e2e-dear:free",
+  dearName: "e2e-beta/e2e-dear:free",
+  /** The tag of the cheap model's one provider endpoint. */
+  endpointTag: "e2e-azure/us-east",
+  /** The dear model's two endpoints, named so a name sort orders them
+   * one way and a latency sort the other. */
+  dearFastTag: "e2e-fast",
+  dearSlowTag: "e2e-slow",
+};
+
+/** A fresh stamp, in the envelope's own format. */
+const nowStamp = () => new Date().toISOString();
+
+/**
+ * The listings as the actor stores them: USD/token prices, the cheap one
+ * with an ECI score so an ECI sort puts it first.
+ */
+function marketRows() {
+  return [
+    {
+      id: scratchMarket.cheapId,
+      author: "e2e-alpha",
+      slug: "e2e-cheap",
+      variant: null,
+      prompt_price: 0.000001,
+      completion_price: 0.000001,
+      cache_read_price: 0.0000001,
+      has_overrides: false,
+      context_length: 200000,
+      eci: 50.0,
+      eci_ci: null,
+      vals: null,
+      is_free: false,
+    },
+    {
+      id: scratchMarket.dearId,
+      author: "e2e-beta",
+      slug: "e2e-dear",
+      variant: "free",
+      prompt_price: 0.000003,
+      completion_price: 0.000015,
+      cache_read_price: 0.0000003,
+      has_overrides: true,
+      context_length: null,
+      eci: null,
+      eci_ci: null,
+      vals: 61.5,
+      is_free: true,
+    },
+  ];
+}
+
+/** The cheap model's endpoint rows, as the actor stores them: a bare
+ * array, one entry per provider. */
+function marketEndpoints() {
+  return [
+    {
+      tag: scratchMarket.endpointTag,
+      provider_name: "E2E Azure",
+      prompt_price: 0.0000012,
+      completion_price: 0.0000045,
+      cache_read_price: 0.00000009,
+      latency_p50_ms: 1159.0,
+      throughput_p50: 38.0,
+      uptime_1d: 0.992,
+      quantization: null,
+      overrides: [],
+    },
+  ];
+}
+
+/** The dear model's endpoint rows: the pricier one is the faster, so a
+ * PROJ sort and a LAT sort order them oppositely. */
+function dearMarketEndpoints() {
+  return [
+    {
+      tag: scratchMarket.dearSlowTag,
+      provider_name: "E2E Slow",
+      prompt_price: 0.000001,
+      completion_price: 0.000004,
+      cache_read_price: null,
+      latency_p50_ms: 900.0,
+      throughput_p50: 30.0,
+      uptime_1d: 0.99,
+      quantization: null,
+      overrides: [],
+    },
+    {
+      tag: scratchMarket.dearFastTag,
+      provider_name: "E2E Fast",
+      prompt_price: 0.000005,
+      completion_price: 0.000020,
+      cache_read_price: null,
+      latency_p50_ms: 100.0,
+      throughput_p50: 60.0,
+      uptime_1d: 0.999,
+      quantization: null,
+      overrides: [],
+    },
+  ];
+}
+
+/** The actor's endpoint cache name: separators flattened to underscores. */
+function endpointCacheName(modelId) {
+  return `endpoints-${modelId.replace(/[/:]/g, "_")}.json`;
+}
+
+/**
+ * Writes the market's disk cache into the scratch root: the listings and
+ * the cheap model's endpoints, both freshly stamped.
+ */
+function writeMarket(root) {
+  const dir = path.join(root, "cache", "jinn", "openrouter");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "models.json"), JSON.stringify({ fetched_at: nowStamp(), value: marketRows() }));
+  fs.writeFileSync(
+    path.join(dir, endpointCacheName(scratchMarket.cheapId)),
+    JSON.stringify({ fetched_at: nowStamp(), value: marketEndpoints() }),
+  );
+  fs.writeFileSync(
+    path.join(dir, endpointCacheName(scratchMarket.dearId)),
+    JSON.stringify({ fetched_at: nowStamp(), value: dearMarketEndpoints() }),
+  );
+}
+
+/**
  * The scratch applet the applets spec pivots on. The title is chosen so a
  * filter for `e2e` matches it alone, and its body carries a marker so a
  * test that fetched the page can tell the artifact from an error page.
@@ -364,6 +504,7 @@ function writeScratch(root, webui2Port, stage = {}) {
   if (stage.skill) writeSkill(root, scratchSkill);
   if (stage.applet) writeApplet(root, scratchApplet);
   if (stage.prompt) writePrompt(root, scratchPrompt);
+  if (stage.market) writeMarket(root);
 }
 
 /**
@@ -523,6 +664,7 @@ export async function bootJinn(options = {}) {
     textOnly: options.textOnly === true,
     applet: options.applet === true,
     prompt: options.prompt === true,
+    market: options.market === true,
   });
   const run = {
     webui2Port,

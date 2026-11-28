@@ -249,6 +249,21 @@ mod tests {
         }
     }
 
+    /// Waits until the store reads as `wanted` says. The push is a spawned
+    /// task, and the store write follows its response: a mock that has been
+    /// hit proves the request arrived, not that the task has finished, so a
+    /// test that reads the store must wait on the store itself.
+    async fn await_store(store: &PushStore, wanted: impl Fn(&[Subscription]) -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !wanted(&store.subscriptions()) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the store never reached the expected state"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
     #[rstest::rstest]
     #[tokio::test]
     async fn a_settle_pushes_to_the_subscription() {
@@ -289,7 +304,12 @@ mod tests {
 
         // When a session settles and the service answers.
         sender(store.clone()).on_settle("s1", Some("Title"));
+        // Two facts, in the order they happen: the request reached the
+        // service (so the 410 is what the sender read), and only then did
+        // the spawned task drop the row. Waiting on the hit alone raced the
+        // removal; waiting on the store alone would pass for any removal.
         await_hit(&mock).await;
+        await_store(&store, <[Subscription]>::is_empty).await;
 
         // Then the store no longer holds the subscription.
         assert_eq!(store.subscriptions(), Vec::<Subscription>::new());

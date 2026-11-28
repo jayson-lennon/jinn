@@ -30,6 +30,18 @@ toggles the pricing mix, `O` opens the highlighted model's openrouter.ai page
 in your OS default browser (in detail mode it opens the pinned model's page),
 `<c-r>` refetches everything, `?` shows the help card.
 
+### In the web UI
+
+The title bar's model chip → **OpenRouter Model Market** opens the same
+catalog in the browser, as a two-density table: two lines per row in
+portrait (name + PROJ, then IN/M, OUT/M, CACH/M, ECI, VALS in fixed
+columns), one line on a wide screen. The header is the sort control (tap
+to sort, tap again to reverse; PROJ ascending by default), **mix** toggles
+the fixed vs the session tree's measured mix, **⟳** refreshes, and a row's
+detail page carries its endpoints, a ⧉ popout to the model's openrouter.ai
+page, and **Use this model** — which pins the highlighted endpoint the same
+way the TUI's detail-mode `<enter>` does. See [Web UI](webui.md).
+
 ## Reasoning effort
 
 `<leader>sr` opens the reasoning-effort picker for models that support it.

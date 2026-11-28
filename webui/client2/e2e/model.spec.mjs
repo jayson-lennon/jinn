@@ -1,13 +1,13 @@
 //! Switching the model from the chip in the title bar.
 
-import { expect, MODEL_LABEL, OTHER_MODEL_LABEL, OTHER_MODEL_NAME, sel, test } from "./fixture.mjs";
+import { expect, MODEL_LABEL, openMarket, openModelChooser, openProviderPicker, OTHER_MODEL_LABEL, OTHER_MODEL_NAME, sel, test } from "./fixture.mjs";
 
 test("the model chip switches to another selectable row", async ({ page }) => {
   // Given the sample model selected (the page fixture's starting state).
   await expect(page.locator(sel.MODEL_CHIP)).toHaveText(MODEL_LABEL);
 
   // When picking the other provider.
-  await page.locator(sel.MODEL_CHIP).click();
+  await openProviderPicker(page);
   const other = page.locator(sel.MODEL_ROW).filter({ hasText: OTHER_MODEL_NAME });
   await expect(other).toBeVisible();
   await other.click();
@@ -18,7 +18,7 @@ test("the model chip switches to another selectable row", async ({ page }) => {
 
 test("the model filter narrows the picker to matching rows", async ({ page }) => {
   // Given the open picker lists both staged models.
-  await page.locator(sel.MODEL_CHIP).click();
+  await openProviderPicker(page);
   await expect(page.locator(sel.MODEL_ROW)).toHaveCount(2);
 
   // When filtering for the second provider.
@@ -32,7 +32,7 @@ test("the model filter narrows the picker to matching rows", async ({ page }) =>
 
 test("the model filter matches a provider's name", async ({ page }) => {
   // Given the open picker lists both staged models.
-  await page.locator(sel.MODEL_CHIP).click();
+  await openProviderPicker(page);
   await expect(page.locator(sel.MODEL_ROW)).toHaveCount(2);
 
   // When filtering by the second provider's name alone, which its model
@@ -47,7 +47,7 @@ test("the model filter matches a provider's name", async ({ page }) => {
 
 test("the model filter reads a space as two terms", async ({ page }) => {
   // Given the open picker lists both staged models.
-  await page.locator(sel.MODEL_CHIP).click();
+  await openProviderPicker(page);
   await expect(page.locator(sel.MODEL_ROW)).toHaveCount(2);
 
   // When filtering for the second provider's name and its model's first
@@ -62,7 +62,7 @@ test("the model filter reads a space as two terms", async ({ page }) => {
 
 test("the model filter highlights the matched letters", async ({ page }) => {
   // Given the open picker lists both staged models.
-  await page.locator(sel.MODEL_CHIP).click();
+  await openProviderPicker(page);
   await expect(page.locator(sel.MODEL_ROW)).toHaveCount(2);
 
   // When filtering by the second provider's name.
@@ -73,3 +73,42 @@ test("the model filter highlights the matched letters", async ({ page }) => {
   await expect(row).toHaveCount(1);
   await expect(row.locator("mark")).toHaveText("second");
 });
+
+test("the model chip opens a chooser with two rows", async ({ page }) => {
+  // Given the page's starting state.
+  // When tapping the model chip.
+  await openModelChooser(page);
+
+  // Then a chooser shows exactly the two pickers, in order, and no picker
+  // opens behind it.
+  const rows = page.locator('[data-testid="model-chooser"] button');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveText("OpenRouter Model Market");
+  await expect(rows.nth(1)).toHaveText("Provider Model Picker");
+  await expect(page.locator(sel.MODEL_FILTER)).toHaveCount(0);
+});
+
+test("the chooser's provider row opens the provider picker", async ({ page }) => {
+  // Given the chooser open.
+  await openModelChooser(page);
+
+  // When tapping "Provider Model Picker".
+  await page.locator(sel.CHOOSER_PROVIDER).click();
+
+  // Then the chooser is gone and the provider picker is open.
+  await expect(page.locator(sel.MODEL_CHOOSER)).toHaveCount(0);
+  await expect(page.locator(sel.MODEL_FILTER)).toBeVisible();
+});
+
+test("the chooser's market row opens the market", async ({ page }) => {
+  // Given the chooser open.
+  await openModelChooser(page);
+
+  // When tapping "OpenRouter Model Market".
+  await page.locator(sel.CHOOSER_MARKET).click();
+
+  // Then the market is open in its list page.
+  await expect(page.locator(sel.MARKET_FILTER)).toBeVisible();
+  await expect(page.locator(sel.MODEL_CHOOSER)).toHaveCount(0);
+});
+

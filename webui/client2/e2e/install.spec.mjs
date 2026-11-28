@@ -9,7 +9,7 @@ import { expect, pickTheme, test } from "./fixture.mjs";
 
 /** The dark palette's background (`--bg` under `:root`), as the browser
  *  resolves it — the `rgb()` form `theme-color` receives. */
-const DARK_BAR = "rgb(37, 39, 46)";
+const DARK_BAR = "rgb(71, 74, 80)";
 /** The light palette's background (`--bg` under `[data-theme="light"]`). */
 const LIGHT_BAR = "rgb(236, 239, 244)";
 

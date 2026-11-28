@@ -143,6 +143,74 @@ export interface SkillRow {
   description_runs: TextRun[];
 }
 
+/** The view the market modal asks its rows in: the filter, the sort
+ * column and direction, and which token mix PROJ projects under. Every
+ * rows frame echoes the view it answers, so the page can drop a frame
+ * for a view it has typed past. */
+export interface MarketView {
+  filter: string;
+  sort: MarketSort;
+  dir: MarketDir;
+  mix: MarketMix;
+}
+
+/** A sortable market column. */
+export type MarketSort = 'proj' | 'in' | 'out' | 'cache' | 'eci' | 'vals' | 'model';
+
+/** A sort direction. */
+export type MarketDir = 'asc' | 'desc';
+
+/** Which detail column the endpoint rows are sorted by. */
+export type DetailSort = 'endpoint' | 'proj' | 'in' | 'out' | 'cache' | 'lat' | 'tp' | 'up';
+
+/** The detail page's sort. The Default row is pinned to the top in
+ * every sort. */
+export interface DetailView {
+  sort: DetailSort;
+  dir: MarketDir;
+}
+
+/** Which token mix PROJ projects under: the shipped constant, or the
+ * session tree's measured usage. */
+export type MarketMix = 'fixed' | 'usage';
+
+/** One row of the model market, every cell pre-formatted by the server —
+ * the same strings the terminal's table renders. */
+export interface MarketRow {
+  id: string;
+  author: string;
+  slug: string;
+  variant: string | null;
+  /** The name's base (`author/slug`), split into matched and plain runs. */
+  name_runs: TextRun[];
+  /** The `:variant` suffix as its own runs, so the page can dim it.
+   * Empty when no variant. */
+  variant_runs: TextRun[];
+  proj: string;
+  in_m: string;
+  out_m: string;
+  cache_m: string;
+  eci: string;
+  vals: string;
+  /** Whether this is the active session's model. */
+  is_active: boolean;
+}
+
+/** One endpoint of a model's detail: the auto-route sentinel, or a
+ * provider's offer. */
+export interface MarketEndpoint {
+  tag: string | null;
+  name: string;
+  proj: string;
+  in_m: string;
+  out_m: string;
+  cache_m: string;
+  latency: string;
+  throughput: string;
+  uptime: string;
+  is_default: boolean;
+}
+
 /** One prompt template, as the composer's `#` popup lists it. The body
  * never crosses the wire: it reaches the model through the `#name`
  * expansion at send time. */
@@ -272,6 +340,11 @@ export type ClientMsg =
   | { type: 'rename'; title: string }
   | { type: 'picker_rows'; filter: string }
   | { type: 'model_rows'; filter: string }
+  | { type: 'market_open'; view: MarketView }
+  | { type: 'market_rows'; view: MarketView }
+  | { type: 'market_detail'; model_id: string; view: DetailView }
+  | { type: 'market_use'; model_id: string; tag: string | null }
+  | { type: 'market_refresh' }
   | { type: 'skill_rows'; filter: string }
   | { type: 'toggle_skill'; skill: string }
   | { type: 'load_skill'; skill: string }
@@ -363,6 +436,31 @@ export type ServerMsg =
   | { type: 'dash_mcp_rows'; session_id: string; rows: DashMcpRow[] }
   | { type: 'picker_rows'; filter: string; rows: PickerRow[] }
   | { type: 'model_rows'; session_id: string; filter: string; rows: ModelRow[] }
+  | {
+      type: 'market_rows';
+      session_id: string;
+      view: MarketView;
+      rows: MarketRow[];
+      total: number;
+      loading: boolean;
+      updated: string | null;
+      mix_label: string;
+      active_id: string | null;
+      mix_degraded: boolean;
+    }
+  | {
+      type: 'market_detail';
+      session_id: string;
+      model_id: string;
+      view: DetailView;
+      context_length: number | null;
+      is_free: boolean;
+      has_overrides: boolean;
+      endpoints: MarketEndpoint[];
+      loading: boolean;
+      pinned_tag: string | null;
+    }
+  | { type: 'market_stale'; message: string }
   | { type: 'skill_rows'; session_id: string; filter: string; rows: SkillRow[] }
   | { type: 'tool_rows'; session_id: string; filter: string; rows: ToolRow[] }
   | { type: 'mcp_rows'; session_id: string; filter: string; rows: McpRow[] }

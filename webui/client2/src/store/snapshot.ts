@@ -16,6 +16,7 @@ import { indexSnapshot } from '../transcript/transcript_entries';
 import { markSeenOnSnapshot, saveLastSeen } from '../rail/last_seen';
 import { resolveLoadingAfterSnapshot } from '../overlays/session_load';
 import { resetSessionPickerRows } from '../pickers/picker_rows';
+import { resetMarketDetail } from '../pickers/market_rows';
 import { resetDash } from '../dash/dash';
 import type { ServerMsg } from '../protocol/protocol';
 import { reloadIfStale } from '../protocol/protocol_version';
@@ -60,6 +61,7 @@ export function applySnapshot(store: ClientStore, msg: Extract<ServerMsg, { type
     // A different session's picker rows are not the ones the page was
     // looking at; an open modal re-asks for its own rows on open.
     resetSessionPickerRows(s);
+    resetMarketDetail(s);
     // The dash describes one session: a switch closes it and drops the
     // other session's facts and any jump still in flight.
     resetDash(s);

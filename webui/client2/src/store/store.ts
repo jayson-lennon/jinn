@@ -30,13 +30,21 @@ import {
   applySkillRows,
   applyToolRows,
 } from '../pickers/picker_rows';
-import { applyError } from '../overlays/toast_state';
+import { applyError, pushToast } from '../overlays/toast_state';
+import { applyMarketDetail, applyMarketRows, applyMarketStale, resetMarketDetail, sameMarketView } from '../pickers/market_rows';
+import { DEFAULT_DETAIL_VIEW, DEFAULT_MARKET_VIEW } from '../pickers/market_state';
 import type {
   AppletRow,
   DashMcpRow,
   DashPinRow,
   DashTasks,
+  DetailSort,
+  DetailView,
   EntryEnvelope,
+  MarketEndpoint,
+  MarketRow,
+  MarketSort,
+  MarketView,
   McpRow,
   ModelRow,
   PersonaRow,
@@ -119,6 +127,39 @@ export interface ViewState {
   pickerFilter: string;
   modelRows: ModelRow[];
   modelFilter: string;
+  /** The market's rows, in `marketView` — the view the page last asked
+   * for, echoed by every frame so a late one can be dropped. */
+  marketRows: MarketRow[];
+  /** The filter box's text. The request carries it in `marketView.filter`. */
+  marketFilter: string;
+  marketView: MarketView;
+  /** The catalog's size before the filter — the status line's count. */
+  marketTotal: number;
+  marketLoading: boolean;
+  /** The list column a header tap is waiting on, or null. Set when the
+   * header is tapped, cleared when the frame for that view lands — the
+   * header shows the spinner meanwhile. */
+  marketSorting: MarketSort | null;
+  /** A failed fetch's note; the rows stand and a later frame clears it. */
+  marketStale: string | null;
+  marketUpdated: string | null;
+  marketMixLabel: string;
+  /** The view asked for the tree's usage but the tree has none yet, so
+   * the mix fell back to the fixed constant. */
+  marketMixDegraded: boolean;
+  /** The model whose detail page is open, or null on the list. */
+  marketPinnedId: string | null;
+  /** The detail page's sort — what the page last asked, so a frame for
+   * a sort it moved past is dropped. Reset on every open. */
+  marketDetailView: DetailView;
+  marketModelFacts: { context_length: number | null; is_free: boolean; has_overrides: boolean; pinned_tag: string | null } | null;
+  marketEndpoints: MarketEndpoint[];
+  /** The detail column a header tap is waiting on, or null. Set on the
+   * tap, cleared when the frame for that sort lands. A first open of a
+   * detail page waits on PROJ, the default sort. */
+  marketDetailSorting: DetailSort | null;
+  /** The active session's model, as the last rows frame named it. */
+  marketActiveId: string | null;
   /** The skills modal's rows, for the filter the page last asked for. */
   skillRows: SkillRow[];
   skillFilter: string;
@@ -203,6 +244,22 @@ const INITIAL_STATE: ViewState = {
   pickerFilter: '',
   modelRows: [],
   modelFilter: '',
+  marketRows: [],
+  marketFilter: '',
+  marketView: { ...DEFAULT_MARKET_VIEW },
+  marketTotal: 0,
+  marketLoading: false,
+  marketSorting: null,
+  marketStale: null,
+  marketUpdated: null,
+  marketMixLabel: '',
+  marketMixDegraded: false,
+  marketPinnedId: null,
+  marketDetailView: DEFAULT_DETAIL_VIEW,
+  marketModelFacts: null,
+  marketEndpoints: [],
+  marketDetailSorting: null,
+  marketActiveId: null,
   skillRows: [],
   skillFilter: '',
   toolRows: [],
@@ -339,6 +396,18 @@ export function apply(store: ClientStore, msg: ServerMsg): void {
     }
     case 'model_rows': {
       applyModelRows(store, msg);
+      return;
+    }
+    case 'market_rows': {
+      applyMarketRows(store, msg);
+      return;
+    }
+    case 'market_detail': {
+      applyMarketDetail(store, msg);
+      return;
+    }
+    case 'market_stale': {
+      applyMarketStale(store, msg);
       return;
     }
     case 'skill_rows': {

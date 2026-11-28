@@ -19,13 +19,15 @@ use rstest::rstest;
 use crate::payload::{
     AppletRowBody, AppletRowsBody, ContextUsageBody, DashMcpRowBody, DashMcpRowsBody,
     DashPinRowBody, DashPinRowsBody, DashTaskPhaseBody, DashTaskRowBody, DashTasksBody, DeltaField,
-    EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody, ImageUploadBody,
-    LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelBody, ModelRowBody,
-    ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PhaseBody,
-    PickerRowBody, PickerRowsBody, PromptTemplateBody, PromptTemplatesBody, PushInfoBody,
-    PushKeysBody, PushSubscriptionBody, SessionRowBody, SessionRowOrigin, SessionStatsBody,
-    SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody,
-    ToolRowBody, ToolRowsBody, TreeStatsBody,
+    DetailSortBody, DetailViewBody, EntryDeltaBody, EntryEnvelope, EntryUpsertBody, ErrorBody,
+    ImageUploadBody, LifecycleOptionBody, MarketDetailBody, MarketDirBody, MarketEndpointBody,
+    MarketMixBody, MarketRowBody, MarketRowsBody, MarketSortBody, MarketStaleBody, MarketViewBody,
+    McpBadgeBody, McpRowBody, McpRowsBody, ModelBody, ModelRowBody, ModelRowsBody,
+    NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PhaseBody, PickerRowBody,
+    PickerRowsBody, PromptTemplateBody, PromptTemplatesBody, PushInfoBody, PushKeysBody,
+    PushSubscriptionBody, SessionRowBody, SessionRowOrigin, SessionStatsBody, SessionsBody,
+    SkillRowBody, SkillRowsBody, SnapshotBody, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
+    ToolRowsBody, TreeStatsBody,
 };
 use crate::{ClientMsg, ServerMsg, WEBUI2_PROTOCOL_VERSION, wire_entry};
 use jinn_tools_msg::TaskStatus;
@@ -173,6 +175,54 @@ fn applet_row(id: &str, title: &str, href: Option<&str>) -> AppletRowBody {
 }
 
 /// Builds one entry of every `ChatEntryKind` variant, in the enum's order.
+/// One market view, as a request and a frame echo carry it.
+fn market_view() -> MarketViewBody {
+    MarketViewBody {
+        filter: "claude".to_owned(),
+        sort: MarketSortBody::Eci,
+        dir: MarketDirBody::Desc,
+        mix: MarketMixBody::Usage,
+    }
+}
+
+/// One market row with every string column filled.
+fn market_row() -> MarketRowBody {
+    MarketRowBody {
+        id: "openrouter/anthropic/claude-sonnet-4.5".to_owned(),
+        author: "anthropic".to_owned(),
+        slug: "claude-sonnet-4.5".to_owned(),
+        variant: None,
+        name_runs: vec![TextRunBody {
+            text: "anthropic/claude-sonnet-4.5".to_owned(),
+            matched: false,
+        }],
+        variant_runs: Vec::new(),
+        proj: "$0.5100".to_owned(),
+        in_m: "$3.0000/M".to_owned(),
+        out_m: "$15.0000/M".to_owned(),
+        cache_m: "$0.3000/M".to_owned(),
+        eci: "58.3".to_owned(),
+        vals: "-".to_owned(),
+        is_active: true,
+    }
+}
+
+/// One endpoint row, the auto-route sentinel.
+fn market_endpoint() -> MarketEndpointBody {
+    MarketEndpointBody {
+        tag: None,
+        name: "Default".to_owned(),
+        proj: "$0.5100".to_owned(),
+        in_m: "$3.0000/M".to_owned(),
+        out_m: "$15.0000/M".to_owned(),
+        cache_m: "$0.3000/M".to_owned(),
+        latency: "-".to_owned(),
+        throughput: "-".to_owned(),
+        uptime: "-".to_owned(),
+        is_default: true,
+    }
+}
+
 fn every_kind() -> Vec<EntryEnvelope> {
     let compaction = ChatEntryKind::Compaction {
         summary: "summary".to_owned(),
@@ -386,6 +436,147 @@ fn client_model_rows_round_trips() {
 
     // Then the filter is unchanged.
     assert_eq!(back, msg);
+}
+
+#[rstest::rstest]
+#[test]
+fn client_market_open_round_trips() {
+    // Given a market-open request with every view field set.
+    let msg = ClientMsg::MarketOpen {
+        view: market_view(),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the view is unchanged.
+    assert_eq!(back, msg);
+}
+
+#[rstest::rstest]
+#[test]
+fn client_market_use_round_trips_with_a_tag() {
+    // Given a market-use request pinning an endpoint.
+    let msg = ClientMsg::MarketUse {
+        model_id: "openrouter/a/b".to_owned(),
+        tag: Some("azure/us-east".to_owned()),
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the tag survives.
+    assert_eq!(back, msg);
+}
+
+#[rstest::rstest]
+#[test]
+fn client_market_use_round_trips_without_a_tag() {
+    // Given a market-use request clearing the pin (auto-route).
+    let msg = ClientMsg::MarketUse {
+        model_id: "openrouter/a/b".to_owned(),
+        tag: None,
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the absent tag stays absent.
+    assert_eq!(back, msg);
+}
+
+#[rstest::rstest]
+#[test]
+fn server_market_rows_round_trips() {
+    // Given a market-rows frame carrying a row.
+    let msg = ServerMsg::MarketRows(MarketRowsBody {
+        session_id: SessionId::new(),
+        view: market_view(),
+        rows: vec![market_row()],
+        total: 1,
+        loading: false,
+        updated: Some("3h ago".to_owned()),
+        mix_label: "tree 1.2M·94%·9k".to_owned(),
+        active_id: Some("openrouter/anthropic/claude-sonnet-4.5".to_owned()),
+        mix_degraded: false,
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then the frame is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest::rstest]
+#[test]
+fn server_market_detail_round_trips() {
+    // Given a market-detail frame with the sentinel and one endpoint.
+    let msg = ServerMsg::MarketDetail(MarketDetailBody {
+        session_id: SessionId::new(),
+        model_id: "openrouter/anthropic/claude-sonnet-4.5".to_owned(),
+        view: DetailViewBody::default(),
+        context_length: Some(200_000),
+        is_free: false,
+        has_overrides: true,
+        endpoints: vec![
+            market_endpoint(),
+            MarketEndpointBody {
+                tag: Some("azure/us-east".to_owned()),
+                name: "Azure (azure/us-east)".to_owned(),
+                proj: "$0.6120".to_owned(),
+                in_m: "$3.6000/M".to_owned(),
+                out_m: "$18.0000/M".to_owned(),
+                cache_m: "$0.3600/M".to_owned(),
+                latency: "1159ms".to_owned(),
+                throughput: "38 tok/s".to_owned(),
+                uptime: "99.2%".to_owned(),
+                is_default: false,
+            },
+        ],
+        loading: false,
+        pinned_tag: Some("azure/us-east".to_owned()),
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then the frame is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest::rstest]
+#[test]
+fn client_market_detail_round_trips_with_a_detail_sort() {
+    // Given a detail request under a non-default sort: uptime descending.
+    let msg = ClientMsg::MarketDetail {
+        model_id: "openrouter/anthropic/claude-sonnet-4.5".to_owned(),
+        view: DetailViewBody {
+            sort: DetailSortBody::Up,
+            dir: MarketDirBody::Desc,
+        },
+    };
+
+    // When it round-trips.
+    let back = roundtrip(&msg);
+
+    // Then the request is unchanged, sort and direction included.
+    assert_eq!(back, msg);
+}
+
+#[rstest::rstest]
+#[test]
+fn server_market_stale_round_trips() {
+    // Given a stale frame.
+    let msg = ServerMsg::MarketStale(MarketStaleBody {
+        message: "models fetch failed".to_owned(),
+    });
+
+    // When it round-trips.
+    let back = roundtrip_server(&msg);
+
+    // Then the message is unchanged.
+    assert_eq!(json_of(&back), json_of(&msg));
 }
 
 #[rstest]
@@ -1320,6 +1511,40 @@ fn server_variant_carries_its_snake_case_tag() {
             "context_usage",
         ),
         (
+            ServerMsg::MarketRows(MarketRowsBody {
+                session_id: SessionId::new(),
+                view: market_view(),
+                rows: vec![market_row()],
+                total: 1,
+                loading: false,
+                updated: Some("3h ago".to_owned()),
+                mix_label: "fixed 10M·98%·50k".to_owned(),
+                active_id: None,
+                mix_degraded: false,
+            }),
+            "market_rows",
+        ),
+        (
+            ServerMsg::MarketDetail(MarketDetailBody {
+                session_id: SessionId::new(),
+                model_id: "openrouter/anthropic/claude-sonnet-4.5".to_owned(),
+                view: DetailViewBody::default(),
+                context_length: Some(200_000),
+                is_free: false,
+                has_overrides: false,
+                endpoints: vec![market_endpoint()],
+                loading: false,
+                pinned_tag: None,
+            }),
+            "market_detail",
+        ),
+        (
+            ServerMsg::MarketStale(MarketStaleBody {
+                message: "models fetch failed".to_owned(),
+            }),
+            "market_stale",
+        ),
+        (
             ServerMsg::Error(ErrorBody {
                 message: String::new(),
             }),
@@ -1489,6 +1714,33 @@ fn client_variant_carries_its_snake_case_tag() {
             },
             "create_session",
         ),
+        (
+            ClientMsg::MarketOpen {
+                view: market_view(),
+            },
+            "market_open",
+        ),
+        (
+            ClientMsg::MarketRows {
+                view: market_view(),
+            },
+            "market_rows",
+        ),
+        (
+            ClientMsg::MarketDetail {
+                model_id: String::new(),
+                view: DetailViewBody::default(),
+            },
+            "market_detail",
+        ),
+        (
+            ClientMsg::MarketUse {
+                model_id: String::new(),
+                tag: None,
+            },
+            "market_use",
+        ),
+        (ClientMsg::MarketRefresh, "market_refresh"),
     ];
 
     // Then every variant's wire tag matches its snake_case name.

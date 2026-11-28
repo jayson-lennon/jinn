@@ -50,7 +50,7 @@ export function SessionStatus(props: SessionStatusProps): JSX.Element {
   return (
     <div class="session-status" data-testid="session-status">
       <Show when={busy()}>
-        <span class="spinner spinner-small" aria-hidden="true" />
+        <span class="spinner spinner-small" aria-hidden="true"><i /></span>
         <span class="session-status-text" data-testid="status-text">
           {busyText()}
         </span>

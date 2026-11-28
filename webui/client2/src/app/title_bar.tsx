@@ -4,14 +4,15 @@
 //
 // The title is written synchronously on the server and no bus event carries
 // it back, so the bar commits a rename by sending it and the sidebar row
-// follows from the one message. The model picker is reached from the chip
-// and lives in `pickers/model_picker.tsx`.
+// follows from the one message. The chip opens a two-row chooser — the
+// OpenRouter model market, or the provider picker (`pickers/model_picker.tsx`).
 
 import { createSignal, Show, Switch, Match } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientStore } from '../store/store';
 import { Menu, type MenuGroup, type MenuItem } from './menu';
-import { ModelPicker, type Send, useFilter } from '../pickers/model_picker';
+import { ModelPicker, type Send } from '../pickers/model_picker';
+import { ModelChooser } from '../pickers/model_chooser';
 import { unreadCount } from '../rail/unread';
 
 // ---------------------------------------------------------------------------
@@ -23,6 +24,8 @@ export function TitleBar(props: {
   send: Send;
   menuItems: readonly MenuItem[];
   menuGroups: readonly MenuGroup[];
+  /** Opens the OpenRouter model market. */
+  onOpenMarket: () => void;
   /** Slides in the phone's session drawer. */
   openDrawer: () => void;
   /** Whether that drawer is slid in — what the `#` button reports. */
@@ -31,6 +34,7 @@ export function TitleBar(props: {
   const [editing, setEditing] = createSignal(false);
   const [draft, setDraft] = createSignal('');
   const [picker, setPicker] = createSignal(false);
+  const [chooser, setChooser] = createSignal(false);
 
   const commit = (): void => {
     const title = draft().trim();
@@ -93,9 +97,16 @@ export function TitleBar(props: {
           </button>
         </Match>
       </Switch>
-      <button class="model-chip" data-testid="model-chip" onClick={openModels}>
+      <button class="model-chip" data-testid="model-chip" onClick={() => setChooser(true)}>
         {props.store.state.modelLabel || 'no model'}
       </button>
+      <Show when={chooser()}>
+        <ModelChooser
+          onMarket={props.onOpenMarket}
+          onProvider={openModels}
+          onClose={() => setChooser(false)}
+        />
+      </Show>
       <Show when={picker()}>
         <ModelPicker store={props.store} send={props.send} onClose={() => setPicker(false)} />
       </Show>

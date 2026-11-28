@@ -6,7 +6,7 @@
 
 use jinn_core_types::{ChatEntryId, SessionId};
 
-use crate::payload::{ImageUploadBody, PushSubscriptionBody};
+use crate::payload::{DetailViewBody, ImageUploadBody, MarketViewBody, PushSubscriptionBody};
 use serde::{Deserialize, Serialize};
 
 /// A message from the browser.
@@ -201,6 +201,38 @@ pub enum ClientMsg {
     },
     /// Ask for the new-session form's choices.
     NewSessionOptions,
+    /// Open the OpenRouter model market and answer its rows for `view`.
+    /// On an empty catalog this also publishes the models fetch; the rows
+    /// land as a push when it does.
+    MarketOpen {
+        /// The view the rows answer.
+        view: MarketViewBody,
+    },
+    /// Ask for the market's rows in a new view (a filter, sort, or mix
+    /// change). Answers with the rows for exactly that view.
+    MarketRows {
+        /// The view the rows answer.
+        view: MarketViewBody,
+    },
+    /// Ask for one model's endpoint detail. Answers at once from the
+    /// cell when the detail is cached, else with `loading` while the
+    /// fetch runs; the detail lands as a push when it does.
+    MarketDetail {
+        /// The full listing id (`openrouter/{author}/{slug}[:variant]`).
+        model_id: String,
+        /// The sort the endpoint rows answer.
+        view: DetailViewBody,
+    },
+    /// Switch the active session's model to `model_id`, and pin — or
+    /// with a `None` tag, clear — its OpenRouter routing endpoint.
+    MarketUse {
+        /// The full listing id.
+        model_id: String,
+        /// The routing tag to pin, or `None` for auto-route.
+        tag: Option<String>,
+    },
+    /// Drop every market cache and refetch. The rows land as pushes.
+    MarketRefresh,
     /// Create a session through the shared creation path.
     CreateSession {
         /// The chosen project entry's configured path string.
@@ -267,6 +299,11 @@ pub const fn tag_of(msg: &ClientMsg) -> &'static str {
         ClientMsg::TeardownSession { .. } => "teardown_session",
         ClientMsg::NewSessionOptions => "new_session_options",
         ClientMsg::CreateSession { .. } => "create_session",
+        ClientMsg::MarketOpen { .. } => "market_open",
+        ClientMsg::MarketRows { .. } => "market_rows",
+        ClientMsg::MarketDetail { .. } => "market_detail",
+        ClientMsg::MarketUse { .. } => "market_use",
+        ClientMsg::MarketRefresh => "market_refresh",
         ClientMsg::PushSubscribe(_) => "push_subscribe",
         ClientMsg::PushUnsubscribe { .. } => "push_unsubscribe",
         ClientMsg::NotificationOpened { .. } => "notification_opened",

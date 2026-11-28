@@ -22,6 +22,8 @@ import { type ConnectionState, openSocket } from '../protocol/socket';
 import { Transcript } from '../transcript/transcript_scroll';
 import { useFilter, ModelPicker, type Send } from '../pickers/model_picker';
 import { TitleBar } from './title_bar';
+import { MarketModal } from '../pickers/market';
+import { openingView } from '../pickers/market_state';
 import { Menu, type MenuItem, type MenuGroup } from './menu';
 import { SkillsModal } from '../pickers/skills';
 import { AppletsModal } from '../pickers/applets';
@@ -162,6 +164,27 @@ export function App(): JSX.Element {
   const [drawerOpen, setDrawerOpen] = createSignal(false);
   const openDrawer = (): void => {
     setDrawerOpen(true);
+  };
+
+  // The market is reached from the model chip's chooser. It opens on the
+  // saved sort and mix with an empty filter, and asks for its rows.
+  const [marketOpen, setMarketOpen] = createSignal(false);
+  const openMarket = (): void => {
+    const view = openingView();
+    store.set((s) => {
+      s.marketFilter = '';
+      s.marketRows = [];
+      s.marketPinnedId = null;
+      s.marketEndpoints = [];
+      s.marketDetailSorting = null;
+      s.marketSorting = null;
+      s.marketModelFacts = null;
+      s.marketStale = null;
+      s.marketView = view;
+    });
+    // The open's frame is the first answer the PROJ header waits on.
+    send({ type: 'market_open', view });
+    setMarketOpen(true);
   };
 
   // The items are in panel order: New session first, then Archive session
@@ -341,6 +364,7 @@ export function App(): JSX.Element {
           send={send}
           menuItems={menuItems()}
           menuGroups={menuGroups()}
+          onOpenMarket={openMarket}
           openDrawer={openDrawer}
           drawerOpen={drawerOpen}
         />
@@ -361,6 +385,9 @@ export function App(): JSX.Element {
       </main>
       <Show when={newSessionOpen()}>
         <NewSessionModal store={store} send={send} onClose={() => setNewSessionOpen(false)} />
+      </Show>
+      <Show when={marketOpen()}>
+        <MarketModal store={store} send={send} onClose={() => setMarketOpen(false)} />
       </Show>
       <Show when={skillsOpen()}>
         <SkillsModal
@@ -442,7 +469,7 @@ export function App(): JSX.Element {
       <Show when={navigating()}>
         <div class="navigating-overlay" data-testid="navigating-overlay">
           <div class="navigating-card">
-            <span class="spinner" aria-hidden="true" />
+            <span class="spinner" aria-hidden="true"><i /></span>
             <span class="navigating-label">Navigating…</span>
             <button
               type="button"
@@ -461,14 +488,14 @@ export function App(): JSX.Element {
       <Show when={store.state.loadingSessionId !== null}>
         <div class="session-load-overlay" role="status" aria-live="polite" data-testid="session-load-overlay">
           <div class="session-load-card">
-            <span class="spinner" aria-hidden="true" />
+            <span class="spinner" aria-hidden="true"><i /></span>
             <span class="session-load-label">Loading session…</span>
           </div>
         </div>
       </Show>
       <Show when={connection() !== 'open'}>
         <div class="overlay" role="status" aria-live="polite" data-testid="overlay">
-          <span class="spinner" aria-hidden="true" />
+          <span class="spinner" aria-hidden="true"><i /></span>
           <span>{connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}</span>
         </div>
       </Show>

@@ -3,43 +3,50 @@
    terminal theme, light from nord-light, and a system mode that follows
    the browser. The names are this page's own; the values are not. */
 :root {
-  /* sonokai gutter_bg */
-  --bg: #25272e;
-  /* one step above --bg on the sonokai neutral ramp */
-  --bg-raised: #2c2e34;
+  /* the page: sonokai's slate, lifted off the terminal's gutter colour,
+     which read near-black edge to edge on a phone — but not lifted so far
+     that the page grey caught up with the muted text greys and squeezed
+     their lead. Every surface is a fixed lightness step from this one. */
+  --bg: #404349;
   /* the code and preformatted surface, a step below --bg */
-  --bg-code: #1e2026;
-  /* sonokai picker_selected_bg — the hover step */
-  --bg-hover: #3b3e47;
-  /* sonokai picker_highlight_bg */
-  --bg-active: #44474e;
-  /* sonokai user_block_bg — a user entry's own surface */
-  --bg-user-entry: #30323a;
+  --bg-code: #393b41;
+  /* one step above --bg */
+  --bg-raised: #46484f;
+  /* the hover step */
+  --bg-hover: #4f5158;
+  /* the active step */
+  --bg-active: #575a60;
+  /* a user entry's own surface */
+  --bg-user-entry: #4b4d54;
   /* sonokai primary_text */
   --fg: #e2e2e3;
-  /* sonokai muted_text, lifted to clear 3:1 on the raised surfaces */
-  --fg-dim: #93959b;
+  /* secondary text, a step above the page's own lightness */
+  --fg-dim: #cacdd5;
   /* a fainter step of the same ramp, for the least important text */
-  --fg-faint: #636575;
-  /* sonokai border_unfocused */
-  --border: #44474e;
+  --fg-faint: #91949e;
+  /* a step above the page, with a touch more chroma */
+  --border: #545760;
   /* sonokai focus_accent — the purple */
-  --accent: #c4a7e7;
+  --accent: #c9acec;
   /* sonokai error_text */
-  --danger: #ed8796;
+  --danger: #f28c9b;
   /* sonokai success */
-  --ok: #a9d89d;
+  --ok: #aedda2;
   /* warning text and its block tint: Nord13 yellow for the text, a
      low-alpha wash of it for the block */
-  --warn: #ebcb8b;
+  --warn: #f0d090;
   --warn-bg: rgba(235, 203, 139, .10);
   --warn-border: rgba(235, 203, 139, .45);
   /* the modal/overlay scrim: black at the shipped opacity */
   --scrim: rgba(0, 0, 0, .55);
-  /* text on an accent or error fill: near-black */
-  --on-fill: #2c2e34;
+  /* text on the dark scrim, in the one place that paints straight on it */
+  --on-scrim: #ffffff;
+  /* text on an accent or error fill: the page's own dark ink */
+  --on-fill: #393b41;
   /* the unread fill: the warm gold an unread session row carries */
   --mark: #ebdca0;
+  /* text on the unread gold: a dark ink, in every mode */
+  --on-mark: #2c2e34;
   /* a subagent's kind — the terminal's `subagent_fg`, the same value in
      every mode because the terminal ships one pair for every theme */
   --subagent: #b29ef0;
@@ -85,10 +92,15 @@
   --warn-border: rgba(138, 109, 31, .45);
   /* the scrim keeps its dark wash over the pale palette */
   --scrim: rgba(0, 0, 0, .55);
-  /* on fills: the dark ink */
-  --on-fill: #2e3440;
+  /* text on the dark scrim: light, as in dark mode */
+  --on-scrim: #ffffff;
+  /* on fills: white. The light theme's accent and error are deep colours,
+     and the page's dark ink on them failed the contrast floor. */
+  --on-fill: #ffffff;
   /* the unread fill: the light-mode unread gold */
   --mark: #ebcb8b;
+  /* text on the unread gold: the dark ink, as it was */
+  --on-mark: #2e3440;
   /* the two kind colours are the terminal's own, unchanged in light mode */
   --subagent: #b29ef0;
   --bot: #ff69b4;
@@ -115,8 +127,10 @@
     --warn-bg: rgba(235, 203, 139, .22);
     --warn-border: rgba(138, 109, 31, .45);
     --scrim: rgba(0, 0, 0, .55);
-    --on-fill: #2e3440;
+    --on-scrim: #ffffff;
+    --on-fill: #ffffff;
     --mark: #ebcb8b;
+    --on-mark: #2e3440;
     --subagent: #b29ef0;
     --bot: #ff69b4;
     --shadow: rgba(46, 52, 64, .18);

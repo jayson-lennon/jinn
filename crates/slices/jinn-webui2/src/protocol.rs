@@ -79,6 +79,15 @@ pub async fn dispatch(
         ClientMsg::Rename { title } => actions::rename(out, title).await,
         ClientMsg::PickerRows { filter } => actions::picker_rows(out, filter).await,
         ClientMsg::ModelRows { filter } => actions::model_rows(out, filter),
+        ClientMsg::MarketOpen { view } => crate::market::open(out, view).await,
+        ClientMsg::MarketRows { view } => crate::market::rows(out, view),
+        ClientMsg::MarketDetail { model_id, view } => {
+            crate::market::detail(out, model_id, view).await
+        }
+        ClientMsg::MarketUse { model_id, tag } => {
+            crate::market::use_model(out, model_id, tag).await
+        }
+        ClientMsg::MarketRefresh => crate::market::refresh(out).await,
         ClientMsg::SkillRows { filter } => actions::skill_rows(out, filter),
         ClientMsg::ToggleSkill { skill } => actions::toggle_skill(out, &skill),
         ClientMsg::LoadSkill { skill } => actions::load_skill(out, &skill).await,

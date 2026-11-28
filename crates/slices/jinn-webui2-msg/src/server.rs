@@ -6,10 +6,10 @@
 
 use crate::payload::{
     AppletRowsBody, ContextUsageBody, DashMcpRowsBody, DashPinRowsBody, DashTasksBody,
-    EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, McpRowsBody, ModelBody,
-    ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody, PhaseBody, PickerRowsBody,
-    PromptTemplatesBody, PushInfoBody, SessionStatsBody, SessionsBody, SkillRowsBody, SnapshotBody,
-    ThemeBody, TitleBody, ToolRowsBody,
+    EntriesPageBody, EntryDeltaBody, EntryUpsertBody, ErrorBody, MarketDetailBody, MarketRowsBody,
+    MarketStaleBody, McpRowsBody, ModelBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowsBody,
+    PhaseBody, PickerRowsBody, PromptTemplatesBody, PushInfoBody, SessionStatsBody, SessionsBody,
+    SkillRowsBody, SnapshotBody, ThemeBody, TitleBody, ToolRowsBody,
 };
 use serde::{Deserialize, Serialize};
 
@@ -78,9 +78,15 @@ pub enum ServerMsg {
     DashTasks(Box<DashTasksBody>),
     /// The dash's enabled MCP servers and their live status.
     DashMcpRows(DashMcpRowsBody),
+    /// The model market's rows for the view the page last asked for.
+    MarketRows(MarketRowsBody),
+    /// One model's endpoint detail.
+    MarketDetail(MarketDetailBody),
+    /// A market refresh step failed; stale data stands.
+    MarketStale(MarketStaleBody),
     /// What the page needs to subscribe to push: whether the server can
-    /// send pushes, and the key it signs them with. Carried on the snapshot
-    /// and in the `hello` reply, and nowhere else — the key pair never
+    /// send pushes, and the key it signs them with. Sent as its own frame
+    /// after every `hello` reply, and nowhere else — the key pair never
     /// changes while the server runs.
     PushInfo(PushInfoBody),
     /// A request was refused.
@@ -130,6 +136,9 @@ pub const fn tag_of(msg: &ServerMsg) -> &'static str {
         ServerMsg::DashPinRows(_) => "dash_pin_rows",
         ServerMsg::DashTasks(_) => "dash_tasks",
         ServerMsg::DashMcpRows(_) => "dash_mcp_rows",
+        ServerMsg::MarketRows(_) => "market_rows",
+        ServerMsg::MarketDetail(_) => "market_detail",
+        ServerMsg::MarketStale(_) => "market_stale",
         ServerMsg::PushInfo(_) => "push_info",
         ServerMsg::Error(_) => "error",
         ServerMsg::Current => "current",

@@ -1007,7 +1007,6 @@ use jinn_session_history_msg::PushChatEntry;
 
 use super::PageOpenError;
 use super::PageOpener;
-use super::model_page_url;
 
 /// An opener scripted to fail — the `xdg-open`-missing shape.
 struct FailingPageOpener;
@@ -1129,26 +1128,4 @@ async fn a_successful_page_open_reports_nothing() {
         "a successful open is silent, got: {:?}",
         chat.drain()
     );
-}
-
-/// The page URL derives from the listing id: prefix stripped, variant
-/// suffix riding along, prefix-miss falling back to the raw id.
-#[rstest::rstest]
-#[case(
-    "openrouter/deepseek/deepseek-chat:free",
-    "https://openrouter.ai/deepseek/deepseek-chat:free"
-)]
-#[case(
-    "openrouter/openai/gpt-oss-120b",
-    "https://openrouter.ai/openai/gpt-oss-120b"
-)]
-#[case(
-    "deepseek/deepseek-chat",
-    "https://openrouter.ai/deepseek/deepseek-chat"
-)]
-fn model_page_url_strips_the_prefix_and_keeps_the_variant(
-    #[case] model_id: &str,
-    #[case] expected: &str,
-) {
-    assert_eq!(model_page_url(model_id), expected);
 }

@@ -12,3 +12,13 @@ body { background: var(--bg); color: var(--fg); }
    widens the column past the track (a long title, a wide table). */
 .app { display: grid; grid-template-columns: 260px minmax(0, 1fr); overflow: hidden; }
 
+/* A reader who asked the system for less motion gets it: the spinner's dots
+   and the busy mark's halo stop moving and simply sit. The busy dot itself
+   stays drawn, so a running session is still marked — only the motion goes. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner::before,
+  .spinner::after,
+  .spinner > i { animation: none; opacity: .6; transform: none; }
+  .session-busy::after { animation: none; transform: none; opacity: 0; }
+}
+

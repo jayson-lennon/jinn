@@ -62,7 +62,8 @@ by reloading itself — see [Reconnecting](#reconnecting).
   runs that session's teardown lifecycle and then archives it (the terminal's
   `x` — a session with nothing to tear down is archived at once); and
   **archive**, which archives without running the teardown lifecycle. While
-  the teardown runs, the row shows its busy dot.
+  the teardown runs, the row shows its busy mark — a dot with a halo
+  that expands out of it and fades.
   While the page is still waiting for its first list, and again while the server is
   still loading its saved sessions at startup, whichever list is showing
   ends with a muted **loading sessions…** row — a spinner, below the rows
@@ -148,8 +149,9 @@ by reloading itself — see [Reconnecting](#reconnecting).
   `https://` image URL in the text — and each one shows as a chip above
   the draft, with an `✕` to remove it, until the message is sent. A sent
   image renders on its message.
-- **Model** — the title bar's model chip opens a picker of the available
-  models, built by the TUI picker's own row builder: available models
+- **Model** — the title bar's model chip opens a two-row chooser:
+  **OpenRouter Model Market** (below) or **Provider Model Picker**. The
+  provider picker lists the available models, built by the TUI picker's own row builder: available models
   first alphabetically with the current one promoted to the top. Each row
   is the model name over its provider name, with `· current` after the
   one in use and `· unavailable` after one whose provider has no API
@@ -160,6 +162,30 @@ by reloading itself — see [Reconnecting](#reconnecting).
   it is disabled and busy until the fresh rows arrive, and the list then
   updates in place without losing the typed filter. Alloys and
   multi-select are the TUI's.
+- **OpenRouter Model Market** — the same catalog the TUI's `<leader>so`
+  shows (see [models and providers](models-and-providers.md#the-openrouter-model-market)),
+  as a table built for a phone. In portrait each model is two lines: the
+  name with **PROJ** at the right, then a strip of IN/M, OUT/M, CACH/M,
+  ECI, VALS in fixed columns, so every metric sits under the same header
+  in every row; on a wide screen the same row is one line with every
+  column beside the name. The header is the sort control: tap a column to
+  sort by it (prices ascending, scores descending), tap it again to
+  reverse; PROJ ascending is the default. **mix** toggles the pricing mix
+  between the fixed `10M·98%·50k` and the session tree's measured usage;
+  **⟳** refetches everything. The status line carries the catalog's age,
+  the active mix, and the row count, and a **stale** note when a fetch
+  fails (the rows stand). The filter is the server-side fuzzy match. Tap a
+  row for its **detail page**: a **←** back button, a ⧉ link opening the
+  model's openrouter.ai page in a new tab, a facts line (context window,
+  free, pricing overrides), and its endpoints — the **Default
+  (auto-route)** row first, then each provider's, with its own prices,
+  latency, throughput and uptime. Tap an endpoint row to highlight it, then
+  **Use this model** switches the session to the model and pins the
+  highlighted endpoint (the Default row clears the pin). The session's
+  current model is marked **· current** in the list, and its **Use this
+  model** is disabled. The sort, direction and mix are remembered across
+  opens in the browser; the filter is cleared on every open. `Esc` steps
+  back from the detail page, then closes the market.
 - **Title** — click the title to rename the session in place; `Enter`
   commits and `Esc` cancels.
 
@@ -404,14 +430,15 @@ There are no keybinds beyond these:
 | `Tab` with the `#` prompt popup open | Inserts the highlighted template as a bare `#name`. |
 | `↑` / `↓` with the `#` prompt popup open | Moves the highlight; the best match starts highlighted, at the bottom. |
 | `Enter` in a picker's filter | Does nothing; a row is chosen by click. |
-| `Esc` | Closes the top overlay, one at a time: the `#` prompt popup, the title editor, an entry's `⋮` popup, a session row's `⋮` popup, the session dash, any picker modal (Skills, Persona, Tools, MCP servers, Applets, the model picker, the Archive picker), the New session modal, the `☰` menu, or the phone drawer. |
+| `Esc` | Closes the top overlay, one at a time: the `#` prompt popup, the title editor, an entry's `⋮` popup, a session row's `⋮` popup, the session dash, any picker modal (Skills, Persona, Tools, MCP servers, Applets, the model chooser, the model picker, the model market, the Archive picker), the New session modal, the `☰` menu, or the phone drawer. |
 | `Esc` on the **Loading session…** overlay | Does nothing. That overlay ends only when the load ends. |
 | `Esc` on the **Navigating…** overlay | Does nothing. Its **Cancel** button is the one way out. |
 
 The composer's buttons follow the session's phase:
 
 - **Idle** — **Send** only.
-- **Working** — **Q** and **Cancel**; there is no Send. `Q` queues the
+- **Working** — **Q** and **Cancel**, both filled buttons; there is no Send.
+  `Q` queues the
   draft behind the running turn, and any number of messages can wait
   there. A count beside the `Q` shows how many are queued, since a
   queued message does not appear in the transcript until its turn runs.
