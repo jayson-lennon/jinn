@@ -13,6 +13,13 @@ themes, model refresh, and creating a session — and leaves out what
 It is a **single-user, unauthenticated** surface — reach it over loopback
 or a VPN you secure.
 
+Its two palettes are dark and light, with a system mode that follows the
+browser. Dark mode is a dark grey page with light text; light mode is a
+pale page with dark text, and the filled buttons (Send, Q, Cancel) keep
+white text on their coloured fill in both. It honours the OS's
+reduced-motion setting: the breathing dots and the busy mark's halo stop
+animating.
+
 ## Open it
 
 Point a browser at the port's root, `http://127.0.0.1:8388/` by default
@@ -61,13 +68,14 @@ by reloading itself — see [Reconnecting](#reconnecting).
   library**, which moves it to the other list; **teardown + archive**, which
   runs that session's teardown lifecycle and then archives it (the terminal's
   `x` — a session with nothing to tear down is archived at once); and
-  **archive**, which archives without running the teardown lifecycle. While
-  the teardown runs, the row shows its busy mark — a dot with a halo
-  that expands out of it and fades.
+  **archive**, which archives without running the teardown lifecycle. A
+  row whose session is running a turn, or whose teardown is running,
+  shows a busy mark: an accent dot with a halo that expands out of it and
+  fades.
   While the page is still waiting for its first list, and again while the server is
   still loading its saved sessions at startup, whichever list is showing
-  ends with a muted **loading sessions…** row — a spinner, below the rows
-  already loaded. It has no timeout: it clears when the server says the
+  ends with a muted **loading sessions…** row — three breathing dots,
+  below the rows already loaded. It has no timeout: it clears when the server says the
   list is complete.
 
   The **Sessions** list is a tree: a session forked from, spawned under, or
@@ -79,12 +87,12 @@ by reloading itself — see [Reconnecting](#reconnecting).
   busy). The **Library** list stays flat.
 - **Session loading** — clicking a session row, or picking one from the
   **Archive** picker, raises a full-page **Loading session…** overlay at
-  once: a card with a spinner, over everything. It clears when that
+  once: a card with three breathing dots, over everything. It clears when that
   session's transcript arrives — in a few milliseconds for a session
   already in memory, longer for one read from disk. It covers the whole
   page and nothing dismisses it (`Esc` does nothing): a second click
-  cannot fire a second switch under it. If no answer comes within ten
-  seconds the overlay clears and the composer names the timeout; the page
+  cannot fire a second switch under it. If no answer comes within thirty
+  seconds the overlay clears and a toast names the timeout; the page
   stays on the session it never left.
 - **Archive** — the sidebar's **Archive** button opens a picker over every
   stored session, loaded or archived, as a tree: a forked session is
@@ -121,8 +129,8 @@ by reloading itself — see [Reconnecting](#reconnecting).
   arrive. The page opens on the **newest 200 entries or 1 MB** of the
   session, whichever comes first, so a long session connects at once
   instead of on its whole history. Scrolling to the top loads the page
-  before it — a spinner sits at the top of the transcript while it
-  loads, and the entry you were reading stays in place as the older ones
+  before it — three breathing dots sit at the top of the transcript while
+  it loads, and the entry you were reading stays in place as the older ones
   land above it. Markdown covers footnotes, task lists, and tables; a bare
   `http(s)` address or an email in the prose becomes a link that opens in
   a new tab, while `www.`, `ftp:`, and protocol-relative addresses stay
@@ -140,10 +148,13 @@ by reloading itself — see [Reconnecting](#reconnecting).
   up-arrow-to-line button in the top-right corner jumps to the start, a
   down-arrow-to-line button in the bottom-right corner jumps to the end.
   At the end, the transcript follows a live stream on its own; scroll up
-  and it holds still until you jump back.
+  and it holds still until you jump back. A running turn's text reaches
+  the page in batches every 150 ms rather than token by token, and a
+  growing entry does not move the page under the reader — only a new
+  entry does.
   - A tool result that was truncated carries a **full output** disclosure
     under its text. Its full text is fetched from the server when the
-    disclosure is opened — a spinner while it loads — and kept for the
+    disclosure is opened — three breathing dots while it loads — and kept for the
     next open, so the untruncated output never rides on the connect path.
 - **Composer** — one row: the draft, a `+` to attach an image, and the
   buttons, all on the same line. Sends a message, queues one while a turn
@@ -228,8 +239,8 @@ uses, so every figure matches the TUI's. From top to bottom:
   labels them, or **No pinned entries**. Clicking one closes the dash
   and scrolls the transcript to that entry, loading older history until
   it is held. A jump that takes more than a moment covers the page with
-  a **Navigating…** overlay that blocks the UI until the entry is
-  reached; its **Cancel** button closes the overlay and stops the load,
+  a **Navigating…** overlay (the same dots) that blocks the UI until the
+  entry is reached; its **Cancel** button closes the overlay and stops the load,
   leaving the transcript where it was. A jump that lands at once never
   shows the overlay.
 - **Tasks** — every phase with its tasks beneath it, the active phase
@@ -286,6 +297,14 @@ depends on no session. **Notifications** sits just above **Sessions**, at
 every time; what it does is under **Notifications** below. A scrim click,
 `Esc`, or picking an item closes it.
 
+**Archiving the session in view moves every page**, the way the TUI
+moves when its own session is archived. The page switches to another
+session, and when the archived one was the last, jinn creates a fresh
+session and the page lands on it. It applies to **Archive session** here
+and to **archive** in a row's `⋮` alike; archiving some other session
+with a row's `⋮` leaves the page where it is. **teardown + archive**
+does the same once its teardown has run.
+
 ## Notifications
 
 A turn that ends while no page of this jinn is visible raises a banner
@@ -303,24 +322,28 @@ Its label names the state:
   site settings are the only way back.
 - **Notifications — unavailable on http** — the page was opened over
   plain `http://` on an address other than `127.0.0.1` or `localhost`.
-  Browsers expose the Notification and Push APIs only on a secure context,
-  so the banner cannot exist there; the rest of the page is unaffected and
+  Browsers allow notifications only on a secure page, so the banner
+  cannot exist there; the rest of the page is unaffected and
   the gold unread row still marks a finished turn. Reaching it means `https`
   — a reverse proxy, a tunnel, or a VPN that terminates TLS — or loopback.
-- **Notifications — unavailable on this server** — jinn's data dir could
-  not be written, so it holds no key to sign with.
+- **Notifications — unavailable on this server** — jinn could not write to
+  its data directory, so it cannot send notifications.
 - **Notifications — install the app to enable** — iOS, in a Safari tab:
   only a Home Screen web app can receive a push there (iOS 16.4+).
 
-Nothing is registered with any push service. Each jinn generates its own
-signing key pair on first use and keeps it with every browser's
-subscription in `webui-push.toml` under its data dir; the contact address
-a push service may use is `[webui] push_contact` in `jinn.toml`, and the
-shipped default is the project's repository. Deleting that file makes
-every browser resubscribe on its next load.
+Notifications go to the address you opened jinn at, on each device.
+Each device, and each address, is signed up on its own: turning
+notifications on at `http://192.168.1.10:8388/` from a phone and at an
+HTTPS tunnel address from a laptop is two sign-ups, and each device is
+notified at the address it signed up on. Open jinn at the address you
+want the banner to take you to. There is nothing to configure.
 
-Where a push arrives depends on the OS, because the browser vendor's push
-service is what wakes the service worker:
+Which devices are signed up is kept in `webui-push.toml` in jinn's data
+directory. Deleting that file signs out every device; each one asks to
+sign up again the next time it loads jinn.
+
+Whether the banner arrives when jinn's page is closed or in the
+background depends on the OS and browser:
 
 - **Android** — the OS wakes the browser for a push even when the app is
   swiped away or the browser is closed, as long as the browser has not
@@ -333,8 +356,9 @@ service is what wakes the service worker:
   passes first. Safari on macOS is the exception: it receives while
   closed.
 
-In every case the gold unread row is never lost — it is derived from the
-settle time when the page reconnects. Only the timely banner is at stake.
+In every case the gold unread mark on the session row is never lost — it
+is waiting the next time the page connects. Only the timely banner is at
+stake.
 
 ## Pickers
 
@@ -440,9 +464,9 @@ There are no keybinds beyond these:
 The composer's buttons follow the session's phase:
 
 - **Idle** — **Send** only.
-- **Working** — **Q** and **Cancel**, both filled buttons; there is no Send.
-  `Q` queues the
-  draft behind the running turn, and any number of messages can wait
+- **Working** — **Q** and **Cancel**, both filled buttons (accent and
+  red); there is no Send. The draft's placeholder reads **Queue a message
+  for after this turn…**. `Q` queues the draft behind the running turn, and any number of messages can wait
   there. A count beside the `Q` shows how many are queued, since a
   queued message does not appear in the transcript until its turn runs.
 
@@ -467,9 +491,9 @@ input box as an editable draft — not into the web composer.
 
 ## Reconnecting
 
-If the connection drops, a `disconnected — reconnecting…` overlay with a
-spinner covers the page and it retries on its own; the overlay clears when
-it is back. An unsent draft survives the reconnect. A restarted jinn is a
+If the connection drops, a `disconnected, reconnecting…` overlay with a
+row of breathing dots covers the page and it retries on its own; the
+overlay clears when it is back. An unsent draft survives the reconnect. A restarted jinn is a
 normal event — the page comes back on the newest page of the transcript,
 and the rest loads on scroll.
 
@@ -507,7 +531,9 @@ the web UI, say so and point at the surface that has it.
 - The `@path` and `/command` input tokens. That text is sent verbatim;
   `@path` is the TUI's way to attach a file, and the web UI has the `+`
   instead. The `#prompt` token does work — see **Prompt templates** above.
-- Model alloys, reasoning-effort and endpoint pickers.
+- Model alloys and the reasoning-effort picker. (Pinning an endpoint *is*
+  on the web: the model market's **Use this model** pins the highlighted
+  endpoint, and the Default row clears the pin.)
 
 ## How it works
 

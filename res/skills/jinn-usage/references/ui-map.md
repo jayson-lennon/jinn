@@ -194,7 +194,7 @@ fixed column drawn here, and the `#` is not shown.
 | `⋮` on a session row | The row's menu. **add to library** / **remove from library** moves the session to the other list; **teardown + archive** runs the session's teardown lifecycle and then archives it (the terminal's `x`); **archive** archives that session without the teardown. | `webui.md` |
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui.md` |
-| **Loading session…** card | A full-page overlay with a spinner, raised the instant a session row or an Archive row is picked and cleared when that session arrives. Covers everything; `Esc` does not close it. | `webui.md` |
+| **Loading session…** card | A full-page overlay with three breathing dots, raised the instant a session row or an Archive row is picked and cleared when that session arrives. Covers everything; `Esc` does not close it. | `webui.md` |
 | A gold session row | That session finished a turn while the page viewed another one. Viewing it clears the mark. | `webui.md` |
 | A gold Sessions / Library tab | Its list holds an unread session, so the mark is never behind the other list. | `webui.md` |
 | `●` after a session title | That session's turn is running. | `webui.md` |
@@ -225,7 +225,7 @@ fixed column drawn here, and the `#` is not shown.
 | The tools modal | A filter bar and one row per tool the session's registry offers — a `✓` (enabled) / `✗` (disabled) mark, the name, the description's first sentence. A row click commits at once and the modal stays open; dismissing does not revert. | `webui.md` |
 | The MCP servers modal | A filter bar and one row per `[mcp.<name>]` in `jinn.toml` — a `●` (enabled) / `○` (disabled) mark, the name, the launch summary, and a status badge: `off`, `starting`, `running`, `dead`. A row click toggles at once; the badge updates live. | `webui.md` |
 | The persona modal | A filter bar and one row per persona — a `●` on the current persona / `○` on the rest, the name, the description; the current row is highlighted. A row click switches the persona and closes the modal. | `webui.md` |
-| `disconnected — reconnecting…` | A full-page overlay while the connection is down. | `webui.md` |
+| `disconnected, reconnecting…` | A full-page overlay while the connection is down. | `webui.md` |
 | A toast (bottom right) | Every refusal and failure the server reports — a busy archive, a refused image, an unknown skill. Dismisses itself after a few seconds; a tap dismisses it at once. | `webui.md` |
 
 ## Feature → screen location (reverse lookup)
@@ -254,6 +254,8 @@ fixed column drawn here, and the `#` is not shown.
 | The web UI page's `☰` / `#` / `[provider/model]` buttons | Web UI title bar |
 | The web UI's "OpenRouter Model Market / Provider Model Picker" chooser | Behind the model chip — [Web UI layout](#web-ui-layout) |
 | The web UI's model market (PROJ · IN/M · OUT/M · CACH/M · ECI · VALS table, mix/⟳, detail page with endpoints and ⧉ popout) | Behind the model chip's chooser — [Web UI layout](#web-ui-layout) |
+| Three breathing dots on the web UI | Its busy mark — a session row's turn or teardown running, a page loading, older entries loading, a full output loading, the reconnect overlay |
+| The `Notifications` menu item, a **jinn** banner, or notifications not arriving on a phone | Web UI `☰` menu → **Notifications** |
 | The web UI page's title (click to rename) | Web UI title bar |
 | The web UI page's persona name | Web UI status bar, under the title bar — click it for the persona picker |
 | The web UI page's context usage figure (`12.3k/???`) | Web UI status bar, under the title bar — click it for the session dash |
@@ -273,4 +275,5 @@ fixed column drawn here, and the `#` is not shown.
 | The web UI page's skills / tools / MCP servers / persona / applets modals | Web UI pickers, each opened from the `☰` menu |
 | The model picker and its **Refresh models** | Web UI, opened from the title bar's model chip |
 | A toast (bottom right) | Web UI — every refusal and failure the server reports |
-| `disconnected — reconnecting…` | Web UI full-page overlay while the connection is down |
+| `disconnected, reconnecting…` | Web UI full-page overlay while the connection is down |
+| Pinning a model's endpoint on the web UI | The model market's detail page → an endpoint row → **Use this model** |
