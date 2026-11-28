@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## 2026-11-27 v.29.0
+## 2026-11-27 v.29.1
 
 - (webui) Tokens now render at 150ms intervals instead of at the end of a tool round/thinking-assistant round.
 - (webui) Session load timeout is now at 30sec (up from 10).
