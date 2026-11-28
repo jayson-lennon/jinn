@@ -92,16 +92,16 @@ that process compaction its own way (a tutor recording curriculum
 position; a brainstorm recording theses and critiques) states its own
 recap structure here.
 
-The block never reaches the model as part of the system prompt: it is
-extracted at parse time and stripped from the body. Tags match exactly
+The block is extracted at parse time and stripped from the body, so the
+model meets it only as the recap instruction. Tags match exactly
 (`<compaction>`, no attributes). An unclosed tag counts as missing.
 
-**A persona without a well-formed block is an error condition, not a
-silent downgrade.** Switching to it — or starting jinn / loading a
-session on it — pushes an error entry into that session's chat history
-naming the persona and stating that the shipped default handoff prompt
-will be used instead. Everything still works; the entry exists so the
-gap is visible. The four shipped personas all carry blocks.
+**A persona without a well-formed block raises an error.** Switching to
+it — or starting jinn / loading a session on it — pushes an error entry
+into that session's chat history naming the persona and stating that the
+shipped default handoff prompt will be used instead. Everything still
+works; the entry exists so the gap is visible. The four shipped personas
+all carry blocks.
 
 `#generate-persona` follows these conventions; hand-edit its output the
 same way you would tune any prompt.

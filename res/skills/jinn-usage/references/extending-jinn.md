@@ -36,7 +36,7 @@ yours.** Walk the routing table in order, stop at the first fit.
 | colors / visual appearance           | **Theme**          | TOML color theme, `<leader>sh` picker                    |
 | a repeatable task pipeline           | **Workflow**       | Steps as editable markdown; bots for concurrency (`workflows.md`) |
 | a page or visual the user keeps      | **Canvas / applet** | Agent-built HTML, live reload; applets persist (`canvas-and-applets.md`) |
-| a _jinn feature_ (new keybind, pane) | **None: a PR**    | Jinn's own code. See "What can't be extended" below.     |
+| a _jinn feature_ (new keybind, pane) | **None: a PR**    | Jinn's own code. See "Part of jinn itself" below.       |
 
 MCP is the most-used surface. Most of what people imagine a plugin system
 for (a Jira integration, a video editor, a database client, web search, an
@@ -149,8 +149,8 @@ args = ["-y", "@acme/video-editor-mcp"]
 ```
 
 **The fastest route for a jinn-only tool is Lua**: one plain Lua file with
-`jinn.tool` registrations, served by the `jinn luau serve` subcommand — no
-SDK, no build step, no node. See `luau.md` under "Serving MCP tools from
+`jinn.tool` registrations, served by the `jinn luau serve` subcommand.
+It needs neither SDK, build step, nor node. See `luau.md` under "Serving MCP tools from
 Lua". The TypeScript route above stays the choice when the server must also
 work with other MCP clients or needs npm dependencies.
 
@@ -352,8 +352,8 @@ default theme for the format.
 the `☰` menu carries a Light | Dark | System segmented control at the
 panel's tail. System (the default) follows the browser's
 `prefers-color-scheme`; Light and Dark pin the mode, and the choice
-persists in `state.toml` (`web_theme`) across reloads and restarts — it
-never touches the TUI theme picked here. It is applied before the
+persists in `state.toml` (`web_theme`) across reloads and restarts. The
+TUI theme picked here stays its own. It is applied before the
 transcript's first paint.
 
 ---
@@ -395,18 +395,18 @@ workflows the agent follows.
 
 ---
 
-## What can't be extended
+## Part of jinn itself
 
-These live in jinn's own code; extending them starts with a PR:
+Each item below is jinn's own code, and extending it starts with a PR:
 
 - **New keybinds, panes, or TUI layout**: the sidebar, pickers, and
   which-key are built in. A custom status bar, footer, or editor starts
   with a PR.
 - **The agent loop**: turn dispatch, steering vs. queueing, the settled
   boundary, handoff-compaction triggers.
-- **Tool-call interception**: jinn's policy surface is
-  `[[stream_rules.entry]]`: regex rules over the assistant's output,
-  which can stop a named tool's call before it runs by interrupting its
+- **Tool-call interception**: the policy surface is
+  `[[stream_rules.entry]]` — regex rules over the assistant's output
+  that stop a named tool's call before it runs by interrupting its
   arguments. A `stream_rules.toml` beside `jinn.toml` replaces the
   shipped guard set wholesale (`jinn config init --force` restores it),
   and `jinn.toml` rules append after it. That is the entire policy
@@ -443,8 +443,8 @@ is a tool.
 
 ## Coverage note
 
-Section names in `jinn.toml` are exact: `[mcp.<name>]`, not
-`[[mcp_server]]`; `[term]`, not `[interactive_term]`. **A misspelled
+Section names in `jinn.toml` are exact: `[mcp.<name>]` for each server,
+`[term]` for the interactive terminal. **A misspelled
 section reads as absent**: jinn applies the rest of the file and keeps
 the built-in behavior for that section. When an ask reaches beyond the
 key list in `configuration.md`, send the user to the fully commented
