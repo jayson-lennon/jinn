@@ -6,6 +6,7 @@
 - (weubi) Lighten dark mode slightly.
 - (webui) Light mode now uses white text on darker background.
 - (webui) Buttons now use colored backgrounds instead of just colored borders.
+- (webui) Add push notifications.
 
 ## 2026-11-27 v1.28.0
 
