@@ -76,7 +76,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     if (!busy()) return 'Message jinn…';
     return queueLen() === 0
       ? 'Queue a message for after this turn…'
-      : `Queue a message — ${queueLen()} already queued`;
+      : `Queue a message, ${queueLen()} already queued`;
   };
 
   // The draft's textarea, read for the caret. A signal so the popup, which

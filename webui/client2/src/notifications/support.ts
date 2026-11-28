@@ -59,12 +59,12 @@ export function isIos(): boolean {
  *  nothing. The order is the order a user meets them: an http page first,
  *  then a server that cannot push, then the permission itself. */
 export function permissionLabel(state: LabelState): string {
-  if (!state.supported) return 'Notifications — unavailable on http';
-  if (!state.serverKey) return 'Notifications — unavailable on this server';
+  if (!state.supported) return 'Notifications: unavailable on http';
+  if (!state.serverKey) return 'Notifications: unavailable on this server';
   if (state.permission === 'granted') return 'Notifications: on';
   if (state.permission === 'denied') return 'Notifications: blocked by the browser';
   if (state.permission === 'default' && !state.standalone && state.ios) {
-    return 'Notifications — install the app to enable';
+    return 'Notifications: install the app to enable';
   }
   return 'Enable notifications';
 }

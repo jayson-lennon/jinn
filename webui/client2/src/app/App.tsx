@@ -496,7 +496,7 @@ export function App(): JSX.Element {
       <Show when={connection() !== 'open'}>
         <div class="overlay" role="status" aria-live="polite" data-testid="overlay">
           <span class="spinner" aria-hidden="true"><i /></span>
-          <span>{connection() === 'connecting' ? 'connecting…' : 'disconnected — reconnecting…'}</span>
+          <span>{connection() === 'connecting' ? 'connecting…' : 'disconnected, reconnecting…'}</span>
         </div>
       </Show>
       <Toasts store={store} />

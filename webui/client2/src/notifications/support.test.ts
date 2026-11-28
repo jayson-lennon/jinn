@@ -28,7 +28,7 @@ describe('permissionLabel', () => {
     const label = permissionLabel(state({ supported: false }));
 
     // Then it says so, before any permission is considered.
-    expect(label).toBe('Notifications — unavailable on http');
+    expect(label).toBe('Notifications: unavailable on http');
   });
 
   it('names the server when it holds no key', () => {
@@ -37,7 +37,7 @@ describe('permissionLabel', () => {
     const label = permissionLabel(state({ serverKey: null }));
 
     // Then the server is named, not the page.
-    expect(label).toBe('Notifications — unavailable on this server');
+    expect(label).toBe('Notifications: unavailable on this server');
   });
 
   it('reads as on when permission is granted', () => {
@@ -64,7 +64,7 @@ describe('permissionLabel', () => {
     const label = permissionLabel(state({ ios: true }));
 
     // Then installing is named, since only an installed app can push there.
-    expect(label).toBe('Notifications — install the app to enable');
+    expect(label).toBe('Notifications: install the app to enable');
   });
 
   it('offers to enable on an installed iOS app', () => {

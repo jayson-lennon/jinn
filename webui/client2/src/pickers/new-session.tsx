@@ -113,7 +113,7 @@ export function NewSessionModal(props: NewSessionModalProps): JSX.Element {
                 setArgs('');
               }}
             >
-              <option value="">blank — new empty session</option>
+              <option value="">blank, new empty session</option>
               <For each={lifecycles()}>{(option) => <option value={option.name}>{option.name}</option>}</For>
             </select>
           </div>
@@ -129,7 +129,7 @@ export function NewSessionModal(props: NewSessionModalProps): JSX.Element {
                 value={args()}
                 onInput={(e) => setArgs(e.currentTarget.value)}
               />
-              <p class="new-session-hint">fill {argTokens()} — space-separated, quoting spaces</p>
+              <p class="new-session-hint">fill {argTokens()}, space-separated, quoting spaces</p>
             </div>
           </Show>
           <div class="new-session-actions">
