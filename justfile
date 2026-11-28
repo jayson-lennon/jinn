@@ -17,9 +17,26 @@ export RSTEST_TIMEOUT := "30"
 COPYRIGHT_NAME := "Jayson Lennon"
 COPYRIGHT_YEAR := "2026"
 
-# Stage everything (dotfiles included) and commit (one-line message)
+# Stage everything (dotfiles included) and commit. The message is passed as
+# data, never through the shell: it is written to a file through a quoted
+# heredoc and read back with -F, so quotes, backticks, and `$` in a message
+# are literal, and a message may span several lines. (A plain `-m "{{MSG}}"`
+# splices the text into a command line, where the shell runs backticks and
+# splits on quotes.)
 commit MSG:
-    git add -A && git commit -q -m "{{MSG}}"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    msg_file="$(mktemp)"
+    trap 'rm -f "$msg_file"' EXIT
+    cat > "$msg_file" <<'JUST_COMMIT_MSG'
+    {{ MSG }}
+    JUST_COMMIT_MSG
+    if ! grep -q '[^[:space:]]' "$msg_file"; then
+        echo "just commit: the message is empty" >&2
+        exit 1
+    fi
+    git add -A
+    git commit -q -F "$msg_file"
 
 # One suite run: fail-fast disabled, full output captured to target/test-output.log
 # with a summary and failing test names — details via `just test-failures`, never re-runs.
