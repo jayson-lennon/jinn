@@ -40,6 +40,18 @@ five seconds, or a write to a page that stalls, turns the row to a
 warning tone and names the stall. A stuck web UI is visible from the TUI
 alone.
 
+**From another device — a phone, a tablet, a laptop.** The page is built
+for a phone as much as for a desk, and everything under
+[What it does](#what-it-does) is a tap: read the transcript, type a reply
+in the composer, queue one behind a running turn, cancel, switch sessions,
+fork, archive, pick a model, change persona, tools, and MCP servers. It is
+the way to use jinn away from the terminal. The device has to reach this
+machine's address: bind `[webui]` to an interface it can route to, or
+bring loopback along through a VPN or an SSH tunnel. The page has
+**no login**, so keep it on a network you trust. **Add to Home Screen**
+installs it as an app, and [notifications](#notifications) then arrive as
+a banner that taps through to the finished session.
+
 One browser tab is the supported model. Two tabs both work, each on its
 own.
 
@@ -353,7 +365,10 @@ Its label names the state:
   Browsers allow notifications only on a secure page. The rest of the
   page is unaffected and the gold unread row still marks a finished
   turn. Reaching the banner means `https` — a reverse proxy, a tunnel,
-  or a VPN that terminates TLS — or loopback.
+  or a VPN that terminates TLS — or loopback. A bind only chooses the
+  interface the port answers on; it does not make the page secure. A
+  self-signed certificate counts once the device has been made to trust
+  it.
 - **Notifications — unavailable on this server** — jinn could not write
   to its data directory, so the page sends no notifications.
 - **Notifications — install the app to enable** — iOS, in a Safari tab:

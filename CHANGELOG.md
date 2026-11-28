@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## 2026-11-28 v1.30.1
+
+- `jinn-usage` skill updated with more reverse refs to the webui.
+
 ## 2026-11-28 v1.30.0
 
 - (webui) Add "+" button to the session list to create a new session.

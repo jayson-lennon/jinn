@@ -407,7 +407,10 @@ The bind is read once at launch; an edit applies at the next restart. An
 open page's socket stays on the address it connected to, and a taken
 port stops the launch. Port `0` picks a fresh port each launch; the
 resolved URL is on the Dashboard tab's **webui** row. Unlike `[remote]`,
-a non-loopback bind is accepted as configured.
+a non-loopback bind is accepted as configured: it makes the page
+reachable from other devices on that interface, and nothing more. It is
+still plain `http`, so the page stays open to everyone who can reach it,
+and notifications stay off — a browser wants `https` for those.
 
 **Watchdogs** (turn health; these cancel a turn that has gone bad):
 

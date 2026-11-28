@@ -29,7 +29,10 @@ page onto the same sessions — so most features have a TUI and a web way.
    session row or on a message, the persona name or context figure in the
    status bar, the session dash, a push notification or the **Notifications**
    menu item, or its **Skills**, **Persona**, **Tools**, or **MCP servers**
-   modal)
+   modal; and an ask about using jinn **on a phone or away from the
+   terminal** — the web UI is that surface and its composer is where you
+   reply; Discord is the alternative when the alerting must come from a
+   chat app —)
    → read `references/webui.md` first. Unsaid → answer for the TUI, and when the feature also exists on
    the web, its reference names the web control and points at the section
    of `webui.md` that describes it — follow that pointer rather than
@@ -92,7 +95,7 @@ the current truth) and echo that.
 | `references/pickers-and-search.md`     | The `<leader>s*` pickers (incl. the web UI's Tools, Skills, Persona, and MCP modals), session search |
 | `references/terminal-overlay.md`       | Interactive terminal overlay, control mode                                                 |
 | `references/mcp-servers.md`            | MCP server config, enabling, the inspector                                                 |
-| `references/discord.md`                | The Discord bot: forum threads as sessions, the commands, authorization, `gdc`             |
+| `references/discord.md`                | The Discord bot: forum threads as sessions, the commands, authorization, `gdc`, and how it stands beside the web UI |
 | `references/chat-input-tokens.md`      | `#prompt`, `@attachment`, `/command` autocomplete tokens                                    |
 | `references/dictation.md`              | Local voice input: `<M-i>` toggle, the meter, `[dictation]` config, the CLI utilities      |
 | `references/builtin-prompts.md`        | The builtin `#prompts`: what each is for, how they work, choosing between them             |

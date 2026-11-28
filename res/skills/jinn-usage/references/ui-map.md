@@ -258,6 +258,7 @@ fixed column drawn here, and the `#` button goes away.
 | The web UI's model market (PROJ · IN/M · OUT/M · CACH/M · ECI · VALS table, mix/⟳, detail page with endpoints and ⧉ popout) | Behind the model chip's chooser — [Web UI layout](#web-ui-layout) |
 | Three breathing dots on the web UI | Its busy mark — a session row's turn or teardown running, a page loading, older entries loading, a full output loading, the reconnect overlay |
 | The `Notifications` menu item, a **jinn** banner, or a phone that misses a banner | Web UI `☰` menu → **Notifications** |
+| Using jinn on a phone, or away from the terminal | The web UI page — open it at an address the device can reach, reply in its composer, install it with **Add to Home Screen**. `webui.md` → Open it |
 | The web UI page's title (click to rename) | Web UI title bar |
 | The web UI page's persona name | Web UI status bar, under the title bar — click it for the persona picker |
 | The web UI page's context usage figure (`12.3k/???`) | Web UI status bar, under the title bar — click it for the session dash |

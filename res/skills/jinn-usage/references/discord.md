@@ -1,10 +1,13 @@
 # Discord Integration
 
-jinn runs a Discord bot beside the TUI. Each Discord forum thread becomes a
-jinn session: messages posted in the thread are forwarded to the session,
-and the session's replies are posted back into the thread. The TUI and the
-bot operate on the same sessions: you can start work in the terminal and
-continue it from your phone.
+jinn runs a Discord bot beside the TUI and the web UI. Each Discord forum
+thread becomes a jinn session: messages posted in the thread are forwarded
+to the session, and the session's replies are posted back into the thread.
+The TUI, the web UI, and the bot operate on the same sessions: start work
+on one and continue it on another. Where Discord stands apart is that the
+thread is a chat in your Discord client, so Discord's own notifications
+carry a finished turn and nothing has to reach your machine. The browser
+page that mirrors the TUI is `webui.md`.
 
 ## Setup
 
