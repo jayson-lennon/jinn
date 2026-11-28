@@ -87,5 +87,6 @@ test("the dash lists the far-back pin with its label", async ({ page, jinn }) =>
   await openDash(page);
   const row = page.locator(sel.DASH_PIN_NAMED(pinned));
   await expect(row).toBeVisible();
-  await expect(row).toHaveText(/^\[TOP\] > older entry 5$/);
+  // The row's text is the label followed by the trailing arrow.
+  await expect(row).toHaveText(/^\[TOP\] > older entry 5❯$/);
 });

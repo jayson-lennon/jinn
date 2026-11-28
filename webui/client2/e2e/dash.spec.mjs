@@ -11,7 +11,7 @@
 //! number. The figures land on the tick after the dash opens — the open
 //! clears the server's baseline, so the first tick pushes them.
 
-import { createSession, expect, openDash, sel, sendAndWaitForEcho, test } from "./fixture.mjs";
+import { createSession, entryMenu, expect, openDash, sel, sendAndWaitForEcho, test } from "./fixture.mjs";
 
 /** The value cell of the one statistics row whose label is `label`. */
 function statRow(page, label) {
@@ -142,4 +142,39 @@ test("a session switch closes an open dash", async ({ page, browser }) => {
   // Then the dash is closed: its facts described a session the page left.
   await expect(page.locator(sel.DASH)).toBeHidden({ timeout: 10_000 });
   await expect(page.locator(sel.DASH_SCRIM)).toBeHidden();
+});
+
+test("each pin row carries a trailing arrow its label never crowds", async ({ page }) => {
+  // Given an entry pinned whose label is far longer than the dash's row.
+  const long = `a pinned entry whose label runs on for so long that it could never fit inside the dash's row without being cut off somewhere past the arrow`;
+  await page.locator(sel.DRAFT).fill(long);
+  await page.locator(sel.SEND).click();
+  const user = page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY("user")}`).last();
+  await expect(user).toBeVisible();
+  await entryMenu(page, "user").click();
+  await page.locator(sel.ENTRY_MENU_PIN).click();
+  await openDash(page);
+
+  // Then the row shows the arrow, in the accent, after the label — and the
+  // label stays inside its own box rather than running under the arrow.
+  // (The server truncates a pin's label before the page sees it, so an
+  // entry long enough to force the ellipsis cannot be arranged here; the
+  // geometric check below is what the row's flex layout guarantees.)
+  const pin = page.locator(sel.DASH_PIN).first();
+  await expect(pin.locator(sel.DASH_PIN_ARROW)).toHaveText("❯");
+  const arrowBox = await pin.locator(sel.DASH_PIN_ARROW).boundingBox();
+  const labelBox = await pin.locator(sel.DASH_PIN_LABEL).boundingBox();
+  expect(labelBox.x + labelBox.width).toBeLessThanOrEqual(arrowBox.x);
+});
+
+test("a pin row is touch-sized", async ({ page }) => {
+  // Given a pinned entry and the dash open over it.
+  await sendAndWaitForEcho(page, "hello");
+  await entryMenu(page, "assistant").click();
+  await page.locator(sel.ENTRY_MENU_PIN).click();
+  await openDash(page);
+
+  // Then the pin's box is at least 36px tall.
+  const box = await page.locator(sel.DASH_PIN).first().boundingBox();
+  expect(box.height).toBeGreaterThanOrEqual(36);
 });

@@ -158,3 +158,29 @@ test("the sidebar's row still gives its title a zero width basis", async ({
     .evaluate((node) => getComputedStyle(node).flex);
   expect(basis).toBe("1 1 0px");
 });
+
+test("the entry's kebab is a touch-sized square", async ({ page }) => {
+  // Given a session with one entry, so its kebab is in the transcript.
+  await page.setViewportSize(DESKTOP);
+  await sendAndWaitForEcho(page, "hello");
+
+  // Then the kebab's box is at least 36px on both sides — grown by size,
+  // handed back by a negative margin, so the glyph sits where it did.
+  const box = await page.locator(sel.ENTRY_MENU).first().boundingBox();
+  expect(box.width).toBeGreaterThanOrEqual(36);
+  expect(box.height).toBeGreaterThanOrEqual(36);
+});
+
+test("the session row's kebab fills its row and is 36px wide", async ({ page }) => {
+  // Given a session row in the rail.
+  await page.setViewportSize(DESKTOP);
+  const id = await createSession(page);
+  const wrap = page.locator(sel.ROW_WRAP(id));
+
+  // Then the kebab is 36px wide and as tall as the row it sits in. The
+  // wrap is the row: `session-row-wrap` is the `.session-row` itself.
+  const kebab = await wrap.locator(sel.ROW_MENU).boundingBox();
+  const row = await wrap.boundingBox();
+  expect(kebab.width).toBe(36);
+  expect(kebab.height).toBe(row.height);
+});

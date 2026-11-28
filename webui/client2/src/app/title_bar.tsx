@@ -56,22 +56,27 @@ export function TitleBar(props: {
       {/* Left of the hamburger, and only at phone widths: there the rail is an
           off-canvas drawer and this is what opens it. Marked like an unread
           row: a gold fill and the count of sessions that settled
-          unseen, so a phone user knows the drawer is worth opening. */}
-      <button
-        type="button"
-        class={`sessions-button${unread() > 0 ? ' unread' : ''}`}
-        data-testid="sessions-button"
-        aria-label={unread() > 0 ? `Sessions, ${unread()} unread` : 'Sessions'}
-        aria-expanded={props.drawerOpen() ? 'true' : 'false'}
-        aria-controls="session-rail"
-        onClick={props.openDrawer}
-      >
-        #
-        <Show when={unread() > 0}>
-          <span class="sessions-button-count" data-testid="sessions-button-count">{unread()}</span>
-        </Show>
-      </button>
-      <Menu items={props.menuItems} groups={props.menuGroups} />
+          unseen, so a phone user knows the drawer is worth opening.
+
+          It and the hamburger are two segments of one pill: a single
+          border around both, a hairline between them. */}
+      <div class="title-group">
+        <button
+          type="button"
+          class={`title-seg sessions-button${unread() > 0 ? ' unread' : ''}`}
+          data-testid="sessions-button"
+          aria-label={unread() > 0 ? `Sessions, ${unread()} unread` : 'Sessions'}
+          aria-expanded={props.drawerOpen() ? 'true' : 'false'}
+          aria-controls="session-rail"
+          onClick={props.openDrawer}
+        >
+          #
+          <Show when={unread() > 0}>
+            <span class="sessions-button-count" data-testid="sessions-button-count">{unread()}</span>
+          </Show>
+        </button>
+        <Menu items={props.menuItems} groups={props.menuGroups} />
+      </div>
       <Switch>
         <Match when={editing()}>
           <input

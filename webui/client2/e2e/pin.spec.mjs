@@ -48,14 +48,17 @@ test("every entry shows a kebab at its bottom-right", async ({ page }) => {
   const entries = page.locator(`${sel.TRANSCRIPT} .entry`);
   const kebabs = page.locator(`${sel.TRANSCRIPT} ${sel.ENTRY_MENU}`);
   expect(await kebabs.count()).toBe(await entries.count());
-  // And each sits at its entry's bottom-right corner.
+  // And each sits at its entry's bottom-right corner. The button is a
+  // 36px touch target around the glyph; its box overhangs the glyph's
+  // old edge by 5px on each side, and the right-hand overhang lands in
+  // the transcript's own right padding, past the entry's frame.
   for (let at = 0; at < (await entries.count()); at += 1) {
     const entry = entries.nth(at);
     const kebab = entry.locator(sel.ENTRY_MENU);
     await expect(kebab).toBeVisible();
     const box = await kebab.boundingBox();
     const frame = await entry.boundingBox();
-    expect(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+    expect(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width + 5);
     expect(box.y + box.height).toBeGreaterThanOrEqual(frame.y + frame.height - 4);
   }
 });

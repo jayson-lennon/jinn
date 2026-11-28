@@ -206,7 +206,9 @@ mode. An installed app picks up a jinn update by reloading itself — see
 ## Status bar
 
 The row under the title bar, shown while a session is active. It has
-two buttons, and each opens something.
+two buttons, and each opens something. Both are drawn in the accent
+colour — the same colour as a link in the transcript — because on this
+page clickable text is accent-coloured text.
 
 - **The persona name (left)** — the session's current persona. Click it
   to open the persona picker, the same modal the menu's **Persona** item
@@ -232,13 +234,16 @@ the TUI's. From top to bottom:
   one), and the directory, one per line. The directory is a button: click
   it to open the [change-directory modal](#change-directory). While the
   session tree holds more than one session, a **Tree** disclosure carries
-  the whole tree's totals. The figures update live while the dash is open,
-  and the directory follows a change made in the terminal too.
+  the whole tree's totals; its summary line is accent-coloured because it
+  opens. The figures update live while the dash is open, and the directory
+  follows a change made in the terminal too.
 - **MCP servers** — the session's enabled servers with their live
-  status, or **No MCP servers enabled**. Clicking anywhere in the
-  section closes the dash and opens the MCP picker.
+  status, or **No MCP servers enabled**. The section's title is
+  accent-coloured: clicking anywhere in the section closes the dash and
+  opens the MCP picker.
 - **Pinned** — the session's pinned entries, labeled as the TUI sidebar
-  labels them, or **No pinned entries**. Clicking one closes the dash
+  labels them, each with a trailing `❯` that says the row goes
+  somewhere, or **No pinned entries**. Clicking one closes the dash
   and scrolls the transcript to that entry, loading older history until
   it is held. A jump that takes more than a moment covers the page with
   a **Navigating…** overlay (the same dots) that blocks the UI until the

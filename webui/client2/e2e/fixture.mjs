@@ -55,6 +55,10 @@ export const sel = {
   DASH_PINS: '[data-testid="dash-pins"]',
   DASH_PIN: '[data-testid="dash-pin"]',
   DASH_PIN_NAMED: (entryId) => `[data-testid="dash-pin"][data-entry-id="${entryId}"]`,
+  /** The trailing arrow on a pin row, which says the row navigates. */
+  DASH_PIN_ARROW: '.dash-pin-arrow',
+  /** A pin row's label, which ellipsises beside the arrow. */
+  DASH_PIN_LABEL: '.dash-pin-label',
   NAVIGATING_OVERLAY: '[data-testid="navigating-overlay"]',
   NAVIGATING_CANCEL: '[data-testid="navigating-cancel"]',
   /** The statistics rows' label and value cells. */

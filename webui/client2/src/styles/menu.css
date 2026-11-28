@@ -1,17 +1,31 @@
 /* ---- hamburger menu ---- */
+/* The title bar's icon controls are two segments of one pill — the
+   phone's `#` and this `☰` — in `.title-group` (main.css), which carries
+   the border, radius, and hairline between them. Each segment is bare:
+   the group's hover surface under the pointer, and nothing of its own.
+   One-light's raised grey on its near-white page read as a flat slab
+   beside the composer's ghost controls; this is the same ghost, and the
+   pill holds both glyphs at the composer's 34px touch height. */
 .menu { position: relative; display: inline-flex; flex: none; }
 .menu-button {
-  background: var(--bg-raised);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  min-width: 34px;
+  padding: 0 8px;
+  background: transparent;
   color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
   font: inherit;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
+  user-select: none;
 }
-.menu-button:hover { border-color: var(--accent); }
-.menu-button:focus-visible { outline: 1px solid var(--accent); }
+.menu-button:hover { background: var(--bg-hover); }
+.menu-button:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 /* Closed, the scrim and the panel are present but invisible and take no
    pointer events; open, the panel slides in on its transform. `hidden`
    would not do — `display: none` removes the transition's from. */
@@ -63,15 +77,26 @@
   border-radius: var(--radius);
   font: inherit;
 }
-.title { cursor: text; }
+/* The title sits between 34px controls, so it takes their height and the
+   bar's controls line up on one line. */
+.title { cursor: text; height: 34px; }
 .title:hover { background: var(--bg-hover); }
-.title-edit { background: var(--bg-raised); border: 1px solid var(--accent); }
+.title-edit { background: var(--bg-raised); border: 1px solid var(--accent); height: 34px; }
 .model-chip {
   margin-left: auto;
-  color: var(--fg-dim);
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  color: var(--fg);
+  background: transparent;
   border: 1px solid var(--border);
+  border-radius: var(--radius);
   cursor: pointer;
   font-size: 13px;
+  white-space: nowrap;
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.model-chip:hover { color: var(--fg); border-color: var(--fg-faint); }
+.model-chip:hover { background: var(--bg-hover); border-color: var(--accent); }
 

@@ -75,3 +75,21 @@ test("the context figure stays well-formed once the history changes", async ({ p
   // page re-shows the server's own string, whatever it became.
   await expect(page.locator(sel.STATUS_CONTEXT)).toHaveText(FIGURE);
 });
+
+test("the persona and the figure are touch-sized without growing the bar", async ({ page }) => {
+  // Given the boot session's bar, with its two buttons in place.
+  await expect(page.locator(sel.STATUS_BAR)).toBeVisible();
+
+  // Then each button is at least 36px tall — its tap area is grown by
+  // padding and handed back by a matching negative margin.
+  for (const selector of [sel.STATUS_PERSONA, sel.STATUS_CONTEXT]) {
+    const box = await page.locator(selector).boundingBox();
+    expect(box.height).toBeGreaterThanOrEqual(36);
+  }
+
+  // And the bar itself is no taller than it was before the padding: its
+  // 8px of padding, one 13px line at the browser's normal line height
+  // (22px in the test browser), and the 1px border below it.
+  const bar = await page.locator(sel.STATUS_BAR).boundingBox();
+  expect(bar.height).toBeLessThanOrEqual(31);
+});
