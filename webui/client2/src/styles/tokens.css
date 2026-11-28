@@ -21,9 +21,9 @@
   /* sonokai primary_text */
   --fg: #d3d3d9;
   /* secondary text, a step above the page's own lightness */
-  --fg-dim: #919199;
+  --fg-dim: #9d9da5;
   /* a fainter step of the same ramp, for the least important text */
-  --fg-faint: #73737d;
+  --fg-faint: #7f7f89;
   /* a step above the page, with a touch more chroma */
   --border: #3e4149;
   /* sonokai focus_accent — the purple */
