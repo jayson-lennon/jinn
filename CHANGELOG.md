@@ -1,5 +1,12 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- New logo
+- (weubi) Lighten dark mode slightly.
+- (webui) Light mode now uses white text on darker background.
+- (webui) Buttons now use colored backgrounds instead of just colored borders.
+
 ## 2026-11-27 v1.28.0
 
 - (webui) Rebuilt from scratch. Now uses websocket.
