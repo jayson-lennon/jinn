@@ -104,3 +104,116 @@ test("the setup arguments field names each argument as the template spells it", 
     "Please enter: <greeting>",
   );
 });
+
+/* ---- the sidebar's `+` ----
+ * The rail's header holds two controls on one row: Archive, and a square
+ * `+` beside it that opens the same New session modal the menu's item
+ * does. The shape is a requirement, and only a real browser can measure
+ * it, so each viewport pins it separately. */
+
+/** Narrower than the 768px breakpoint. */
+const PHONE = { width: 390, height: 800 };
+/** At the breakpoint. */
+const DESKTOP = { width: 1280, height: 800 };
+
+test("the sidebar's + button opens the New session modal", async ({ page }) => {
+  // Given a page with the rail in place.
+  await page.setViewportSize(DESKTOP);
+
+  // When pressing the `+` beside Archive.
+  await page.locator(sel.NEW_SESSION_BUTTON).click();
+
+  // Then the modal is up, with its Create button.
+  await expect(page.locator(sel.NEW_SESSION_MODAL)).toBeVisible();
+  await expect(page.locator(sel.CREATE_SESSION)).toBeVisible();
+});
+
+test("the sidebar's + button closes the phone drawer behind the modal", async ({
+  page,
+}) => {
+  // Given the phone's drawer, slid in.
+  await page.setViewportSize(PHONE);
+  await page.locator(sel.SESSIONS_BUTTON).click();
+  await expect(page.locator(sel.RAIL)).toBeVisible();
+
+  // When pressing the `+`.
+  await page.locator(sel.NEW_SESSION_BUTTON).click();
+
+  // Then the modal is up and the drawer is gone from behind it.
+  await expect(page.locator(sel.CREATE_SESSION)).toBeVisible();
+  await expect(page.locator(sel.RAIL)).toBeHidden();
+});
+
+/** The bounding box of one rail control, in page pixels. */
+async function controlBox(page, selector) {
+  return page.locator(selector).evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  });
+}
+
+test("the sidebar's + button is square at desktop width", async ({ page }) => {
+  // Given the rail in place.
+  await page.setViewportSize(DESKTOP);
+
+  // Then the `+` is as wide as it is tall.
+  const plus = await controlBox(page, sel.NEW_SESSION_BUTTON);
+  expect(Math.abs(plus.width - plus.height)).toBeLessThan(1);
+});
+
+test("the sidebar's + button is square at phone width", async ({ page }) => {
+  // Given the phone's drawer, slid in.
+  await page.setViewportSize(PHONE);
+  await page.locator(sel.SESSIONS_BUTTON).click();
+  await expect(page.locator(sel.RAIL)).toBeVisible();
+
+  // Then the `+` is as wide as it is tall.
+  const plus = await controlBox(page, sel.NEW_SESSION_BUTTON);
+  expect(Math.abs(plus.width - plus.height)).toBeLessThan(1);
+});
+
+test("the sidebar's + button is as tall as Archive at desktop width", async ({
+  page,
+}) => {
+  // Given the rail in place.
+  await page.setViewportSize(DESKTOP);
+
+  // Then the two controls share a height.
+  const [plus, archive] = [
+    await controlBox(page, sel.NEW_SESSION_BUTTON),
+    await controlBox(page, sel.OPEN_PICKER),
+  ];
+  expect(Math.abs(plus.height - archive.height)).toBeLessThan(1);
+});
+
+test("the sidebar's + button is as tall as Archive at phone width", async ({
+  page,
+}) => {
+  // Given the phone's drawer, slid in.
+  await page.setViewportSize(PHONE);
+  await page.locator(sel.SESSIONS_BUTTON).click();
+  await expect(page.locator(sel.RAIL)).toBeVisible();
+
+  // Then the two controls share a height.
+  const [plus, archive] = [
+    await controlBox(page, sel.NEW_SESSION_BUTTON),
+    await controlBox(page, sel.OPEN_PICKER),
+  ];
+  expect(Math.abs(plus.height - archive.height)).toBeLessThan(1);
+});
+
+test("the sidebar's + button sits to the right of Archive on one row", async ({
+  page,
+}) => {
+  // Given the rail in place.
+  await page.setViewportSize(DESKTOP);
+
+  // Then the `+` begins where Archive ends, and the two share a centre line.
+  const [plus, archive] = [
+    await controlBox(page, sel.NEW_SESSION_BUTTON),
+    await controlBox(page, sel.OPEN_PICKER),
+  ];
+  expect(plus.x).toBeGreaterThanOrEqual(archive.x + archive.width);
+  const centres = plus.y + plus.height / 2 - (archive.y + archive.height / 2);
+  expect(Math.abs(centres)).toBeLessThan(1);
+});

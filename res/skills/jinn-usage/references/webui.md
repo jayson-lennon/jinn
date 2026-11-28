@@ -102,11 +102,15 @@ mode. An installed app picks up a jinn update by reloading itself — see
   dimmed. The list is capped at 50 rows, taken as whole trees in rank
   order. Choosing a row activates it; an archived session is loaded from
   disk and leaves the archive. The sidebar lists loaded sessions only, so
-  the Archive picker is the way to reach an archived one.
-- **New session** — the menu's **New session** item opens a modal with a
-  Project select, a Lifecycle select (blank by default), and **Setup
-  arguments** when the chosen lifecycle declares any. **Create session**
-  makes the new session active and the page moves to it. With no
+  the Archive picker is the way to reach an archived one. A square **`+`**
+  button sits to the right of the **Archive** button, on the same row.
+- **New session** — the sidebar's **`+`** button, beside **Archive**, opens
+  a modal with a Project select, a Lifecycle select (blank by default), and
+  **Setup arguments** when the chosen lifecycle declares any; the menu's
+  **New session** item opens the same modal. **Create session** makes the
+  new session active and the page moves to it. On a phone, tapping the
+  **`+`** closes the drawer behind the modal, and the **`+`** is shown at
+  every time, with or without an active session. With no
   `[[project.entry]]` configured the modal says so.
 - **Follows the active session** — when the active session changes
   anywhere (another web UI page, the TUI), every web UI page switches

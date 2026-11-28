@@ -175,7 +175,7 @@ fixed column drawn here, and the `#` button goes away.
 │              │  Transcript                                  │
 │        ⋮     │  (scrolling conversation)              [⇱]   │ ← jump to start (top-right, when off the top)
 │              │  a user message with an attached image:      │
-│  Archive     │    you  look at this                         │
+│  Archive   [+]│    you  look at this                         │
 │              │    [img]                                     │
 │              │                                        [⇲]   │ ← jump to end (bottom-right, when off the end)
 │              ├──────────────────────────────────────────────┤
@@ -193,6 +193,7 @@ fixed column drawn here, and the `#` button goes away.
 | `Sessions` / `Library` | The sidebar's two-segment control. Chooses which list it shows: the loaded sessions outside the library, or the library members. Exactly one shows at a time. | `webui.md` |
 | `⋮` on a session row | The row's menu. **add to library** / **remove from library** moves the session to the other list; **teardown + archive** runs the session's teardown lifecycle and then archives it (the terminal's `x`); **archive** archives that session and skips the teardown. | `webui.md` |
 | `Archive` | Opens a picker over every stored session, loaded or archived, with a title filter. | `webui.md` |
+| `+` (beside `Archive`) | A square button that opens the New session modal — the same one the menu's **New session** item opens. Shown at every time, with or without an active session; on a phone, tapping it closes the drawer. | `webui.md` |
 | A highlighted session row | The active session — the same one the TUI shows. | `webui.md` |
 | **Loading session…** card | A full-page overlay with three breathing dots, raised the instant a session row or an Archive row is picked and cleared when that session arrives. Covers everything; `Esc` does nothing on it. | `webui.md` |
 | A gold session row | That session finished a turn while the page viewed another one. Viewing it clears the mark. | `webui.md` |
