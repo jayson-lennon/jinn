@@ -232,8 +232,7 @@ function Switch(props: {
       const id = props.envelope.entry.id;
       return (
         <ThinkingView
-          id={id}
-          text={str(body(props.envelope))}
+          envelope={props.envelope}
           open={() => props.thinking.isOpen().has(id)}
           toggle={() => props.thinking.toggle(id)}
         />
