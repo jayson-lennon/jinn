@@ -137,7 +137,11 @@ mode. An installed app picks up a jinn update by reloading itself — see
   Open it to read the guidance, shown without the `<system-interrupt>`
   wrapper the model sees. A model's thinking is a single collapsed
   `Thinking` line; click it to read the block. The text streams in while
-  it is collapsed. Two floating buttons sit at the transcript's right
+  it is collapsed. A message that carries the clicks a canvas page collected
+  shows them as a collapsed `canvas metrics · N events · <artifact>` line
+  above your words, never as the `<canvas-metrics>` tags the model reads. A
+  loaded skill's tool result is headed `skill ❖ <name>`; open it for the
+  skill's body, with the `<skill>` wrapper taken off. Two floating buttons sit at the transcript's right
   edge, each shown while you are away from that end. An
   up-arrow-to-line button in the top-right corner jumps to the start. A
   down-arrow-to-line button in the bottom-right corner jumps to the end.
@@ -396,7 +400,9 @@ highlighted as you type (debounced).
     loaded skill's row stays as it is.
   - `+` loads the skill's body into context as a pinned tool result,
     enabling the skill first if it was off. A skill already in context
-    has its `+` disabled.
+    has its `+` disabled. In the transcript the result is headed
+    `skill ❖ <name>`; open it to read the body, with the `<skill>` wrapper
+    the model sees taken off.
 - **Persona** — the menu's **Persona** item, or the persona name in the
   [status bar](#status-bar) under the title bar, opens the personas, in
   their own name-sorted order: a `●` on the session's current persona and
