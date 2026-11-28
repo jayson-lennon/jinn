@@ -185,8 +185,12 @@ export function Transcript(props: { store: ClientStore; send: (msg: ClientMsg) =
         </Show>
         {/* Keyed by entry id, not by the envelope object: an upsert replaces
             the envelope in place, and a reference-keyed list would mount a
-            second row for the same entry — one user entry, two images. */}
-        <For each={props.store.state.entries}>
+            second row for the same entry — one user entry, two images. It
+            would also rebuild a streaming row on every delta, each rebuild
+            re-rendering its markdown, and replace the node under a reader's
+            click between its press and its release, so a header could not
+            be opened while it streamed. */}
+        <For each={props.store.state.entries} keyed={(envelope) => envelope.entry.id}>
           {(envelope) => (
             <TranscriptEntry
               envelope={envelope}

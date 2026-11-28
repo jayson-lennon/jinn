@@ -10,6 +10,7 @@
 // is data, not prose.
 
 import { For, Show, createSignal, onCleanup } from 'solid-js';
+import type { Accessor } from 'solid-js';
 import type { JSX } from '@solidjs/web';
 import type { ClientMsg, EntryEnvelope, EntryKind } from '../protocol/protocol';
 import { ActorView } from './actor';
@@ -109,15 +110,19 @@ function fitPopup(node: HTMLElement): void {
 }
 
 export function TranscriptEntry(props: {
-  envelope: EntryEnvelope;
+  /** The row's entry, read through an accessor because the list is keyed by
+   *  entry id: a streamed delta replaces the envelope under the same key, and
+   *  the row reads the new one instead of being rebuilt. */
+  envelope: Accessor<EntryEnvelope>;
   sessionId: string | null;
   menu: EntryMenuProps;
   thinking: ThinkingProps;
 }): JSX.Element {
-  const kind = (): EntryKind => props.envelope.kind;
-  const id = (): string => props.envelope.entry.id;
-  const pinned = (): boolean => isPinned(props.envelope);
-  const inContext = (): boolean => isInContext(props.envelope);
+  const envelope = (): EntryEnvelope => props.envelope();
+  const kind = (): EntryKind => envelope().kind;
+  const id = (): string => envelope().entry.id;
+  const pinned = (): boolean => isPinned(envelope());
+  const inContext = (): boolean => isInContext(envelope());
   // A pin overrides exclusion, so a pinned entry is never drawn as out of
   // context whatever its override says.
   const excluded = (): boolean => !pinned() && !inContext();
@@ -133,7 +138,7 @@ export function TranscriptEntry(props: {
       <span class="pin-mark" aria-hidden="true">📌</span>
       <Switch
         kind={kind()}
-        envelope={props.envelope}
+        envelope={envelope}
         sessionId={props.sessionId}
         thinking={props.thinking}
       />
@@ -218,45 +223,45 @@ export function TranscriptEntry(props: {
 
 function Switch(props: {
   kind: EntryKind;
-  envelope: EntryEnvelope;
+  envelope: Accessor<EntryEnvelope>;
   sessionId: string | null;
   thinking: ThinkingProps;
 }): JSX.Element {
   switch (props.kind) {
     case 'user':
-      return <UserView envelope={props.envelope} sessionId={props.sessionId} />;
+      return <UserView envelope={props.envelope()} sessionId={props.sessionId} />;
     case 'system':
     case 'error':
-      return <NoticeView kind={props.kind} text={str(body(props.envelope))} />;
+      return <NoticeView kind={props.kind} text={str(body(props.envelope()))} />;
     case 'thinking': {
-      const id = props.envelope.entry.id;
+      const id = props.envelope().entry.id;
       return (
         <ThinkingView
-          envelope={props.envelope}
+          envelope={props.envelope()}
           open={() => props.thinking.isOpen().has(id)}
           toggle={() => props.thinking.toggle(id)}
         />
       );
     }
     case 'transient':
-      return <TransientView envelope={props.envelope} />;
+      return <TransientView envelope={props.envelope()} />;
     case 'assistant':
-      return <ProseView kind={props.kind} envelope={props.envelope} />;
+      return <ProseView kind={props.kind} envelope={props.envelope()} />;
     case 'actor':
-      return <ActorView value={body(props.envelope)} />;
+      return <ActorView value={body(props.envelope())} />;
     case 'tool_call':
-      return <ToolCallView value={body(props.envelope)} />;
+      return <ToolCallView value={body(props.envelope())} />;
     case 'tool_result':
       return (
-        <ToolResultView value={body(props.envelope)} sessionId={props.sessionId} entryId={props.envelope.entry.id} />
+        <ToolResultView value={body(props.envelope())} sessionId={props.sessionId} entryId={props.envelope().entry.id} />
       );
     case 'compaction':
-      return <CompactionView value={body(props.envelope)} entryId={props.envelope.entry.id} />;
+      return <CompactionView value={body(props.envelope())} entryId={props.envelope().entry.id} />;
     case 'annotation':
-      return <AnnotationView envelope={props.envelope} />;
+      return <AnnotationView envelope={props.envelope()} />;
     case 'rule_interrupt':
-      return <RuleInterruptView value={body(props.envelope)} entryId={props.envelope.entry.id} />;
+      return <RuleInterruptView value={body(props.envelope())} entryId={props.envelope().entry.id} />;
     case 'intersession':
-      return <IntersessionView value={body(props.envelope)} entryId={props.envelope.entry.id} />;
+      return <IntersessionView value={body(props.envelope())} entryId={props.envelope().entry.id} />;
   }
 }
