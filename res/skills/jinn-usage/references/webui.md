@@ -278,9 +278,60 @@ Between them, while a session is active, it lists **Archive session**,
 **Archive session** archives the session in view; a session running a
 turn is refused with a toast. Each of the four pickers opens its picker.
 With no active session those five are omitted. **Applets** sits between
-those five and **Sessions**, at every time — the saved-app catalog
-depends on no session. A scrim click, `Esc`, or picking an item closes
-it.
+those five and **Notifications**, at every time — the saved-app catalog
+depends on no session. **Notifications** sits just above **Sessions**, at
+every time; what it does is under **Notifications** below. A scrim click,
+`Esc`, or picking an item closes it.
+
+## Notifications
+
+A turn that ends while no page of this jinn is visible raises a banner
+titled **jinn** with the body **Turn finished: <session title>**. It
+carries no message content. Tapping it opens or focuses the page on that
+session, and activates it — the terminal switches too.
+
+The menu's **Notifications** item is the only place permission is asked
+for; browsers require a click for the prompt, so nothing is asked on load.
+Its label names the state:
+
+- **Enable notifications** — the page can ask; clicking it prompts.
+- **Notifications: on** — granted, and this browser is subscribed.
+- **Notifications: blocked by the browser** — refused; the browser's own
+  site settings are the only way back.
+- **Notifications — unavailable on http** — the page was opened over
+  plain `http://` on an address other than `127.0.0.1` or `localhost`.
+  Browsers expose the Notification and Push APIs only on a secure context,
+  so the banner cannot exist there; the rest of the page is unaffected and
+  the gold unread row still marks a finished turn. Reaching it means `https`
+  — a reverse proxy, a tunnel, or a VPN that terminates TLS — or loopback.
+- **Notifications — unavailable on this server** — jinn's data dir could
+  not be written, so it holds no key to sign with.
+- **Notifications — install the app to enable** — iOS, in a Safari tab:
+  only a Home Screen web app can receive a push there (iOS 16.4+).
+
+Nothing is registered with any push service. Each jinn generates its own
+signing key pair on first use and keeps it with every browser's
+subscription in `webui-push.toml` under its data dir; the contact address
+a push service may use is `[webui] push_contact` in `jinn.toml`, and the
+shipped default is the project's repository. Deleting that file makes
+every browser resubscribe on its next load.
+
+Where a push arrives depends on the OS, because the browser vendor's push
+service is what wakes the service worker:
+
+- **Android** — the OS wakes the browser for a push even when the app is
+  swiped away or the browser is closed, as long as the browser has not
+  been force-stopped and battery optimization is not restricting it.
+- **iOS** — only an installed Home Screen web app (iOS 16.4+), which a
+  suspended app or a Safari tab cannot do.
+- **Desktop (Linux, macOS, Windows)** — only while the browser is still
+  running, in the background if need be. A fully quit browser receives
+  nothing until it is opened again, and the push expires if its hour
+  passes first. Safari on macOS is the exception: it receives while
+  closed.
+
+In every case the gold unread row is never lost — it is derived from the
+settle time when the page reconnects. Only the timely banner is at stake.
 
 ## Pickers
 

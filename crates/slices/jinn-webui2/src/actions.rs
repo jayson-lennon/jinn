@@ -37,8 +37,8 @@ use jinn_webui2_msg::{
     AppletRowBody, AppletRowsBody, EntriesPageBody, EntryUpsertBody, ErrorBody, ImageUploadBody,
     LifecycleOptionBody, McpBadgeBody, McpRowBody, McpRowsBody, ModelRowBody, ModelRowsBody,
     NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody, PickerRowBody, PickerRowsBody,
-    PromptTemplateBody, ServerMsg, SkillRowBody, SkillRowsBody, TextRunBody, ThemeBody, TitleBody,
-    ToolRowBody, ToolRowsBody,
+    PromptTemplateBody, PushInfoBody, PushKeysBody, ServerMsg, SkillRowBody, SkillRowsBody,
+    TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody,
 };
 
 use crate::{
@@ -295,21 +295,41 @@ pub fn hello(
         revision,
         out.revision(&session_id),
     );
-    match resumed {
+    // The push key rides on every `hello` reply, after whatever the cursor
+    // chose. It is a runtime fact — each instance generates its own key pair
+    // — so a page can only learn it from the server it is talking to, and
+    // the reply is the one moment the page is guaranteed to be listening.
+    let frames = match resumed {
         Some(window) => {
             out.mark_delivered(&session_id, &window);
             let frames = upserts_of(out.state(), &session_id, &window);
             if frames.is_empty() {
-                Reply::one(ServerMsg::Current)
+                vec![ServerMsg::Current]
             } else {
-                Reply {
-                    frames,
-                    ..Reply::default()
-                }
+                frames
             }
         }
-        None => snapshot_reply(out),
+        None => snapshot_reply(out).frames,
+    };
+    Reply {
+        frames: frames
+            .into_iter()
+            .chain(std::iter::once(push_info(out)))
+            .collect(),
+        ..Reply::default()
     }
+}
+
+/// The frame a page subscribes with: whether this server can push, and the
+/// key it signs with. `supported` is false when the data dir could not be
+/// read or written, which the page reports as unavailable — a different
+/// state from a page served over plain http.
+fn push_info(out: &OutboundHandle) -> ServerMsg {
+    let public_key = out.push().store().public_key();
+    ServerMsg::PushInfo(PushInfoBody {
+        supported: public_key.is_some(),
+        public_key,
+    })
 }
 
 /// The gap after the page's cursor, when a resume is safe.
@@ -2135,6 +2155,36 @@ fn resolve_project(
                 Refusal::BadProjectPath(chosen.path.to_string_lossy().into_owned())
             }),
     }
+}
+
+/// Registers or refreshes a browser's push subscription.
+///
+/// Replaces any row with the same endpoint, so the subscription a page
+/// re-sends on every load is the one that works now — a row made under
+/// another key or another origin never outlives the load that replaced it.
+/// Nothing is published and nothing is answered: the page asked, the server
+/// holds it, and the next settle reaches that browser.
+pub fn push_subscribe(out: &OutboundHandle, endpoint: String, keys: PushKeysBody) -> Reply {
+    // The endpoint is a bearer capability: it is stored, never logged.
+    out.push()
+        .store()
+        .add(crate::push::store::Subscription { endpoint, keys });
+    Reply::none()
+}
+
+/// Drops a browser's push subscription: the page asked to stop receiving
+/// notifications. An endpoint the server does not hold is not an error —
+/// the outcome the page asked for already holds.
+pub fn push_unsubscribe(out: &OutboundHandle, endpoint: &str) -> Reply {
+    out.push().store().remove(endpoint);
+    Reply::none()
+}
+
+/// A notification was tapped: the session it names becomes the instance's
+/// active one, exactly as a click on its rail row does — so the terminal
+/// switches too, and one tap takes every surface to the message.
+pub async fn notification_opened(out: &OutboundHandle, session_id: SessionId) -> Reply {
+    activate_session(out, session_id).await
 }
 
 /// The lifecycle must be blank or exactly a configured name —

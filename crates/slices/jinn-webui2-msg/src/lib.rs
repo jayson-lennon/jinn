@@ -24,9 +24,10 @@ pub use payload::{
     MarketSortBody, MarketStaleBody, MarketViewBody, McpBadgeBody, McpRowBody, McpRowsBody,
     ModelBody, ModelRowBody, ModelRowsBody, NewSessionOptionsBody, PersonaRowBody, PersonaRowsBody,
     PhaseBody, PickerRowBody, PickerRowsBody, PromptTemplateBody, PromptTemplatesBody,
-    SessionRowBody, SessionRowOrigin, SessionStatsBody, SessionsBody, SkillRowBody, SkillRowsBody,
-    SnapshotBody, TAIL_MAX_BYTES, TAIL_MAX_ENTRIES, TextRunBody, ThemeBody, TitleBody, ToolRowBody,
-    ToolRowsBody, TreeStatsBody, WireEntry, wire_entry,
+    PushInfoBody, PushKeysBody, PushSubscriptionBody, SessionRowBody, SessionRowOrigin,
+    SessionStatsBody, SessionsBody, SkillRowBody, SkillRowsBody, SnapshotBody, TAIL_MAX_BYTES,
+    TAIL_MAX_ENTRIES, TextRunBody, ThemeBody, TitleBody, ToolRowBody, ToolRowsBody, TreeStatsBody,
+    WireEntry, wire_entry,
 };
 pub use server::ServerMsg;
 

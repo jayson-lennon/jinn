@@ -111,6 +111,13 @@ pub async fn dispatch(
         ClientMsg::TeardownSession { session_id } => {
             actions::teardown_session(out, session_id).await
         }
+        ClientMsg::PushSubscribe(subscription) => {
+            actions::push_subscribe(out, subscription.endpoint, subscription.keys)
+        }
+        ClientMsg::PushUnsubscribe { endpoint } => actions::push_unsubscribe(out, &endpoint),
+        ClientMsg::NotificationOpened { session_id } => {
+            actions::notification_opened(out, session_id).await
+        }
         ClientMsg::NewSessionOptions => actions::new_session_options(out),
         ClientMsg::CreateSession {
             project,
