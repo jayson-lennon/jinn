@@ -30,6 +30,9 @@ import { AppletsModal } from '../pickers/applets';
 import { McpModal, PersonaModal, ToolsModal } from '../pickers/pickers';
 import { Composer } from '../composer/composer';
 import { SessionRail } from '../rail/rail';
+import { enableFromMenu, listenForTaps, start, takeHashActivation } from '../notifications/lifecycle';
+import { isIos, isStandalone, permissionLabel, pushSupported } from '../notifications/support';
+import { reset as resetSettles } from '../notifications/notify';
 import { SessionStatus } from './status';
 import { StatusBar } from './statusbar';
 import { Dash } from '../dash/session_dash';
@@ -206,6 +209,21 @@ export function App(): JSX.Element {
           { id: 'mcp', label: 'MCP servers', run: openMcp },
         ]),
     { id: 'applets', label: 'Applets', run: openApplets },
+    // Listed always, so the state is visible even when nothing can be done.
+    // `run` reaches the permission request as its first statement: the
+    // click is what makes the prompt allowed. It sits above Sessions, which
+    // stays the row just above the color-mode group.
+    {
+      id: 'notifications',
+      label: permissionLabel({
+        supported: pushSupported(),
+        serverKey: store.state.pushPublicKey,
+        permission: pushSupported() ? Notification.permission : null,
+        standalone: isStandalone(),
+        ios: isIos(),
+      }),
+      run: () => void enableFromMenu(store.state.pushPublicKey, send),
+    },
     { id: 'sessions', label: 'Sessions', run: openDrawer },
   ];
   const menuGroups = (): MenuGroup[] => [
@@ -302,6 +320,33 @@ export function App(): JSX.Element {
   onCleanup(() => {
     if (navigateTimer !== null) window.clearTimeout(navigateTimer);
   });
+
+  // The service worker, once the push key lands: registered and subscribed
+  // when permission is already granted, and listening for a banner tap. A
+  // page without the Push API registers nothing — the key is still shown
+  // as unsupported in the menu. The subscription is re-sent on every load.
+  const stopTaps = listenForTaps(send);
+  createEffect(
+    () => store.state.pushPublicKey,
+    (key, prevKey) => {
+      if (key === null) return;
+      // A reconnect re-sends the snapshot, and every settle in it is
+      // history: the memory is cleared whenever the socket comes back.
+      if (prevKey !== undefined) resetSettles();
+      void start(key, send);
+    },
+  );
+  // A banner tapped while no page was open opens one with the session in
+  // the hash; it is read once, after the socket is up, and forwarded.
+  createEffect(
+    () => connection(),
+    (state) => {
+      if (state !== 'open') return;
+      const id = takeHashActivation();
+      if (id !== null) send({ type: 'notification_opened', session_id: id });
+    },
+  );
+  onCleanup(stopTaps);
 
   return (
     <div class={`app${connection() === 'open' ? '' : ' disconnected'}`}>

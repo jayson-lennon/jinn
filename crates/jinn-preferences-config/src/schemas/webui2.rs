@@ -1,9 +1,10 @@
 //! The `[webui]` section — the web UI's socket binding.
 //!
-//! One key: `bind`, a host:port socket address (`127.0.0.1:8388`). The
-//! shipped default names a **fixed port** so the URL stays bookmarkable;
-//! the section is read **once, at activation**, and frozen for the
-//! process's lifetime. A live edit applies at the next restart.
+//! Two keys: `bind`, a host:port socket address (`127.0.0.1:8388`), and
+//! `push_contact`, the address a push service may contact the operator
+//! through. The shipped bind names a **fixed port** so the URL stays
+//! bookmarkable; the section is read **once, at activation**, and frozen
+//! for the process's lifetime. A live edit applies at the next restart.
 //!
 //! The listener that binds it lives in `jinn-webui2`. This module is
 //! data plus the bind-string grammar — no listener, no I/O.
@@ -25,6 +26,11 @@ fn default_bind() -> String {
     DEFAULT_WEBUI2_BIND.to_owned()
 }
 
+/// The shipped `push_contact`: the project's repository.
+fn default_push_contact() -> String {
+    "https://github.com/jayson-lennon/jinn".to_owned()
+}
+
 /// `[webui]` preferences.
 ///
 /// # Behavior: Event-Independent.
@@ -37,12 +43,21 @@ pub struct WebUi2Config {
     /// Port `0` binds an OS-assigned ephemeral port.
     #[serde(default = "default_bind")]
     pub bind: String,
+    /// The contact address named in every web push this instance sends: the
+    /// `sub` claim of the VAPID token. A push service may use it to reach
+    /// the operator of a misbehaving server; it is never verified and never
+    /// shown to anyone. A `mailto:` or `https:` URI; the shipped default is
+    /// the project's repository, which is a valid contact for a
+    /// self-hosted instance that has set nothing.
+    #[serde(default = "default_push_contact")]
+    pub push_contact: String,
 }
 
 impl Default for WebUi2Config {
     fn default() -> Self {
         Self {
             bind: default_bind(),
+            push_contact: default_push_contact(),
         }
     }
 }

@@ -190,6 +190,10 @@ fn harness_seeded(providers: jinn_provider_config::ProvidersConfig, seed: &Seed)
         applets_catalog_cell,
         applets_picker_cell,
         market_cell,
+        push: crate::push::notify::PushSender {
+            store: crate::push::store::PushStore::in_memory(),
+            contact: "mailto:test@example.com".to_owned(),
+        },
         session_picker_cell,
     });
     Harness {
@@ -849,7 +853,7 @@ async fn hello_on_a_fresh_page_answers_a_snapshot() {
     .await;
 
     // Then it receives the whole state in one frame.
-    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+    let [ServerMsg::Snapshot(snapshot), ..] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
     assert_eq!(snapshot.entries.len(), 1);
@@ -875,7 +879,7 @@ async fn hello_on_a_fresh_page_carries_the_context_figure() {
 
     // Then the snapshot carries the figure, so the bar is whole on arrival
     // with no tick to wait for — the bug left an idle session's bar empty.
-    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+    let [ServerMsg::Snapshot(snapshot), ..] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
     assert_ne!(snapshot.context_label, "");
@@ -898,7 +902,7 @@ async fn a_snapshot_seeds_the_tick_so_an_idle_tick_is_silent_until_the_figure_ch
         &page.jump_cancelled,
     )
     .await;
-    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+    let [ServerMsg::Snapshot(snapshot), ..] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
     assert_eq!(snapshot.context_label, "0.0%/200k");
@@ -944,7 +948,7 @@ async fn hello_with_a_matching_cursor_and_revision_sends_only_later_entries() {
     .await;
 
     // Then it receives the second entry alone, at its live index.
-    let [ServerMsg::EntryUpsert(upsert)] = reply.frames.as_slice() else {
+    let [ServerMsg::EntryUpsert(upsert), ..] = reply.frames.as_slice() else {
         unreachable!("a resumable hello answers upserts");
     };
     assert_eq!(upsert.index, 1);
@@ -972,7 +976,7 @@ async fn hello_with_a_cursor_at_the_newest_entry_answers_current() {
     .await;
 
     // Then the answer is the "current" frame alone, never silence.
-    let [ServerMsg::Current] = reply.frames.as_slice() else {
+    let [ServerMsg::Current, ..] = reply.frames.as_slice() else {
         unreachable!("a hello that missed nothing answers current");
     };
 }
@@ -999,7 +1003,7 @@ async fn hello_with_a_gap_answers_upserts_and_no_current_frame() {
     .await;
 
     // Then the answer is exactly the missed entry, with no "current" frame.
-    let [ServerMsg::EntryUpsert(_)] = reply.frames.as_slice() else {
+    let [ServerMsg::EntryUpsert(_), ..] = reply.frames.as_slice() else {
         unreachable!("a hello with a gap answers one upsert per missed entry");
     };
 }
@@ -1025,7 +1029,10 @@ async fn hello_with_a_stale_revision_answers_a_snapshot() {
     .await;
 
     // Then it receives the whole transcript rather than a guess.
-    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
+    assert!(matches!(
+        reply.frames.as_slice(),
+        [ServerMsg::Snapshot(_), ..]
+    ));
 }
 
 #[rstest::rstest]
@@ -1047,7 +1054,10 @@ async fn hello_with_an_unknown_cursor_answers_a_snapshot() {
     .await;
 
     // Then it receives the whole transcript.
-    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
+    assert!(matches!(
+        reply.frames.as_slice(),
+        [ServerMsg::Snapshot(_), ..]
+    ));
 }
 
 #[rstest::rstest]
@@ -1069,7 +1079,7 @@ async fn hello_snapshot_reports_hydration_while_startup_loads_are_outstanding() 
     .await;
 
     // Then the snapshot says the saved sessions are still loading.
-    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+    let [ServerMsg::Snapshot(snapshot), ..] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
     assert!(snapshot.hydrating);
@@ -1093,7 +1103,7 @@ async fn hello_snapshot_reports_hydration_finished_once_it_is() {
     .await;
 
     // Then the snapshot says nothing is loading.
-    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+    let [ServerMsg::Snapshot(snapshot), ..] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
     assert!(!snapshot.hydrating);
@@ -1126,7 +1136,7 @@ async fn hello_on_a_fresh_page_carries_the_newest_entries_up_to_one_page() {
     .await;
 
     // Then the snapshot carries one page of the newest entries.
-    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+    let [ServerMsg::Snapshot(snapshot), ..] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
     assert_eq!(snapshot.entries.len(), jinn_webui2_msg::TAIL_MAX_ENTRIES);
@@ -1152,7 +1162,7 @@ async fn hello_on_a_fresh_page_carries_the_oldest_entry_of_the_tail_at_index_zer
     .await;
 
     // Then the frame's first entry is history entry 50, and its last is the newest.
-    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+    let [ServerMsg::Snapshot(snapshot), ..] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
     let texts = snapshot
@@ -1186,7 +1196,10 @@ async fn hello_with_a_cursor_more_than_one_page_behind_answers_a_snapshot() {
     .await;
 
     // Then it receives the bounded tail, never a replay of the gap.
-    assert!(matches!(reply.frames.as_slice(), [ServerMsg::Snapshot(_)]));
+    assert!(matches!(
+        reply.frames.as_slice(),
+        [ServerMsg::Snapshot(_), ..]
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -6958,7 +6971,7 @@ async fn snapshot_carries_the_active_sessions_prompt_templates() {
     .await;
 
     // Then the snapshot carries the template with its name and description.
-    let [ServerMsg::Snapshot(body)] = reply.frames.as_slice() else {
+    let [ServerMsg::Snapshot(body), ..] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
     let [template] = body.prompt_templates.as_slice() else {
@@ -6993,7 +7006,7 @@ async fn hello_snapshot_of_no_active_session_carries_no_prompt_templates() {
     .await;
 
     // Then the snapshot carries an empty template list.
-    let [ServerMsg::Snapshot(body)] = reply.frames.as_slice() else {
+    let [ServerMsg::Snapshot(body), ..] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
     assert_eq!(body.prompt_templates, Vec::new());
@@ -7131,7 +7144,7 @@ async fn hello_answers_a_snapshot_naming_the_sessions_persona() {
     .await;
 
     // Then the snapshot names it.
-    let [ServerMsg::Snapshot(snapshot)] = reply.frames.as_slice() else {
+    let [ServerMsg::Snapshot(snapshot), ..] = reply.frames.as_slice() else {
         unreachable!("a fresh hello answers a snapshot");
     };
     assert_eq!(snapshot.persona, "reviewer");

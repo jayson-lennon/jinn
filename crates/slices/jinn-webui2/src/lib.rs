@@ -22,6 +22,18 @@ use jinn_slices::{SliceHost, bus::BusService};
 
 pub use jinn_webui2_msg::WEBUI2_PROTOCOL_VERSION;
 
+/// Installs the process-wide rustls crypto provider (ring) in this crate's
+/// test binary. reqwest is built with `rustls-no-provider`, so without a
+/// default provider every `reqwest::Client` panics with "No provider set" at
+/// construction — and the push sender's tests build one. Test binaries never
+/// run `main()`. `install_default` errors on the second call; the result is
+/// deliberately ignored.
+#[cfg(all(test, not(miri)))]
+#[ctor::ctor]
+fn install_rustls_provider_for_tests() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 mod actions;
 mod attachment;
 mod connections;
@@ -32,6 +44,7 @@ mod market;
 mod outbound;
 mod page;
 mod protocol;
+pub(crate) mod push;
 mod revision;
 mod server;
 mod settle;
@@ -129,6 +142,11 @@ pub async fn activate(
         &jinn_session_store_msg::session_picker_slot(),
     );
 
+    // The push sender: the instance's key pair and every browser's
+    // subscription, in one file under the data dir. Each instance signs as
+    // itself — nothing is registered with any push service.
+    let push = crate::push::notify::PushSender::open(services, config);
+
     let outbound = outbound::spawn(
         host.system(),
         outbound::OutboundActorDeps {
@@ -137,6 +155,7 @@ pub async fn activate(
             connections: connections::ConnectionRegistry::default(),
             revisions: revision::RevisionTracker::default(),
             settles: settle::SettleTracker::default(),
+            push,
             services: services.clone(),
             provider_cell,
             work_time_cell,

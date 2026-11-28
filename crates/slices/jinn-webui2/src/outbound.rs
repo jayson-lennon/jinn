@@ -69,6 +69,10 @@ pub struct OutboundActorDeps {
     pub revisions: RevisionTracker,
     /// When each session last landed on Idle — stamped on every session row.
     pub settles: SettleTracker,
+    /// The push sender: this instance's subscriptions and the contact
+    /// address its pushes name, so a settle can reach a browser whose page
+    /// is not running.
+    pub push: crate::push::notify::PushSender,
     /// The provider registry and API keys the model picker's rows are built from.
     pub services: jinn_kernel::Services,
     /// The provider slice's cell: the last known model cache.
@@ -414,6 +418,13 @@ impl OutboundHandle {
     #[must_use]
     pub fn settles(&self) -> &SettleTracker {
         &self.deps.settles
+    }
+
+    /// The push store: this instance's subscriptions, so a settle can reach
+    /// a browser whose page is not running.
+    #[must_use]
+    pub fn push(&self) -> &crate::push::notify::PushSender {
+        &self.deps.push
     }
 
     /// Records that a session's teardown command is running.

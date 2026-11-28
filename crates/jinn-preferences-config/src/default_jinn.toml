@@ -324,6 +324,12 @@ noise_reduction = true
 # > Securing that endpoint is your responsibility. The bind is read once at
 # > launch; a live edit applies at the next restart.
 bind = "127.0.0.1:8388"
+# > The contact address named in the web push notifications the page can
+# > ask for (the ☰ menu's Notifications item): a push service may use it to
+# > reach the operator of a misbehaving server. It is never verified and
+# > never shown to a user. A `mailto:` or `https:` URI; the default is the
+# > project's repository, which suits a self-hosted instance.
+push_contact = "https://github.com/jayson-lennon/jinn"
 
 # ###########################################################################
 # Session lifecycle commands

@@ -240,7 +240,10 @@ fn oversize_sentence(offender: &str, bytes: usize) -> String {
 /// addition to* the system roots. The var is a test-only knob read once at
 /// client construction — production never sets it, and the standard trust
 /// store is always in place, so this cannot weaken a real fetch.
-fn http_client() -> &'static reqwest::Client {
+/// The slice's one HTTP client, shared by every outbound request — the
+/// attachment fetch and the push sender alike — so they share a TLS
+/// provider and the test harness's root-cert hook.
+pub(crate) fn http_client() -> &'static reqwest::Client {
     static CLIENT: std::sync::LazyLock<reqwest::Client> =
         std::sync::LazyLock::new(|| match std::env::var("JINN_WEBUI_TEST_ROOT_CERT") {
             Ok(path) => match std::fs::read(&path)

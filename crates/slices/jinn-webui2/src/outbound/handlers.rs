@@ -180,6 +180,13 @@ pub(crate) fn phase_changed(
     if msg.new_phase == jinn_slices::PhaseView::Idle {
         if !is_subagent(&handle.deps.state, &msg.session_id) {
             handle.settles().record(&msg.session_id, msg.at);
+            // The push rides the same fact as the gold mark: every
+            // non-subagent settle, the viewed session included. Whether a
+            // banner is shown is the service worker's call, never a page's.
+            let title = session_title(&handle.deps.state, &msg.session_id);
+            handle
+                .push()
+                .on_settle(msg.session_id.to_string().as_str(), title.as_deref());
         }
         reconcile(handle, &msg.session_id);
     }
@@ -194,6 +201,16 @@ pub(crate) fn phase_changed(
         handle.settles(),
         &handle.tearing_down(),
     ));
+}
+
+/// The session's title as a banner would show it, read under a guard that
+/// is dropped before any push is sent.
+fn session_title(state: &jinn_kernel::State, session_id: &SessionId) -> Option<String> {
+    state
+        .read()
+        .session
+        .get(session_id)
+        .and_then(|session| session.title().map(str::to_owned))
 }
 
 /// Whether the session was spawned as a child by another session.

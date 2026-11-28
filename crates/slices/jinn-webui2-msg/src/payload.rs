@@ -1147,3 +1147,46 @@ pub struct DashMcpRowsBody {
     pub session_id: SessionId,
     pub rows: Vec<DashMcpRowBody>,
 }
+
+/// What the page needs to subscribe this browser to push: whether the
+/// server can send pushes at all, and the key it signs them with.
+///
+/// The public key is a runtime fact, never a build constant: each instance
+/// generates its own key pair, so the page can only learn it from the
+/// server it is talking to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PushInfoBody {
+    /// Whether the server holds a key pair and can therefore send pushes.
+    /// False when the data dir could not be read or written; the page then
+    /// reports notifications as unavailable, which is a different state
+    /// from a page served over plain http.
+    pub supported: bool,
+    /// The application server (VAPID) public key: the uncompressed P-256
+    /// point as unpadded base64url — the form `pushManager.subscribe`'s
+    /// `applicationServerKey` takes. `None` when `supported` is false.
+    pub public_key: Option<String>,
+}
+
+/// One browser's push subscription, as its push manager issued it.
+///
+/// The endpoint is a bearer capability — whoever holds it can send to that
+/// browser — so the server stores it as a secret and never logs it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PushSubscriptionBody {
+    /// The push service's address for this subscription, verbatim. The host
+    /// names the browser vendor's service; the path is the browser's own.
+    pub endpoint: String,
+    /// The keys the payload is encrypted with.
+    pub keys: PushKeysBody,
+}
+
+/// A push subscription's encryption keys, each base64url-encoded as the
+/// browser issued it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PushKeysBody {
+    /// The subscription's P-256 public key, for the ECDH agreement.
+    #[serde(rename = "p256dh")]
+    pub p256dh: String,
+    /// The authentication secret, mixed into the key derivation.
+    pub auth: String,
+}
