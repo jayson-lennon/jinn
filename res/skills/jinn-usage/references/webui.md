@@ -407,7 +407,9 @@ highlighted as you type (debounced).
   highlighted. An empty catalog says **No applets saved yet**. Opening
   the modal wakes the applets server; its rows refresh by themselves
   when the server's serving phase changes or an applet is saved.
-- **Color mode** — the menu's **Light | Dark | System** group. The choice
+- **Color mode** — the menu's **Light | Dark | System** group, a single
+  pill with a hairline between the three: the chosen mode is filled with an
+  accent underline under it. The choice
   is saved (`state.toml`) and survives a reload and a restart. **System**
   follows the browser. It is applied before the transcript's first paint.
 - **Notices** — every refusal and failure the server reports is a toast at

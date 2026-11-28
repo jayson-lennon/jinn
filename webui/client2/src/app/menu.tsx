@@ -132,19 +132,23 @@ export function Menu(props: MenuProps): JSX.Element {
               aria-label={group.label}
               data-testid={group.testId}
             >
-              <For each={group.options}>
-                {(option) => (
-                  <button
-                    type="button"
-                    class={`menu-group-option${option.active ? ' active' : ''}`}
-                    data-testid={`${group.testId}-${option.id}`}
-                    aria-pressed={option.active ? 'true' : 'false'}
-                    onClick={() => group.pick(option.id)}
-                  >
-                    {option.label}
-                  </button>
-                )}
-              </For>
+              {/* The pill that holds the options: it owns the border and
+                  radius, the segments inside stay square. */}
+              <div class="menu-group-options">
+                <For each={group.options}>
+                  {(option) => (
+                    <button
+                      type="button"
+                      class={`menu-group-option${option.active ? ' active' : ''}`}
+                      data-testid={`${group.testId}-${option.id}`}
+                      aria-pressed={option.active ? 'true' : 'false'}
+                      onClick={() => group.pick(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  )}
+                </For>
+              </div>
             </div>
           )}
         </For>

@@ -210,23 +210,61 @@ img.attachment { max-width: 320px; max-height: 240px; border-radius: 6px; border
 
 /* The menu's segmented color-mode group. */
 .menu-group {
-  display: flex;
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
-  gap: 4px;
 }
+/* The options are one pill, built the way the title bar's sessions and
+   hamburger pill is: the group owns the single border and the radius and
+   clips its children, so the outer corners are round while the segments
+   stay square, and a hairline between neighbours divides them. The
+   segments themselves carry no border and no gap. */
+.menu-group-options {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+/* The divider is scoped under the pill and names the segment, so it outranks
+   the segment's own `border: 0` whatever order the two rules land in. */
+.menu-group-options > .menu-group-option + .menu-group-option { border-left: 1px solid var(--border); }
 .menu-group-option {
   flex: 1;
   background: transparent;
   color: var(--fg);
   text-align: center;
-  border: 1px solid var(--border);
-  border-radius: 5px;
+  border: 0;
   padding: 7px 4px;
   font: inherit;
+  line-height: 1;
   cursor: pointer;
+  user-select: none;
 }
+/* The two ends of the pill round themselves, concentric with the pill's
+   own radius: a segment's fill is clipped by a curve that shares the
+   pill's centre, one border-width inside it. Without this the fill is a
+   square the pill clips from outside, and at the corner the square fill,
+   the clip and the border are each anti-aliased on their own and blend
+   into a multi-coloured fringe. The inner segments stay square; the
+   divider, not a radius, is what separates them. */
+.menu-group-option:first-child { border-top-left-radius: calc(var(--radius) - 1px); border-bottom-left-radius: calc(var(--radius) - 1px); }
+.menu-group-option:last-child { border-top-right-radius: calc(var(--radius) - 1px); border-bottom-right-radius: calc(var(--radius) - 1px); }
 .menu-group-option:hover { background: var(--bg-hover); }
-.menu-group-option.active { background: var(--bg-active); border-color: var(--accent); }
+/* The chosen mode is the rail toggle's selected tab: a quiet fill and an
+   accent underline, nothing drawn on the segment's own edge. An edge ring
+   here is the one thing that cannot sit at a round corner: it would be a
+   square painted inside a curve and clipped by it, and the two edges
+   anti-alias into a multi-coloured fringe. The underline is inset so its
+   ends stay clear of the radius at either end of the pill. */
+.menu-group-option[aria-pressed="true"] { background: var(--bg-active); color: var(--fg); }
+.menu-group-option[aria-pressed="true"]::after {
+  content: "";
+  display: block;
+  height: 3px;
+  margin: 3px 10px -5px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.menu-group-option:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 

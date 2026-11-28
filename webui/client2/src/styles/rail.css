@@ -144,13 +144,21 @@
    border on each side — never from a number of its own, so the two controls
    cannot drift apart. The ratio makes the width follow; `flex: none` keeps
    the box from stretching across the row. */
+/* The square, filled in the accent as the primary action it is: a new
+   session is the one thing this rail makes, where its neighbour only
+   toggles a view. The dashed ghost outline it had read as a disabled
+   control. On the fill, the hover darkens rather than draws a border. */
 .rail-new {
   flex: none;
   aspect-ratio: 1;
   height: calc(1lh + 18px);
   padding: 0;
   line-height: normal;
+  background: var(--accent);
+  color: var(--on-fill);
+  border: 1px solid var(--accent);
 }
+.rail-new:hover { background: var(--accent); color: var(--on-fill); border-color: var(--accent); filter: brightness(1.08); }
 /* `minmax(0, 1fr)`: an implicit `auto` track sizes to its widest item's
    content — a `nowrap` title — and widens the list past the rail, so
    neither the title's ellipsis nor the kebab's position could hold. */
