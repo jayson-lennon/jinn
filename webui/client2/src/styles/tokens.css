@@ -19,11 +19,11 @@
   /* a user entry's own surface */
   --bg-user-entry: #36383e;
   /* sonokai primary_text */
-  --fg: #e2e2e3;
+  --fg: #d3d3d9;
   /* secondary text, a step above the page's own lightness */
-  --fg-dim: #cacdd5;
+  --fg-dim: #919199;
   /* a fainter step of the same ramp, for the least important text */
-  --fg-faint: #91949e;
+  --fg-faint: #73737d;
   /* a step above the page, with a touch more chroma */
   --border: #3e4149;
   /* sonokai focus_accent — the purple */
