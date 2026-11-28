@@ -52,12 +52,16 @@ pub(crate) struct SentLengths {
 }
 
 impl SentLengths {
-    /// The part of `text` not yet sent for this entry, and remembers it.
-    fn suffix(&mut self, entry_id: &ChatEntryId, text: &str) -> String {
+    /// The part of `text` not yet sent for this entry, with the byte offset
+    /// it starts at, and remembers it. The offset is returned beside the text
+    /// because both come from the same cursor: a delta frame carries them
+    /// together, and they cannot disagree.
+    fn suffix(&mut self, entry_id: &ChatEntryId, text: &str) -> (usize, String) {
         let sent = self.lengths.entry(entry_id.clone()).or_insert(0);
         let fresh = text.get(*sent..).unwrap_or("").to_owned();
+        let offset = *sent;
         *sent = text.len();
-        fresh
+        (offset, fresh)
     }
 
     /// Whether the page has been sent anything for this entry yet.
@@ -1412,11 +1416,17 @@ fn send_suffix(
         sent.hold(&entry.id);
         handle.broadcast(&crate::frames::upsert_at(session_id, index, entry));
     }
-    let chunk = sent.suffix(&entry.id, current);
+    let (offset_bytes, chunk) = sent.suffix(&entry.id, current);
     if chunk.is_empty() {
         return;
     }
-    handle.broadcast(&crate::frames::delta(session_id, &entry.id, field, chunk));
+    handle.broadcast(&crate::frames::delta(
+        session_id,
+        &entry.id,
+        field,
+        offset_bytes,
+        chunk,
+    ));
     sent.changed(entry);
     deltas.push(SentDelta {
         entry_age_ms: elapsed_ms(entry.timing.at()),

@@ -11,6 +11,24 @@
 // know which happened, because both are applied the same way.
 
 import type { ClientMsg, ServerMsg } from './protocol';
+import { debugStream } from './debug_stream';
+
+/**
+ * What a received frame is, for the stream trace. Every frame is named by
+ * its type; the two that carry transcript text also carry enough to follow
+ * one entry across frames: a delta names its entry, its field, and how
+ * much text it brings, and an upsert names its entry and its kind.
+ */
+function frameSummary(msg: ServerMsg): Record<string, unknown> {
+  switch (msg.type) {
+    case 'entry_delta':
+      return { type: msg.type, entry: msg.entry_id, field: msg.field, at: msg.offset_bytes, len: msg.chunk.length };
+    case 'entry_upsert':
+      return { type: msg.type, index: msg.index, entry: msg.entry.entry.id };
+    default:
+      return { type: msg.type };
+  }
+}
 
 export type ConnectionState = 'connecting' | 'open' | 'closed';
 
@@ -131,6 +149,7 @@ export function openSocket(handlers: SocketHandlers): Socket {
         }
       }
       armLiveness();
+      debugStream('recv', frameSummary(msg));
       handlers.onFrame(msg);
     };
 

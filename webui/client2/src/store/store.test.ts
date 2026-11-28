@@ -60,7 +60,7 @@ function snapshot(overrides: Partial<Extract<ServerMsg, { type: 'snapshot' }>> =
 
 /** An entry with an id, as the snapshot's transcript carries it. */
 function entry(id: string): EntryEnvelope {
-  return { kind: 'assistant', entry: { id, kind: { Assistant: { text: id } } } };
+  return { kind: 'assistant', entry: { id, kind: { Assistant: id } } };
 }
 
 describe('snapshot', () => {

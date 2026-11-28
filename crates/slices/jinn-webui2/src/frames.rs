@@ -94,18 +94,20 @@ pub fn history(state: &State, session_id: &SessionId) -> Vec<(usize, ChatEntry)>
         })
 }
 
-/// A delta appending `chunk` to one field of an entry.
+/// A delta carrying the text of one field of an entry from `offset_bytes` on.
 #[must_use]
 pub fn delta(
     session_id: &SessionId,
     entry_id: &ChatEntryId,
     field: DeltaField,
+    offset_bytes: usize,
     chunk: String,
 ) -> ServerMsg {
     ServerMsg::EntryDelta(EntryDeltaBody {
         session_id: session_id.clone(),
         entry_id: entry_id.clone(),
         field,
+        offset_bytes,
         chunk,
     })
 }

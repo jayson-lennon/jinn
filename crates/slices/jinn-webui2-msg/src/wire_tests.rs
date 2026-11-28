@@ -675,11 +675,12 @@ fn server_entry_upsert_round_trips() {
 #[rstest]
 #[test]
 fn server_entry_delta_round_trips() {
-    // Given a delta for a tool call's arguments.
+    // Given a delta for a tool call's arguments, from the fourth byte.
     let msg = ServerMsg::EntryDelta(EntryDeltaBody {
         session_id: SessionId::new(),
         entry_id: ChatEntryId::new(),
         field: DeltaField::Args,
+        offset_bytes: 4,
         chunk: "{\"cmd\":".to_owned(),
     });
 
@@ -688,6 +689,28 @@ fn server_entry_delta_round_trips() {
 
     // Then it is unchanged.
     assert_eq!(json_of(&back), json_of(&msg));
+}
+
+#[rstest]
+#[test]
+fn an_entry_delta_names_its_offset_on_the_wire() {
+    // Given a delta carrying text from its fourth byte.
+    let msg = ServerMsg::EntryDelta(EntryDeltaBody {
+        session_id: SessionId::new(),
+        entry_id: ChatEntryId::new(),
+        field: DeltaField::Text,
+        offset_bytes: 4,
+        chunk: " is".to_owned(),
+    });
+
+    // When it is serialized for the page.
+    let json = json_of(&msg);
+
+    // Then the offset is under the one key the page reads it by. The
+    // client's type is mirrored by hand from this struct, so the key is the
+    // contract: a round trip would still pass under another name, and the
+    // page would read `undefined` and apply every chunk at offset zero.
+    assert_eq!(json["offset_bytes"], 4);
 }
 
 #[rstest]
@@ -1399,6 +1422,7 @@ fn server_variant_carries_its_snake_case_tag() {
                 session_id: SessionId::new(),
                 entry_id: ChatEntryId::new(),
                 field: DeltaField::Text,
+                offset_bytes: 0,
                 chunk: "x".to_owned(),
             }),
             "entry_delta",

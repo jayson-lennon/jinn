@@ -9,6 +9,7 @@ import { createStore } from '../store/store';
 import {
   addOptimistic,
   applyEntriesPage,
+  byteOffsetToIndex,
   applyEntryDelta,
   applyEntryUpsert,
   indexSnapshot,
@@ -17,7 +18,35 @@ import {
   readText,
   readUserText,
 } from './transcript_entries';
-import type { DeltaField, EntryEnvelope, ServerMsg } from '../protocol/protocol';
+import type {
+  AnyEntryKindMap,
+  DeltaField,
+  EntryEnvelope,
+  EntryKind,
+  EntryKindMap,
+  ServerMsg,
+} from '../protocol/protocol';
+
+// Every tag a persisted map can carry: the union of each member's own key.
+// `keyof` the union is `never`, since the members share no key.
+type AnyTag = keyof EntryKindMap[keyof EntryKindMap];
+
+/** The kind name each persisted tag belongs to. */
+const KIND_OF: Record<AnyTag, EntryKind> = {
+  User: 'user',
+  System: 'system',
+  Error: 'error',
+  Assistant: 'assistant',
+  Actor: 'actor',
+  Thinking: 'thinking',
+  ToolCall: 'tool_call',
+  ToolResult: 'tool_result',
+  Transient: 'transient',
+  Compaction: 'compaction',
+  Annotation: 'annotation',
+  RuleInterrupt: 'rule_interrupt',
+  Intersession: 'intersession',
+};
 
 /** Awaits the microtask a store write needs before it can be read back. */
 async function settled(): Promise<void> {
@@ -25,8 +54,12 @@ async function settled(): Promise<void> {
 }
 
 /** An entry with an id and one streamed kind, as the server sends it. */
-function entry(id: string, kind: Record<string, unknown> = { Assistant: { text: '' } }): EntryEnvelope {
-  return { kind: 'assistant', entry: { id, kind } };
+function entry(id: string, kind: AnyEntryKindMap = { Assistant: '' }): EntryEnvelope {
+  // The envelope's kind name follows the map's own tag, so the two can never
+  // disagree: a Thinking map under an 'assistant' envelope is not a shape
+  // the server sends, and the helper cannot build one.
+  const tag = Object.keys(kind)[0] as AnyTag;
+  return { kind: KIND_OF[tag], entry: { id, kind } };
 }
 
 /** A user entry, as the server sends it after a message is accepted. */
@@ -40,8 +73,13 @@ function upsertMsg(index: number, e: EntryEnvelope, sessionId: string | null = n
 }
 
 /** An `entry_delta` frame. */
-function deltaMsg(entryId: string, field: DeltaField, chunk: string): Extract<ServerMsg, { type: 'entry_delta' }> {
-  return { type: 'entry_delta', session_id: 's1', entry_id: entryId, field, chunk };
+function deltaMsg(
+  entryId: string,
+  field: DeltaField,
+  chunk: string,
+  offsetBytes = 0,
+): Extract<ServerMsg, { type: 'entry_delta' }> {
+  return { type: 'entry_delta', session_id: 's1', entry_id: entryId, field, offset_bytes: offsetBytes, chunk };
 }
 
 /** The ids the transcript holds, in order. */
@@ -126,11 +164,11 @@ describe('applyEntryUpsert', () => {
   it('a same-id upsert replaces the earlier copy', async () => {
     // Given a transcript holding entry `a` at index 0.
     const store = createStore();
-    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: { text: 'first' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: 'first' })));
     await settled();
 
     // When a second upsert names the same id.
-    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: { text: 'second' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: 'second' })));
     await settled();
 
     // Then there is one copy, the newer one.
@@ -189,7 +227,7 @@ describe('applyEntryDelta', () => {
   it('appends a text chunk to an assistant entry', async () => {
     // Given an assistant entry holding no text.
     const store = createStore();
-    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: { text: '' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: '' })));
     await settled();
 
     // When a text delta arrives for it.
@@ -203,13 +241,13 @@ describe('applyEntryDelta', () => {
   it('a second chunk follows the first', async () => {
     // Given an assistant entry already holding `Hel`.
     const store = createStore();
-    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: { text: '' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: '' })));
     await settled();
     applyEntryDelta(store, deltaMsg('a', 'text', 'Hel'));
     await settled();
 
-    // When another chunk arrives.
-    applyEntryDelta(store, deltaMsg('a', 'text', 'lo'));
+    // When another chunk arrives, from where the first ended.
+    applyEntryDelta(store, deltaMsg('a', 'text', 'lo', 3));
     await settled();
 
     // Then the text is both chunks in order.
@@ -219,7 +257,7 @@ describe('applyEntryDelta', () => {
   it('a thinking chunk lands on a thinking entry', async () => {
     // Given a thinking entry holding no text.
     const store = createStore();
-    applyEntryUpsert(store, upsertMsg(0, entry('t', { Thinking: { text: '' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('t', { Thinking: '' })));
     await settled();
 
     // When a thinking delta arrives for it.
@@ -227,18 +265,18 @@ describe('applyEntryDelta', () => {
     await settled();
 
     // Then the thinking text grew.
-    const inner = store.state.entries[0]!.entry.kind as { Thinking: { text: string } };
-    expect(inner.Thinking.text).toBe('hmm');
+    const inner = store.state.entries[0]!.entry.kind as { Thinking: string };
+    expect(inner.Thinking).toBe('hmm');
   });
 
   it('a thinking delta leaves the entry itself where it was', async () => {
     // Given a thinking entry holding one chunk, as the only entry.
     const store = createStore();
-    applyEntryUpsert(store, upsertMsg(0, entry('t', { Thinking: { text: 'hmm' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('t', { Thinking: 'hmm' })));
     await settled();
 
     // When a second thinking delta arrives for it while it is collapsed.
-    applyEntryDelta(store, deltaMsg('t', 'thinking', ' more'));
+    applyEntryDelta(store, deltaMsg('t', 'thinking', ' more', 3));
     await settled();
 
     // Then only the text grew: the entry keeps its id and its place, so
@@ -246,14 +284,63 @@ describe('applyEntryDelta', () => {
     const [only] = store.state.entries;
     expect(only!.entry.id).toBe('t');
     expect(store.state.entries).toHaveLength(1);
-    const inner = only!.entry.kind as { Thinking: { text: string } };
-    expect(inner.Thinking.text).toBe('hmm more');
+    const inner = only!.entry.kind as { Thinking: string };
+    expect(inner.Thinking).toBe('hmm more');
+  });
+
+  it('a delta repeating the creating upsert adds nothing', async () => {
+    // Given an assistant entry that arrived by upsert already holding its
+    // opening words — the entry that creates a reply carries its first
+    // chunk, and the first delta after it carries the same words again.
+    const store = createStore();
+    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: 'This' })));
+    await settled();
+
+    // When the delta repeats exactly what the upsert delivered.
+    applyEntryDelta(store, deltaMsg('a', 'text', 'This', 0));
+    await settled();
+
+    // Then the words are on the page once, not twice.
+    expect(readText(store.state.entries[0]!)).toBe('This');
+  });
+
+  it('a delta overlapping the upsert adds only what is new', async () => {
+    // Given an assistant entry that arrived by upsert holding `This is`.
+    const store = createStore();
+    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: 'This is' })));
+    await settled();
+
+    // When a delta arrives from offset 4, the text after `This`: an upsert
+    // may have delivered past there, and this one did not, so the words land.
+    applyEntryDelta(store, deltaMsg('a', 'text', ' is a sample', 4));
+    await settled();
+
+    // Then the text is what was held up to the offset, then the chunk.
+    expect(readText(store.state.entries[0]!)).toBe('This is a sample');
+  });
+
+  it('a stream that repeats a character keeps both', async () => {
+    // Given an assistant entry already holding `Hel`.
+    const store = createStore();
+    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: '' })));
+    await settled();
+    applyEntryDelta(store, deltaMsg('a', 'text', 'Hel'));
+    await settled();
+
+    // When the next chunk, from where the first ended, begins with the same
+    // character the text ends with: a repeat by the stream, not a repeat of
+    // text already held.
+    applyEntryDelta(store, deltaMsg('a', 'text', 'lo', 3));
+    await settled();
+
+    // Then both are kept, because nothing says the second is a copy.
+    expect(readText(store.state.entries[0]!)).toBe('Hello');
   });
 
   it('an args chunk lands on a tool call', async () => {
     // Given a tool call holding no arguments.
     const store = createStore();
-    applyEntryUpsert(store, upsertMsg(0, entry('c', { ToolCall: { arguments: '' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('c', { ToolCall: { id: 'c', name: 'bash', arguments: '' } })));
     await settled();
 
     // When an args delta arrives for it.
@@ -268,7 +355,7 @@ describe('applyEntryDelta', () => {
   it('an output chunk lands on a tool result', async () => {
     // Given a tool result holding no content.
     const store = createStore();
-    applyEntryUpsert(store, upsertMsg(0, entry('r', { ToolResult: { content: '' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('r', { ToolResult: { id: 'r', name: 'bash', content: '', status: 'Pending' } })));
     await settled();
 
     // When an output delta arrives for it.
@@ -283,7 +370,7 @@ describe('applyEntryDelta', () => {
   it('a delta whose field does not fit the entry kind is ignored', async () => {
     // Given an assistant entry, which has no arguments field.
     const store = createStore();
-    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: { text: '' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: '' })));
     await settled();
 
     // When an args delta arrives for it.
@@ -297,7 +384,7 @@ describe('applyEntryDelta', () => {
   it('a delta for an unknown entry id is ignored', async () => {
     // Given a transcript holding entry `a`.
     const store = createStore();
-    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: { text: '' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: '' })));
     await settled();
 
     // When a delta names an id the transcript does not hold.
@@ -314,7 +401,7 @@ describe('applyEntryDelta', () => {
     store.set((s) => {
       s.sessionId = 's1';
     });
-    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: { text: '' } })));
+    applyEntryUpsert(store, upsertMsg(0, entry('a', { Assistant: '' })));
     await settled();
 
     // When a delta for session s2 arrives naming that entry.
@@ -389,11 +476,52 @@ describe('addOptimistic', () => {
   });
 });
 
+describe('byteOffsetToIndex', () => {
+  it('ASCII bytes and string indexes agree', () => {
+    // Given a text of only ASCII, and an offset into it.
+    // When converting the byte offset to a string index.
+    const index = byteOffsetToIndex('This is', 4);
+
+    // Then it is the same number: one byte is one code unit.
+    expect(index).toBe(4);
+  });
+
+  it('a multi-byte character counts as one code unit, not its bytes', () => {
+    // Given a text whose first character is three bytes in UTF-8 and one
+    // code unit in UTF-16, and an offset just past it.
+    // When converting the byte offset to a string index.
+    const index = byteOffsetToIndex('é!', 2);
+
+    // Then it is the character's index, not its byte count.
+    expect(index).toBe(1);
+  });
+
+  it('an offset past the end of the text reads as the end', () => {
+    // Given an offset beyond the text's last byte, which a frame sent
+    // against a longer copy of the entry can carry.
+    // When converting it to a string index.
+    const index = byteOffsetToIndex('abc', 99);
+
+    // Then it is the text's length, and not out of range.
+    expect(index).toBe(3);
+  });
+
+  it('an offset that would split a character lands before it', () => {
+    // Given an offset one byte into a two-byte character, which no server
+    // cursor can name but a malformed frame can.
+    // When converting it to a string index.
+    const index = byteOffsetToIndex('aé', 2);
+
+    // Then it is the whole character's start, so nothing is cut in half.
+    expect(index).toBe(1);
+  });
+});
+
 describe('readText', () => {
   it('reads the text of an entry whose kind is an object', () => {
     // Given an assistant entry holding text.
     // When reading its text.
-    const text = readText(entry('a', { Assistant: { text: 'hi' } }));
+    const text = readText(entry('a', { Assistant: 'hi' }));
 
     // Then it is the held text.
     expect(text).toBe('hi');
@@ -409,9 +537,14 @@ describe('readText', () => {
   });
 
   it('an empty kind reads as no text', () => {
-    // Given an entry with no kind at all.
+    // Given an entry with no kind at all. No frame the server sends has
+    // this shape, and the type now says so; but a frame is parsed with a
+    // cast, so a malformed one can still reach the page, and it must read
+    // as empty rather than throw.
+    const malformed = { kind: 'assistant', entry: { id: 'a', kind: {} } } as unknown as EntryEnvelope;
+
     // When reading its text.
-    const text = readText(entry('a', {}));
+    const text = readText(malformed);
 
     // Then it is the empty string.
     expect(text).toBe('');

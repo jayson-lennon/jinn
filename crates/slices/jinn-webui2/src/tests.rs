@@ -2345,10 +2345,13 @@ fn a_later_flush_sends_only_the_text_arrived_since() {
     stream_tokens(&page, &["!", " Done"]);
     let frames = flush_frames(&mut page);
 
-    // Then the delta carries only the new text.
+    // Then the delta carries only the new text, from where the text already
+    // sent ends: the page applies a chunk by its offset, so the offset and
+    // the text are one contract and both are pinned here.
     assert!(matches!(
         frames.as_slice(),
-        [ServerMsg::EntryDelta(body)] if body.chunk == "! Done"
+        [ServerMsg::EntryDelta(body)]
+            if body.chunk == "! Done" && body.offset_bytes == "Hello world".len()
     ));
 }
 
