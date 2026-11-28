@@ -7,8 +7,11 @@
 //! runs the client's unit tests, runs `vite build`, gzips the output into
 //! `OUT_DIR`, and generates the `include_bytes!` table the server embeds.
 //! The icons under `resources/` are committed input, not build output, and
-//! are embedded as their own bytes in the same table — nothing in-repo
-//! regenerates them.
+//! are embedded as their own bytes in the same table. `resources/icon.svg`
+//! is their master: the figure is composited centred on a full-bleed
+//! `#25272e` tile (the manifest's `theme_color`) and rasterised with
+//! `rsvg-convert` at 4x, then Lanczos-downsampled to each committed size.
+//! Nothing in-repo runs that — it is a hand step when the mark changes.
 //!
 //! The build runs on every compile, unconditionally — the client's type-check,
 //! unit tests, and bundle take well under a second, and that is the price of the one
